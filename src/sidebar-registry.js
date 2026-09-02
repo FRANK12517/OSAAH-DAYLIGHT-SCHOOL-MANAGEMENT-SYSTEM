@@ -2,7 +2,6 @@ export const SIDEBAR_CATEGORIES = ['ADMINISTRATIVE', 'STUDENTS MANAGEMENT', 'ADM
 
 export const SIDEBAR_MODULES = [
   { moduleKey: 'dashboard', moduleName: 'Dashboard', category: 'ADMINISTRATIVE', route: '/', icon: '⌂', displayOrder: 1, requiredPermission: null, roles: ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'TEACHER', 'PARENT'] },
-  { moduleKey: 'student-profile', moduleName: 'Student Profiles', category: 'STUDENTS MANAGEMENT', route: '/students', icon: '◎', displayOrder: 1, requiredPermission: 'students.read', roles: ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'TEACHER'] },
   { moduleKey: 'academics', moduleName: 'Academics', category: 'ACADEMICS', route: '/academics', icon: '▣', displayOrder: 1, requiredPermission: 'academics.read', roles: ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'TEACHER'] },
   { moduleKey: 'fees', moduleName: 'Fees', category: 'FEE HUB', route: '/fees', icon: '$', displayOrder: 1, requiredPermission: 'fees.read', roles: ['PROPRIETOR', 'ACCOUNTANT_BURSAR'] },
   { moduleKey: 'finance', moduleName: 'Finance', category: 'FINANCE', route: '/finance', icon: '₵', displayOrder: 1, requiredPermission: 'finance.read', roles: ['PROPRIETOR', 'ACCOUNTANT_BURSAR'] },
