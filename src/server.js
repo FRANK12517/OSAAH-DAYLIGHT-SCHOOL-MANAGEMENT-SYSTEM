@@ -14,13 +14,14 @@ import { createCommunicationService } from './communication.js';
 import { createOperationsService } from './operations.js';
 import { createResourceService } from './resources.js';
 import { createComplianceService } from './compliance.js';
+import { createReportingService } from './reporting.js';
 import './module-registry.js';
 
 const root = join(fileURLToPath(new URL('.', import.meta.url)), '..', 'public');
 const mime = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.png': 'image/png', '.svg': 'image/svg+xml' };
 const branding = { schoolName: 'OSAAH DAYLIGHT SCH. COM.', location: 'BOGOSO', motto: 'AIM HIGH, ACADEMIC IS OUR CORE VALUE', logoPath: '/assets/osaah-daylight-logo.png', colours: { navy: '#102a43', royalBlue: '#1769aa', gold: '#d4a72c', white: '#ffffff' } };
 
-export function createApp({ auth = createAuthService(), students = createStudentService(), attendance = createAttendanceService(), examinations = createExaminationService(), fees = createFeeService(), staff = createStaffService(), communication = createCommunicationService(), operations = createOperationsService(), resources = createResourceService(), compliance = createComplianceService(), audit = () => {} } = {}) {
+export function createApp({ auth = createAuthService(), students = createStudentService(), attendance = createAttendanceService(), examinations = createExaminationService(), fees = createFeeService(), staff = createStaffService(), communication = createCommunicationService(), operations = createOperationsService(), resources = createResourceService(), compliance = createComplianceService(), reporting = createReportingService(), audit = () => {} } = {}) {
   return async function handle(request, response) {
     const pathname = new URL(request.url, 'http://localhost').pathname;
     if (pathname === '/api/branding') return json(response, branding);
@@ -30,6 +31,7 @@ export function createApp({ auth = createAuthService(), students = createStudent
     if (pathname === '/api/auth/password-reset/complete' && request.method === 'POST') { const body = await readJson(request); const result = auth.completePasswordReset(body.token ?? '', body.newPassword ?? ''); return json(response, result, result.ok ? 200 : 400); }
     if (pathname === '/api/documents/verify' && request.method === 'GET') return json(response, compliance.verifyDocument(new URL(request.url, 'http://localhost').searchParams.get('code') ?? ''));
     if (pathname === '/api/privacy/notice' && request.method === 'GET') return json(response, compliance.privacyNotice());
+    if (pathname === '/api/official-documents/verify' && request.method === 'GET') return json(response, reporting.verifyOfficialDocument(new URL(request.url, 'http://localhost').searchParams.get('code') ?? ''));
     if (pathname.startsWith('/api/')) {
       const user = auth.authenticate(readCookie(request, 'osaah_session') ?? bearer(request));
       if (!user) return json(response, { error: 'Authentication required.' }, 401);
@@ -107,6 +109,10 @@ export function createApp({ auth = createAuthService(), students = createStudent
       if (pathname === '/api/privacy/retention' && request.method === 'POST') { if (!canAccess(user, 'privacy.write')) return json(response, { error: 'Forbidden.' }, 403); const result = compliance.addRetention(await readJson(request), user); audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, action: 'CREATE', entity: 'RetentionPolicy', entityId: result.id, newValue: result })); return json(response, result, 201); }
       if (pathname === '/api/privacy/officers' && request.method === 'POST') { if (!canAccess(user, 'privacy.write')) return json(response, { error: 'Forbidden.' }, 403); const result = compliance.addOfficer(await readJson(request), user); audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, action: 'APPOINT', entity: 'DataProtectionOfficer', entityId: result.id, newValue: result })); return json(response, result, 201); }
       if (pathname === '/api/privacy/breaches' && request.method === 'POST') { if (!canAccess(user, 'privacy.write')) return json(response, { error: 'Forbidden.' }, 403); const result = compliance.addBreach(await readJson(request), user); audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, action: 'REPORT', entity: 'DataBreach', entityId: result.id, newValue: result })); return json(response, result, 201); }
+      if (pathname.startsWith('/api/reports/') && pathname.endsWith('/export') && request.method === 'GET') { if (!canAccess(user, 'reports.read')) return json(response, { error: 'Forbidden.' }, 403); const parts = pathname.split('/').filter(Boolean); const query = new URL(request.url, 'http://localhost').searchParams; const report = reporting.buildReport(parts[2], Object.fromEntries(query), user); return json(response, reporting.exportReport(report, query.get('format') ?? 'csv')); }
+      if (pathname.startsWith('/api/reports/') && request.method === 'GET') { if (!canAccess(user, 'reports.read')) return json(response, { error: 'Forbidden.' }, 403); const parts = pathname.split('/').filter(Boolean); return json(response, reporting.buildReport(parts[2], Object.fromEntries(new URL(request.url, 'http://localhost').searchParams), user)); }
+      if (pathname === '/api/official-documents' && request.method === 'GET') { if (!canAccess(user, 'documents.generate')) return json(response, { error: 'Forbidden.' }, 403); return json(response, { documents: reporting.listDocuments(user) }); }
+      if (pathname === '/api/official-documents' && request.method === 'POST') { if (!canAccess(user, 'documents.generate')) return json(response, { error: 'Forbidden.' }, 403); const result = reporting.generateOfficialDocument(await readJson(request), user); audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, action: 'GENERATE', entity: 'OfficialDocument', entityId: result.documentNumber, newValue: { ...result, pdf: undefined, verificationCode: undefined } })); return json(response, result, 201); }
       if (pathname === '/api/staff' && request.method === 'POST') { if (!canAccess(user, 'staff.write')) return json(response, { error: 'Forbidden.' }, 403); const result = staff.createProfile(await readJson(request)); audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, action: 'CREATE', entity: 'StaffProfile', entityId: result.id, newValue: result })); return json(response, result, 201); }
       if (pathname.startsWith('/api/staff/') && pathname.endsWith('/assignments') && request.method === 'POST') { if (!canAccess(user, 'staff.write')) return json(response, { error: 'Forbidden.' }, 403); const result = staff.assign(pathname.split('/')[3], await readJson(request)); return json(response, result, 201); }
       if (pathname.startsWith('/api/staff/') && pathname.endsWith('/leave') && request.method === 'POST') { const body = await readJson(request); if (user.portal !== 'school' || (body.staffId !== user.id && !canAccess(user, 'leave.write'))) return json(response, { error: 'Forbidden.' }, 403); const result = staff.applyLeave(body); audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, action: 'CREATE', entity: 'StaffLeave', entityId: result.id, newValue: result })); return json(response, result, 201); }
@@ -120,6 +126,7 @@ export function createApp({ auth = createAuthService(), students = createStudent
       return json(response, { error: 'Not found.' }, 404);
     }
     const pageAliases = { '/communication/messages': '/communication.html', '/communication/calendar': '/communication.html', '/compliance': '/compliance.html', '/documents': '/documents.html', '/privacy': '/privacy.html', '/inventory': '/inventory.html', '/assets': '/assets.html', '/procurement': '/procurement.html', '/property': '/assets.html', '/library': '/library.html', '/transport': '/transport.html', '/hostel': '/hostel.html', '/welfare/health': '/welfare.html', '/welfare/discipline': '/welfare.html', '/welfare/counselling': '/welfare.html' };
+    Object.assign(pageAliases, { '/reports': '/reports.html', '/official-documents': '/official-documents.html', '/website': '/website.html' });
     const file = pathname === '/' ? '/index.html' : pageAliases[pathname] ?? pathname;
     try { const body = await readFile(join(root, file)); response.writeHead(200, { 'Content-Type': mime[extname(file)] ?? 'application/octet-stream' }); response.end(body); } catch { response.writeHead(404); response.end('Not found'); }
   };

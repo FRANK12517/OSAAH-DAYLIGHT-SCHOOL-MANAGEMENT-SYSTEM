@@ -1,0 +1,4 @@
+CREATE TABLE IF NOT EXISTS report_exports (id TEXT PRIMARY KEY, school_id TEXT NOT NULL REFERENCES schools(id), report_type TEXT NOT NULL, filters_json TEXT, format TEXT NOT NULL, generated_by TEXT NOT NULL REFERENCES users(id), created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS official_documents (id TEXT PRIMARY KEY, school_id TEXT NOT NULL REFERENCES schools(id), document_number TEXT NOT NULL, document_type TEXT NOT NULL, recipient_id TEXT, student_id TEXT, document_date TEXT NOT NULL, title TEXT NOT NULL, body TEXT, signatures_json TEXT, stamp TEXT, verification_code TEXT NOT NULL, created_by TEXT NOT NULL REFERENCES users(id), created_at TEXT NOT NULL, UNIQUE(school_id, document_number), UNIQUE(school_id, verification_code));
+CREATE INDEX IF NOT EXISTS idx_report_exports_type ON report_exports(school_id, report_type, created_at);
+CREATE INDEX IF NOT EXISTS idx_official_documents_recipient ON official_documents(school_id, recipient_id, student_id);
