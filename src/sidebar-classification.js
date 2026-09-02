@@ -45,14 +45,15 @@ export function classifyComponent(metadata, { modules = SIDEBAR_MODULES, onDiagn
   const explicitValue = featureDomain ?? metadata.categoryId ?? metadata.category_id ?? metadata.category;
   const explicit = categoryFromInput(explicitValue);
   if (explicitValue && !explicit) throw new Error(`Invalid sidebar category: ${explicitValue}`);
-  const declaredParent = metadata.parentModuleKey ?? metadata.parent_module_key;
+  const hasDeclaredParent = Object.hasOwn(metadata, 'parentModuleKey') || Object.hasOwn(metadata, 'parent_module_key');
+  const declaredParent = hasDeclaredParent ? (metadata.parentModuleKey ?? metadata.parent_module_key) : undefined;
   const parent = declaredParent ? modules.find((module) => (module.moduleKey ?? module.moduleId) === declaredParent) : null;
   const parentCategory = parent && categoryFromInput(parent.categoryId ?? parent.category);
   const candidates = CLASSIFICATION_RULES.map(([categoryName]) => ({ category: categoryByName(categoryName), score: scoreCategory(source, categoryName) })).filter((candidate) => candidate.score > 0).sort((a, b) => b.score - a.score);
   const special = SPECIAL_CASES.find(([phrase]) => source.includes(phrase));
   const selected = explicit ?? parentCategory ?? (special ? categoryByName(special[1]) : candidates[0]?.category) ?? categoryByName('ADMINISTRATIVE');
   const ambiguous = !explicit && !parentCategory && (!candidates.length || candidates.length > 1 && candidates[0].score === candidates[1].score);
-  const inferredParent = declaredParent ?? PARENT_KEYS[selected.categoryId]?.find((key) => modules.some((module) => (module.moduleKey ?? module.moduleId) === key)) ?? null;
+  const inferredParent = declaredParent !== undefined ? declaredParent : PARENT_KEYS[selected.categoryId]?.find((key) => modules.some((module) => (module.moduleKey ?? module.moduleId) === key)) ?? null;
   const status = ambiguous && !special && !explicit && !parentCategory ? 'UNCLASSIFIED' : 'CLASSIFIED';
   if (ambiguous) onDiagnostic({ type: 'AMBIGUOUS_MODULE_CLASSIFICATION', moduleKey, candidates: candidates.map((candidate) => candidate.category.categoryId) });
   return { ...metadata, moduleKey, moduleName, route, featureDomain, category: selected.categoryName, categoryId: selected.categoryId, parentModuleKey: inferredParent, suggestedRoles: metadata.roles?.length ? [...metadata.roles] : suggestedRolesForCategory(selected.categoryId), classificationStatus: status, classificationSource: explicit ? 'FEATURE_DOMAIN' : parentCategory ? 'PARENT_MODULE' : special ? 'SPECIAL_CASE' : candidates.length ? 'RULES' : 'ADMINISTRATIVE_FALLBACK', classificationWarning: status === 'UNCLASSIFIED' ? 'Category requires authorized review before production publication.' : null };
