@@ -4,6 +4,10 @@ const SESSION_TTL_MS = 30 * 60 * 1000;
 const RESET_TTL_MS = 15 * 60 * 1000;
 const MAX_ATTEMPTS = 5;
 const LOCKOUT_MS = 15 * 60 * 1000;
+const GENERIC_LOGIN_ERROR = 'Incorrect username or password.';
+export const SCHOOL_PORTAL_ROLE_ALIASES = Object.freeze({ SCHOOL_ADMINISTRATOR: 'SCHOOL_ADMIN', ACCOUNTANT: 'ACCOUNTANT_BURSAR', CLASSROOM_TEACHER: 'TEACHER', PROPRIETOR: 'PROPRIETOR' });
+export const SCHOOL_PORTAL_DASHBOARDS = Object.freeze({ PROPRIETOR: '/reports', SCHOOL_ADMIN: '/settings', HEADTEACHER: '/academics', ASSISTANT_HEADTEACHER: '/academics', ACCOUNTANT_BURSAR: '/fees', TEACHER: '/academics' });
+export function canonicalRoleKey(roleKey) { return SCHOOL_PORTAL_ROLE_ALIASES[roleKey] ?? roleKey; }
 
 function passwordHash(password, salt = randomBytes(16).toString('hex')) { return `${salt}:${scryptSync(password, salt, 32).toString('hex')}`; }
 function passwordMatches(password, stored) { const [salt, expected] = stored.split(':'); const actual = scryptSync(password, salt, 32); return timingSafeEqual(actual, Buffer.from(expected, 'hex')); }
@@ -28,21 +32,25 @@ export const DEMO_USERS = [
   { id: 'user-dpo-1', username: 'dpo@osaah.edu.gh', passwordHash: passwordHash('DataProtection123!', 'dpo-salt'), portal: 'school', roleKey: 'DATA_PROTECTION_OFFICER', schoolId: 'school-osaah-daylight', permissions: new Set(['privacy.read', 'privacy.write', 'documents.read']) }
 ];
 
-export function createAuthService({ users = DEMO_USERS, now = () => Date.now() } = {}) {
+export function createAuthService({ users = DEMO_USERS, now = () => Date.now(), audit = () => {} } = {}) {
   users = users.map((user) => ({ ...user, permissions: new Set(user.permissions), children: user.children?.map((child) => ({ ...child })) }));
   const sessions = new Map(); const attempts = new Map(); const resetTokens = new Map();
-  function sanitize(user) { return { id: user.id, username: user.username, portal: user.portal, roleKey: user.roleKey, schoolId: user.schoolId, schoolType: user.schoolType, subscription: user.subscription, entitlements: user.entitlements ?? [], featureAvailability: user.featureAvailability ?? [], children: user.children ?? [], authorizedStaffIds: user.authorizedStaffIds ?? [], assignedStudentIds: user.assignedStudentIds ?? [], assignedParentIds: user.assignedParentIds ?? [], assignedClassIds: user.assignedClassIds ?? [], assignedSubjectIds: user.assignedSubjectIds ?? [], assignedDepartmentIds: user.assignedDepartmentIds ?? [] }; }
+  function isActive(user) { return user.is_active !== false && user.isActive !== false && !['DISABLED', 'REVOKED', 'REMOVED', 'SUSPENDED', 'DEACTIVATED'].includes(String(user.accountStatus ?? '').toUpperCase()); }
+  function securityEvent(action, user, sessionId = null) { audit({ action, entity: 'Authentication', entityId: user?.id ?? null, userId: user?.id ?? null, roleId: canonicalRoleKey(user?.roleKey), sessionId }); }
+  function sanitize(user, sessionId = null) { const roleKey = canonicalRoleKey(user.roleKey); return { id: user.id, username: user.username, portal: user.portal, roleKey, role: roleKey, accountStatus: isActive(user) ? 'ACTIVE' : String(user.accountStatus ?? 'DISABLED').toUpperCase(), schoolId: user.schoolId, sessionId, dashboard: SCHOOL_PORTAL_DASHBOARDS[roleKey] ?? '/', schoolType: user.schoolType, subscription: user.subscription, entitlements: user.entitlements ?? [], featureAvailability: user.featureAvailability ?? [], children: user.children ?? [], authorizedStaffIds: user.authorizedStaffIds ?? [], assignedStudentIds: user.assignedStudentIds ?? [], assignedParentIds: user.assignedParentIds ?? [], assignedClassIds: user.assignedClassIds ?? [], assignedSubjectIds: user.assignedSubjectIds ?? [], assignedDepartmentIds: user.assignedDepartmentIds ?? [] }; }
   function login({ username, password, portal }) {
-    const key = username.trim().toLowerCase(); const throttle = attempts.get(key); if (throttle?.lockedUntil > now()) return { ok: false, status: 429, error: 'Too many failed attempts. Try again later.' };
+    const key = String(username ?? '').trim().toLowerCase(); const throttle = attempts.get(key); if (throttle?.lockedUntil > now()) return { ok: false, status: 429, error: 'Too many failed attempts. Try again later.' };
     const user = users.find((candidate) => candidate.username.toLowerCase() === key && candidate.portal === portal);
-    if (!user || !passwordMatches(password, user.passwordHash)) { const next = throttle ?? { count: 0 }; next.count += 1; if (next.count >= MAX_ATTEMPTS) next.lockedUntil = now() + LOCKOUT_MS; attempts.set(key, next); return { ok: false, status: 401, error: 'Invalid portal credentials.' }; }
-    attempts.delete(key); const token = randomBytes(32).toString('hex'); sessions.set(token, { userId: user.id, expiresAt: now() + SESSION_TTL_MS }); return { ok: true, token, user: sanitize(user), expiresAt: now() + SESSION_TTL_MS };
+    if (!user || typeof password !== 'string' || !passwordMatches(password, user.passwordHash) || !isActive(user)) { const next = throttle ?? { count: 0 }; next.count += 1; if (next.count >= MAX_ATTEMPTS) next.lockedUntil = now() + LOCKOUT_MS; attempts.set(key, next); securityEvent('LOGIN_FAILED', user); return { ok: false, status: 401, error: GENERIC_LOGIN_ERROR }; }
+    attempts.delete(key); const token = randomBytes(32).toString('hex'); const sessionId = randomUUID(); sessions.set(token, { userId: user.id, sessionId, expiresAt: now() + SESSION_TTL_MS }); securityEvent('LOGIN_SUCCESS', user, sessionId); return { ok: true, token, user: sanitize(user, sessionId), redirectTo: SCHOOL_PORTAL_DASHBOARDS[canonicalRoleKey(user.roleKey)] ?? '/', expiresAt: now() + SESSION_TTL_MS };
   }
-  function authenticate(token) { const session = sessions.get(token); if (!session || session.expiresAt <= now()) { if (token) sessions.delete(token); return null; } const user = users.find((candidate) => candidate.id === session.userId); return user ? { ...sanitize(user), permissions: user.permissions } : null; }
-  function logout(token) { sessions.delete(token); }
+  function authenticate(token) { const session = sessions.get(token); if (!session || session.expiresAt <= now()) { if (token) sessions.delete(token); return null; } const user = users.find((candidate) => candidate.id === session.userId); if (!user || !isActive(user)) { sessions.delete(token); if (user) securityEvent('SESSION_REVOKED', user, session.sessionId); return null; } return { ...sanitize(user, session.sessionId), permissions: user.permissions }; }
+  function logout(token) { const session = sessions.get(token); if (session) { const user = users.find((candidate) => candidate.id === session.userId); sessions.delete(token); if (user) securityEvent('SESSION_REVOKED', user, session.sessionId); } }
+  function setAccountStatus(userId, status) { const user = users.find((candidate) => candidate.id === userId); if (!user) return false; user.is_active = status === true; user.accountStatus = status === true ? 'ACTIVE' : 'DISABLED'; if (!status) for (const [token, session] of sessions) if (session.userId === userId) { sessions.delete(token); securityEvent('ACCOUNT_DISABLED', user, session.sessionId); } return true; }
+  function revokeAccount(userId) { return setAccountStatus(userId, false); }
   function requestPasswordReset(username) { const user = users.find((candidate) => candidate.username.toLowerCase() === username.trim().toLowerCase()); if (!user) return { ok: true }; const token = randomUUID(); resetTokens.set(token, { userId: user.id, expiresAt: now() + RESET_TTL_MS }); return { ok: true, token }; }
   function completePasswordReset(token, newPassword) { const reset = resetTokens.get(token); if (!reset || reset.expiresAt <= now() || typeof newPassword !== 'string' || newPassword.length < 10) return { ok: false, error: 'Invalid or expired reset request.' }; const user = users.find((candidate) => candidate.id === reset.userId); if (!user) return { ok: false, error: 'Invalid or expired reset request.' }; user.passwordHash = passwordHash(newPassword); resetTokens.delete(token); for (const [sessionToken, session] of sessions) if (session.userId === user.id) sessions.delete(sessionToken); return { ok: true }; }
-  return { login, authenticate, logout, requestPasswordReset, completePasswordReset, sessionTtlMs: SESSION_TTL_MS };
+  return { login, authenticate, logout, requestPasswordReset, completePasswordReset, setAccountStatus, revokeAccount, sessionTtlMs: SESSION_TTL_MS, genericLoginError: GENERIC_LOGIN_ERROR };
 }
 
 export function canAccess(user, permission) { return Boolean(user && (user.permissions.has('*') || user.permissions.has(permission))); }

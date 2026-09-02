@@ -25,7 +25,7 @@ export function createApp({ auth = createAuthService(), students = createStudent
   return async function handle(request, response) {
     const pathname = new URL(request.url, 'http://localhost').pathname;
     if (pathname === '/api/branding') return json(response, branding);
-    if (pathname === '/api/auth/login' && request.method === 'POST') return login(request, response, auth);
+    if (pathname === '/api/auth/login' && request.method === 'POST') return login(request, response, auth, audit);
     if (pathname === '/api/auth/logout' && request.method === 'POST') { auth.logout(readCookie(request, 'osaah_session')); return json(response, { ok: true }, 204); }
     if (pathname === '/api/auth/password-reset' && request.method === 'POST') { const body = await readJson(request); return json(response, auth.requestPasswordReset(body.username ?? '')); }
     if (pathname === '/api/auth/password-reset/complete' && request.method === 'POST') { const body = await readJson(request); const result = auth.completePasswordReset(body.token ?? '', body.newPassword ?? ''); return json(response, result, result.ok ? 200 : 400); }
@@ -144,7 +144,7 @@ const port = Number(process.env.OSAAH_PORT || 3000);
 if (process.argv[1] === fileURLToPath(import.meta.url)) server.listen(port, () => console.log(`OsaaH foundation listening on http://localhost:${port}`));
 export { server };
 function publicUser(user) { return { id: user.id, username: user.username, portal: user.portal, roleKey: user.roleKey, schoolId: user.schoolId, children: user.children ?? [], assignedStudentIds: user.assignedStudentIds ?? [], assignedClassIds: user.assignedClassIds ?? [], assignedSubjectIds: user.assignedSubjectIds ?? [], assignedDepartmentIds: user.assignedDepartmentIds ?? [] }; }
-async function login(request, response, auth) { const body = await readJson(request); const result = auth.login(body); if (!result.ok) return json(response, { error: result.error }, result.status); return json(response, { user: result.user, expiresAt: result.expiresAt }, 200, `osaah_session=${result.token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Math.floor(auth.sessionTtlMs / 1000)}`); }
+async function login(request, response, auth, audit) { const body = await readJson(request); const result = auth.login(body); if (!result.ok) return json(response, { error: result.error }, result.status); audit(createAuditLog({ userId: result.user.id, roleId: result.user.roleKey, sessionId: result.user.sessionId, action: 'LOGIN_SUCCESS', entity: 'Authentication' })); return json(response, { user: result.user, redirectTo: result.redirectTo, expiresAt: result.expiresAt }, 200, `osaah_session=${result.token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Math.floor(auth.sessionTtlMs / 1000)}`); }
 function readCookie(request, name) { return (request.headers.cookie ?? '').split(';').map((part) => part.trim().split('=')).find(([key]) => key === name)?.[1]; }
 function bearer(request) { const value = request.headers.authorization ?? ''; return value.startsWith('Bearer ') ? value.slice(7) : null; }
 function readJson(request) { return new Promise((resolve, reject) => { let data = ''; request.on('data', (chunk) => { data += chunk; if (data.length > 100_000) request.destroy(); }); request.on('end', () => { try { resolve(data ? JSON.parse(data) : {}); } catch { reject(new Error('Invalid JSON')); } }); }); }
