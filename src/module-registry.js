@@ -1,4 +1,5 @@
 import { registerModule } from './sidebar-registry.js';
+import { registerFutureModule } from './sidebar-classification.js';
 
 registerModule({ moduleKey: 'student-profiles', moduleName: 'Student Profiles', category: 'STUDENTS MANAGEMENT', route: '/students', icon: '◎', displayOrder: 1, requiredPermission: 'students.read', roles: ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'TEACHER'] });
 registerModule({ moduleKey: 'student-search', moduleName: 'Student Search', category: 'STUDENTS MANAGEMENT', route: '/students/search', icon: '⌕', displayOrder: 2, requiredPermission: 'students.read', roles: ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'TEACHER', 'ADMISSIONS_OFFICER'] });
@@ -43,6 +44,7 @@ registerModule({ moduleKey: 'privacy', moduleName: 'Privacy & Data Protection', 
 registerModule({ moduleKey: 'reports', moduleName: 'Reports & Analytics', category: 'REPORTS & ANALYTICS', route: '/reports', icon: '▥', displayOrder: 1, requiredPermission: 'reports.read', roles: ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'ACCOUNTANT_BURSAR'] });
 registerModule({ moduleKey: 'official-documents', moduleName: 'Official Documents', category: 'ADMINISTRATIVE', route: '/official-documents', icon: '▤', displayOrder: 6, requiredPermission: 'documents.generate', roles: ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'ACCOUNTANT_BURSAR'] });
 registerModule({ moduleKey: 'public-website', moduleName: 'Public School Website', category: 'ADMINISTRATIVE', route: '/website', icon: '◇', displayOrder: 7, requiredPermission: 'website.manage', roles: ['PROPRIETOR', 'SCHOOL_ADMIN'] });
+registerFutureModule({ module_key: 'fee.scholarships', module_name: 'Scholarships', feature_domain: 'fee_hub', route: '/fees/scholarships', icon: '★', parent_module_key: 'fee-structure', permissions: ['fee.scholarships.view'], roles: ['ACCOUNTANT_BURSAR', 'SCHOOL_ADMIN', 'PROPRIETOR', 'HEADTEACHER'], mobile_enabled: true });
 
 [['parent-attendance', 'Attendance', '#attendance'], ['parent-results', 'Results', '#results'], ['parent-fees', 'Fees', '#fees'], ['parent-payments', 'Payments', '#payments'], ['parent-timetable', 'Timetable', '#timetable'], ['parent-homework', 'Homework', '#homework'], ['parent-assignments', 'Assignments', '#assignments'], ['parent-announcements', 'Announcements', '#announcements'], ['parent-calendar', 'Calendar', '#calendar'], ['parent-messages', 'Messages', '#messages'], ['parent-transport', 'Transport', '#transport'], ['parent-documents', 'Documents', '#documents']].forEach(([moduleKey, moduleName, route], index) => registerModule({ moduleKey, moduleName, category: 'COMMUNICATION HUB', route: `/${route}`, icon: '•', displayOrder: index + 1, requiredPermission: 'children.read', roles: ['PARENT'], parentDashboard: true, visible: true }));
 
