@@ -2,7 +2,7 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SIDEBAR_MODULES, visibleSidebar } from './sidebar-registry.js';
+import { SIDEBAR_MODULES, sidebarHealth, visibleSidebar } from './sidebar-registry.js';
 import { canAccess, createAuthService } from './auth.js';
 import { createAuditLog } from './audit.js';
 import { createStudentService } from './students.js';
@@ -36,6 +36,7 @@ export function createApp({ auth = createAuthService(), students = createStudent
       const user = auth.authenticate(readCookie(request, 'osaah_session') ?? bearer(request));
       if (!user) return json(response, { error: 'Authentication required.' }, 401);
       if (pathname === '/api/sidebar') return json(response, { user: publicUser(user), portal: user.portal, categories: visibleSidebar({ permissions: user.permissions, roleKey: user.roleKey, portal: user.portal, schoolType: user.schoolType, subscription: user.subscription, entitlements: user.entitlements, featureAvailability: user.featureAvailability }) });
+      if (pathname === '/api/sidebar/health') { if (!canAccess(user, 'users.read')) return json(response, { error: 'Forbidden.' }, 403); return json(response, sidebarHealth()); }
       if (pathname === '/api/students' && request.method === 'POST') { if (!canAccess(user, 'students.write')) return json(response, { error: 'Forbidden.' }, 403); const student = students.createStudent({ ...(await readJson(request)), schoolId: user.schoolId }); audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, action: 'CREATE', entity: 'Student', entityId: student.id, newValue: student })); return json(response, student, 201); }
       if (pathname === '/api/students/search') { if (!canAccess(user, 'students.read')) return json(response, { error: 'Forbidden.' }, 403); return json(response, { students: students.search(new URL(request.url, 'http://localhost').searchParams.get('q'), { ...user, requestedSchoolId: user.schoolId }) }); }
       if (pathname === '/api/attendance/students' && request.method === 'POST') { if (user.portal === 'parent' || !canAccess(user, 'attendance.write')) return json(response, { error: 'Forbidden.' }, 403); const body = await readJson(request); const correction = Boolean(body.correction); if (correction && !canAccess(user, 'attendance.correct')) return json(response, { error: 'Attendance corrections require authorization.' }, 403); const record = attendance.saveStudentAttendance({ ...body, schoolId: user.schoolId }, user, { correction, expectedVersion: body.expectedVersion ?? null }); audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, action: correction ? 'CORRECT' : 'CREATE', entity: 'StudentAttendance', entityId: record.id, newValue: record })); return json(response, record, 201); }
