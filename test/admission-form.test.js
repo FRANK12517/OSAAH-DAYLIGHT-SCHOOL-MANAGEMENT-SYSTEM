@@ -18,11 +18,32 @@ test('official admission form preserves five sections, class divisions, snapshot
   service.updateApplication(application.applicationNumber, { parentDeclarationAccepted: true, parentSignatureReference: 'signature-key', parentDeclarationDate: '2026-09-02' }, parent);
   const fee = service.createFeeStructure({ level: 'PRIMARY', academicYear: '2026', term: 'TERM_1', ...DEFAULT_ADMISSION_FEES.PRIMARY }, { userId: 'bursar-1' });
   assert.equal(fee.totalTermlyFee, 650);
-  service.publishFeeStructure(fee.id, { userId: 'proprietor-1' });
+  const edited = service.updateFeeStructure(fee.id, { tuitionAcademicFee: 600 }, { userId: 'bursar-1' });
+  assert.equal(edited.totalTermlyFee, 750);
+  service.publishFeeStructure(fee.id, { userId: 'proprietor-1', roleKey: 'PROPRIETOR' });
+  assert.equal(service.listFeeStructures({ publishedOnly: true }).length, 1);
+  assert.equal(service.listFeeStructures({ publishedOnly: true })[0].publisherRole, 'PROPRIETOR');
   const submitted = service.submitApplication(application.applicationNumber, parent, service.activeFeeFor('Basic 4', '2026', 'TERM_1'));
   assert.equal(submitted.status, 'SUBMITTED');
-  assert.equal(submitted.feeSnapshot.totalTermlyFee, 650);
+  assert.equal(submitted.feeSnapshot.totalTermlyFee, 750);
   assert.equal(service.listDocuments(application.applicationNumber, parent).length, 4);
+  const reviewed = service.reviewApplication(application.applicationNumber, { status: 'ACCEPTED', entranceAssessmentScore: 82, classAssigned: 'basic-4a' }, { id: 'headteacher-1', roleKey: 'HEADTEACHER' });
+  assert.equal(reviewed.officialUse.permanentStudentId, 'OSAAH/2026/0001');
+  assert.equal(service.reviewApplication(application.applicationNumber, { status: 'ACCEPTED' }, { id: 'headteacher-1', roleKey: 'HEADTEACHER' }).officialUse.permanentStudentId, 'OSAAH/2026/0001');
+  assert.throws(() => service.reviewApplication(application.applicationNumber, { status: 'REJECTED', rejectionReason: 'Late review' }, { id: 'headteacher-1', roleKey: 'HEADTEACHER' }), /eligible/);
+});
+
+test('admission review requires rejection reasons and protects annual permanent ID capacity', () => {
+  const service = createAdmissionFormService({ now: () => '2026-09-02T00:00:00.000Z' });
+  const reviewer = { id: 'assistant-1', roleKey: 'ASSISTANT_HEADTEACHER', portal: 'school' };
+  const createSubmitted = (firstName) => { const record = service.createApplication({ studentSurname: 'Abban', studentFirstName: firstName, dateOfBirth: '2018-01-01', gender: 'Male', hometown: 'Bogoso', region: 'Western', nationality: 'Ghanaian', classAppliedFor: 'Basic 4', residentialAddress: 'Bogoso', digitalAddress: 'WS-000-0000', nearestLandmark: 'School', academicYear: '2026', admissionTerm: 'TERM_1' }, { id: `parent-${firstName}`, portal: 'parent' }); service.updateApplication(record.applicationNumber, { parentDeclarationAccepted: true }, { id: `parent-${firstName}`, portal: 'parent' }); for (const documentType of ['PASSPORT_PHOTOGRAPHS', 'BIRTH_CERTIFICATE_OR_GHANA_CARD', 'NHIS_CARD', 'LAST_ACADEMIC_REPORT']) service.attachDocument(record.applicationNumber, { documentType, fileReference: documentType }, { id: `parent-${firstName}`, portal: 'parent' }); return service.submitApplication(record.applicationNumber, { id: `parent-${firstName}`, portal: 'parent' }); };
+  const first = createSubmitted('Frank');
+  assert.throws(() => service.reviewApplication(first.applicationNumber, { status: 'REJECTED' }, reviewer), /reason/);
+  const rejected = service.reviewApplication(first.applicationNumber, { status: 'REJECTED', rejectionReason: 'Incomplete assessment' }, reviewer);
+  assert.equal(rejected.officialUse.permanentStudentId, null);
+  const second = createSubmitted('George');
+  const accepted = service.reviewApplication(second.applicationNumber, { status: 'ACCEPTED', entranceAssessmentScore: 75, classAssigned: 'basic-4a' }, reviewer);
+  assert.equal(accepted.officialUse.permanentStudentId, 'OSAAH/2026/0001');
 });
 
 test('admission form migration contains relational constraints and versioned fee publication', async () => {
