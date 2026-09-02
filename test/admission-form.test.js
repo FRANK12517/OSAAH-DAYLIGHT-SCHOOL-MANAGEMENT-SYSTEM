@@ -5,6 +5,7 @@ import { createServer, request as httpRequest } from 'node:http';
 import { createApp } from '../src/server.js';
 import { createAuthService } from '../src/auth.js';
 import { DEFAULT_ADMISSION_FEES, createAdmissionFormService, feeDivisionForClass } from '../src/admission-form.js';
+import { createFeeService } from '../src/fees.js';
 
 test('official admission form preserves five sections, class divisions, snapshots and secure documents', () => {
   const service = createAdmissionFormService({ now: () => '2026-09-02T00:00:00.000Z' });
@@ -46,6 +47,30 @@ test('admission review requires rejection reasons and protects annual permanent 
   assert.equal(accepted.officialUse.permanentStudentId, 'OSAAH/2026/0001');
 });
 
+test('admission analytics uses accepted applications, fee snapshots, and verified admission payments', () => {
+  const service = createAdmissionFormService({ now: () => '2026-09-02T00:00:00.000Z' });
+  const fees = createFeeService({ now: () => '2026-09-02T00:00:00.000Z' });
+  const parent = { id: 'parent-analytics', portal: 'parent' };
+  const application = service.createApplication({ studentSurname: 'Abban', studentFirstName: 'Frank', dateOfBirth: '2017-01-01', gender: 'Male', hometown: 'Bogoso', region: 'Western', nationality: 'Ghanaian', classAppliedFor: 'Basic 3', residentialAddress: 'Bogoso', digitalAddress: 'WS-000-0000', nearestLandmark: 'School', academicYear: '2026', admissionTerm: 'TERM_1', primaryGuardianFullName: 'Kwame Abban', primaryGuardianPrimaryPhone: '0241111111' }, parent);
+  service.updateApplication(application.applicationNumber, { parentDeclarationAccepted: true }, parent);
+  for (const documentType of ['PASSPORT_PHOTOGRAPHS', 'BIRTH_CERTIFICATE_OR_GHANA_CARD', 'NHIS_CARD', 'LAST_ACADEMIC_REPORT']) service.attachDocument(application.applicationNumber, { documentType, fileReference: documentType }, parent);
+  const fee = service.createFeeStructure({ level: 'PRIMARY', academicYear: '2026', term: 'TERM_1', ...DEFAULT_ADMISSION_FEES.PRIMARY }, { userId: 'bursar-1' });
+  service.publishFeeStructure(fee.id, { userId: 'proprietor-1', roleKey: 'PROPRIETOR' });
+  service.submitApplication(application.applicationNumber, parent, service.activeFeeFor('Basic 3', '2026', 'TERM_1'));
+  const accepted = service.reviewApplication(application.applicationNumber, { status: 'ACCEPTED', entranceAssessmentScore: 88, classAssigned: 'basic-3a' }, { id: 'headteacher-1', roleKey: 'HEADTEACHER' });
+  service.attachStudent(application.applicationNumber, 'STD-000001', { id: 'headteacher-1', roleKey: 'HEADTEACHER' });
+  const invoice = fees.invoice({ studentId: 'STD-000001', lineItems: [{ type: 'ADMISSION', amount: accepted.feeSnapshot.admissionRegistrationFee }] });
+  fees.pay({ invoiceNumber: invoice.invoiceNumber, amount: 100, method: 'MOBILE_MONEY' }, { userId: 'bursar-1' });
+  const report = service.admissionAnalytics({ academicYear: '2026', term: 'TERM_1', class: 'Basic 3' }, { roleKey: 'HEADTEACHER' }, { invoices: fees.listInvoices(), payments: fees.listPayments() });
+  assert.deepEqual(report.metrics, { totalApplications: 1, pendingApplications: 0, acceptedApplications: 1, rejectedApplications: 0, totalStudentsAdmitted: 1 });
+  assert.equal(report.financialSummary.totalExpectedAdmissionRevenue, 150);
+  assert.equal(report.financialSummary.actualAdmissionFeesPaid, 100);
+  assert.equal(report.financialSummary.outstandingAdmissionFees, 50);
+  assert.equal(report.students[0].paymentStatus, 'PARTIALLY PAID');
+  assert.equal(report.students[0].feeSnapshotVersion, 1);
+  assert.throws(() => service.admissionAnalytics({}, { roleKey: 'TEACHER' }), /restricted/);
+});
+
 test('admission form migration contains relational constraints and versioned fee publication', async () => {
   const schema = await readFile(new URL('../schema/015_admission_form_fee_engine.sql', import.meta.url), 'utf8');
   assert.match(schema, /temporary_application_id TEXT NOT NULL UNIQUE/);
@@ -73,6 +98,10 @@ test('admission form endpoints enforce parent and fee authority server-side', as
     assert.equal(await request('/api/admission-fees', { token: parent.token }), 200);
     assert.equal(await request('/api/admission-fees', { token: teacher.token }), 403);
     assert.equal(await request('/api/admission-applications', { method: 'POST', token: teacher.token, body: {} }), 403);
+    const proprietor = auth.login({ username: 'proprietor@osaah.edu.gh', password: 'Proprietor123!', portal: 'school' });
+    assert.equal(await request('/api/admission-analytics', { token: proprietor.token }), 200);
+    assert.equal(await request('/api/admission-analytics', { token: parent.token }), 403);
+    assert.equal(await request('/api/admission-analytics', { token: teacher.token }), 403);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
