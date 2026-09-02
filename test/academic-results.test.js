@@ -1,0 +1,38 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { access, readFile } from 'node:fs/promises';
+import { createStudentService } from '../src/students.js';
+import { createSubjectService } from '../src/subjects.js';
+import { createSignatureService } from '../src/signatures.js';
+import { createAcademicResultsService, RESULT_HEADER_ASSET } from '../src/academic-results.js';
+
+test('academic results persist terminal and mock scores with native Osaah IDs', async () => {
+  const students = createStudentService({ now: () => '2026-09-02T00:00:00.000Z' });
+  const subjects = createSubjectService({ now: () => '2026-09-02T00:00:00.000Z' });
+  const signatures = createSignatureService({ now: () => '2026-09-02T00:00:00.000Z' });
+  const results = createAcademicResultsService({ students, subjects, signatures, now: () => '2026-09-02T00:00:00.000Z' });
+  const manager = { id: 'head-1', roleKey: 'HEADTEACHER', schoolId: 'school-osaah-daylight', permissions: new Set(['*']) };
+  const teacher = { id: 'teacher-1', roleKey: 'TEACHER', schoolId: 'school-osaah-daylight', assignedClassIds: ['Primary 1'], assignedSubjectIds: [] , permissions: new Set(['marks.write', 'mock.scores.write', 'results.read', 'mock.results.read']) };
+  const student = students.createStudent({ firstName: 'Ama', surname: 'Mensah', classId: 'Primary 1', admissionYearId: '2026' });
+  assert.equal(student.permanentStudentId, 'OSAAH/2026/0001');
+  const subject = subjects.list({}, teacher)[0];
+  const saved = results.saveScore({ studentId: student.id, classId: 'Primary 1', subjectId: subject.id, academicYear: '2026/2027', term: 'First Term', caScore: 42, examScore: 45 }, teacher);
+  assert.equal(saved.totalScore, 87);
+  const edited = results.saveScore({ studentId: student.id, classId: 'Primary 1', subjectId: subject.id, academicYear: '2026/2027', term: 'First Term', caScore: 40, examScore: 44 }, teacher);
+  assert.equal(edited.id, saved.id);
+  assert.equal(edited.totalScore, 84);
+  const mock = results.saveMockScore({ studentId: student.id, classId: 'Primary 1', subjectId: subject.id, academicYear: '2026/2027', term: 'First Term', mockLabel: '1st Mock', caScore: 30, examScore: 35 }, teacher);
+  assert.equal(mock.totalScore, 65);
+  assert.equal(results.listScores({ academicYear: '2026/2027' }, teacher).length, 1);
+  assert.equal(results.listScores({ academicYear: '2026/2027' }, teacher, { mock: true }).length, 1);
+  signatures.upload({ signatoryRole: 'HEADTEACHER', mimeType: 'image/png', size: 100, storageKey: 'signatures/headteacher.png' }, manager);
+  const report = results.result({ studentId: student.id, classId: 'Primary 1', academicYear: '2026/2027', term: 'First Term' }, teacher);
+  assert.equal(report.studentIndexNumber, 'OSAAH/2026/0001');
+  assert.equal(report.subjects[0].grade, 'A');
+  assert.equal(report.signatures.length, 1);
+  assert.equal(results.result({ studentId: student.id, classId: 'Primary 1', academicYear: '2026/2027', term: 'First Term', mockLabel: '1st Mock' }, teacher, { mock: true }).resultType, 'MOCK');
+  assert.throws(() => results.saveScore({ studentId: student.id, classId: 'JHS 1', subjectId: subject.id, academicYear: '2026/2027', term: 'First Term', caScore: 1, examScore: 1 }, teacher), /assignment|enrolled/);
+  await access(new URL(`../public${RESULT_HEADER_ASSET}`, import.meta.url));
+  const resultPage = await readFile(new URL('../public/results.html', import.meta.url), 'utf8');
+  assert.match(resultPage, /result-header/);
+});
