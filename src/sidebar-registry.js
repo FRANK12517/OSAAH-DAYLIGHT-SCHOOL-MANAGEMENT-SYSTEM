@@ -5,8 +5,8 @@ export const SIDEBAR_MODULES = [
   { moduleKey: 'academics', moduleName: 'Academics', category: 'ACADEMICS', route: '/academics', icon: '▣', displayOrder: 1, requiredPermission: 'academics.read', roles: ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'TEACHER'] },
   { moduleKey: 'fees', moduleName: 'Fees', category: 'FEE HUB', route: '/fees', icon: '$', displayOrder: 1, requiredPermission: 'fees.read', roles: ['PROPRIETOR', 'ACCOUNTANT_BURSAR'] },
   { moduleKey: 'finance', moduleName: 'Finance', category: 'FINANCE', route: '/finance', icon: '₵', displayOrder: 1, requiredPermission: 'finance.read', roles: ['PROPRIETOR', 'ACCOUNTANT_BURSAR'] },
-  { moduleKey: 'library', moduleName: 'Library', category: 'LIBRARY MANAGEMENT', route: '/library', icon: '▤', displayOrder: 1, requiredPermission: 'library.read', roles: ['PROPRIETOR', 'LIBRARIAN'] },
-  { moduleKey: 'transport', moduleName: 'Transport', category: 'TRANSPORT MANAGEMENT', route: '/transport', icon: '▰', displayOrder: 1, requiredPermission: 'transport.read', roles: ['PROPRIETOR', 'TRANSPORT_MANAGER'] },
+  { moduleKey: 'library', moduleName: 'Library', category: 'LIBRARY MANAGEMENT', route: '/library', icon: '▤', displayOrder: 1, requiredPermission: 'library.read', roles: ['PROPRIETOR', 'LIBRARIAN', 'PARENT'] },
+  { moduleKey: 'transport', moduleName: 'Transport', category: 'TRANSPORT MANAGEMENT', route: '/transport', icon: '▰', displayOrder: 1, requiredPermission: 'transport.read', roles: ['PROPRIETOR', 'TRANSPORT_MANAGER', 'DRIVER', 'PARENT'] },
   { moduleKey: 'settings', moduleName: 'School Settings', category: 'SYSTEM & SECURITY', route: '/settings', icon: '⚙', displayOrder: 1, requiredPermission: 'settings.read', roles: ['PROPRIETOR', 'SCHOOL_ADMIN'] },
   { moduleKey: 'users', moduleName: 'Users & Roles', category: 'SYSTEM & SECURITY', route: '/users', icon: '◉', displayOrder: 2, requiredPermission: 'users.read', roles: ['PROPRIETOR', 'SCHOOL_ADMIN'] }
 ].map((module) => ({ ...module, enabled: true, parentModule: null }));
