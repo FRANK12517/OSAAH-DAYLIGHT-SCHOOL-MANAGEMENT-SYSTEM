@@ -1,4 +1,4 @@
-import { SIDEBAR_CATEGORY_REGISTRY, SIDEBAR_MODULES, registerModule } from './sidebar-registry.js';
+import { SIDEBAR_CATEGORY_REGISTRY, SIDEBAR_MODULES, registerModule, suggestedRolesForCategory } from './sidebar-registry.js';
 
 const CATEGORY_BY_ID = new Map(SIDEBAR_CATEGORY_REGISTRY.map((category) => [category.categoryId, category]));
 const CLASSIFICATION_RULES = [
@@ -42,7 +42,7 @@ export function classifyComponent(metadata, { modules = SIDEBAR_MODULES, onDiagn
   const selected = explicit ?? parentCategory ?? (special ? categoryByName(special[1]) : candidates[0]?.category) ?? categoryByName('ADMINISTRATIVE');
   const ambiguous = !explicit && !parentCategory && (!candidates.length || candidates.length > 1 && candidates[0].score === candidates[1].score);
   if (ambiguous) onDiagnostic({ type: 'AMBIGUOUS_MODULE_CLASSIFICATION', moduleKey: metadata.moduleKey ?? metadata.moduleId, candidates: candidates.map((candidate) => candidate.category.categoryId) });
-  return { ...metadata, category: selected.categoryName, categoryId: selected.categoryId, classificationSource: explicit ? 'FEATURE_DOMAIN' : parentCategory ? 'PARENT_MODULE' : special ? 'SPECIAL_CASE' : candidates.length ? 'RULES' : 'ADMINISTRATIVE_FALLBACK', classificationWarning: ambiguous && !special ? 'Category requires review.' : null };
+  return { ...metadata, category: selected.categoryName, categoryId: selected.categoryId, suggestedRoles: metadata.roles?.length ? [...metadata.roles] : suggestedRolesForCategory(selected.categoryId), classificationSource: explicit ? 'FEATURE_DOMAIN' : parentCategory ? 'PARENT_MODULE' : special ? 'SPECIAL_CASE' : candidates.length ? 'RULES' : 'ADMINISTRATIVE_FALLBACK', classificationWarning: ambiguous && !special ? 'Category requires review.' : null };
 }
 
 export function registerComponent(metadata, { modules = SIDEBAR_MODULES, onDiagnostic = () => {}, onDuplicate } = {}) {
