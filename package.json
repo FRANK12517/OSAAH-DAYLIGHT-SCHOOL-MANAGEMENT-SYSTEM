@@ -1,0 +1,12 @@
+{
+  "name": "osaah-daylight-school-management-system",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Phase 1 foundation for OsaaH Daylight School Management System",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test"
+  },
+  "engines": { "node": ">=20" }
+}
