@@ -23,7 +23,9 @@ export const DEMO_USERS = [
   { id: 'user-counsellor-1', username: 'counsellor@osaah.edu.gh', passwordHash: passwordHash('Counsellor123!', 'counsellor-salt'), portal: 'school', roleKey: 'COUNSELLOR', schoolId: 'school-osaah-daylight', permissions: new Set(['counselling.read', 'counselling.write']) },
   { id: 'user-storekeeper-1', username: 'storekeeper@osaah.edu.gh', passwordHash: passwordHash('Storekeeper123!', 'storekeeper-salt'), portal: 'school', roleKey: 'STOREKEEPER', schoolId: 'school-osaah-daylight', permissions: new Set(['inventory.read', 'inventory.write']) },
   { id: 'user-procurement-1', username: 'procurement@osaah.edu.gh', passwordHash: passwordHash('Procurement123!', 'procurement-salt'), portal: 'school', roleKey: 'PROCUREMENT_OFFICER', schoolId: 'school-osaah-daylight', permissions: new Set(['procurement.read', 'procurement.write']) },
-  { id: 'user-property-1', username: 'property@osaah.edu.gh', passwordHash: passwordHash('PropertyManager123!', 'property-salt'), portal: 'school', roleKey: 'PROPERTY_MANAGER', schoolId: 'school-osaah-daylight', permissions: new Set(['assets.read', 'assets.write', 'property.read', 'property.write']) }
+  { id: 'user-property-1', username: 'property@osaah.edu.gh', passwordHash: passwordHash('PropertyManager123!', 'property-salt'), portal: 'school', roleKey: 'PROPERTY_MANAGER', schoolId: 'school-osaah-daylight', permissions: new Set(['assets.read', 'assets.write', 'property.read', 'property.write']) },
+  { id: 'user-compliance-1', username: 'compliance@osaah.edu.gh', passwordHash: passwordHash('Compliance123!', 'compliance-salt'), portal: 'school', roleKey: 'COMPLIANCE_OFFICER', schoolId: 'school-osaah-daylight', permissions: new Set(['compliance.read', 'compliance.write', 'documents.read', 'documents.write']) },
+  { id: 'user-dpo-1', username: 'dpo@osaah.edu.gh', passwordHash: passwordHash('DataProtection123!', 'dpo-salt'), portal: 'school', roleKey: 'DATA_PROTECTION_OFFICER', schoolId: 'school-osaah-daylight', permissions: new Set(['privacy.read', 'privacy.write', 'documents.read']) }
 ];
 
 export function createAuthService({ users = DEMO_USERS, now = () => Date.now() } = {}) {
