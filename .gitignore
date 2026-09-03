@@ -3,3 +3,6 @@ data/*.db
 data/*.db-*
 .env
 npm-debug.log*
+
+.vercel/
+.env.local
