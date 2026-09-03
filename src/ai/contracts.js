@@ -1,6 +1,7 @@
 export const AI_DATA_PROVENANCE = Object.freeze(['PRODUCTION', 'TEST', 'DEMO', 'SEED', 'DEVELOPMENT', 'MIGRATION_VALIDATION']);
 export const AI_DATA_QUALITY = Object.freeze(['COMPLETE', 'PARTIAL', 'STALE', 'UNAVAILABLE', 'INVALID']);
-export const AI_ACCESS_MODES = Object.freeze(['READ', 'WRITE']);
+export const AI_ACCESS_MODES = Object.freeze(['READ', 'ANALYZE', 'PREPARE_ACTION', 'WRITE']);
+export const AI_ENABLED_ACCESS_MODES = Object.freeze(['READ', 'ANALYZE']);
 export const AI_RESULT_STATUSES = Object.freeze(['SUCCEEDED', 'DENIED', 'DEGRADED', 'FAILED']);
 
 export function dataQuality(status, input = {}) {

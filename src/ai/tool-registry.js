@@ -1,28 +1,43 @@
-import { AI_ACCESS_MODES } from './contracts.js';
+import { AI_ACCESS_MODES, AI_ENABLED_ACCESS_MODES } from './contracts.js';
+
+function validSchema(schema) { return schema && typeof schema === 'object' && !Array.isArray(schema) && typeof schema.type === 'string'; }
 
 export function defineAITool(input) {
-  if (!input?.id || !input?.description || !input?.capabilityId) throw new Error('AI tool requires id, description, and capabilityId');
-  if (!AI_ACCESS_MODES.includes(input.accessMode)) throw new Error(`Invalid AI tool access mode: ${input.accessMode}`);
-  if (!input.inputSchema || !input.outputSchema) throw new Error('AI tool requires input and output schemas');
+  const name = input?.name ?? input?.id;
+  const operationType = input?.operationType ?? input?.accessMode;
+  if (!name || !input?.description || !input?.capabilityId) throw new Error('AI tool requires name, description, and capabilityId');
+  if (!AI_ACCESS_MODES.includes(operationType)) throw new Error(`Invalid AI tool operation type: ${operationType}`);
+  if (!validSchema(input.inputSchema) || !validSchema(input.outputSchema)) throw new Error('AI tool requires valid input and output schemas');
+  const requiredPermissions = input.requiredPermissions ?? (input.requiredPermission ? [input.requiredPermission] : []);
+  if (!requiredPermissions.length) throw new Error('AI tool requires permission metadata');
+  const enabled = input.enabled === true;
+  if (enabled && !AI_ENABLED_ACCESS_MODES.includes(operationType)) throw new Error(`AI ${operationType} tools cannot be enabled at this stage`);
   return Object.freeze({
-    id: input.id,
+    id: name,
+    name,
     description: input.description,
     capabilityId: input.capabilityId,
-    requiredPermissions: Object.freeze([...(input.requiredPermissions ?? [])]),
+    requiredPermission: requiredPermissions[0],
+    requiredPermissions: Object.freeze([...requiredPermissions]),
     inputSchema: Object.freeze({ ...input.inputSchema }),
     outputSchema: Object.freeze({ ...input.outputSchema }),
-    schoolScope: input.schoolScope ?? 'AUTHENTICATED_SCHOOL',
-    productionDataRequired: input.productionDataRequired !== false,
+    operationType,
+    accessMode: operationType,
+    schoolScoped: input.schoolScoped !== false,
+    schoolScope: input.schoolScoped === false ? 'NONE' : input.schoolScope ?? 'AUTHENTICATED_SCHOOL',
+    productionDataOnly: input.productionDataOnly ?? input.productionDataRequired ?? true,
+    productionDataRequired: input.productionDataOnly ?? input.productionDataRequired ?? true,
+    dataQualityAware: input.dataQualityAware !== false,
+    auditRequired: input.auditRequired !== false,
     auditClassification: input.auditClassification ?? 'STANDARD',
-    accessMode: input.accessMode,
-    enabled: input.enabled === true,
+    enabled,
     handler: input.handler ?? null
   });
 }
 
 export function createAIToolRegistry(initial = []) {
   const tools = new Map();
-  function register(input) { const tool = defineAITool(input); if (tools.has(tool.id)) throw new Error(`AI tool already registered: ${tool.id}`); if (tool.accessMode === 'WRITE' && tool.enabled) throw new Error('AI write tools cannot be enabled before the Controlled Action phase'); tools.set(tool.id, tool); return tool; }
+  function register(input) { const tool = defineAITool(input); if (tools.has(tool.name)) throw new Error(`AI tool already registered: ${tool.name}`); tools.set(tool.name, tool); return tool; }
   function get(id) { return tools.get(id) ?? null; }
   function list({ enabledOnly = false } = {}) { return [...tools.values()].filter((tool) => !enabledOnly || tool.enabled); }
   for (const tool of initial) register(tool);
