@@ -1,0 +1,10 @@
+.login-gallery{display:grid;grid-template-rows:repeat(10,minmax(0,auto));gap:18px;width:min(1120px,calc(100vw - 32px));margin:36px 50% 0;transform:translateX(-50%)}
+.login-gallery-title{text-align:center;margin:0 0 2px;color:var(--navy);font-size:clamp(1.35rem,3vw,2rem)}
+.login-gallery-item{margin:0;border-radius:10px;overflow:hidden;background:#fff;box-shadow:0 8px 28px #102a4320;cursor:zoom-in;outline:none}
+.login-gallery-item:focus-visible{outline:4px solid var(--gold);outline-offset:3px}
+.login-gallery-item img{display:block;width:100%;height:auto;max-height:none;object-fit:contain;transition:transform .2s ease}
+.login-gallery-item:hover img{transform:scale(1.01)}
+.login-gallery-item.is-zoomed{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:20px;border-radius:0;background:#061727e8;cursor:zoom-out;overflow:auto}
+.login-gallery-item.is-zoomed img{width:auto;max-width:min(96vw,1600px);max-height:94vh;transform:none;box-shadow:0 12px 50px #0008}
+body.gallery-zoom-open{overflow:hidden}
+@media(max-width:759px){.login-gallery{width:calc(100vw - 24px);gap:12px;margin-top:26px}.login-gallery-item{border-radius:7px}.login-gallery-item.is-zoomed{padding:8px}.login-gallery-item.is-zoomed img{max-width:98vw;max-height:96vh}}
