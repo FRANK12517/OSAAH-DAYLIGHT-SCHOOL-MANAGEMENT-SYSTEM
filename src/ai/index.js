@@ -8,6 +8,7 @@ export { buildAIRegistryDiagnostics } from './diagnostics.js';
 export { createProductionDataGuard } from './production-data-guard.js';
 export { createRecordProvenance, normalizeEnvironment, provenanceForCreation, recordProvenance } from './provenance.js';
 export { AIAuthorizationError, createAIAuthorizationContext, createAIAuthorizationGuard } from './authorization-guard.js';
+export { AIAuditPersistenceError, createAIAuditLogger, createInMemoryAIAuditSink, redactAuditValue } from './audit-logger.js';
 export { executeAuthorizedAITool } from './tool-executor.js';
 export { authorizeAITool, enforceProductionData } from './guards.js';
 export { AIProvider } from './provider.js';
