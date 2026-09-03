@@ -1,0 +1,4 @@
+.admission-header{text-align:center}
+.admission-header>img{display:block;width:clamp(140px,35vw,232px);height:auto;margin:0 auto 16px}
+.admission-header .eyebrow,.admission-header p,.admission-header h1{text-align:center}
+@media(max-width:759px){.admission-header>img{width:clamp(120px,48vw,190px)}}

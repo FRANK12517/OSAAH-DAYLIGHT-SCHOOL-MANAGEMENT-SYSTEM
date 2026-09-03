@@ -14,6 +14,8 @@ test('login gallery renders ten responsive rows with accessible zoom controls', 
   assert.doesNotMatch(html, /loading="lazy"/);
   assert.match(html, /03-cultural-celebration\.jpg/);
   assert.doesNotMatch(html, /03-school-activity\.png/);
+  assert.match(html, /06-classroom-learning\.jpg/);
+  assert.doesNotMatch(html, /06-school-fun-day\.jpg/);
   assert.ok(html.indexOf('id="login-gallery"') > html.indexOf('class="portal-grid"'));
   assert.match(css, /grid-template-rows:repeat\(10/);
   assert.match(css, /width:min\(1120px/);
@@ -26,4 +28,17 @@ test('login gallery renders ten responsive rows with accessible zoom controls', 
     assert.ok(source, `gallery row ${number} has an image`);
     await access(new URL(`../public${source}`, import.meta.url));
   }
+});
+
+test('online admission centers its official logo responsively', async () => {
+  const [html, css] = await Promise.all([
+    readFile(new URL('../public/admission-application.html', import.meta.url), 'utf8'),
+    readFile(new URL('../public/admission-form.css', import.meta.url), 'utf8')
+  ]);
+  assert.match(html, /admission-form\.css/);
+  assert.match(html, /class="admission-header"><img[^>]+osaah-daylight-logo\.png/);
+  assert.match(css, /\.admission-header\{text-align:center\}/);
+  assert.match(css, /margin:0 auto 16px/);
+  assert.match(css, /width:clamp\(/);
+  assert.match(css, /@media\(max-width:759px\)/);
 });
