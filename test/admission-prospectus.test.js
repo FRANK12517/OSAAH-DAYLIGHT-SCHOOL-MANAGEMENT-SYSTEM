@@ -75,10 +75,13 @@ test('prospectus HTTP routes enforce role, publication, and school boundaries', 
 });
 
 test('parent portal exposes prospectus below online admission and produces branded PDF', async () => {
-  const [index, app, page] = await Promise.all([readFile(new URL('../public/index.html', import.meta.url), 'utf8'), readFile(new URL('../public/app.js', import.meta.url), 'utf8'), readFile(new URL('../public/parent-admission-prospectus.html', import.meta.url), 'utf8')]);
+  const [index, app, page, serviceWorker] = await Promise.all([readFile(new URL('../public/index.html', import.meta.url), 'utf8'), readFile(new URL('../public/app.js', import.meta.url), 'utf8'), readFile(new URL('../public/parent-admission-prospectus.html', import.meta.url), 'utf8'), readFile(new URL('../public/sw.js', import.meta.url), 'utf8')]);
   assert.ok(index.indexOf('Online Admission') < index.indexOf('Admission Prospectus'));
   assert.match(index, /id="parent-admission-actions"[^>]*hidden/);
   assert.match(app, /state\.portal !== 'parent'/);
+  assert.match(index, /app\.js\?v=20260903-2/);
+  assert.match(serviceWorker, /osaah-shell-v2/);
+  assert.match(serviceWorker, /caches\.delete/);
   assert.match(page, /Export Branded PDF/);
   assert.match(page, /\/api\/public\/admission-prospectus/);
   const service = createAdmissionProspectusService({ academicYears: [{ id: '2026', name: '2026/2027' }] });

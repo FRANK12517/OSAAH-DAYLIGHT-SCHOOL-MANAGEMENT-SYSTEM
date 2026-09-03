@@ -214,7 +214,7 @@ export function createApp({ auth = createAuthService(), students = createStudent
     let publicAdmissionCookie = null;
     if (pathname === '/admissions/apply') { const user = auth.authenticate(readCookie(request, 'osaah_session') ?? bearer(request)); if (user && user.portal !== 'parent') { response.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' }); return response.end('Forbidden'); } if (!user && !readCookie(request, 'osaah_admission_session')) publicAdmissionCookie = `osaah_admission_session=${randomUUID()}; Path=/; HttpOnly; SameSite=Lax${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`; }
     const file = pathname === '/' ? '/index.html' : pathname === '/admissions/apply' ? '/admission-application.html' : pageAliases[pathname] ?? pathname;
-    try { const body = await readFile(join(root, file)); response.writeHead(200, { 'Content-Type': mime[extname(file)] ?? 'application/octet-stream', ...(publicAdmissionCookie ? { 'Set-Cookie': publicAdmissionCookie } : {}) }); response.end(body); } catch { response.writeHead(404); response.end('Not found'); }
+    try { const body = await readFile(join(root, file)); const revalidate = ['.html', '.js', '.css', '.webmanifest'].includes(extname(file)); response.writeHead(200, { 'Content-Type': mime[extname(file)] ?? 'application/octet-stream', ...(revalidate ? { 'Cache-Control': 'no-cache, must-revalidate' } : {}), ...(publicAdmissionCookie ? { 'Set-Cookie': publicAdmissionCookie } : {}) }); response.end(body); } catch { response.writeHead(404); response.end('Not found'); }
   };
 }
 const app = createApp();
