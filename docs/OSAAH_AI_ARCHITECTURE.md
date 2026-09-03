@@ -200,3 +200,26 @@ Legacy records without provenance fail closed. A reviewed, server-owned `legacyC
 Every enabled operational capability declares `productionDataOnly`, `provenanceAware`, and `dataQualityAware`. Every enabled tool explicitly declares production, school-scope, quality, and audit policies. Diagnostics expose only policy state and aggregate exclusion counts—not excluded records or personal/financial content.
 
 Academic scores, payments, expenses, attendance, admissions, and staff records all use the same guard contract. Domain-specific AI tools must filter before aggregating averages, balances, counts, projections, alerts, or recommendations. A provider is never responsible for deciding whether data is genuine.
+
+## AI Authorization Model
+
+Every AI tool call uses the authenticated user object returned by the existing OSAAH authentication service. The AI layer has no login, account store, session format, role mapping, or permission system of its own. Client/model payload fields claiming a role, school, permission, or assignment are ignored as authority and cannot replace server-derived context.
+
+`createAIAuthorizationContext` normalizes the authenticated user ID, school, role, permissions, portal, session metadata, assigned classes, subjects, departments and students, linked parent students, and optional server-resolved academic period. Invalid or incomplete authenticated context is denied.
+
+Authorization is deny-by-default and ordered as follows:
+
+```text
+Existing session authentication -> capability lookup and health
+  -> capability permission and role constraints -> tool registration
+  -> tool permission and operation type -> school/object scope
+  -> Production Data Guard -> field-minimized structured result
+```
+
+Unknown capabilities return a safe permission denial; unknown or malformed tools return `TOOL_NOT_ALLOWED`. Disabled or unhealthy capabilities return `CAPABILITY_DISABLED`. Cross-school, class, subject, department, student, and parent-child failures return `SCOPE_DENIED` without confirming whether the requested record exists. `WRITE` always returns `WRITE_DISABLED`; `PREPARE_ACTION` remains unavailable.
+
+Teacher scope follows the existing assignment fields (`assignedClassIds`, `assignedSubjectIds`, and `assignedStudentIds`). Parent scope requires a student ID present in the authenticated account's existing linked children. Knowing an ID, index number, or name never creates authorization. Combined tools must pass every capability listed by the execution request; one permitted domain cannot unlock another.
+
+Tool implementations are called only by `executeAuthorizedAITool`. The wrapper overwrites the tool's school input with the authenticated school, applies the Production Data Guard, and minimizes output to fields declared by the tool's output schema. Tool handlers and future model-generated arguments remain untrusted inputs to these server-side checks.
+
+Current financial RBAC is not expanded here. The registered Finance capability currently permits Proprietor and Accountant/Bursar. Existing application permissions give the Headteacher `finance.read`, but the capability's explicit role constraint does not currently include Headteacher; Assistant Headteacher does not currently have equivalent finance permission. Those discrepancies must be resolved explicitly in the financial implementation phase rather than through silent AI privilege expansion.
