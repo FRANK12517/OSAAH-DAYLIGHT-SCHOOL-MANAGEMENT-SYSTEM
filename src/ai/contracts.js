@@ -3,6 +3,7 @@ export const AI_DATA_QUALITY = Object.freeze(['COMPLETE', 'PARTIAL', 'STALE', 'U
 export const AI_ACCESS_MODES = Object.freeze(['READ', 'ANALYZE', 'PREPARE_ACTION', 'WRITE']);
 export const AI_ENABLED_ACCESS_MODES = Object.freeze(['READ', 'ANALYZE']);
 export const AI_RESULT_STATUSES = Object.freeze(['SUCCEEDED', 'DENIED', 'DEGRADED', 'FAILED']);
+export const AI_CAPABILITY_HEALTH = Object.freeze(['ACTIVE', 'DISABLED', 'DEGRADED', 'UNAVAILABLE']);
 
 export function dataQuality(status, input = {}) {
   if (!AI_DATA_QUALITY.includes(status)) throw new Error(`Invalid AI data-quality status: ${status}`);

@@ -1,7 +1,9 @@
-export { AI_ACCESS_MODES, AI_DATA_PROVENANCE, AI_DATA_QUALITY, AI_ENABLED_ACCESS_MODES, AI_RESULT_STATUSES, aiAuditEvent, dataQuality, schoolContext } from './contracts.js';
+export { AI_ACCESS_MODES, AI_CAPABILITY_HEALTH, AI_DATA_PROVENANCE, AI_DATA_QUALITY, AI_ENABLED_ACCESS_MODES, AI_RESULT_STATUSES, aiAuditEvent, dataQuality, schoolContext } from './contracts.js';
 export { createAICapabilityRegistry, defineAICapability } from './capability-registry.js';
 export { createAIToolRegistry, defineAITool } from './tool-registry.js';
 export { discoverAICapabilityManifests } from './discovery.js';
 export { buildAIRegistry } from './registry.js';
+export { createOSAAHModuleManifestRegistry, defineOSAAHModuleManifest } from './module-manifest-registry.js';
+export { buildAIRegistryDiagnostics } from './diagnostics.js';
 export { authorizeAITool, enforceProductionData } from './guards.js';
 export { AIProvider } from './provider.js';

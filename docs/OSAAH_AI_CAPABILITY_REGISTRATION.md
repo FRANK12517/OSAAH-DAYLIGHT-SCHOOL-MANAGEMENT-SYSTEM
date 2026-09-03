@@ -48,3 +48,11 @@ export const capabilities = [{
 ```
 
 An enabled capability must declare a permission and at least one tool or metric. Disabled capabilities require a reason. Enabled tools must be `READ` or `ANALYZE`; `PREPARE_ACTION` and `WRITE` remain blocked. Tool names are globally unique, schemas must declare a type, and module references must resolve against authoritative module metadata.
+
+## Full module integration manifest
+
+Use `defineOSAAHModuleManifest` for a future feature's navigation, RBAC, production-data, reporting, audit, dependency, and AI eligibility decisions. AI defaults to disabled when the `ai` section is omitted. Enabling it requires an explicit capability ID, tools, production-only policy, and data-quality awareness.
+
+A feature is fully integrated only after developers evaluate sidebar placement, RBAC, database ownership, provenance, reporting metrics, AI eligibility, tool exposure, data quality, auditing, and regression coverage. Manifest registration supports independent navigation and AI adapters so neither system is tightly coupled to the other.
+
+Capabilities support parallel major versions (`capability@1`, `capability@2`) and health states `ACTIVE`, `DISABLED`, `DEGRADED`, and `UNAVAILABLE`. Orchestration must later select only a supported version with usable health.

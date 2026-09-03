@@ -164,3 +164,20 @@ Action execution is disabled until its dedicated phase. Later actions must separ
 16. Hardening, regression, governance, and production release.
 
 Each phase must preserve existing behavior, pass the existing test suite, and satisfy the security contracts established by all earlier phases.
+
+## How to Make a New OSAAH Module AI-Ready
+
+1. Create an `OSAAH_MODULE_MANIFEST` with a stable ID, semantic version, category, absolute route, sidebar placement, roles, explicit permissions, database/data ownership, production-data policy, metrics, audit policy, dependencies, and regression tests.
+2. Register navigation through the existing sidebar/module registration adapter. Navigation registration does not activate AI.
+3. Leave `ai.enabled` false by default and document why AI is unavailable or still under evaluation.
+4. Implement and test server-side authorization and school/resource isolation before considering AI exposure.
+5. Establish trustworthy production/test/demo separation and sensitive-field filtering.
+6. Define narrow tools with mandatory input/output schemas, permissions, school scope, data-quality behavior, provenance requirements, and auditing.
+7. Register an AI capability manifest under `src/ai/capabilities`. The discovery layer loads it without changes to the AI core.
+8. Add deterministic metrics and reports through authoritative OSAAH services. Do not delegate official calculations to a provider.
+9. Add tests for validation, permission denial, cross-school isolation, provenance exclusion, incomplete data, sensitive output, audit events, and failure behavior.
+10. Activate only after all safeguards pass. `PREPARE_ACTION` and `WRITE` remain unavailable until their approved implementation phases.
+
+Capability versions use semantic versions and are addressable by major key, such as `finance@1` and `finance@2`. An unversioned lookup resolves the latest registered major version. Health is reported independently as `ACTIVE`, `DISABLED`, `DEGRADED`, or `UNAVAILABLE`, allowing orchestration to avoid incomplete or unavailable backends.
+
+Developer diagnostics expose metadata only: registered module identities, capabilities, enabled tools, health, and sanitized validation errors. Diagnostics require a development/test environment or the `ai.diagnostics.read` permission and must never include school records or confidential configuration.
