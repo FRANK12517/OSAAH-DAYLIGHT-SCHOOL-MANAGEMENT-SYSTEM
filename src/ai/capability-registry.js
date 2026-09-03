@@ -4,7 +4,7 @@ const HEALTH = new Set(['ACTIVE', 'DISABLED', 'DEGRADED', 'UNAVAILABLE']);
 function freezeList(value) { return Object.freeze([...(value ?? [])]); }
 function assertStringList(name, value) { if (!Array.isArray(value) || value.some((item) => typeof item !== 'string' || !item.trim())) throw new Error(`AI capability ${name} must be a list of non-empty strings`); }
 
-export function defineAICapability(input, { knownModuleIds } = {}) {
+export function defineAICapability(input, { knownModuleIds, knownRoleIds } = {}) {
   if (!input?.id || !input?.moduleId || !input?.moduleName || !input?.category || !input?.dataDomain || !input?.description) throw new Error('AI capability requires id, moduleId, moduleName, category, dataDomain, and description');
   if (!VERSION.test(input.version ?? '')) throw new Error('AI capability version must use semantic versioning');
   const enabled = input.enabled ?? input.aiEnabled ?? false;
@@ -18,6 +18,7 @@ export function defineAICapability(input, { knownModuleIds } = {}) {
   const reports = input.reports ?? input.supportedReports ?? [];
   const actions = input.actions ?? input.supportedActions ?? [];
   for (const [field, value] of Object.entries({ requiredPermissions: input.requiredPermissions ?? [], requiredRoles: input.requiredRoles ?? [], tools, metrics, reports, actions, dashboardWidgets: input.dashboardWidgets ?? [], dataQualityRequirements: input.dataQualityRequirements ?? [] })) assertStringList(field, value);
+  if (knownRoleIds) for (const role of input.requiredRoles ?? []) if (!knownRoleIds.has(role)) throw new Error(`Unsupported AI capability role: ${role}`);
   if (enabled && !(tools.length || metrics.length)) throw new Error('Enabled AI capability requires at least one tool or metric');
   if (enabled && !(input.requiredPermissions?.length)) throw new Error('Enabled AI capability requires permission metadata');
   if (enabled && input.productionDataOnly !== false && (input.provenanceAware !== true || input.dataQualityAware !== true)) throw new Error('Enabled production AI capability requires provenance and data-quality protection');
