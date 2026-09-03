@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -41,6 +42,13 @@ export function createApp({ auth = createAuthService(), students = createStudent
     if (pathname === '/api/documents/verify' && request.method === 'GET') return json(response, compliance.verifyDocument(new URL(request.url, 'http://localhost').searchParams.get('code') ?? ''));
     if (pathname === '/api/privacy/notice' && request.method === 'GET') return json(response, compliance.privacyNotice());
     if (pathname === '/api/official-documents/verify' && request.method === 'GET') return json(response, reporting.verifyOfficialDocument(new URL(request.url, 'http://localhost').searchParams.get('code') ?? ''));
+    const guestAdmissionSession = readCookie(request, 'osaah_admission_session');
+    const publicAdmissionActor = guestAdmissionSession ? { id: guestAdmissionSession, portal: 'parent', schoolId: 'school-osaah-daylight' } : null;
+    if (pathname === '/api/admission-fees/quote' && request.method === 'GET' && publicAdmissionActor) { const query = new URL(request.url, 'http://localhost').searchParams; const fee = admissionForms.activeFeeFor(query.get('classAppliedFor'), query.get('academicYear'), query.get('term')); return fee ? json(response, { fee }) : json(response, { error: 'No published fee structure found.' }, 404); }
+    if (pathname === '/api/admission-applications' && request.method === 'POST' && publicAdmissionActor) { try { const result = admissionForms.createApplication(await readJson(request), publicAdmissionActor); audit(createAuditLog({ schoolId: publicAdmissionActor.schoolId, userId: publicAdmissionActor.id, action: 'ADMISSION_APPLICATION_CREATED', entity: 'AdmissionFormApplication', entityId: result.applicationNumber, newValue: result })); return json(response, result, 201); } catch (error) { return json(response, { error: error.message }, 400); } }
+    if (pathname.startsWith('/api/admission-applications/') && pathname.endsWith('/update') && request.method === 'PATCH' && publicAdmissionActor) { try { const result = admissionForms.updateApplication(pathname.split('/')[3], await readJson(request), publicAdmissionActor); return json(response, result); } catch (error) { return json(response, { error: error.message }, 400); } }
+    if (pathname.startsWith('/api/admission-applications/') && pathname.endsWith('/documents') && request.method === 'POST' && publicAdmissionActor) { try { const result = admissionForms.attachDocument(pathname.split('/')[3], await readJson(request), publicAdmissionActor); audit(createAuditLog({ schoolId: publicAdmissionActor.schoolId, userId: publicAdmissionActor.id, action: 'ADMISSION_DOCUMENT_UPLOADED', entity: 'AdmissionDocument', entityId: result.id })); return json(response, result, 201); } catch (error) { return json(response, { error: error.message }, 400); } }
+    if (pathname.startsWith('/api/admission-applications/') && pathname.endsWith('/submit') && request.method === 'POST' && publicAdmissionActor) { try { const id = pathname.split('/')[3]; const body = await readJson(request); const result = admissionForms.submitApplication(id, publicAdmissionActor, admissionForms.activeFeeFor(body.classAppliedFor ?? admissionForms.getApplication(id, publicAdmissionActor)?.section1.classAppliedFor, body.academicYear, body.term)); audit(createAuditLog({ schoolId: publicAdmissionActor.schoolId, userId: publicAdmissionActor.id, action: 'ADMISSION_APPLICATION_SUBMITTED', entity: 'AdmissionFormApplication', entityId: id })); return json(response, result); } catch (error) { return json(response, { error: error.message }, 400); } }
     if (pathname.startsWith('/api/')) {
       const user = auth.authenticate(readCookie(request, 'osaah_session') ?? bearer(request));
       if (!user) return json(response, { error: 'Authentication required.' }, 401);
@@ -198,9 +206,10 @@ export function createApp({ auth = createAuthService(), students = createStudent
       const authorized = user && accessibleModules.some((module) => module.route === pathname);
       if (!authorized) { response.writeHead(user ? 403 : 401, { 'Content-Type': 'text/plain; charset=utf-8' }); return response.end(user ? 'Forbidden' : 'Authentication required'); }
     }
-    if (pathname === '/admissions/apply') { const user = auth.authenticate(readCookie(request, 'osaah_session') ?? bearer(request)); if (!user) { response.writeHead(401, { 'Content-Type': 'text/plain; charset=utf-8' }); return response.end('Authentication required'); } if (user.portal !== 'parent') { response.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' }); return response.end('Forbidden'); } }
+    let publicAdmissionCookie = null;
+    if (pathname === '/admissions/apply') { const user = auth.authenticate(readCookie(request, 'osaah_session') ?? bearer(request)); if (user && user.portal !== 'parent') { response.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' }); return response.end('Forbidden'); } if (!user && !readCookie(request, 'osaah_admission_session')) publicAdmissionCookie = `osaah_admission_session=${randomUUID()}; Path=/; HttpOnly; SameSite=Lax${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`; }
     const file = pathname === '/' ? '/index.html' : pathname === '/admissions/apply' ? '/admission-application.html' : pageAliases[pathname] ?? pathname;
-    try { const body = await readFile(join(root, file)); response.writeHead(200, { 'Content-Type': mime[extname(file)] ?? 'application/octet-stream' }); response.end(body); } catch { response.writeHead(404); response.end('Not found'); }
+    try { const body = await readFile(join(root, file)); response.writeHead(200, { 'Content-Type': mime[extname(file)] ?? 'application/octet-stream', ...(publicAdmissionCookie ? { 'Set-Cookie': publicAdmissionCookie } : {}) }); response.end(body); } catch { response.writeHead(404); response.end('Not found'); }
   };
 }
 const app = createApp();
