@@ -9,6 +9,11 @@ test('login gallery renders ten responsive rows with accessible zoom controls', 
     readFile(new URL('../public/login-gallery.js', import.meta.url), 'utf8')
   ]);
   assert.equal((html.match(/class="login-gallery-item"/g) ?? []).length, 10);
+  assert.equal((html.match(/loading="eager" decoding="async"/g) ?? []).length, 10);
+  assert.equal((html.match(/width="\d+" height="\d+"/g) ?? []).length, 10);
+  assert.doesNotMatch(html, /loading="lazy"/);
+  assert.match(html, /03-cultural-celebration\.jpg/);
+  assert.doesNotMatch(html, /03-school-activity\.png/);
   assert.ok(html.indexOf('id="login-gallery"') > html.indexOf('class="portal-grid"'));
   assert.match(css, /grid-template-rows:repeat\(10/);
   assert.match(css, /width:min\(1120px/);
