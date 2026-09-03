@@ -5,5 +5,7 @@ export { discoverAICapabilityManifests } from './discovery.js';
 export { buildAIRegistry } from './registry.js';
 export { createOSAAHModuleManifestRegistry, defineOSAAHModuleManifest } from './module-manifest-registry.js';
 export { buildAIRegistryDiagnostics } from './diagnostics.js';
+export { createProductionDataGuard } from './production-data-guard.js';
+export { createRecordProvenance, normalizeEnvironment, provenanceForCreation, recordProvenance } from './provenance.js';
 export { authorizeAITool, enforceProductionData } from './guards.js';
 export { AIProvider } from './provider.js';

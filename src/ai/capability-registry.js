@@ -20,6 +20,7 @@ export function defineAICapability(input, { knownModuleIds } = {}) {
   for (const [field, value] of Object.entries({ requiredPermissions: input.requiredPermissions ?? [], requiredRoles: input.requiredRoles ?? [], tools, metrics, reports, actions, dashboardWidgets: input.dashboardWidgets ?? [], dataQualityRequirements: input.dataQualityRequirements ?? [] })) assertStringList(field, value);
   if (enabled && !(tools.length || metrics.length)) throw new Error('Enabled AI capability requires at least one tool or metric');
   if (enabled && !(input.requiredPermissions?.length)) throw new Error('Enabled AI capability requires permission metadata');
+  if (enabled && input.productionDataOnly !== false && (input.provenanceAware !== true || input.dataQualityAware !== true)) throw new Error('Enabled production AI capability requires provenance and data-quality protection');
   return Object.freeze({
     id: input.id,
     moduleId: input.moduleId,
@@ -46,6 +47,8 @@ export function defineAICapability(input, { knownModuleIds } = {}) {
     supportedActions: freezeList(actions),
     dashboardIntelligence: Boolean(input.dashboardIntelligence ?? input.dashboardWidgets?.length),
     productionDataOnly: input.productionDataOnly !== false,
+    provenanceAware: input.provenanceAware === true,
+    dataQualityAware: input.dataQualityAware === true,
     productionDataRules: freezeList(input.productionDataRules),
     dataQualityRequirements: freezeList(input.dataQualityRequirements),
     auditRequired: input.auditRequired !== false,

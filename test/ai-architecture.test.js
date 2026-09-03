@@ -5,7 +5,7 @@ import { canAccess } from '../src/auth.js';
 
 test('AI capability and tool registries are declarative and disabled by default', () => {
   const capabilities = createAICapabilityRegistry();
-  capabilities.register({ id: 'fees', moduleId: 'fees', moduleName: 'Fees', category: 'FEE HUB', version: '1.0.0', enabled: true, description: 'Fee intelligence.', dataDomain: 'FINANCE', requiredPermissions: ['fees.read'], tools: ['finance.collection-summary'], metrics: [], productionDataRules: ['PRODUCTION_ONLY'], dataQualityRequirements: ['FRESHNESS'], auditRequirements: ['ACCESS'] });
+  capabilities.register({ id: 'fees', moduleId: 'fees', moduleName: 'Fees', category: 'FEE HUB', version: '1.0.0', enabled: true, description: 'Fee intelligence.', dataDomain: 'FINANCE', requiredPermissions: ['fees.read'], tools: ['finance.collection-summary'], metrics: [], productionDataOnly: true, provenanceAware: true, dataQualityAware: true, productionDataRules: ['PRODUCTION_ONLY'], dataQualityRequirements: ['FRESHNESS'], auditRequirements: ['ACCESS'] });
   const tools = createAIToolRegistry();
   const tool = tools.register({ name: 'finance.collection-summary', description: 'Read an authoritative fee collection summary.', capabilityId: 'fees', requiredPermission: 'fees.read', inputSchema: { type: 'object' }, outputSchema: { type: 'object' }, operationType: 'READ' });
   assert.equal(capabilities.get('fees').aiEnabled, true);
@@ -21,8 +21,8 @@ test('AI manifests auto-discover existing modules without core switch logic', as
 });
 
 test('AI registry rejects duplicates, invalid modules, malformed schemas, and enabled writes', async () => {
-  const capability = { id: 'future', moduleId: 'future', moduleName: 'Future', category: 'OPERATIONS', version: '1.0.0', enabled: true, description: 'Future intelligence.', requiredPermissions: ['future.read'], requiredRoles: [], dataDomain: 'FUTURE', tools: ['future.summary'], metrics: [], reports: [], actions: [], dashboardWidgets: [], productionDataOnly: true, dataQualityRequirements: [], auditRequired: true };
-  const readTool = { name: 'future.summary', capabilityId: 'future', description: 'Read future data.', operationType: 'READ', requiredPermission: 'future.read', inputSchema: { type: 'object' }, outputSchema: { type: 'object' }, enabled: true };
+  const capability = { id: 'future', moduleId: 'future', moduleName: 'Future', category: 'OPERATIONS', version: '1.0.0', enabled: true, description: 'Future intelligence.', requiredPermissions: ['future.read'], requiredRoles: [], dataDomain: 'FUTURE', tools: ['future.summary'], metrics: [], reports: [], actions: [], dashboardWidgets: [], productionDataOnly: true, provenanceAware: true, dataQualityAware: true, dataQualityRequirements: [], auditRequired: true };
+  const readTool = { name: 'future.summary', capabilityId: 'future', description: 'Read future data.', operationType: 'READ', requiredPermission: 'future.read', inputSchema: { type: 'object' }, outputSchema: { type: 'object' }, productionDataOnly: true, schoolScoped: true, dataQualityAware: true, auditRequired: true, enabled: true };
   const registry = await buildAIRegistry({ modules: [{ moduleKey: 'future' }], manifests: [{ capability, tools: [readTool] }] });
   assert.equal(registry.capabilities.get('future').moduleId, 'future');
   assert.throws(() => registry.capabilities.register(capability), /already registered/);
@@ -53,7 +53,7 @@ test('future module manifest defaults AI off and activates adapters only explici
 
 test('capability registry supports major versions and health states', () => {
   const registry = createAICapabilityRegistry();
-  const base = { id: 'test-versioned', moduleId: 'test-versioned', moduleName: 'Test Versioned', category: 'TEST', enabled: true, description: 'Test-only versioned capability.', requiredPermissions: ['test.read'], requiredRoles: [], dataDomain: 'TEST', tools: ['test.summary'], metrics: [], reports: [], actions: [], dashboardWidgets: [], productionDataOnly: true, dataQualityRequirements: [], auditRequired: true };
+  const base = { id: 'test-versioned', moduleId: 'test-versioned', moduleName: 'Test Versioned', category: 'TEST', enabled: true, description: 'Test-only versioned capability.', requiredPermissions: ['test.read'], requiredRoles: [], dataDomain: 'TEST', tools: ['test.summary'], metrics: [], reports: [], actions: [], dashboardWidgets: [], productionDataOnly: true, provenanceAware: true, dataQualityAware: true, dataQualityRequirements: [], auditRequired: true };
   registry.register({ ...base, version: '1.0.0' });
   registry.register({ ...base, version: '2.0.0' });
   assert.equal(registry.get('test-versioned').version, '2.0.0');

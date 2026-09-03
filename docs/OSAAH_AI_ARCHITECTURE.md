@@ -181,3 +181,22 @@ Each phase must preserve existing behavior, pass the existing test suite, and sa
 Capability versions use semantic versions and are addressable by major key, such as `finance@1` and `finance@2`. An unversioned lookup resolves the latest registered major version. Health is reported independently as `ACTIVE`, `DISABLED`, `DEGRADED`, or `UNAVAILABLE`, allowing orchestration to avoid incomplete or unavailable backends.
 
 Developer diagnostics expose metadata only: registered module identities, capabilities, enabled tools, health, and sanitized validation errors. Diagnostics require a development/test environment or the `ai.diagnostics.read` permission and must never include school records or confidential configuration.
+
+## Production Data Guard
+
+The server-side Production Data Guard is the mandatory boundary between authorized source queries and all future AI tools:
+
+```text
+Authorized query -> repository/source records -> Production Data Guard
+  -> data-quality envelope -> sanitized structured result -> future AI layer
+```
+
+It recognizes the centralized provenance categories `PRODUCTION`, `TEST`, `DEMO`, `SEED`, `DEVELOPMENT`, and `MIGRATION_VALIDATION`. Production execution defaults to production-only and rejects client attempts to request test data, disable filtering, or select another provenance. Development and test environments may opt into fixtures only through server-controlled configuration.
+
+New records derive provenance from the trusted runtime and creation source through `createRecordProvenance`; seeders, fixtures, demos, developer utilities, and migration validation must pass their source so they are classified automatically. Browser input must never set provenance.
+
+Legacy records without provenance fail closed. A reviewed, server-owned `legacyClassifier` may recognize a specific legacy record as operational; accepted legacy records produce `PARTIAL` quality and a warning. Unknown legacy records are excluded rather than silently labelled production. Because the current SQL design is not connected to runtime persistence, no speculative database migration is introduced in this phase. A later persistence migration must add provenance without changing IDs, amounts, scores, or timestamps and must reconcile unknown rows explicitly.
+
+Every enabled operational capability declares `productionDataOnly`, `provenanceAware`, and `dataQualityAware`. Every enabled tool explicitly declares production, school-scope, quality, and audit policies. Diagnostics expose only policy state and aggregate exclusion counts—not excluded records or personal/financial content.
+
+Academic scores, payments, expenses, attendance, admissions, and staff records all use the same guard contract. Domain-specific AI tools must filter before aggregating averages, balances, counts, projections, alerts, or recommendations. A provider is never responsible for deciding whether data is genuine.

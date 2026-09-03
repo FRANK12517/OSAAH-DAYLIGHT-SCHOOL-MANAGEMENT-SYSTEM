@@ -12,6 +12,8 @@ export function defineAITool(input) {
   if (!requiredPermissions.length) throw new Error('AI tool requires permission metadata');
   const enabled = input.enabled === true;
   if (enabled && !AI_ENABLED_ACCESS_MODES.includes(operationType)) throw new Error(`AI ${operationType} tools cannot be enabled at this stage`);
+  if (enabled && !['productionDataOnly', 'schoolScoped', 'dataQualityAware', 'auditRequired'].every((field) => typeof input[field] === 'boolean')) throw new Error('Enabled AI tool requires explicit production, school, data-quality, and audit policies');
+  if (enabled && input.productionDataOnly !== true) throw new Error('Enabled operational AI tool must be production-only');
   return Object.freeze({
     id: name,
     name,

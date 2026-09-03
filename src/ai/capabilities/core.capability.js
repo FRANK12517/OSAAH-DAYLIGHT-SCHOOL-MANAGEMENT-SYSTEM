@@ -5,7 +5,7 @@ function tool(name, capabilityId, description, requiredPermission, operationType
 }
 
 function capability({ id, moduleId, moduleName, category, description, permission, roles, domain, tools, metrics, reports = [], widgets = [] }) {
-  return Object.freeze({ id, moduleId, moduleName, category, version: '1.0.0', enabled: true, description, requiredPermissions: [permission], requiredRoles: roles, dataDomain: domain, tools: tools.map((item) => item.name), metrics, reports, actions: [], dashboardWidgets: widgets, productionDataOnly: true, dataQualityRequirements: ['PROVENANCE', 'FRESHNESS', 'COMPLETENESS'], auditRequired: true });
+  return Object.freeze({ id, moduleId, moduleName, category, version: '1.0.0', enabled: true, description, requiredPermissions: [permission], requiredRoles: roles, dataDomain: domain, tools: tools.map((item) => item.name), metrics, reports, actions: [], dashboardWidgets: widgets, productionDataOnly: true, provenanceAware: true, dataQualityAware: true, dataQualityRequirements: ['PROVENANCE', 'FRESHNESS', 'COMPLETENESS'], auditRequired: true });
 }
 
 const definitions = [
