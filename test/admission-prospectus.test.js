@@ -4,13 +4,15 @@ import http from 'node:http';
 import { createAdmissionProspectusService } from '../src/admission-prospectus.js';
 import { createAuthService } from '../src/auth.js';
 import { createApp } from '../src/server.js';
+import { createAdmissionProspectusPdfService } from '../src/admission-prospectus-pdf.js';
+import { readFile } from 'node:fs/promises';
 
 function request(port, path, { method = 'GET', token, body } = {}) {
   return new Promise((resolve, reject) => {
     const req = http.request({ port, path, method, headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}) } }, (res) => {
       let payload = '';
       res.on('data', (chunk) => { payload += chunk; });
-      res.on('end', () => { let body = payload; try { body = payload ? JSON.parse(payload) : null; } catch {} resolve({ status: res.statusCode, body }); });
+      res.on('end', () => { let body = payload; try { body = payload ? JSON.parse(payload) : null; } catch {} resolve({ status: res.statusCode, body, headers: res.headers }); });
     });
     req.on('error', reject);
     if (body) req.end(JSON.stringify(body)); else req.end();
@@ -57,10 +59,31 @@ test('prospectus HTTP routes enforce role, publication, and school boundaries', 
   const visible = await request(port, '/api/admission-prospectus?classId=Basic%202&academicYearId=2026', { token: parent.token });
   assert.equal(visible.status, 200);
   assert.equal(visible.body.prospectuses[0].content, '<p>Published safely</p>');
+  const publicVisible = await request(port, '/api/public/admission-prospectus?classId=Basic%202&academicYearId=2026');
+  assert.equal(publicVisible.status, 200);
+  assert.equal(publicVisible.body.prospectuses[0].content, '<p>Published safely</p>');
+  const publicPdf = await request(port, `/api/public/admission-prospectus/${created.body.id}/pdf`);
+  assert.equal(publicPdf.status, 200);
+  assert.match(publicPdf.headers['content-type'], /application\/pdf/);
+  assert.match(publicPdf.headers['content-disposition'], /OSAAH-Admission-Prospectus-Basic_2-2026_2027\.pdf/);
   assert.equal((await request(port, '/api/admission-prospectus', { method: 'POST', token: teacher.token, body: { classId: 'Basic 2', academicYearId: '2026', content: '<p>Denied</p>' } })).status, 403);
   const teacherPage = await request(port, '/admissions/prospectus', { token: teacher.token });
   const parentPage = await request(port, '/parent/admission-prospectus', { token: parent.token });
   assert.equal(teacherPage.status, 403);
   assert.equal(parentPage.status, 200);
   await new Promise((resolve) => server.close(resolve));
+});
+
+test('parent portal exposes prospectus below online admission and produces branded PDF', async () => {
+  const [index, app, page] = await Promise.all([readFile(new URL('../public/index.html', import.meta.url), 'utf8'), readFile(new URL('../public/app.js', import.meta.url), 'utf8'), readFile(new URL('../public/parent-admission-prospectus.html', import.meta.url), 'utf8')]);
+  assert.ok(index.indexOf('Online Admission') < index.indexOf('Admission Prospectus'));
+  assert.match(index, /id="parent-admission-actions"[^>]*hidden/);
+  assert.match(app, /state\.portal !== 'parent'/);
+  assert.match(page, /Export Branded PDF/);
+  assert.match(page, /\/api\/public\/admission-prospectus/);
+  const service = createAdmissionProspectusService({ academicYears: [{ id: '2026', name: '2026/2027' }] });
+  const manager = { id: 'head-1', roleKey: 'HEADTEACHER', portal: 'school', schoolId: 'school-osaah-daylight', permissions: new Set(['admission.prospectus.manage']) };
+  const record = service.create({ classId: 'Basic 2', academicYearId: '2026', content: '<h2>Existing content</h2><ul><li>One item</li></ul>' }, manager); service.publish(record.id, manager);
+  const pdf = await createAdmissionProspectusPdfService().pdf(service.get(record.id, { portal: 'parent', schoolId: 'school-osaah-daylight' }));
+  assert.match(pdf.subarray(0, 8).toString(), /^%PDF-1\.[0-9]/); assert.ok((pdf.toString('latin1').match(/\/Subtype \/Image/g) ?? []).length >= 2); assert.match(pdf.toString('latin1'), /\/FontFile2/);
 });
