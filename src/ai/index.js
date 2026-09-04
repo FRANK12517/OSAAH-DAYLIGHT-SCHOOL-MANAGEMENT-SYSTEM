@@ -23,3 +23,4 @@ export { AIConversationError, OSAAH_AI_CONVERSATION_ENV, createAIConversationLim
 export { FINANCIAL_DASHBOARD_ROLES, createFinancialIntelligenceService, createFinancialIntelligenceTools } from './financial-intelligence.js';
 export { createAcademicAttendanceIntelligence, createAcademicAttendanceTools } from './academic-attendance-intelligence.js';
 export { createAdmissionsWorkforceIntelligence, createAdmissionsWorkforceTools } from './admissions-workforce-intelligence.js';
+export { createOperationalAnalyticsRegistry, createOperationalIntelligence, createOperationalTools, registerBuiltInOperationalProviders } from './operational-intelligence.js';

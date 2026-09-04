@@ -24,7 +24,7 @@ export function defineOSAAHModuleManifest(input) {
     route: input.route,
     sidebarPlacement: Object.freeze({ order: input.sidebarPlacement?.order ?? 1000, parentModule: input.sidebarPlacement?.parentModule ?? null, visible: input.sidebarPlacement?.visible !== false, roles: list(input.sidebarPlacement?.roles) }),
     permissions: list(input.permissions),
-    ai: Object.freeze({ enabled: false, tools: Object.freeze([]), reports: Object.freeze([]), metrics: Object.freeze([]), supportedActions: Object.freeze([]), productionDataOnly: true, dataQualityAware: true, ...ai, tools: list(ai.tools), reports: list(ai.reports), metrics: list(ai.metrics), supportedActions: list(ai.supportedActions) }),
+    ai: Object.freeze({ enabled: false, health: ai.enabled === true ? 'ACTIVE' : 'DISABLED', tools: Object.freeze([]), reports: Object.freeze([]), metrics: Object.freeze([]), supportedActions: Object.freeze([]), dashboardMetrics: Object.freeze([]), exceptionProviders: Object.freeze([]), dataQualityRules: Object.freeze([]), productionDataOnly: true, dataQualityAware: true, ...ai, tools: list(ai.tools), reports: list(ai.reports), metrics: list(ai.metrics), supportedActions: list(ai.supportedActions), dashboardMetrics: list(ai.dashboardMetrics), exceptionProviders: list(ai.exceptionProviders), dataQualityRules: list(ai.dataQualityRules) }),
     metrics: list(input.metrics),
     audit: Object.freeze({ ...input.audit }),
     productionData: Object.freeze({ ...input.productionData }),
