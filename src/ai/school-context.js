@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { createAIAuthorizationContext, AIAuthorizationError } from './authorization-guard.js';
-import { dataQuality } from './contracts.js';
+import { createAIDataQualityGuard } from './data-quality-guard.js';
 import { SIDEBAR_MODULES } from '../sidebar-registry.js';
 
 export const SCHOOL_CONTEXT_TYPES = Object.freeze(['BASIC_SCHOOL', 'ACADEMIC', 'FINANCIAL', 'ADMISSIONS', 'STAFF', 'OPERATIONS', 'FULL_MANAGEMENT']);
@@ -61,8 +61,9 @@ function minimizeAcademic(records, context) {
   return { classes, subjects, teacherAssignments: assignments.map((item) => ({ teacherId: item.teacherId, classId: item.classId, subjectId: item.subjectId, academicYearId: item.academicYearId ?? null, termId: item.termId ?? null })), assessmentConfig: records.assessmentConfig };
 }
 
-export function createSchoolContextService({ sources = {}, modules = SIDEBAR_MODULES, capabilityRegistry, productionDataGuard, auditLogger, clock = () => new Date().toISOString() } = {}) {
+export function createSchoolContextService({ sources = {}, modules = SIDEBAR_MODULES, capabilityRegistry, productionDataGuard, auditLogger, dataQualityGuard, clock = () => new Date().toISOString() } = {}) {
   if (!productionDataGuard) throw new Error('School Context Service requires Production Data Guard');
+  const qualityGuard = dataQualityGuard ?? createAIDataQualityGuard({ auditLogger, clock });
   async function load(name, actor) {
     const source = sources[name]; const value = typeof source === 'function' ? await source(actor) : source ?? [];
     const records = Array.isArray(value) ? value : value ? [value] : [];
@@ -77,9 +78,10 @@ export function createSchoolContextService({ sources = {}, modules = SIDEBAR_MOD
       await auditLogger?.record({ eventType: 'AI_CONTEXT_FAILED', severity: 'SECURITY', requestStatus: 'DENIED', requestId, correlationId, userId: context.userId, schoolId: context.schoolId, role: context.role, authorizationResult: 'DENIED', errorCode: error.code, metadata: { contextType: type } });
       throw error;
     }
-    const records = {}; const warnings = []; let excludedCount = 0;
+    const records = {}; const warnings = []; let excludedCount = 0; let sourceCount = 0;
     for (const name of SOURCE_SECTIONS[type]) {
       const guarded = await load(name, authenticatedUser); records[name] = guarded.records.filter((item) => item.schoolId === context.schoolId);
+      sourceCount += records[name].length;
       excludedCount += guarded.diagnostics.excludedCount;
       if (guarded.diagnostics.excludedCount) warnings.push(`${name.toUpperCase()}_NON_PRODUCTION_EXCLUDED`);
     }
@@ -98,7 +100,9 @@ export function createSchoolContextService({ sources = {}, modules = SIDEBAR_MOD
     if (type === 'ACADEMIC' && (!base.classes.length || !base.subjects.length || !base.assessmentConfig.length)) warnings.push('CONFIGURATION_INCOMPLETE');
     const versionInput = { ...base, currentDate: undefined, generatedAt: undefined }; const contextVersion = fingerprint(versionInput);
     const status = !base.schoolProfile ? 'CONTEXT_UNAVAILABLE' : warnings.length ? 'CONTEXT_PARTIAL' : 'CONTEXT_READY';
-    const quality = dataQuality(status === 'CONTEXT_READY' ? 'COMPLETE' : status === 'CONTEXT_UNAVAILABLE' ? 'UNAVAILABLE' : 'PARTIAL', { assessedAt: generatedAt, issues: warnings });
+    const missingCount = excludedCount + warnings.filter((warning) => /MISSING|MULTIPLE|INCOMPLETE/.test(warning)).length;
+    const qualityAssessment = await qualityGuard.assess({ validated: true, valid: true, sourceAvailable: Boolean(base.schoolProfile), sourceCount, missingCount, warnings, assessedAt: generatedAt, reportingPeriod: { academicYearId: academicYear?.id ?? null, termId: term?.id ?? null }, requestId, correlationId, capabilityId: 'school-context', userId: context.userId, schoolId: context.schoolId, role: context.role });
+    const quality = qualityAssessment.quality;
     const result = frozen({ ...base, contextVersion, generatedAt, status, warnings: [...new Set(warnings)], quality, productionData: { filterApplied: true, excludedCount } });
     await auditLogger?.record({ eventType: 'AI_CONTEXT_GENERATED', requestStatus: 'COMPLETED', requestId, correlationId, userId: context.userId, schoolId: context.schoolId, role: context.role, authorizationResult: 'ALLOWED', dataQualityStatus: quality.status, productionDataOnly: true, metadata: { contextType: type, contextVersion, warningCount: result.warnings.length, excludedRecordCount: excludedCount, productionFilterApplied: true } });
     return result;

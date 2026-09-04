@@ -74,4 +74,7 @@ test('context generation is audited with version and warning count, not raw cont
   const event = auditLogger.recent().find((item) => item.eventType === 'AI_CONTEXT_GENERATED');
   assert.equal(event.requestId, 'context-request'); assert.equal(event.correlationId, 'context-correlation'); assert.equal(event.metadata.contextVersion, context.contextVersion); assert.equal(event.metadata.contextType, 'ACADEMIC');
   assert.equal(JSON.stringify(event).includes('Mathematics'), false);
+  const qualityEvent = auditLogger.recent().find((item) => item.eventType === 'AI_DATA_QUALITY_ASSESSED');
+  assert.equal(qualityEvent.capabilityId, 'school-context'); assert.equal(qualityEvent.dataQualityStatus, context.quality.status);
+  assert.equal(context.quality.sourceCount, 9); assert.equal(context.quality.reportingPeriod.termId, 'term-1');
 });
