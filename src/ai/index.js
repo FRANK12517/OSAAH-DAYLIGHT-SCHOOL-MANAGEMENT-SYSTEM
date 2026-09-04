@@ -22,3 +22,4 @@ export { AIOrchestratorError, OSAAH_AI_ORCHESTRATION_ENV, createAIOrchestrator, 
 export { AIConversationError, OSAAH_AI_CONVERSATION_ENV, createAIConversationLimits, createAIConversationService } from './conversation.js';
 export { FINANCIAL_DASHBOARD_ROLES, createFinancialIntelligenceService, createFinancialIntelligenceTools } from './financial-intelligence.js';
 export { createAcademicAttendanceIntelligence, createAcademicAttendanceTools } from './academic-attendance-intelligence.js';
+export { createAdmissionsWorkforceIntelligence, createAdmissionsWorkforceTools } from './admissions-workforce-intelligence.js';
