@@ -1,0 +1,7 @@
+PRAGMA foreign_keys = ON;
+CREATE TABLE IF NOT EXISTS subject_registers (id TEXT PRIMARY KEY, school_id TEXT NOT NULL REFERENCES schools(id), academic_year_id TEXT NOT NULL, term_id TEXT, class_id TEXT NOT NULL, subject_id TEXT NOT NULL, teaching_mode TEXT NOT NULL DEFAULT 'SUBJECT_TEACHER', status TEXT NOT NULL DEFAULT 'ACTIVE', created_at TEXT NOT NULL, updated_at TEXT NOT NULL, created_by TEXT REFERENCES users(id), updated_by TEXT REFERENCES users(id), UNIQUE(school_id, academic_year_id, term_id, class_id, subject_id));
+CREATE TABLE IF NOT EXISTS subject_register_teachers (id TEXT PRIMARY KEY, school_id TEXT NOT NULL REFERENCES schools(id), subject_register_id TEXT NOT NULL REFERENCES subject_registers(id), teacher_id TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE(subject_register_id, teacher_id));
+CREATE TABLE IF NOT EXISTS subject_register_history (id TEXT PRIMARY KEY, school_id TEXT NOT NULL REFERENCES schools(id), subject_register_id TEXT NOT NULL REFERENCES subject_registers(id), action TEXT NOT NULL, before_value JSON, after_value JSON, actor_id TEXT REFERENCES users(id), occurred_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_subject_register_school_context ON subject_registers(school_id, academic_year_id, term_id, class_id, status);
+CREATE INDEX IF NOT EXISTS idx_subject_register_subject ON subject_registers(school_id, subject_id);
+CREATE INDEX IF NOT EXISTS idx_subject_register_teacher ON subject_register_teachers(school_id, teacher_id);
