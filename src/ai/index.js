@@ -19,3 +19,4 @@ export { createAIProviderRegistry, defineAIProviderRegistration } from './provid
 export { OpenAIResponsesProvider } from './openai-provider.js';
 export { createConfiguredAIProviderRegistry, OSAAH_AI_PROVIDER_ENV } from './provider-config.js';
 export { AIOrchestratorError, OSAAH_AI_ORCHESTRATION_ENV, createAIOrchestrator, createAIOrchestrationLimits, defineAIOrchestrationLimits } from './orchestrator.js';
+export { AIConversationError, OSAAH_AI_CONVERSATION_ENV, createAIConversationLimits, createAIConversationService } from './conversation.js';

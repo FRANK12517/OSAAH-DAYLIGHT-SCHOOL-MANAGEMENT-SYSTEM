@@ -1,5 +1,8 @@
 const state = { portal: null };
 const form = document.querySelector('#login-form');
+const assistantModule = import('/ai-assistant.js');
+const assistantObserver = new MutationObserver(() => { const workspace = document.querySelector('#dashboard .workspace'); if (workspace && !workspace.querySelector('#osaah-ai-assistant')) assistantModule.then(({ mount }) => mount(workspace)).catch(() => {}); });
+assistantObserver.observe(document.querySelector('#dashboard'), { childList: true });
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character]));
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 const RETRY_KEY = 'osaah_retry_queue_v1';
