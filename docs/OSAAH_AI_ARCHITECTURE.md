@@ -144,7 +144,9 @@ Raw prompts, student details, financial details, document contents, and model re
 
 ## Provider abstraction
 
-Application code depends on an `AIProvider` contract exposing `generate`, `stream`, `toolCall`, and `healthCheck`. Provider SDKs and credentials remain inside provider adapters. No provider implementation or dependency is installed in Phase 0A.
+Application code depends on an `AIProvider` contract exposing `generate`, `toolCall`, `stream`, and `healthCheck`. The repository-native provider registry selects only explicitly enabled providers, publishes sanitized configuration metadata, caps output tokens, normalizes timeouts and failures, and never silently falls back to another provider. Provider requests accept only the authorized query, sanitized School Context, approved tool definitions/results, request identifiers, and an output limit.
+
+`DisabledAIProvider` is the production-safe default and `DeterministicMockAIProvider` supports network-free tests. Provider responses are normalized to text, tool requests, finish status, provider/model identifiers, token usage, latency, and a safe error code. Provider SDKs and server-resolved credentials remain inside future adapters. No live provider, vendor SDK, API key, or credential is configured by this phase, and the AI Gateway remains provider-unavailable until an approved integration explicitly connects the registry.
 
 ## Controlled actions
 

@@ -14,4 +14,5 @@ export { AIAuditPersistenceError, createAIAuditLogger, createInMemoryAIAuditSink
 export { createSchoolContextService, SCHOOL_CONTEXT_TYPES } from './school-context.js';
 export { executeAuthorizedAITool } from './tool-executor.js';
 export { authorizeAITool, enforceProductionData } from './guards.js';
-export { AIProvider } from './provider.js';
+export { AIProvider, AIProviderError, AI_PROVIDER_ERRORS, DisabledAIProvider, DeterministicMockAIProvider, normalizeAIProviderResponse, providerAuditMetadata, validateAIProviderRequest } from './provider.js';
+export { createAIProviderRegistry, defineAIProviderRegistration } from './provider-registry.js';
