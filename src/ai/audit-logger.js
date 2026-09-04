@@ -2,14 +2,14 @@ const EVENT_TYPES = new Set([
   'AI_REQUEST_RECEIVED', 'AI_AUTH_ALLOWED', 'AI_AUTH_DENIED', 'AI_TOOL_STARTED',
   'AI_TOOL_COMPLETED', 'AI_TOOL_FAILED', 'AI_DATA_FILTER_APPLIED',
   'AI_CAPABILITY_UNAVAILABLE', 'AI_WRITE_BLOCKED', 'AI_REQUEST_COMPLETED',
-  'AI_REQUEST_FAILED', 'AI_PROVIDER_REQUEST', 'AI_PROVIDER_RESPONSE',
+  'AI_REQUEST_FAILED', 'AI_CONTEXT_GENERATED', 'AI_CONTEXT_FAILED', 'AI_PROVIDER_REQUEST', 'AI_PROVIDER_RESPONSE',
   'AI_ACTION_PREPARED', 'AI_ACTION_APPROVED', 'AI_ACTION_REJECTED', 'AI_ACTION_EXECUTED'
 ]);
 const SEVERITIES = new Set(['INFO', 'WARNING', 'SECURITY', 'ERROR']);
 const QUALITY = new Set(['COMPLETE', 'PARTIAL', 'STALE', 'UNAVAILABLE', 'INVALID']);
 const STATUSES = new Set(['RECEIVED', 'ALLOWED', 'DENIED', 'STARTED', 'COMPLETED', 'FAILED', 'BLOCKED']);
 const SECRET_KEY = /(password|passphrase|secret|token|authorization|cookie|api.?key|database.?url|credential|private.?key)/i;
-const SAFE_METADATA = new Set(['recordCount', 'sourceRecordCount', 'includedRecordCount', 'excludedRecordCount', 'trustedLegacyCount', 'productionFilterApplied', 'provenanceViolationDetected', 'continued', 'academicYearId', 'termId', 'reportingCutoff', 'calculationReference', 'providerRequestStatus', 'latencyMs', 'targetRecordId', 'rollbackReferenceId', 'approvalUserId', 'rejectionUserId', 'decisionAt']);
+const SAFE_METADATA = new Set(['recordCount', 'sourceRecordCount', 'includedRecordCount', 'excludedRecordCount', 'trustedLegacyCount', 'productionFilterApplied', 'provenanceViolationDetected', 'continued', 'academicYearId', 'termId', 'reportingCutoff', 'calculationReference', 'providerRequestStatus', 'latencyMs', 'targetRecordId', 'rollbackReferenceId', 'approvalUserId', 'rejectionUserId', 'decisionAt', 'contextType', 'contextVersion', 'warningCount']);
 
 export class AIAuditPersistenceError extends Error {
   constructor(cause) { super('AI audit persistence is unavailable.'); this.name = 'AIAuditPersistenceError'; this.code = 'AI_AUDIT_UNAVAILABLE'; this.cause = cause; }
