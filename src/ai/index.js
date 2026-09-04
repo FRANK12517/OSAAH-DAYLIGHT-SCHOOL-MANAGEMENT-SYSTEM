@@ -20,3 +20,4 @@ export { OpenAIResponsesProvider } from './openai-provider.js';
 export { createConfiguredAIProviderRegistry, OSAAH_AI_PROVIDER_ENV } from './provider-config.js';
 export { AIOrchestratorError, OSAAH_AI_ORCHESTRATION_ENV, createAIOrchestrator, createAIOrchestrationLimits, defineAIOrchestrationLimits } from './orchestrator.js';
 export { AIConversationError, OSAAH_AI_CONVERSATION_ENV, createAIConversationLimits, createAIConversationService } from './conversation.js';
+export { FINANCIAL_DASHBOARD_ROLES, createFinancialIntelligenceService, createFinancialIntelligenceTools } from './financial-intelligence.js';
