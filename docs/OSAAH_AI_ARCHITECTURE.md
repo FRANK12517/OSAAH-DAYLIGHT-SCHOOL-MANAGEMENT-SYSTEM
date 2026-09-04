@@ -152,6 +152,14 @@ The first live adapter is the server-only `OpenAIResponsesProvider`, selected ex
 
 Configuration names are `OSAAH_AI_PROVIDER_ID`, `OSAAH_AI_MODEL_ID`, `OSAAH_AI_API_KEY`, `OSAAH_AI_PROVIDER_ENABLED`, `OSAAH_AI_PROVIDER_TIMEOUT_MS`, `OSAAH_AI_PROVIDER_RETRY_LIMIT`, and `OSAAH_AI_MAX_OUTPUT_TOKENS`. The enable flag defaults off. Enabling requires an approved provider identifier, model, and server credential. Credentials are never included in registry metadata, provider results, audit events, or frontend code. Timeouts abort the outbound request; retries are bounded to timeout, rate-limit, and unavailable failures. With the switch off or the provider unavailable, repository-native deterministic intelligence continues without a provider call.
 
+## Core orchestration
+
+`createAIOrchestrator` is available only through the authenticated AI Gateway. The Gateway establishes identity, School Context, and every requested capability authorization before orchestration begins. The provider receives the approved READ/ANALYZE tool definitions but never executes a tool. Each returned tool request is checked again for its registered name, capability, operation, argument schema, prohibited SQL/storage fields, and authenticated school scope before `executeAuthorizedAITool` runs it. The existing executor reapplies RBAC, Production Data Guard, and output-schema minimization; Data Quality Guard then assesses the minimized result before it is returned to the provider for a grounded final response.
+
+Zero-tool, one-tool, bounded multi-tool, and sequential rounds are supported. Cross-capability questions require every capability to authorize independently. Limits default to six tool calls, three provider rounds, 15 seconds, 1,024 output tokens, and 50,000 serialized context characters. Server configuration can change these with `OSAAH_AI_MAX_TOOL_CALLS`, `OSAAH_AI_MAX_ROUNDS`, `OSAAH_AI_MAX_DURATION_MS`, `OSAAH_AI_MAX_OUTPUT_TOKENS`, and `OSAAH_AI_MAX_CONTEXT_CHARS`; invalid or exhausted limits fail closed.
+
+The final response separates provider narrative from immutable authoritative tool evidence. Reporting periods, source counts, missing counts, production-only status, quality state, and warnings remain server-derived. Narrative containing an unsupported numeric value is withheld. Narrative claiming complete, verified, or definitive data is also withheld whenever aggregate quality is PARTIAL, STALE, UNAVAILABLE, or INVALID. Conversation history is not an authorization input and provider-requested WRITE operations remain disabled.
+
 ## Controlled actions
 
 Action execution is disabled until its dedicated phase. Later actions must separate proposal from execution and require a registered write tool, current authorization, validated inputs, explicit confirmation for consequential changes, idempotency, deterministic business-service execution, and before/after auditing. The model never writes directly to storage.

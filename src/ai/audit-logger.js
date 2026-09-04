@@ -4,13 +4,14 @@ const EVENT_TYPES = new Set([
   'AI_CAPABILITY_UNAVAILABLE', 'AI_WRITE_BLOCKED', 'AI_REQUEST_COMPLETED',
   'AI_REQUEST_FAILED', 'AI_CONTEXT_GENERATED', 'AI_CONTEXT_FAILED', 'AI_PROVIDER_REQUEST', 'AI_PROVIDER_RESPONSE',
   'AI_GATEWAY_REQUEST', 'AI_GATEWAY_COMPLETED', 'AI_GATEWAY_REJECTED',
+  'AI_ORCHESTRATION_STARTED', 'AI_ORCHESTRATION_ROUND', 'AI_ORCHESTRATION_TOOL_DENIED', 'AI_ORCHESTRATION_COMPLETED', 'AI_ORCHESTRATION_FAILED',
   'AI_ACTION_PREPARED', 'AI_ACTION_APPROVED', 'AI_ACTION_REJECTED', 'AI_ACTION_EXECUTED'
 ]);
 const SEVERITIES = new Set(['INFO', 'WARNING', 'SECURITY', 'ERROR']);
 const QUALITY = new Set(['COMPLETE', 'PARTIAL', 'STALE', 'UNAVAILABLE', 'INVALID']);
 const STATUSES = new Set(['RECEIVED', 'ALLOWED', 'DENIED', 'STARTED', 'COMPLETED', 'FAILED', 'BLOCKED']);
 const SECRET_KEY = /(password|passphrase|secret|token|authorization|cookie|api.?key|database.?url|credential|private.?key)/i;
-const SAFE_METADATA = new Set(['recordCount', 'sourceRecordCount', 'includedRecordCount', 'excludedRecordCount', 'trustedLegacyCount', 'productionFilterApplied', 'provenanceViolationDetected', 'continued', 'academicYearId', 'termId', 'reportingCutoff', 'calculationReference', 'providerRequestStatus', 'latencyMs', 'targetRecordId', 'rollbackReferenceId', 'approvalUserId', 'rejectionUserId', 'decisionAt', 'contextType', 'contextVersion', 'warningCount']);
+const SAFE_METADATA = new Set(['recordCount', 'sourceRecordCount', 'includedRecordCount', 'excludedRecordCount', 'trustedLegacyCount', 'productionFilterApplied', 'provenanceViolationDetected', 'continued', 'academicYearId', 'termId', 'reportingCutoff', 'calculationReference', 'providerRequestStatus', 'latencyMs', 'targetRecordId', 'rollbackReferenceId', 'approvalUserId', 'rejectionUserId', 'decisionAt', 'contextType', 'contextVersion', 'warningCount', 'rounds', 'toolsRequested', 'toolsExecuted', 'toolsDenied', 'capabilities', 'finalStatus']);
 
 export class AIAuditPersistenceError extends Error {
   constructor(cause) { super('AI audit persistence is unavailable.'); this.name = 'AIAuditPersistenceError'; this.code = 'AI_AUDIT_UNAVAILABLE'; this.cause = cause; }

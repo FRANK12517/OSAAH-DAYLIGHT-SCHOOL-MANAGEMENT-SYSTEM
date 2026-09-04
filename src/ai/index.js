@@ -18,3 +18,4 @@ export { AIProvider, AIProviderError, AI_PROVIDER_ERRORS, DisabledAIProvider, De
 export { createAIProviderRegistry, defineAIProviderRegistration } from './provider-registry.js';
 export { OpenAIResponsesProvider } from './openai-provider.js';
 export { createConfiguredAIProviderRegistry, OSAAH_AI_PROVIDER_ENV } from './provider-config.js';
+export { AIOrchestratorError, OSAAH_AI_ORCHESTRATION_ENV, createAIOrchestrator, createAIOrchestrationLimits, defineAIOrchestrationLimits } from './orchestrator.js';
