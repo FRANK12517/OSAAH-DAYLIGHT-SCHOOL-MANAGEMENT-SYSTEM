@@ -7,6 +7,7 @@ export { createOSAAHModuleManifestRegistry, defineOSAAHModuleManifest } from './
 export { buildAIRegistryDiagnostics } from './diagnostics.js';
 export { createProductionDataGuard } from './production-data-guard.js';
 export { AIDataQualityError, createAIDataQualityGuard, validateAIDataQuality } from './data-quality-guard.js';
+export { AIGatewayError, createAIGateway } from './gateway.js';
 export { createRecordProvenance, normalizeEnvironment, provenanceForCreation, recordProvenance } from './provenance.js';
 export { AIAuthorizationError, createAIAuthorizationContext, createAIAuthorizationGuard } from './authorization-guard.js';
 export { AIAuditPersistenceError, createAIAuditLogger, createInMemoryAIAuditSink, redactAuditValue } from './audit-logger.js';

@@ -3,6 +3,7 @@ import { AI_DATA_QUALITY, dataQuality } from './contracts.js';
 const numberOrNull = (value) => value === null || value === undefined ? null : Number(value);
 const validCount = (value) => value === null || Number.isInteger(value) && value >= 0;
 const uniqueWarnings = (warnings) => Object.freeze([...new Set((warnings ?? []).filter((warning) => typeof warning === 'string' && warning.trim()).map((warning) => warning.trim()))]);
+const QUALITY_SEVERITY = Object.freeze({ COMPLETE: 0, PARTIAL: 1, STALE: 2, UNAVAILABLE: 3, INVALID: 4 });
 
 export class AIDataQualityError extends Error {
   constructor(code, message) { super(message); this.name = 'AIDataQualityError'; this.code = code; }
@@ -41,14 +42,16 @@ export function createAIDataQualityGuard({ productionDataGuard, auditLogger, clo
     if (!missingDerivedFromExpected) missingCount += excludedCount;
     if (sourceCount === null) sourceCount = 0;
 
-    let valid = input.validated === true && input.valid !== false && warningsInputValid && Number.isFinite(Date.parse(assessedAt));
+    const suppliedStatusValid = input.status === undefined || AI_DATA_QUALITY.includes(input.status);
+    let valid = input.validated === true && input.valid !== false && warningsInputValid && suppliedStatusValid && Number.isFinite(Date.parse(assessedAt));
     if (![sourceCount, missingCount, expectedCount].every(validCount) || expectedCount !== null && missingCount > expectedCount) valid = false;
     const sourceAvailable = input.sourceAvailable === true;
     const lastUpdatedAt = input.lastUpdatedAt ?? null;
     const updatedTime = lastUpdatedAt === null ? null : Date.parse(lastUpdatedAt);
     if (lastUpdatedAt !== null && !Number.isFinite(updatedTime)) valid = false;
     const stale = valid && sourceAvailable && staleAfterMs !== null && updatedTime !== null && Date.parse(assessedAt) - updatedTime > staleAfterMs;
-    const status = !valid ? 'INVALID' : !sourceAvailable ? 'UNAVAILABLE' : stale ? 'STALE' : missingCount > 0 ? 'PARTIAL' : 'COMPLETE';
+    const derivedStatus = !valid ? 'INVALID' : !sourceAvailable ? 'UNAVAILABLE' : stale ? 'STALE' : missingCount > 0 ? 'PARTIAL' : 'COMPLETE';
+    const status = valid && input.status && QUALITY_SEVERITY[input.status] > QUALITY_SEVERITY[derivedStatus] ? input.status : derivedStatus;
     if (!valid) warnings.push('Quality evidence is invalid or was not validated by trusted server-side logic.');
     if (valid && !sourceAvailable) warnings.push('Required source data is unavailable.');
     if (stale) warnings.push('Source data is outside the accepted freshness window.');

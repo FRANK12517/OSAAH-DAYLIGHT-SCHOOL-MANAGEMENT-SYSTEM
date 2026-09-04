@@ -261,3 +261,9 @@ Context is resolved at request time, so stale cached configuration cannot overri
 `AIDataQualityGuard` is the centralized server-side quality boundary for AI-safe results. It uses the standard `COMPLETE`, `PARTIAL`, `STALE`, `UNAVAILABLE`, and `INVALID` states and carries source count, missing count, source update time, reporting period, warnings, and an evidence-based completeness percentage when an expected count is explicitly supplied. Unknown or unvalidated evidence resolves to `INVALID`; no model or client may assert quality.
 
 The guard can apply Production Data Guard before assessment, validates all quality metadata, and marks only validated, available, current results with no known missing items as verified complete. Capability and tool registries continue to require explicit `dataQualityAware` policy for enabled production access. School Context uses the guard after authorization, production filtering, school scoping, period resolution, and minimization. Quality audit events contain correlation metadata and counts only, never source rows.
+
+## Repository-native AI Gateway
+
+`AIGateway` is the only server-side entry point for AI operations. The authenticated server identity is converted to the existing authorization context before School Context, capability, tool, scope, production-data, and data-quality checks run. Request and correlation identifiers flow through every layer and safe gateway lifecycle events. Unknown, mismatched, disabled, unauthorized, cross-school, and WRITE requests fail closed with structured errors.
+
+The HTTP boundary is `POST /api/ai/gateway`; it ignores client-supplied identity and uses only the authenticated OSAAH session or bearer token. Tool handlers remain registered, bounded service adapters and receive no database handle. No external provider is configured or invoked in this phase; a provider-required request returns `PROVIDER_UNAVAILABLE` after authorization and validation.
