@@ -26,7 +26,7 @@ export function validateAIProviderRequest(input) {
 }
 function normalizeUsage(value = {}) {
   if (!plain(value)) throw new AIProviderError(AI_PROVIDER_ERRORS.INVALID_RESPONSE, 'Provider usage metadata is invalid');
-  const result = {}; for (const key of ['inputTokens', 'outputTokens', 'totalTokens']) { if (value[key] !== undefined && (!Number.isInteger(value[key]) || value[key] < 0)) throw new AIProviderError(AI_PROVIDER_ERRORS.INVALID_RESPONSE, 'Provider usage metadata is invalid'); result[key] = value[key] ?? null; }
+  const result = {}; for (const key of ['inputTokens', 'outputTokens', 'totalTokens']) { if (value[key] != null && (!Number.isInteger(value[key]) || value[key] < 0)) throw new AIProviderError(AI_PROVIDER_ERRORS.INVALID_RESPONSE, 'Provider usage metadata is invalid'); result[key] = value[key] ?? null; }
   return Object.freeze(result);
 }
 export function normalizeAIProviderResponse(value, { provider, model, latencyMs = 0 } = {}) {

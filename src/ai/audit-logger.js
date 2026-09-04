@@ -28,6 +28,7 @@ export function redactAuditValue(value, key = '') {
 function safeMetadata(metadata = {}) {
   return Object.freeze(Object.fromEntries(Object.entries(metadata).filter(([key]) => SAFE_METADATA.has(key)).map(([key, value]) => [key, redactAuditValue(value, key)])));
 }
+function safeTokenUsage(value) { return Object.freeze(Object.fromEntries(['inputTokens', 'outputTokens', 'totalTokens'].map((key) => [key, Number.isInteger(value?.[key]) && value[key] >= 0 ? value[key] : null]))); }
 
 function createEvent(input, clock, environment) {
   if (!EVENT_TYPES.has(input?.eventType)) throw new Error(`Unsupported AI audit event type: ${input?.eventType}`);
@@ -44,7 +45,7 @@ function createEvent(input, clock, environment) {
     productionDataOnly: input.productionDataOnly ?? null, dataQualityStatus: input.dataQualityStatus ?? null,
     requestStatus: input.requestStatus ?? 'RECEIVED', durationMs: input.durationMs ?? null,
     provider: input.provider ?? null, model: input.model ?? null,
-    tokenUsage: input.tokenUsage ? redactAuditValue(input.tokenUsage) : null, estimatedCost: input.estimatedCost ?? null,
+    tokenUsage: input.tokenUsage ? safeTokenUsage(input.tokenUsage) : null, estimatedCost: input.estimatedCost ?? null,
     errorCode: input.errorCode ?? null, actionRequested: Boolean(input.actionRequested), actionExecuted: Boolean(input.actionExecuted),
     approvalUserId: input.approvalUserId ?? null, rejectionUserId: input.rejectionUserId ?? null,
     actionDecisionAt: input.actionDecisionAt ?? null, targetRecordId: input.targetRecordId ?? null,
