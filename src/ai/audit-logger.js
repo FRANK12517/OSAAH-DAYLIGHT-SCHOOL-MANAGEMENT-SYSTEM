@@ -6,11 +6,13 @@ const EVENT_TYPES = new Set([
   'AI_GATEWAY_REQUEST', 'AI_GATEWAY_COMPLETED', 'AI_GATEWAY_REJECTED',
   'AI_ORCHESTRATION_STARTED', 'AI_ORCHESTRATION_ROUND', 'AI_ORCHESTRATION_TOOL_DENIED', 'AI_ORCHESTRATION_COMPLETED', 'AI_ORCHESTRATION_FAILED',
   'AI_ACTION_PREPARED', 'AI_ACTION_APPROVED', 'AI_ACTION_REJECTED', 'AI_ACTION_EXECUTED',
+  'AI_ACTION_SUBMITTED', 'AI_ACTION_EXECUTION_STARTED', 'AI_ACTION_FAILED', 'AI_ACTION_TAMPER_DETECTED', 'AI_ACTION_REPLAY_BLOCKED', 'AI_ACTION_PERMISSION_REVOKED', 'AI_ACTION_CROSS_SCHOOL_DENIED',
   'AI_EXECUTIVE_BRIEF_GENERATED', 'AI_PROACTIVE_ITEM_CREATED', 'AI_PROACTIVE_ITEM_ACKNOWLEDGED', 'AI_PROACTIVE_ITEM_RESOLVED', 'AI_PROACTIVE_REFRESH'
 ]);
 const SEVERITIES = new Set(['INFO', 'WARNING', 'SECURITY', 'ERROR']);
 const QUALITY = new Set(['COMPLETE', 'PARTIAL', 'STALE', 'UNAVAILABLE', 'INVALID']);
 const STATUSES = new Set(['RECEIVED', 'ALLOWED', 'DENIED', 'STARTED', 'COMPLETED', 'FAILED', 'BLOCKED']);
+const ACTION_METADATA = new Set(['actionId', 'actionType', 'actionStatus']);
 const SECRET_KEY = /(password|passphrase|secret|token|authorization|cookie|api.?key|database.?url|credential|private.?key)/i;
 const SAFE_METADATA = new Set(['recordCount', 'sourceRecordCount', 'includedRecordCount', 'excludedRecordCount', 'trustedLegacyCount', 'productionFilterApplied', 'provenanceViolationDetected', 'continued', 'academicYearId', 'termId', 'reportingCutoff', 'calculationReference', 'providerRequestStatus', 'latencyMs', 'targetRecordId', 'rollbackReferenceId', 'approvalUserId', 'rejectionUserId', 'decisionAt', 'contextType', 'contextVersion', 'warningCount', 'rounds', 'toolsRequested', 'toolsExecuted', 'toolsDenied', 'capabilities', 'finalStatus']);
 
@@ -28,7 +30,7 @@ export function redactAuditValue(value, key = '') {
 }
 
 function safeMetadata(metadata = {}) {
-  return Object.freeze(Object.fromEntries(Object.entries(metadata).filter(([key]) => SAFE_METADATA.has(key)).map(([key, value]) => [key, redactAuditValue(value, key)])));
+  return Object.freeze(Object.fromEntries(Object.entries(metadata).filter(([key]) => SAFE_METADATA.has(key) || ACTION_METADATA.has(key)).map(([key, value]) => [key, redactAuditValue(value, key)])));
 }
 function safeTokenUsage(value) { return Object.freeze(Object.fromEntries(['inputTokens', 'outputTokens', 'totalTokens'].map((key) => [key, Number.isInteger(value?.[key]) && value[key] >= 0 ? value[key] : null]))); }
 

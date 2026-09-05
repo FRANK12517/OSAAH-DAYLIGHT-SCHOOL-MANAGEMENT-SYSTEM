@@ -338,3 +338,9 @@ Only ACTIVE, authoritative, production-provenance sources are chunked. Retrieval
 Executive Intelligence composes role-filtered Finance, Academic, Attendance, Admissions, Workforce, Operations, and Knowledge health from the existing deterministic engines. Each capability authorizes independently, preserves its reporting period, health, quality, and warnings, and may fail without removing the remaining brief. Provider narration is optional and cannot replace figures.
 
 The proactive feed consumes only existing engine indicators and non-COMPLETE quality states. It does not infer financial, academic, attendance, staffing, or operational thresholds. Identical unresolved items are deduplicated by capability, indicator, and reporting period. Fee Hub, academic-result, and attendance revision subscriptions trigger lightweight deterministic reevaluation without a separate scheduler or provider call. Only authenticated executive humans may acknowledge or resolve feed items; AI cannot alter their lifecycle or underlying OSAAH records.
+
+## Human-Controlled Actions
+
+AI may prepare only five registered, low-risk action types: school notices, reports, reminders, management notes, and follow-up tasks. Records follow a durable draft, submission, approval/rejection, and execution lifecycle. The repository migration establishes school-scoped idempotency and optimistic versions. Every transition rechecks authenticated school scope and current RBAC; self-approval is denied by default.
+
+An HMAC-SHA-256 integrity value, keyed by `OSAAH_AI_ACTION_INTEGRITY_KEY`, covers the full approval-relevant action. Execution verifies this seal, claims the action with a compare-and-swap version update, and invokes only a registered adapter backed by an existing OSAAH communication or reporting service. Replays return the stored terminal result. Scores, attendance, finance, admissions, workforce, permissions, deletion, and configuration actions are never registered.
