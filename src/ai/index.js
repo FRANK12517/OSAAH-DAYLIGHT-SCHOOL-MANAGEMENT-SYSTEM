@@ -17,7 +17,7 @@ export { authorizeAITool, enforceProductionData } from './guards.js';
 export { AIProvider, AIProviderError, AI_PROVIDER_ERRORS, DisabledAIProvider, DeterministicMockAIProvider, normalizeAIProviderResponse, providerAuditMetadata, validateAIProviderRequest } from './provider.js';
 export { createAIProviderRegistry, defineAIProviderRegistration } from './provider-registry.js';
 export { OpenAIResponsesProvider } from './openai-provider.js';
-export { createConfiguredAIProviderRegistry, OSAAH_AI_PROVIDER_ENV } from './provider-config.js';
+export { createConfiguredAIProviderRegistry, OSAAH_AI_PROVIDER_ENV, OSAAH_AI_GLOBAL_ENABLE_ENV } from './provider-config.js';
 export { AIOrchestratorError, OSAAH_AI_ORCHESTRATION_ENV, createAIOrchestrator, createAIOrchestrationLimits, defineAIOrchestrationLimits } from './orchestrator.js';
 export { AIConversationError, OSAAH_AI_CONVERSATION_ENV, createAIConversationLimits, createAIConversationService } from './conversation.js';
 export { FINANCIAL_DASHBOARD_ROLES, createFinancialIntelligenceService, createFinancialIntelligenceTools } from './financial-intelligence.js';
