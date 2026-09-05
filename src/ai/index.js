@@ -24,3 +24,4 @@ export { FINANCIAL_DASHBOARD_ROLES, createFinancialIntelligenceService, createFi
 export { createAcademicAttendanceIntelligence, createAcademicAttendanceTools } from './academic-attendance-intelligence.js';
 export { createAdmissionsWorkforceIntelligence, createAdmissionsWorkforceTools } from './admissions-workforce-intelligence.js';
 export { createOperationalAnalyticsRegistry, createOperationalIntelligence, createOperationalTools, registerBuiltInOperationalProviders } from './operational-intelligence.js';
+export { KNOWLEDGE_SOURCE_STATUSES, createSchoolKnowledgeIntelligence, createSchoolKnowledgeTools, defineKnowledgeSource, syncRepositoryKnowledgeSources } from './school-knowledge-intelligence.js';

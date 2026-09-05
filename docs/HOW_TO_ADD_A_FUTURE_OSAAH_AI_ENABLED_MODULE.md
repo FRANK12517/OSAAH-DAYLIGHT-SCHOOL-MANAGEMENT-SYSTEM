@@ -11,6 +11,8 @@ OSAAH modules are not AI-enabled automatically. A new module must first register
 5. Activate the manifest with `ai.enabled = true` only after declaring tools, metrics, `health`, `productionDataOnly: true`, and `dataQualityAware: true`.
 6. Add regression tests for authorization, cross-school isolation, Production Data Guard exclusions, quality degradation, unknown metrics/tools, WRITE denial, dashboard visibility, exceptions, and provider outage.
 
+Knowledge ingestion is optional. A validated module may declare `ai.knowledgeSources` and register each source with an explicit status, authority flag, permission scope, production provenance, and retrievable sanitized text. Draft, superseded, archived, arbitrary-upload, credential-bearing, or otherwise private content must not be indexed. Updating a source must replace its chunks while preserving its source identity and metadata.
+
 Example test-only registration:
 
 ```js
