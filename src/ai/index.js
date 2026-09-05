@@ -25,3 +25,4 @@ export { createAcademicAttendanceIntelligence, createAcademicAttendanceTools } f
 export { createAdmissionsWorkforceIntelligence, createAdmissionsWorkforceTools } from './admissions-workforce-intelligence.js';
 export { createOperationalAnalyticsRegistry, createOperationalIntelligence, createOperationalTools, registerBuiltInOperationalProviders } from './operational-intelligence.js';
 export { KNOWLEDGE_SOURCE_STATUSES, createSchoolKnowledgeIntelligence, createSchoolKnowledgeTools, defineKnowledgeSource, syncRepositoryKnowledgeSources } from './school-knowledge-intelligence.js';
+export { createExecutiveCapabilityAdapters, createExecutiveIntelligence } from './executive-intelligence.js';
