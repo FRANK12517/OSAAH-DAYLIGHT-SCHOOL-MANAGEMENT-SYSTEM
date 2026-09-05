@@ -7,6 +7,7 @@ const peopleModule = import('/admissions-workforce-intelligence.js');
 const operationalModule = import('/operational-intelligence.js');
 const executiveModule = import('/executive-intelligence.js');
 const actionReviewModule = import('/ai-action-review.js');
+const aiAdministrationModule = import('/ai-administration.js');
 const assistantObserver = new MutationObserver(() => { const workspace = document.querySelector('#dashboard .workspace'); if (workspace && !workspace.querySelector('#osaah-ai-assistant')) assistantModule.then(({ mount }) => mount(workspace)).catch(() => {}); });
 const financialObserver = new MutationObserver(() => { const workspace = document.querySelector('#dashboard .workspace'); if (workspace && !workspace.querySelector('#osaah-financial-intelligence')) financialModule.then(({ mount }) => mount(workspace)).catch(() => {}); });
 const learningObserver = new MutationObserver(() => { const workspace = document.querySelector('#dashboard .workspace'); if (workspace && !workspace.querySelector('#osaah-learning-intelligence')) learningModule.then(({ mount }) => mount(workspace)).catch(() => {}); });
@@ -14,6 +15,7 @@ const peopleObserver = new MutationObserver(() => { const workspace = document.q
 const operationalObserver = new MutationObserver(() => { const workspace = document.querySelector('#dashboard .workspace'); if (workspace && !workspace.querySelector('#osaah-operational-intelligence')) operationalModule.then(({ mount }) => mount(workspace)).catch(() => {}); });
 const executiveObserver = new MutationObserver(() => { const workspace = document.querySelector('#dashboard .workspace'); if (workspace && !workspace.querySelector('#osaah-executive-intelligence')) executiveModule.then(({ mount }) => mount(workspace)).catch(() => {}); });
 const actionReviewObserver = new MutationObserver(() => { const workspace = document.querySelector('#dashboard .workspace'); if (workspace && !workspace.querySelector('#osaah-ai-action-review')) actionReviewModule.then(({ mount }) => mount(workspace)).catch(() => {}); });
+const aiAdministrationObserver = new MutationObserver(() => { const workspace = document.querySelector('#dashboard .workspace'); if (workspace && !workspace.querySelector('#osaah-ai-administration')) aiAdministrationModule.then(({ mount }) => mount(workspace)).catch(() => {}); });
 assistantObserver.observe(document.querySelector('#dashboard'), { childList: true });
 financialObserver.observe(document.querySelector('#dashboard'), { childList: true });
 learningObserver.observe(document.querySelector('#dashboard'), { childList: true });
@@ -21,6 +23,7 @@ peopleObserver.observe(document.querySelector('#dashboard'), { childList: true }
 operationalObserver.observe(document.querySelector('#dashboard'), { childList: true });
 executiveObserver.observe(document.querySelector('#dashboard'), { childList: true });
 actionReviewObserver.observe(document.querySelector('#dashboard'), { childList: true });
+aiAdministrationObserver.observe(document.querySelector('#dashboard'), { childList: true });
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character]));
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 const RETRY_KEY = 'osaah_retry_queue_v1';

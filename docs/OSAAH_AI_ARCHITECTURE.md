@@ -344,3 +344,7 @@ The proactive feed consumes only existing engine indicators and non-COMPLETE qua
 AI may prepare only five registered, low-risk action types: school notices, reports, reminders, management notes, and follow-up tasks. Records follow a durable draft, submission, approval/rejection, and execution lifecycle. The repository migration establishes school-scoped idempotency and optimistic versions. Every transition rechecks authenticated school scope and current RBAC; self-approval is denied by default.
 
 An HMAC-SHA-256 integrity value, keyed by `OSAAH_AI_ACTION_INTEGRITY_KEY`, covers the full approval-relevant action. Execution verifies this seal, claims the action with a compare-and-swap version update, and invokes only a registered adapter backed by an existing OSAAH communication or reporting service. Replays return the stored terminal result. Scores, attendance, finance, admissions, workforce, permissions, deletion, and configuration actions are never registered.
+
+## AI Administration and Production Acceptance
+
+The restricted AI Administration health surface reports only bounded operational metadata with `HEALTHY`, `DEGRADED`, and `UNAVAILABLE` states. It covers provider/model state, Gateway, Orchestrator, registries, guards, School Context, audit persistence, controlled actions, safe recent error codes, request counts, latency, and token/cost totals where available. Health results are cached briefly to avoid dashboard request storms and repeated provider checks. Secrets, prompts, session data, and domain rows are never returned.
