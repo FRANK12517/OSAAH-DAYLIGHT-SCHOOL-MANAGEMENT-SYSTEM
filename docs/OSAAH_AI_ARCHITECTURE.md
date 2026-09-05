@@ -345,6 +345,14 @@ AI may prepare only five registered, low-risk action types: school notices, repo
 
 An HMAC-SHA-256 integrity value, keyed by `OSAAH_AI_ACTION_INTEGRITY_KEY`, covers the full approval-relevant action. Execution verifies this seal, claims the action with a compare-and-swap version update, and invokes only a registered adapter backed by an existing OSAAH communication or reporting service. Replays return the stored terminal result. Scores, attendance, finance, admissions, workforce, permissions, deletion, and configuration actions are never registered.
 
+### Durable audit and action persistence
+
+Production startup resolves the approved server-side adapter named by `OSAAH_DATABASE_ADAPTER_MODULE`. The adapter supplies parameterized query/execute, transactions, and health checks to the repository-native stores for `018_ai_audit_logs.sql` and `022_ai_human_controlled_actions.sql`. Production fails closed when that adapter is absent, invalid, or unavailable; in-memory stores are available only through an explicit non-production selection.
+
+Audit writes are append-only. Operational audit reads require a school scope, accept only bounded event filters, and return at most 100 recent records. Controlled-action reads are school-scoped, idempotency is enforced by both repository checks and the schema constraint, and each state transition uses a version-qualified compare-and-swap inside the adapter transaction. A restart reconstructs the exact integrity-covered action before approval or execution continues. Database adapters stay inside the persistence boundary and are never passed to AI tools, providers, or browser responses.
+
+Before enabling production AI, run the migration workflow in `PRODUCTION_MIGRATIONS.md`, configure the adapter module and its vendor-specific credentials in the deployment secret manager, set a stable `OSAAH_AI_ACTION_INTEGRITY_KEY`, and verify both persistence health states in AI Administration. No database vendor or credential is selected by this repository.
+
 ## AI Administration and Production Acceptance
 
 The restricted AI Administration health surface reports only bounded operational metadata with `HEALTHY`, `DEGRADED`, and `UNAVAILABLE` states. It covers provider/model state, Gateway, Orchestrator, registries, guards, School Context, audit persistence, controlled actions, safe recent error codes, request counts, latency, and token/cost totals where available. Health results are cached briefly to avoid dashboard request storms and repeated provider checks. Secrets, prompts, session data, and domain rows are never returned.

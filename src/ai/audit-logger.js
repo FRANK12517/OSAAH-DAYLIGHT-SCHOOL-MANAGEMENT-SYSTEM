@@ -60,7 +60,7 @@ function createEvent(input, clock, environment) {
 
 export function createInMemoryAIAuditSink(initialEvents = []) {
   const events = [...initialEvents];
-  return Object.freeze({ append: async (event) => { events.push(event); }, list: () => Object.freeze([...events]) });
+  return Object.freeze({ durable: false, healthCheck: async () => ({ healthy: true, durable: false }), append: async (event) => { events.push(event); }, list: () => Object.freeze([...events]) });
 }
 
 export function createAIAuditLogger({ sink = createInMemoryAIAuditSink(), clock = () => new Date().toISOString(), environment = process.env.NODE_ENV ?? 'development', retention = {}, onFailure = (error) => console.error('AI_AUDIT_PERSISTENCE_FAILED', error.code) } = {}) {
@@ -71,7 +71,14 @@ export function createAIAuditLogger({ sink = createInMemoryAIAuditSink(), clock 
   }
   function recent({ limit = 50, schoolId } = {}) {
     const events = typeof sink.list === 'function' ? sink.list() : [];
+    if (!Array.isArray(events)) return Object.freeze([]);
     return Object.freeze(events.filter((event) => !schoolId || event.schoolId === schoolId).slice(-Math.max(0, Math.min(limit, 100))).reverse());
   }
-  return Object.freeze({ record, recent, retention: Object.freeze({ policyName: retention.policyName ?? 'CENTRALLY_MANAGED', retentionDays: retention.retentionDays ?? null, hardDeleteDuringRequest: false }), eventTypes: Object.freeze([...EVENT_TYPES]) });
+  async function recentAsync({ limit = 50, schoolId, eventTypes = [] } = {}) {
+    const events = typeof sink.list === 'function' ? await sink.list({ limit, schoolId, eventTypes }) : [];
+    const ordered = sink.durable ? events : [...events].reverse();
+    return Object.freeze(ordered.filter((event) => (!schoolId || event.schoolId === schoolId) && (!eventTypes.length || eventTypes.includes(event.eventType))).slice(0, Math.max(0, Math.min(limit, 100))));
+  }
+  async function healthCheck() { return typeof sink.healthCheck === 'function' ? sink.healthCheck() : { healthy: true, durable: Boolean(sink.durable) }; }
+  return Object.freeze({ record, recent, recentAsync, healthCheck, durable: Boolean(sink.durable), retention: Object.freeze({ policyName: retention.policyName ?? 'CENTRALLY_MANAGED', retentionDays: retention.retentionDays ?? null, hardDeleteDuringRequest: false }), eventTypes: Object.freeze([...EVENT_TYPES]) });
 }

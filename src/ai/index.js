@@ -27,4 +27,5 @@ export { createOperationalAnalyticsRegistry, createOperationalIntelligence, crea
 export { KNOWLEDGE_SOURCE_STATUSES, createSchoolKnowledgeIntelligence, createSchoolKnowledgeTools, defineKnowledgeSource, syncRepositoryKnowledgeSources } from './school-knowledge-intelligence.js';
 export { createExecutiveCapabilityAdapters, createExecutiveIntelligence } from './executive-intelligence.js';
 export { AI_ACTION_STATUSES, AI_ACTION_TYPES, createAIActionAdapters, createAIActionStore, createHumanControlledActions } from './human-controlled-actions.js';
+export { createDatabaseAIAuditSink, createDatabaseAIActionStore, loadConfiguredAIPersistence, selectAIPersistence } from './durable-stores.js';
 export { createAIAdministration } from './administration.js';
