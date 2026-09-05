@@ -6,7 +6,10 @@
   "type": "module",
   "scripts": {
     "start": "node src/server.mjs",
-    "test": "node --test"
+    "test": "node --test",
+    "migration:status": "node scripts/migrate.mjs status",
+    "migration:apply": "node scripts/migrate.mjs apply",
+    "migration:validate": "node scripts/migrate.mjs validate"
   },
   "engines": {
     "node": ">=20"
