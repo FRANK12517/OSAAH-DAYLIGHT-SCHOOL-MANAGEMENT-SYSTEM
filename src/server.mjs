@@ -24,6 +24,7 @@ import { createSignatureService } from './signatures.js';
 import { createReceiptBrandingService } from './receipt-branding.js';
 import { createSportingActivitiesService, SPORTING_PERMISSIONS } from './sporting-activities.js';
 import { createSubjectRegisterService, SUBJECT_REGISTER_PERMISSIONS } from './subject-register.js';
+import { createShepActivitiesService, SHEP_PERMISSIONS } from './shep-activities.js';
 import { createAdmissionProspectusPdfService } from './admission-prospectus-pdf.js';
 import { createFinancialIntelligenceService } from './ai/financial-intelligence.js';
 import { createAcademicAttendanceIntelligence } from './ai/academic-attendance-intelligence.js';
@@ -35,10 +36,11 @@ const root = join(fileURLToPath(new URL('.', import.meta.url)), '..', 'public');
 const mime = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.svg': 'image/svg+xml' };
 const branding = { schoolName: 'OSAAH DAYLIGHT SCH. COM.', location: 'BOGOSO', motto: 'AIM HIGH, ACADEMIC IS OUR CORE VALUE', logoPath: '/assets/osaah-daylight-logo.png', colours: { navy: '#102a43', royalBlue: '#1769aa', gold: '#d4a72c', white: '#ffffff' } };
 
-export function createApp({ auth = createAuthService(), students = createStudentService(), attendance = createAttendanceService(), examinations = createExaminationService(), fees = createFeeService(), staff = createStaffService(), communication = createCommunicationService(), operations = createOperationsService(), resources = createResourceService(), compliance = createComplianceService(), reporting = createReportingService(), admissionForms = createAdmissionFormService(), admissionProspectus = createAdmissionProspectusService(), subjects = createSubjectService(), signatures = createSignatureService(), academicResults = null, receiptBranding = null, prospectusPdf = createAdmissionProspectusPdfService(), sportingActivities = null, subjectRegister = null, aiGateway = null, aiConversation = null, financialIntelligence = null, academicAttendanceIntelligence = null, admissionsWorkforceIntelligence = null, operationalIntelligence = null, audit = () => {} } = {}) {
+export function createApp({ auth = createAuthService(), students = createStudentService(), attendance = createAttendanceService(), examinations = createExaminationService(), fees = createFeeService(), staff = createStaffService(), communication = createCommunicationService(), operations = createOperationsService(), resources = createResourceService(), compliance = createComplianceService(), reporting = createReportingService(), admissionForms = createAdmissionFormService(), admissionProspectus = createAdmissionProspectusService(), subjects = createSubjectService(), signatures = createSignatureService(), academicResults = null, receiptBranding = null, prospectusPdf = createAdmissionProspectusPdfService(), sportingActivities = null, subjectRegister = null, shepActivities = null, aiGateway = null, aiConversation = null, financialIntelligence = null, academicAttendanceIntelligence = null, admissionsWorkforceIntelligence = null, operationalIntelligence = null, audit = () => {} } = {}) {
   sportingActivities ??= createSportingActivitiesService({ students });
   subjectRegister ??= createSubjectRegisterService({ subjects, staff });
   academicResults ??= createAcademicResultsService({ students, subjects, signatures, subjectRegister });
+  shepActivities ??= createShepActivitiesService({ students, staff });
   receiptBranding ??= createReceiptBrandingService({ fees, students });
   financialIntelligence ??= createFinancialIntelligenceService({ fees });
   academicAttendanceIntelligence ??= createAcademicAttendanceIntelligence({ academicResults, attendance, students, subjects, staff });
@@ -82,6 +84,26 @@ export function createApp({ auth = createAuthService(), students = createStudent
       }
       if (!user) return json(response, { error: 'Authentication required.' }, 401);
       if (pathname === '/api/sidebar') return json(response, { user: publicUser(user), portal: user.portal, categories: visibleSidebar({ permissions: user.permissions, roleKey: user.roleKey, portal: user.portal, schoolType: user.schoolType, subscription: user.subscription, entitlements: user.entitlements, featureAvailability: user.featureAvailability }), parentCards: user.portal === 'parent' ? parentDashboardModules() : [] });
+      if (pathname.startsWith('/api/shep-activities')) {
+        if (user.portal !== 'school' || !canAccess(user, SHEP_PERMISSIONS.view)) return json(response, { error: 'Forbidden.' }, 403);
+        const query = Object.fromEntries(new URL(request.url, 'http://localhost').searchParams); const parts = pathname.split('/').filter(Boolean); const id = parts[2]; const actor = { id: user.id, schoolId: user.schoolId, roleKey: user.roleKey, permissions: user.permissions, assignedClassIds: user.assignedClassIds, assignedStudentIds: user.assignedStudentIds };
+        try {
+          if (pathname === '/api/shep-activities/options' && request.method === 'GET') return json(response, shepActivities.options());
+          if (pathname === '/api/shep-activities/dashboard' && request.method === 'GET') return json(response, shepActivities.dashboard(query, actor));
+          if (pathname === '/api/shep-activities' && request.method === 'GET') return json(response, { activities: shepActivities.list(query, actor) });
+          if (pathname === '/api/shep-activities' && request.method === 'POST') { const result = shepActivities.create(await readJson(request), actor); audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, roleId: user.roleKey, action: 'SHEP_ACTIVITY_CREATED', entity: 'ShepActivity', entityId: result.id, newValue: result })); return json(response, result, 201); }
+          if (pathname === '/api/shep-activities/report' && request.method === 'GET') return json(response, shepActivities.report(query, actor));
+          if (pathname === '/api/shep-activities/participants' && request.method === 'POST') return json(response, shepActivities.addParticipant(await readJson(request), actor), 201);
+          if (pathname === '/api/shep-activities/referrals' && request.method === 'GET') return json(response, { referrals: shepActivities.listReferrals(query, actor) });
+          if (pathname === '/api/shep-activities/referrals' && request.method === 'POST') return json(response, shepActivities.createReferral(await readJson(request), actor), 201);
+          if (id && parts[3] === 'participants' && request.method === 'GET') return json(response, { participants: shepActivities.listParticipants(id, actor) });
+          if (id && parts[3] === 'referrals' && request.method === 'GET') return json(response, { referrals: shepActivities.listReferrals({ activityId: id }, actor) });
+          if (parts[2] === 'referrals' && parts[3] && request.method === 'PATCH') return json(response, shepActivities.updateReferral(parts[3], await readJson(request), actor));
+          if (id && request.method === 'GET') return json(response, shepActivities.detail(id, actor));
+          if (id && request.method === 'PATCH') return json(response, shepActivities.update(id, await readJson(request), actor));
+        } catch (error) { return json(response, { error: error.message }, error.status ?? (error.message === 'Forbidden.' ? 403 : 400)); }
+        return json(response, { error: 'Not found.' }, 404);
+      }
       if (pathname.startsWith('/api/subject-register')) {
         if (user.portal !== 'school' || !canAccess(user, SUBJECT_REGISTER_PERMISSIONS.view)) return json(response, { error: 'Forbidden.' }, 403);
         const query = Object.fromEntries(new URL(request.url, 'http://localhost').searchParams); const parts = pathname.split('/').filter(Boolean); const id = parts[2]; const actor = { id: user.id, schoolId: user.schoolId, roleKey: user.roleKey, permissions: user.permissions };
@@ -263,7 +285,7 @@ export function createApp({ auth = createAuthService(), students = createStudent
       return json(response, { error: 'Not found.' }, 404);
     }
     const pageAliases = { '/academics': '/academics.html', '/students': '/students.html', '/admissions': '/admissions.html', '/attendance': '/attendance.html', '/examinations': '/examinations.html', '/results': '/results.html', '/promotion': '/results.html', '/fees': '/fees.html', '/fees/admission-structures': '/admission-fees.html', '/fees/scholarships': '/fees.html', '/finance': '/finance.html', '/staff': '/staff.html', '/staff/professional-development': '/staff.html', '/administrator-management': '/administrator-management.html', '/staff-management': '/staff-management.html', '/settings': '/index.html', '/communication': '/communication.html', '/communication/messages': '/communication.html', '/communication/calendar': '/communication.html', '/compliance': '/compliance.html', '/documents': '/documents.html', '/privacy': '/privacy.html', '/inventory': '/inventory.html', '/assets': '/assets.html', '/procurement': '/procurement.html', '/property': '/assets.html', '/library': '/library.html', '/transport': '/transport.html', '/sporting-activities': '/sporting-activities.html', '/transport/gps': '/transport.html', '/hostel': '/hostel.html', '/welfare/health': '/welfare.html', '/welfare/discipline': '/welfare.html', '/welfare/counselling': '/welfare.html' };
-    Object.assign(pageAliases, { '/reports': '/reports.html', '/reports/academic': '/reports-academic.html', '/reports/financial': '/reports-financial.html', '/official-documents': '/official-documents.html', '/website': '/website.html', '/admissions/prospectus': '/admission-prospectus.html', '/parent/admission-prospectus': '/parent-admission-prospectus.html', '/examinations/marks': '/examinations.html', '/examinations/mock': '/mock-examinations.html', '/results/mock': '/results.html', '/academics/subjects': '/subjects.html', '/academics/subject-register': '/subject-register.html', '/settings/result-signatures': '/result-signatures.html', '/fees/invoices': '/receipts.html' });
+    Object.assign(pageAliases, { '/reports': '/reports.html', '/reports/academic': '/reports-academic.html', '/reports/financial': '/reports-financial.html', '/official-documents': '/official-documents.html', '/website': '/website.html', '/admissions/prospectus': '/admission-prospectus.html', '/parent/admission-prospectus': '/parent-admission-prospectus.html', '/examinations/marks': '/examinations.html', '/examinations/mock': '/mock-examinations.html', '/results/mock': '/results.html', '/academics/subjects': '/subjects.html', '/academics/subject-register': '/subject-register.html', '/welfare/shep': '/shep-activities.html', '/settings/result-signatures': '/result-signatures.html', '/fees/invoices': '/receipts.html' });
     Object.assign(pageAliases, { '/admissions/analytics': '/admission-analytics.html' });
     const protectedPage = pathname !== '/parent/admission-prospectus' && SIDEBAR_MODULES.some((module) => module.route === pathname && module.moduleKey !== 'dashboard' && module.moduleKey !== 'logout');
     if (protectedPage) {
