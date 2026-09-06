@@ -35,14 +35,14 @@ import { createExecutiveCapabilityAdapters, createExecutiveIntelligence } from '
 import { createAIActionAdapters, createHumanControlledActions } from './ai/human-controlled-actions.js';
 import { createAIAdministration } from './ai/administration.js';
 import { createAIAuditLogger } from './ai/audit-logger.js';
-import { loadConfiguredAIPersistence, selectAIPersistence } from './ai/durable-stores.js';
+import { createDisabledAIPersistence, loadConfiguredAIPersistence, selectAIPersistence } from './ai/durable-stores.js';
 import './module-registry.js';
 
 const root = join(fileURLToPath(new URL('.', import.meta.url)), '..', 'public');
 const mime = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.svg': 'image/svg+xml' };
 const branding = { schoolName: 'OSAAH DAYLIGHT SCH. COM.', location: 'BOGOSO', motto: 'AIM HIGH, ACADEMIC IS OUR CORE VALUE', logoPath: '/assets/osaah-daylight-logo.png', colours: { navy: '#102a43', royalBlue: '#1769aa', gold: '#d4a72c', white: '#ffffff' } };
 
-export function createApp({ auth = createAuthService(), students = createStudentService(), attendance = createAttendanceService(), examinations = createExaminationService(), fees = createFeeService(), staff = createStaffService(), communication = createCommunicationService(), operations = createOperationsService(), resources = createResourceService(), compliance = createComplianceService(), reporting = createReportingService(), admissionForms = createAdmissionFormService(), admissionProspectus = createAdmissionProspectusService(), subjects = createSubjectService(), signatures = createSignatureService(), academicResults = null, receiptBranding = null, prospectusPdf = createAdmissionProspectusPdfService(), sportingActivities = null, subjectRegister = null, shepActivities = null, aiGateway = null, aiConversation = null, financialIntelligence = null, academicAttendanceIntelligence = null, admissionsWorkforceIntelligence = null, operationalIntelligence = null, schoolKnowledgeIntelligence = null, executiveIntelligence = null, humanControlledActions = null, aiPersistence = null, audit = () => {} } = {}) {
+export function createApp({ auth = createAuthService(), students = createStudentService(), attendance = createAttendanceService(), examinations = createExaminationService(), fees = createFeeService(), staff = createStaffService(), communication = createCommunicationService(), operations = createOperationsService(), resources = createResourceService(), compliance = createComplianceService(), reporting = createReportingService(), admissionForms = createAdmissionFormService(), admissionProspectus = createAdmissionProspectusService(), subjects = createSubjectService(), signatures = createSignatureService(), academicResults = null, receiptBranding = null, prospectusPdf = createAdmissionProspectusPdfService(), sportingActivities = null, subjectRegister = null, shepActivities = null, aiGateway = null, aiConversation = null, financialIntelligence = null, academicAttendanceIntelligence = null, admissionsWorkforceIntelligence = null, operationalIntelligence = null, schoolKnowledgeIntelligence = null, executiveIntelligence = null, humanControlledActions = null, aiPersistence = null, aiEnabled = null, audit = () => {} } = {}) {
   const persistence = aiPersistence ?? selectAIPersistence({ environment: process.env.NODE_ENV ?? 'development', allowMemory: process.env.NODE_ENV !== 'production' });
   const aiAuditLogger = createAIAuditLogger({ sink: persistence.auditSink });
   sportingActivities ??= createSportingActivitiesService({ students });
@@ -57,7 +57,7 @@ export function createApp({ auth = createAuthService(), students = createStudent
   schoolKnowledgeIntelligence ??= createSchoolKnowledgeIntelligence();
   executiveIntelligence ??= createExecutiveIntelligence({ capabilities: createExecutiveCapabilityAdapters({ financialIntelligence, academicAttendanceIntelligence, admissionsWorkforceIntelligence, operationalIntelligence, schoolKnowledgeIntelligence }), revisionSources: [fees, academicResults, attendance], auditLogger: aiAuditLogger });
   humanControlledActions ??= createHumanControlledActions({ store: persistence.actionStore, adapters: createAIActionAdapters({ communication, reporting, reportingFeeds: { students, attendance, examinations, fees } }), auditLogger: aiAuditLogger });
-  const aiRuntimeEnabled = String(process.env.OSAAH_AI_ENABLED ?? 'true').toLowerCase() !== 'false';
+  const aiRuntimeEnabled = aiEnabled ?? (String(process.env.OSAAH_AI_ENABLED ?? 'true').toLowerCase() !== 'false');
   const aiAdministration = createAIAdministration({ enabled: aiRuntimeEnabled, auditLogger: aiAuditLogger, components: { gateway: aiGateway ? 'HEALTHY' : 'DEGRADED', orchestrator: aiConversation ? 'HEALTHY' : 'DEGRADED', productionDataGuard: 'HEALTHY', dataQualityGuard: 'HEALTHY', schoolContext: 'HEALTHY', humanControlledActions } });
   receiptBranding.validateAssets().catch((error) => console.error(`Receipt branding validation failed: ${error.message}`));
   return async function handle(request, response) {
@@ -321,7 +321,8 @@ export function createApp({ auth = createAuthService(), students = createStudent
     try { const body = await readFile(join(root, file)); const revalidate = ['.html', '.js', '.css', '.webmanifest'].includes(extname(file)); response.writeHead(200, { 'Content-Type': mime[extname(file)] ?? 'application/octet-stream', ...(revalidate ? { 'Cache-Control': 'no-cache, must-revalidate' } : {}), ...(publicAdmissionCookie ? { 'Set-Cookie': publicAdmissionCookie } : {}) }); response.end(body); } catch { response.writeHead(404); response.end('Not found'); }
   };
 }
-const app = createApp({ aiPersistence: await loadConfiguredAIPersistence() });
+const aiEnabled = String(process.env.OSAAH_AI_ENABLED ?? 'false').toLowerCase() === 'true';
+const app = createApp({ aiEnabled, aiPersistence: aiEnabled ? await loadConfiguredAIPersistence() : createDisabledAIPersistence() });
 const server = createServer(app);
 const port = Number(process.env.OSAAH_PORT || 3000);
 if (process.env.NODE_ENV !== 'production' && process.argv[1] === fileURLToPath(import.meta.url)) {
