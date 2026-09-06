@@ -4,6 +4,11 @@ export const SIDEBAR_CATEGORY_REGISTRY = [
   ['administrative', 'ADMINISTRATIVE'], ['students_management', 'STUDENTS MANAGEMENT'], ['admissions', 'ADMISSIONS'], ['academics', 'ACADEMICS'], ['attendance_management', 'ATTENDANCE MANAGEMENT'], ['examinations_results', 'EXAMINATIONS & RESULTS'], ['fee_hub', 'FEE HUB'], ['finance', 'FINANCE'], ['staff_management', 'STAFF MANAGEMENT'], ['communication_hub', 'COMMUNICATION HUB'], ['library_management', 'LIBRARY MANAGEMENT'], ['transport_management', 'TRANSPORT MANAGEMENT'], ['hostel_management', 'HOSTEL MANAGEMENT'], ['health_welfare', 'HEALTH & WELFARE'], ['inventory_stores', 'INVENTORY & STORES'], ['assets_property', 'ASSETS & PROPERTY'], ['procurement', 'PROCUREMENT'], ['compliance_documents', 'COMPLIANCE & DOCUMENTS'], ['reports_analytics', 'REPORTS & ANALYTICS'], ['system_security', 'SYSTEM & SECURITY']
 ].map(([categoryId, categoryName], index) => Object.freeze({ categoryId, categoryName, displayOrder: index + 1 }));
 export const SIDEBAR_CATEGORIES = SIDEBAR_CATEGORY_REGISTRY.map((category) => category.categoryName);
+export const PROPRIETOR_SIDEBAR_CATEGORIES = Object.freeze([
+  'DASHBOARD OVERVIEW', 'ADMINISTRATIVE', 'ACADEMIC OVERSIGHT', 'FINANCE', 'STAFF & HR',
+  'STUDENT MANAGEMENT', 'REPORTS & ANALYTICS', 'COMMUNICATION', 'SCHOOL OPERATIONS',
+  'SYSTEM & INFORMATION', 'USER GUIDE'
+]);
 export const SIDEBAR_DIAGNOSTICS = [];
 
 export const DEFAULT_CATEGORY_ROLES = Object.freeze({
@@ -46,7 +51,7 @@ const CATEGORY_ALIASES = { ADMINISTRATION: 'ADMINISTRATIVE', 'DASHBOARD / HOME':
 const KEYWORDS = [['attendance', 'ATTENDANCE & REGISTERS'], ['register', 'ATTENDANCE & REGISTERS'], ['transport', 'TRANSPORT MANAGEMENT'], ['vehicle', 'TRANSPORT MANAGEMENT'], ['hostel', 'HOSTEL MANAGEMENT'], ['boarding', 'HOSTEL MANAGEMENT'], ['staff', 'STAFF & HR'], ['leave', 'STAFF & HR'], ['payroll', 'STAFF & HR'], ['communication', 'COMMUNICATION HUB'], ['message', 'COMMUNICATION HUB'], ['sms', 'COMMUNICATION HUB'], ['email', 'COMMUNICATION HUB'], ['admission', 'ADMISSIONS & STUDENTS'], ['student', 'ADMISSIONS & STUDENTS'], ['academic', 'ACADEMICS'], ['exam', 'ACADEMICS'], ['result', 'ACADEMICS'], ['lesson', 'ACADEMICS'], ['fee', 'FEES & FINANCE'], ['payment', 'FEES & FINANCE'], ['receipt', 'FEES & FINANCE'], ['finance', 'FEES & FINANCE'], ['report', 'REPORTS & ANALYTICS'], ['analytics', 'REPORTS & ANALYTICS'], ['help', 'HELP & SUPPORT'], ['guide', 'HELP & SUPPORT'], ['support', 'HELP & SUPPORT'], ['multi-school', 'MULTI-SCHOOL / SYSTEM OVERSIGHT'], ['school-switch', 'MULTI-SCHOOL / SYSTEM OVERSIGHT'], ['setting', 'ADMINISTRATION'], ['user', 'ADMINISTRATION'], ['role', 'ADMINISTRATION'], ['permission', 'ADMINISTRATION'], ['audit', 'ADMINISTRATION'], ['privacy', 'ADMINISTRATION']];
 
 export const SIDEBAR_MODULES = [
-  { moduleKey: 'dashboard', moduleName: 'Dashboard', category: 'DASHBOARD / HOME', route: '/', icon: '⌂', displayOrder: 1, priority: 10, requiredPermission: null, roles: ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'TEACHER', 'PARENT'] },
+  { moduleKey: 'dashboard', moduleName: 'Dashboard Overview', category: 'DASHBOARD / HOME', route: '/', icon: '⌂', displayOrder: 1, priority: 10, requiredPermission: null, roles: ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'TEACHER', 'PARENT'] },
   { moduleKey: 'logout', moduleName: 'Logout', category: 'LOGOUT', route: '/logout', icon: '↪', displayOrder: 9999, priority: 9999, requiredPermission: null, roles: [] },
   { moduleKey: 'academics', moduleName: 'Academics', category: 'ACADEMICS', route: '/academics', icon: '▣', displayOrder: 1, priority: 10, requiredPermission: 'academics.read', roles: ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'TEACHER'] },
   { moduleKey: 'fees', moduleName: 'Fees', category: 'FEES & FINANCE', route: '/fees', icon: '$', displayOrder: 1, priority: 10, requiredPermission: 'fees.read', roles: ['PROPRIETOR', 'ACCOUNTANT_BURSAR'] },
@@ -55,8 +60,8 @@ export const SIDEBAR_MODULES = [
   { moduleKey: 'transport', moduleName: 'Transport', category: 'TRANSPORT MANAGEMENT', route: '/transport', icon: '▰', displayOrder: 1, priority: 10, requiredPermission: 'transport.read', roles: ['PROPRIETOR', 'TRANSPORT_MANAGER', 'DRIVER', 'PARENT'] },
   { moduleKey: 'settings', moduleName: 'School Settings', category: 'ADMINISTRATIVE', route: '/settings', icon: '⚙', displayOrder: 2, priority: 20, requiredPermission: 'settings.read', roles: ['PROPRIETOR', 'SCHOOL_ADMIN'] },
   { moduleKey: 'users', moduleName: 'Users & Roles', category: 'ADMINISTRATIVE', route: '/users', icon: '◉', displayOrder: 3, priority: 30, requiredPermission: 'users.read', roles: ['PROPRIETOR', 'SCHOOL_ADMIN'] },
-  { moduleKey: 'multi-school-panel', moduleName: 'Multi-School Panel', category: 'MULTI-SCHOOL / SYSTEM OVERSIGHT', route: '/settings', icon: '▦', displayOrder: 4, priority: 40, requiredPermission: 'users.read', roles: ['PROPRIETOR', 'SCHOOL_ADMIN'] },
-  { moduleKey: 'user-guide', moduleName: 'User Guide', category: 'HELP & SUPPORT', route: '/settings', icon: '?', displayOrder: 5, priority: 50, requiredPermission: null, roles: [] }
+  { moduleKey: 'multi-school-panel', moduleName: 'Multi-School Panel', category: 'MULTI-SCHOOL / SYSTEM OVERSIGHT', route: '/settings/multi-school', icon: '▦', displayOrder: 4, priority: 40, requiredPermission: 'users.read', roles: ['PROPRIETOR', 'SCHOOL_ADMIN'] },
+  { moduleKey: 'user-guide', moduleName: 'User Guide', category: 'HELP & SUPPORT', route: '/user-guide', icon: '?', displayOrder: 5, priority: 50, requiredPermission: null, roles: [] }
 ].map(normalizeModule);
 
 function canonicalCategory(category) { return CATEGORY_ALIASES[category] ?? category; }
@@ -73,7 +78,23 @@ export function visibleSidebar({ modules = SIDEBAR_MODULES, categories = SIDEBAR
   const effectivePortal = portal ?? (roleKey === 'PARENT' ? 'parent' : roleKey === 'STUDENT' ? 'student' : null);
   const isParentOrStudentOnly = (module, portalRole) => module.allowedRoles.length > 0 && module.allowedRoles.every((role) => role === portalRole);
   const visible = modules.map(normalizeModule).filter((module) => { if (module.parentDashboard || module.moduleKey === 'logout' && !roleKey) return false; const deviceVisible = device === 'mobile' ? module.mobileVisible : device === 'desktop' ? module.desktopVisible : true; const portalVisible = effectivePortal === 'parent' ? module.allowedRoles.includes('PARENT') || module.moduleKey === 'dashboard' || module.moduleKey === 'logout' : effectivePortal === 'student' ? module.allowedRoles.includes('STUDENT') || module.moduleKey === 'dashboard' || module.moduleKey === 'logout' : effectivePortal === 'school' ? !isParentOrStudentOnly(module, 'PARENT') && !isParentOrStudentOnly(module, 'STUDENT') : true; const roleVisible = !module.allowedRoles.length || !roleKey || module.allowedRoles.includes(roleKey); const authorized = module.visible && deviceVisible && portalVisible && module.enabled && module.status !== 'DISABLED' && hasAll(module.requiredPermissions, availablePermissions) && roleVisible; const allowed = authorized && hasEntitlement(module, { schoolType, subscription, entitlements: availableEntitlements, featureAvailability: availableFeatures }); if (debug) onDiagnostic({ module, visible: allowed, portal: effectivePortal, roleAuthorized: roleVisible }); return allowed; });
-  const groups = categories.map((category) => { const items = visible.filter((module) => module.category === category && module.moduleKey !== 'logout').sort((a, b) => a.priority - b.priority); const children = items.filter((module) => module.parentModule); return { category, modules: items.filter((module) => !module.parentModule).map((module) => ({ ...module, children: children.filter((child) => child.parentModule === module.moduleKey) })) }; }).filter((group) => group.modules.length);
+  const proprietorCategory = (module) => {
+    if (module.moduleKey === 'dashboard') return 'DASHBOARD OVERVIEW';
+    if (module.moduleKey === 'user-guide') return 'USER GUIDE';
+    if (['ADMINISTRATIVE'].includes(module.category)) return 'ADMINISTRATIVE';
+    if (['ACADEMICS', 'ATTENDANCE MANAGEMENT', 'EXAMINATIONS & RESULTS'].includes(module.category)) return 'ACADEMIC OVERSIGHT';
+    if (['FEE HUB', 'FINANCE'].includes(module.category)) return 'FINANCE';
+    if (module.category === 'STAFF MANAGEMENT') return 'STAFF & HR';
+    if (['STUDENTS MANAGEMENT', 'ADMISSIONS'].includes(module.category)) return 'STUDENT MANAGEMENT';
+    if (module.category === 'REPORTS & ANALYTICS') return 'REPORTS & ANALYTICS';
+    if (module.category === 'COMMUNICATION HUB') return 'COMMUNICATION';
+    if (['LIBRARY MANAGEMENT', 'TRANSPORT MANAGEMENT', 'HOSTEL MANAGEMENT', 'HEALTH & WELFARE', 'INVENTORY & STORES', 'ASSETS & PROPERTY', 'PROCUREMENT'].includes(module.category)) return 'SCHOOL OPERATIONS';
+    return 'SYSTEM & INFORMATION';
+  };
+  const proprietorPortal = roleKey === 'PROPRIETOR' && portal === 'school';
+  const effectiveCategories = proprietorPortal ? PROPRIETOR_SIDEBAR_CATEGORIES : categories;
+  const categorized = proprietorPortal ? visible.map((module) => ({ ...module, category: proprietorCategory(module) })) : visible;
+  const groups = effectiveCategories.map((category) => { const items = categorized.filter((module) => module.category === category && module.moduleKey !== 'logout').sort((a, b) => a.priority - b.priority); const children = items.filter((module) => module.parentModule); return { category, modules: items.filter((module) => !module.parentModule).map((module) => ({ ...module, children: children.filter((child) => child.parentModule === module.moduleKey) })) }; }).filter((group) => group.modules.length);
   const logout = visible.find((module) => module.moduleKey === 'logout'); if (logout) groups.push({ category: 'LOGOUT', modules: [{ ...logout, children: [] }] }); return groups;
 }
 
