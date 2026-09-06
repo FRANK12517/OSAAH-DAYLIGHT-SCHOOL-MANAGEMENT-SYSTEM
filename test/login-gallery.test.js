@@ -32,6 +32,23 @@ test('login gallery renders eleven responsive rows with accessible zoom controls
   }
 });
 
+test('parent and school sign-in share an accessible password visibility toggle', async () => {
+  const [html, css, script] = await Promise.all([
+    readFile(new URL('../public/index.html', import.meta.url), 'utf8'),
+    readFile(new URL('../public/styles.css', import.meta.url), 'utf8'),
+    readFile(new URL('../public/app.js', import.meta.url), 'utf8')
+  ]);
+  assert.match(html, /data-portal="parent"/);
+  assert.match(html, /data-portal="school"/);
+  assert.match(html, /id="password-input"[^>]+type="password"/);
+  assert.match(html, /id="password-toggle"[^>]+aria-label="Show password"/);
+  assert.match(html, /class="password-toggle-icon"/);
+  assert.match(script, /passwordInput\.type === 'password'/);
+  assert.match(script, /passwordToggle\.setAttribute\('aria-pressed'/);
+  assert.match(css, /\.password-field\{position:relative/);
+  assert.match(css, /\.password-toggle\{position:absolute/);
+});
+
 test('online admission centers its official logo responsively', async () => {
   const [html, css] = await Promise.all([
     readFile(new URL('../public/admission-application.html', import.meta.url), 'utf8'),

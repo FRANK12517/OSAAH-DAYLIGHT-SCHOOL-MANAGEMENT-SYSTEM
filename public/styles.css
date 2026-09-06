@@ -20,3 +20,9 @@
 .sidebar{height:100vh;height:100dvh;display:flex;flex-direction:column;overflow:hidden}.sidebar .brand{flex:0 0 auto}.sidebar nav{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;scrollbar-gutter:stable}
 @media(max-width:759px){.sidebar{height:auto;max-height:100dvh;overflow:hidden}.sidebar nav{flex:none;max-height:60dvh;touch-action:pan-y}}
 [hidden]{display:none!important}
+.password-field{position:relative;margin-top:7px}
+.login-form .password-field input{margin-top:0;padding-right:46px}
+.password-toggle{position:absolute;top:50%;right:0;display:grid;place-items:center;width:44px;height:44px;padding:0;border:0;border-radius:5px;background:transparent;color:#6f617b;cursor:pointer;transform:translateY(-50%)}
+.password-toggle:hover,.password-toggle:focus-visible{background:#102a430d;color:var(--navy);outline:3px solid #d4a72c55;outline-offset:1px}
+.password-toggle-icon{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.password-toggle:active{transform:translateY(-50%) scale(.96)}
