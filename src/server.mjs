@@ -69,6 +69,10 @@ export function createApp({ auth = createAuthService(), students = createStudent
     if (pathname.startsWith('/api/public/admission-prospectus/') && pathname.endsWith('/pdf') && request.method === 'GET') { const id = pathname.split('/').filter(Boolean)[3]; const prospectus = admissionProspectus.get(id, publicProspectusActor); if (!prospectus) return json(response, { error: 'Published prospectus not found.' }, 404); try { const body = await prospectusPdf.pdf(prospectus); response.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="${safeProspectusFilename(prospectus)}"`, 'Cache-Control': 'public, max-age=300' }); return response.end(body); } catch { return json(response, { error: 'Prospectus PDF is temporarily unavailable.' }, 500); } }
     if (pathname === '/api/auth/login' && request.method === 'POST') return login(request, response, auth, audit);
     if (pathname === '/api/auth/logout' && request.method === 'POST') { auth.logout(readCookie(request, 'osaah_session')); return json(response, { ok: true }, 204); }
+    if (pathname === '/api/auth/session' && request.method === 'GET') {
+      const user = auth.authenticate(readCookie(request, 'osaah_session') ?? bearer(request));
+      return user ? json(response, { user: publicUser(user), redirectTo: user.dashboard }) : json(response, { error: 'Authentication required.' }, 401);
+    }
     if (pathname === '/api/auth/password-reset' && request.method === 'POST') { const body = await readJson(request); return json(response, auth.requestPasswordReset(body.username ?? '')); }
     if (pathname === '/api/auth/password-reset/complete' && request.method === 'POST') { const body = await readJson(request); const result = auth.completePasswordReset(body.token ?? '', body.newPassword ?? ''); return json(response, result, result.ok ? 200 : 400); }
     if (pathname === '/api/documents/verify' && request.method === 'GET') return json(response, compliance.verifyDocument(new URL(request.url, 'http://localhost').searchParams.get('code') ?? ''));
