@@ -46,3 +46,26 @@ test('every registered proprietor route is directly renderable and remains serve
     assert.equal(await request('/finance', null), 401);
   } finally { await new Promise((resolve) => server.close(resolve)); }
 });
+
+
+test('authenticated proprietor session survives a full-page sidebar navigation landing on a different serverless instance', async () => {
+  const loginInstance = createAuthService();
+  const loginServer = createServer(createApp({ auth: loginInstance }));
+  await new Promise((resolve) => loginServer.listen(0, resolve));
+  let token;
+  try {
+    token = loginInstance.login({ username: 'proprietor@osaah.edu.gh', password: 'Proprietor123!', portal: 'school' }).token;
+  } finally { await new Promise((resolve) => loginServer.close(resolve)); }
+
+  const navigationInstance = createAuthService();
+  const navigationServer = createServer(createApp({ auth: navigationInstance }));
+  await new Promise((resolve) => navigationServer.listen(0, resolve));
+  try {
+    assert.ok(navigationInstance.authenticate(token), 'a different serverless instance must authenticate the signed token');
+    const status = await new Promise((resolve, reject) => {
+      const req = httpRequest({ port: navigationServer.address().port, path: '/finance', headers: { Cookie: `osaah_session=${token}` } }, (response) => { response.resume(); response.on('end', () => resolve(response.statusCode)); });
+      req.on('error', reject); req.end();
+    });
+    assert.equal(status, 200, 'sidebar navigation must not return Authentication required on a different instance');
+  } finally { await new Promise((resolve) => navigationServer.close(resolve)); }
+});
