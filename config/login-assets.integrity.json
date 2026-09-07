@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "purpose": "Immutable integrity manifest for the login logo and gallery. Update only with an intentional asset change and reviewer approval.",
+  "assets": [
+    {
+      "path": "public/assets/osaah-daylight-school-complex-logo.png",
+      "sha256": "b4cece49df4c0897e912cea166349904f4babc92ea413e0aad91542dff868973",
+      "bytes": 71401,
+      "width": 232,
+      "height": 321
+    },
+    {
+      "path": "public/assets/login-gallery/01-school-pride.jpg",
+      "sha256": "f25eb1811e8035d33f2e37fdd66ad8682548df156a3f3c176fabc5d730c78a00",
+      "bytes": 82549,
+      "width": 824,
+      "height": 618
+    },
+    {
+      "path": "public/assets/login-gallery/02-school-activity.jpg",
+      "sha256": "165d96472dbbc3a0a75a9402c3c0374c6dc723065a166d27287fcd7c75156c4c",
+      "bytes": 146468,
+      "width": 970,
+      "height": 666
+    },
+    {
+      "path": "public/assets/login-gallery/03-cultural-celebration.jpg",
+      "sha256": "7c8c6692c88eda878bea833ce24cf83d690642aba6dc626d33c6430ce7e5ffd8",
+      "bytes": 71415,
+      "width": 520,
+      "height": 695
+    },
+    {
+      "path": "public/assets/login-gallery/04-school-assembly.jpg",
+      "sha256": "57e1cdf3e9bf7b6dc8d9431124cf089c86ea1758a590faddeb78e50bad4afb11",
+      "bytes": 139580,
+      "width": 975,
+      "height": 723
+    },
+    {
+      "path": "public/assets/login-gallery/05-school-fun-day.jpg",
+      "sha256": "c2d484e3f3a278403c7829092e051be2fad2a813eaa049b6076f42b7ad51033b",
+      "bytes": 85648,
+      "width": 521,
+      "height": 693
+    },
+    {
+      "path": "public/assets/login-gallery/06-classroom-learning.jpg",
+      "sha256": "01bc7b4bf4209e6ed5967645e2d33dacdcd5f57170d162a2c8cf4b360d0624a5",
+      "bytes": 151100,
+      "width": 1291,
+      "height": 730
+    },
+    {
+      "path": "public/assets/login-gallery/07-early-years.jpg",
+      "sha256": "eb99df3934bf24f4f48de10b8a440a735fe844dd8b3eb4d559ffc22e793fe6ad",
+      "bytes": 69556,
+      "width": 521,
+      "height": 697
+    },
+    {
+      "path": "public/assets/login-gallery/08-school-community-event.png",
+      "sha256": "b872f84ed71a25440f69c4a0ad112bba3e43846b96a22fe5134e2c20f3135630",
+      "bytes": 981234,
+      "width": 611,
+      "height": 858
+    },
+    {
+      "path": "public/assets/login-gallery/09-graduation-class.jpg",
+      "sha256": "304d93db0d9a7232be4d8a2d526915f7e91ee902888ea7938c0e3179b490b2c1",
+      "bytes": 60808,
+      "width": 471,
+      "height": 665
+    },
+    {
+      "path": "public/assets/login-gallery/10-graduation-ceremony.jpg",
+      "sha256": "27b304196c3bc2ff9692f489a501814fd8d35ffde14e7a0e084e4bcacb753a5a",
+      "bytes": 96213,
+      "width": 490,
+      "height": 728
+    },
+    {
+      "path": "public/assets/login-gallery/11-community-panel.png",
+      "sha256": "4a965c8be16fed3faaf530aa08f30bd41559a224ef68f07545cf8d1fdfe07e01",
+      "bytes": 1999170,
+      "width": 1249,
+      "height": 699
+    }
+  ]
+}

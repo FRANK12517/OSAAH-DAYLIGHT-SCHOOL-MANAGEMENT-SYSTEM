@@ -1,0 +1,7 @@
+# Login branding is protected by the integrity manifest and requires explicit owner review.
+/public/index.html @FRANK12517
+/public/assets/osaah-daylight-school-complex-logo.png @FRANK12517
+/public/assets/login-gallery/ @FRANK12517
+/config/login-assets.integrity.json @FRANK12517
+/scripts/verify-login-assets.mjs @FRANK12517
+/.github/workflows/login-assets-integrity.yml @FRANK12517
