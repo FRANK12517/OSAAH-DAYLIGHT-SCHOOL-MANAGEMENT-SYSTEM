@@ -2,14 +2,6 @@ name: Login asset integrity
 
 on:
   pull_request:
-    paths:
-      - 'public/index.html'
-      - 'public/assets/**'
-      - 'config/login-assets.integrity.json'
-      - 'scripts/verify-login-assets.mjs'
-      - 'package.json'
-      - 'package-lock.json'
-      - '.github/workflows/login-assets-integrity.yml'
   push:
     branches:
       - main
