@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { extname, join, resolve } from 'node:path';
+import { extname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SIDEBAR_MODULES, parentDashboardModules, sidebarHealth, visibleSidebar } from './sidebar-registry.js';
 import { canAccess, createAuthService } from './auth.js';
@@ -37,6 +37,7 @@ import { createAIAdministration } from './ai/administration.js';
 import { createAIAuditLogger } from './ai/audit-logger.js';
 import { createDisabledAIPersistence, loadConfiguredAIPersistence, selectAIPersistence } from './ai/durable-stores.js';
 import './module-registry.js';
+import { PROPRIETOR_PAGE_ALIASES, PROPRIETOR_SIDEBAR_ROUTES } from './proprietor-sidebar-routes.js';
 
 const root = join(fileURLToPath(new URL('.', import.meta.url)), '..', 'public');
 const mime = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.svg': 'image/svg+xml' };
@@ -65,7 +66,8 @@ export function createApp({ auth = createAuthService(), students = createStudent
     if (pathname.startsWith('/assets/')) {
       const assetRoot = resolve(root);
       const assetFile = resolve(assetRoot, `.${pathname}`);
-      if (!assetFile.startsWith(`${assetRoot}/`)) { response.writeHead(403); return response.end('Forbidden'); }
+      const assetRelativePath = relative(assetRoot, assetFile);
+      if (assetRelativePath.startsWith('..') || assetRelativePath.includes(':')) { response.writeHead(403); return response.end('Forbidden'); }
       try {
         const body = await readFile(assetFile);
         response.writeHead(200, { 'Content-Type': mime[extname(assetFile)] ?? 'application/octet-stream', 'Cache-Control': 'public, max-age=31536000, immutable' });
@@ -323,7 +325,7 @@ export function createApp({ auth = createAuthService(), students = createStudent
     }
     const pageAliases = { '/academics': '/academics.html', '/students': '/students.html', '/admissions': '/admissions.html', '/attendance': '/attendance.html', '/examinations': '/examinations.html', '/results': '/results.html', '/promotion': '/results.html', '/fees': '/fees.html', '/fees/admission-structures': '/admission-fees.html', '/fees/scholarships': '/fees.html', '/finance': '/finance.html', '/staff': '/staff.html', '/staff/leave': '/leave.html', '/staff/professional-development': '/staff.html', '/administrator-management': '/administrator-management.html', '/staff-management': '/staff-management.html', '/settings': '/index.html', '/users': '/administrator-management.html', '/communication': '/communication.html', '/communication/messages': '/communication.html', '/communication/calendar': '/communication.html', '/compliance': '/compliance.html', '/documents': '/documents.html', '/privacy': '/privacy.html', '/inventory': '/inventory.html', '/assets': '/assets.html', '/procurement': '/procurement.html', '/property': '/assets.html', '/library': '/library.html', '/transport': '/transport.html', '/sporting-activities': '/sporting-activities.html', '/transport/gps': '/transport.html', '/hostel': '/hostel.html', '/welfare/health': '/welfare.html', '/welfare/discipline': '/welfare.html', '/welfare/counselling': '/welfare.html' };
     Object.assign(pageAliases, { '/reports': '/reports.html', '/reports/academic': '/reports-academic.html', '/reports/financial': '/reports-financial.html', '/official-documents': '/official-documents.html', '/website': '/website.html', '/admissions/prospectus': '/admission-prospectus.html', '/parent/admission-prospectus': '/parent-admission-prospectus.html', '/examinations/marks': '/examinations.html', '/examinations/mock': '/mock-examinations.html', '/results/mock': '/results.html', '/academics/subjects': '/subjects.html', '/academics/subject-register': '/subject-register.html', '/welfare/shep': '/shep-activities.html', '/settings/result-signatures': '/result-signatures.html', '/fees/invoices': '/receipts.html' });
-    Object.assign(pageAliases, { '/academics': '/subjects.html', '/admissions/analytics': '/admission-analytics.html', '/settings/multi-school': '/index.html', '/user-guide': '/user-guide.html' });
+    Object.assign(pageAliases, { '/academics': '/subjects.html', '/admissions/analytics': '/admission-analytics.html', '/settings/multi-school': '/index.html', '/user-guide': '/user-guide.html' }, PROPRIETOR_PAGE_ALIASES);
     const modulePageFallbacks = [
       ['/students/', '/students.html'], ['/admissions/', '/admissions.html'], ['/attendance/', '/attendance.html'],
       ['/examinations/', '/examinations.html'], ['/results/', '/results.html'], ['/academics/', '/academics.html'],
@@ -344,7 +346,17 @@ export function createApp({ auth = createAuthService(), students = createStudent
     if (pathname === '/admissions/apply') { const user = auth.authenticate(readCookie(request, 'osaah_session') ?? bearer(request)); if (user && user.portal !== 'parent') { response.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' }); return response.end('Forbidden'); } if (!user && !readCookie(request, 'osaah_admission_session')) publicAdmissionCookie = `osaah_admission_session=${randomUUID()}; Path=/; HttpOnly; SameSite=Lax${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`; }
     const fallbackPage = modulePageFallbacks.find(([prefix]) => pathname.startsWith(prefix))?.[1];
     const file = pathname === '/' ? '/index.html' : pathname === '/admissions/apply' ? '/admission-application.html' : pageAliases[pathname] ?? fallbackPage ?? pathname;
-    try { const body = await readFile(join(root, file)); const revalidate = ['.html', '.js', '.css', '.webmanifest'].includes(extname(file)); response.writeHead(200, { 'Content-Type': mime[extname(file)] ?? 'application/octet-stream', ...(revalidate ? { 'Cache-Control': 'no-cache, must-revalidate' } : {}), ...(publicAdmissionCookie ? { 'Set-Cookie': publicAdmissionCookie } : {}) }); response.end(body); } catch { response.writeHead(404); response.end('Not found'); }
+    try {
+      let body = await readFile(join(root, file));
+      const selectedModule = PROPRIETOR_SIDEBAR_ROUTES.find((module) => module.route === pathname);
+      if (selectedModule && extname(file) === '.html') {
+        const label = escapeHtmlText(selectedModule.moduleName);
+        body = Buffer.from(body.toString('utf8')
+          .replace(/<title>[^<]*<\/title>/i, `<title>${label} | OsaaH Daylight</title>`)
+          .replace(/<body([^>]*)>/i, `<body$1 data-current-module="${escapeHtmlText(selectedModule.moduleKey)}"><p class="route-context" aria-live="polite">${label}</p>`));
+      }
+      const revalidate = ['.html', '.js', '.css', '.webmanifest'].includes(extname(file)); response.writeHead(200, { 'Content-Type': mime[extname(file)] ?? 'application/octet-stream', ...(revalidate ? { 'Cache-Control': 'no-cache, must-revalidate' } : {}), ...(publicAdmissionCookie ? { 'Set-Cookie': publicAdmissionCookie } : {}) }); response.end(body);
+    } catch { response.writeHead(404); response.end('Not found'); }
   };
 }
 const aiEnabled = String(process.env.OSAAH_AI_ENABLED ?? 'false').toLowerCase() === 'true';
@@ -364,3 +376,4 @@ function safeProspectusFilename(prospectus) { const detail = `${prospectus.class
 function bearer(request) { const value = request.headers.authorization ?? ''; return value.startsWith('Bearer ') ? value.slice(7) : null; }
 function readJson(request) { return new Promise((resolve, reject) => { let data = ''; request.on('data', (chunk) => { data += chunk; if (data.length > 100_000) request.destroy(); }); request.on('end', () => { try { resolve(data ? JSON.parse(data) : {}); } catch { reject(new Error('Invalid JSON')); } }); }); }
 function json(response, value, status = 200, cookie) { const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }; if (cookie) headers['Set-Cookie'] = cookie; response.writeHead(status, headers); response.end(status === 204 ? '' : JSON.stringify(value)); }
+function escapeHtmlText(value) { return String(value).replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]); }
