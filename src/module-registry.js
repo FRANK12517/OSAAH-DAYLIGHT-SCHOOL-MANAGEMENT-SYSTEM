@@ -1,5 +1,6 @@
-import { registerModule } from './sidebar-registry.js';
+import { registerModule, SIDEBAR_MODULES } from './sidebar-registry.js';
 import { registerFutureModule } from './sidebar-classification.js';
+import { PROPRIETOR_SIDEBAR_ROUTES } from './proprietor-sidebar-routes.js';
 
 registerModule({ moduleKey: 'student-profiles', moduleName: 'Student Profiles', category: 'STUDENTS MANAGEMENT', route: '/students', icon: '◎', displayOrder: 1, requiredPermission: 'students.read', roles: ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'TEACHER'] });
 registerModule({ moduleKey: 'student-search', moduleName: 'Student Search', category: 'STUDENTS MANAGEMENT', route: '/students/search', icon: '⌕', displayOrder: 2, requiredPermission: 'students.read', roles: ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'TEACHER', 'ADMISSIONS_OFFICER'] });
@@ -214,3 +215,28 @@ registerNavigationGroup('SYSTEM & SECURITY', 'users.read', ['PROPRIETOR', 'SCHOO
   ['sessions', 'Sessions', '/settings', '◷'],
   ['backups', 'Backups', '/settings', '↓']
 ]);
+
+// Apply the Proprietor contract last so older broad/shared links cannot win.
+// Existing role and permission metadata is retained; newly exposed entries are
+// intentionally Proprietor-only and inherit their domain's read permission.
+for (const item of PROPRIETOR_SIDEBAR_ROUTES) {
+  const existing = SIDEBAR_MODULES.find((module) => module.moduleKey === item.moduleKey);
+  registerModule({
+    ...(existing ?? {}),
+    ...item,
+    category: existing?.category ?? item.category,
+    icon: existing?.icon ?? '•',
+    requiredPermission: existing?.requiredPermission ?? ({
+      'ADMINISTRATIVE': 'settings.read', 'ACADEMICS': 'academics.read', 'FEE HUB': 'fees.read',
+      'STAFF MANAGEMENT': 'staff.read', 'STUDENTS MANAGEMENT': 'students.read',
+      'REPORTS & ANALYTICS': 'reports.read', 'COMMUNICATION HUB': 'communication.read',
+      'LIBRARY MANAGEMENT': 'library.read', 'TRANSPORT MANAGEMENT': 'transport.read',
+      'HOSTEL MANAGEMENT': 'hostel.read', 'HEALTH & WELFARE': 'health.read',
+      'INVENTORY & STORES': 'inventory.read', 'ASSETS & PROPERTY': 'assets.read',
+      'PROCUREMENT': 'procurement.read'
+    })[existing?.category ?? item.category],
+    roles: existing?.allowedRoles?.length ? existing.allowedRoles : ['PROPRIETOR'],
+    allowedRoles: existing?.allowedRoles?.length ? existing.allowedRoles : ['PROPRIETOR'],
+    parentModule: null
+  });
+}
