@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { extname, join } from 'node:path';
+import { extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SIDEBAR_MODULES, parentDashboardModules, sidebarHealth, visibleSidebar } from './sidebar-registry.js';
 import { canAccess, createAuthService } from './auth.js';
@@ -62,6 +62,18 @@ export function createApp({ auth = createAuthService(), students = createStudent
   receiptBranding.validateAssets().catch((error) => console.error(`Receipt branding validation failed: ${error.message}`));
   return async function handle(request, response) {
     const pathname = new URL(request.url, 'http://localhost').pathname;
+    if (pathname.startsWith('/assets/')) {
+      const assetRoot = resolve(root);
+      const assetFile = resolve(assetRoot, `.${pathname}`);
+      if (!assetFile.startsWith(`${assetRoot}/`)) { response.writeHead(403); return response.end('Forbidden'); }
+      try {
+        const body = await readFile(assetFile);
+        response.writeHead(200, { 'Content-Type': mime[extname(assetFile)] ?? 'application/octet-stream', 'Cache-Control': 'public, max-age=31536000, immutable' });
+        return response.end(body);
+      } catch {
+        response.writeHead(404); return response.end('Not found');
+      }
+    }
     if (pathname === '/api/branding') return json(response, branding);
     const publicProspectusActor = { id: 'public-parent', portal: 'parent', schoolId: 'school-osaah-daylight', permissions: new Set() };
     if (pathname === '/api/public/admission-prospectus/options' && request.method === 'GET') return json(response, admissionProspectus.listOptions());
