@@ -36,10 +36,15 @@ test('proprietor sidebar is an accessible responsive accordion with route-based 
   assert.match(script, /aria-current="page"/);
   assert.match(script, /window\.location\.pathname/);
   assert.match(script, /sidebar-menu-button/);
+  assert.match(script, /history\.pushState/);
+  assert.match(script, /window\.onpopstate/);
+  assert.match(script, /module-frame/);
+  assert.match(script, /OSAAH module render failure/);
   assert.match(css, /color:#ef5350/);
   assert.match(css, /\.sidebar-link\.active/);
   assert.match(css, /\.sidebar-open \.sidebar/);
   assert.match(css, /overflow-y:auto/);
+  assert.match(css, /\.module-frame/);
 });
 
 test('every registered proprietor route is directly renderable and remains server-authorized', async () => {

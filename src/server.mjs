@@ -82,7 +82,7 @@ export function createApp({ auth = createAuthService(), students = createStudent
     if (pathname === '/api/public/admission-prospectus' && request.method === 'GET') return json(response, { prospectuses: admissionProspectus.list(Object.fromEntries(new URL(request.url, 'http://localhost').searchParams), publicProspectusActor) });
     if (pathname.startsWith('/api/public/admission-prospectus/') && pathname.endsWith('/pdf') && request.method === 'GET') { const id = pathname.split('/').filter(Boolean)[3]; const prospectus = admissionProspectus.get(id, publicProspectusActor); if (!prospectus) return json(response, { error: 'Published prospectus not found.' }, 404); try { const body = await prospectusPdf.pdf(prospectus); response.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="${safeProspectusFilename(prospectus)}"`, 'Cache-Control': 'public, max-age=300' }); return response.end(body); } catch { return json(response, { error: 'Prospectus PDF is temporarily unavailable.' }, 500); } }
     if (pathname === '/api/auth/login' && request.method === 'POST') return login(request, response, auth, audit);
-    if (pathname === '/api/auth/logout' && request.method === 'POST') { auth.logout(readCookie(request, 'osaah_session')); return json(response, { ok: true }, 204); }
+    if (pathname === '/api/auth/logout' && request.method === 'POST') { auth.logout(readCookie(request, 'osaah_session')); return json(response, { ok: true }, 204, expiredSessionCookie()); }
     if (pathname === '/api/auth/session' && request.method === 'GET') {
       const user = auth.authenticate(readCookie(request, 'osaah_session') ?? bearer(request));
       return user ? json(response, { user: publicUser(user), redirectTo: user.dashboard }) : json(response, { error: 'Authentication required.' }, 401);
@@ -336,16 +336,19 @@ export function createApp({ auth = createAuthService(), students = createStudent
       ['/compliance/', '/compliance.html'], ['/documents/', '/documents.html'], ['/reports/', '/reports.html']
     ];
     const protectedPage = pathname !== '/parent/admission-prospectus' && SIDEBAR_MODULES.some((module) => module.route === pathname && module.moduleKey !== 'dashboard' && module.moduleKey !== 'logout');
+    let protectedUser = null;
     if (protectedPage) {
       const user = auth.authenticate(readCookie(request, 'osaah_session') ?? bearer(request));
       const accessibleModules = user ? visibleSidebar({ modules: SIDEBAR_MODULES, permissions: user.permissions, roleKey: user.roleKey, portal: user.portal, schoolType: user.schoolType, subscription: user.subscription, entitlements: user.entitlements, featureAvailability: user.featureAvailability }).flatMap((group) => group.modules.flatMap((module) => [module, ...(module.children ?? [])])) : [];
       const authorized = user && accessibleModules.some((module) => module.route === pathname);
       if (!authorized) { response.writeHead(user ? 403 : 401, { 'Content-Type': 'text/plain; charset=utf-8' }); return response.end(user ? 'Forbidden' : 'Authentication required'); }
+      protectedUser = user;
     }
     let publicAdmissionCookie = null;
     if (pathname === '/admissions/apply') { const user = auth.authenticate(readCookie(request, 'osaah_session') ?? bearer(request)); if (user && user.portal !== 'parent') { response.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' }); return response.end('Forbidden'); } if (!user && !readCookie(request, 'osaah_admission_session')) publicAdmissionCookie = `osaah_admission_session=${randomUUID()}; Path=/; HttpOnly; SameSite=Lax${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`; }
     const fallbackPage = modulePageFallbacks.find(([prefix]) => pathname.startsWith(prefix))?.[1];
-    const file = pathname === '/' ? '/index.html' : pathname === '/admissions/apply' ? '/admission-application.html' : pageAliases[pathname] ?? fallbackPage ?? pathname;
+    const proprietorShellNavigation = protectedUser?.roleKey === 'PROPRIETOR' && request.headers['sec-fetch-mode'] === 'navigate' && new URL(request.url, 'http://localhost').searchParams.get('embedded') !== '1';
+    const file = pathname === '/' || proprietorShellNavigation ? '/index.html' : pathname === '/admissions/apply' ? '/admission-application.html' : pageAliases[pathname] ?? fallbackPage ?? pathname;
     try {
       let body = await readFile(join(root, file));
       const selectedModule = PROPRIETOR_SIDEBAR_ROUTES.find((module) => module.route === pathname);
@@ -369,7 +372,9 @@ if (process.env.NODE_ENV !== 'production' && process.argv[1] === fileURLToPath(i
 export { server };
 export default app;
 function publicUser(user) { return { id: user.id, username: user.username, portal: user.portal, roleKey: user.roleKey, schoolId: user.schoolId, children: user.children ?? [], assignedStudentIds: user.assignedStudentIds ?? [], assignedClassIds: user.assignedClassIds ?? [], assignedSubjectIds: user.assignedSubjectIds ?? [], assignedDepartmentIds: user.assignedDepartmentIds ?? [] }; }
-async function login(request, response, auth, audit) { const body = await readJson(request); const result = auth.login(body); if (!result.ok) return json(response, { error: result.error }, result.status); audit(createAuditLog({ userId: result.user.id, roleId: result.user.roleKey, sessionId: result.user.sessionId, action: 'LOGIN_SUCCESS', entity: 'Authentication' })); return json(response, { user: result.user, redirectTo: result.redirectTo, expiresAt: result.expiresAt }, 200, `osaah_session=${result.token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Math.floor(auth.sessionTtlMs / 1000)}`); }
+async function login(request, response, auth, audit) { const body = await readJson(request); const result = auth.login(body); if (!result.ok) return json(response, { error: result.error }, result.status); audit(createAuditLog({ userId: result.user.id, roleId: result.user.roleKey, sessionId: result.user.sessionId, action: 'LOGIN_SUCCESS', entity: 'Authentication' })); return json(response, { user: result.user, redirectTo: result.redirectTo, expiresAt: result.expiresAt }, 200, sessionCookie(result.token, auth.sessionTtlMs)); }
+function sessionCookie(token, ttlMs) { return `osaah_session=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${Math.floor(ttlMs / 1000)}${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`; }
+function expiredSessionCookie() { return `osaah_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`; }
 function readCookie(request, name) { return (request.headers.cookie ?? '').split(';').map((part) => part.trim().split('=')).find(([key]) => key === name)?.[1]; }
 function safeReceiptFilename(receiptNumber) { const safe = String(receiptNumber ?? '').replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 80) || 'receipt'; return `OSAAH-Receipt-${safe}.pdf`; }
 function safeProspectusFilename(prospectus) { const detail = `${prospectus.className}-${prospectus.academicYear}`.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 80); return `OSAAH-Admission-Prospectus-${detail || 'Published'}.pdf`; }

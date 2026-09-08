@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 
 const SESSION_TTL_MS = 30 * 60 * 1000;
 const RESET_TTL_MS = 15 * 60 * 1000;
@@ -35,10 +35,20 @@ export const DEMO_USERS = [
   { id: 'user-dpo-1', username: 'dpo@osaah.edu.gh', passwordHash: passwordHash('DataProtection123!', 'dpo-salt'), portal: 'school', roleKey: 'DATA_PROTECTION_OFFICER', schoolId: 'school-osaah-daylight', permissions: new Set(['privacy.read', 'privacy.write', 'documents.read']) }
 ];
 
-export function createAuthService({ users = DEMO_USERS, now = () => Date.now(), audit = () => {} } = {}) {
+export function createAuthService({ users = DEMO_USERS, now = () => Date.now(), audit = () => {}, sessionSecret = process.env.OSAAH_SESSION_SECRET } = {}) {
   users = users.map((user) => ({ ...user, permissions: new Set(user.permissions), children: user.children?.map((child) => ({ ...child })) }));
   const sessions = new Map(); const attempts = new Map(); const resetTokens = new Map();
   const administratorAssignments = [];
+  const signingKey = typeof sessionSecret === 'string' && sessionSecret.length >= 32 ? sessionSecret : null;
+  function signSession(session) { const payload = Buffer.from(JSON.stringify(session)).toString('base64url'); const signature = createHmac('sha256', signingKey).update(payload).digest('base64url'); return `v1.${payload}.${signature}`; }
+  function verifiedSession(token) {
+    if (!signingKey || typeof token !== 'string' || !token.startsWith('v1.')) return sessions.get(token);
+    const parts = token.split('.'); if (parts.length !== 3) return null;
+    const expected = createHmac('sha256', signingKey).update(parts[1]).digest(); let actual;
+    try { actual = Buffer.from(parts[2], 'base64url'); } catch { return null; }
+    if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) return null;
+    try { const session = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')); return session && typeof session.userId === 'string' && typeof session.sessionId === 'string' && Number.isFinite(session.expiresAt) ? session : null; } catch { return null; }
+  }
   function isActive(user) { return user.is_active !== false && user.isActive !== false && !['DISABLED', 'REVOKED', 'REMOVED', 'SUSPENDED', 'DEACTIVATED'].includes(String(user.accountStatus ?? '').toUpperCase()); }
   function securityEvent(action, user, sessionId = null) { audit({ action, entity: 'Authentication', entityId: user?.id ?? null, userId: user?.id ?? null, roleId: canonicalRoleKey(user?.roleKey), sessionId }); }
   function sanitize(user, sessionId = null) { const roleKey = canonicalRoleKey(user.roleKey); return { id: user.id, username: user.username, portal: user.portal, roleKey, role: roleKey, accountStatus: isActive(user) ? 'ACTIVE' : String(user.accountStatus ?? 'DISABLED').toUpperCase(), schoolId: user.schoolId, sessionId, dashboard: SCHOOL_PORTAL_DASHBOARDS[roleKey] ?? '/', schoolType: user.schoolType, subscription: user.subscription, entitlements: user.entitlements ?? [], featureAvailability: user.featureAvailability ?? [], children: user.children ?? [], authorizedStaffIds: user.authorizedStaffIds ?? [], assignedStudentIds: user.assignedStudentIds ?? [], assignedParentIds: user.assignedParentIds ?? [], assignedClassIds: user.assignedClassIds ?? [], assignedSubjectIds: user.assignedSubjectIds ?? [], assignedDepartmentIds: user.assignedDepartmentIds ?? [] }; }
@@ -46,10 +56,10 @@ export function createAuthService({ users = DEMO_USERS, now = () => Date.now(), 
     const key = String(username ?? '').trim().toLowerCase(); const throttle = attempts.get(key); if (throttle?.lockedUntil > now()) return { ok: false, status: 429, error: 'Too many failed attempts. Try again later.' };
     const user = users.find((candidate) => candidate.username.toLowerCase() === key && candidate.portal === portal);
     if (!user || typeof password !== 'string' || !passwordMatches(password, user.passwordHash) || !isActive(user)) { const next = throttle ?? { count: 0 }; next.count += 1; if (next.count >= MAX_ATTEMPTS) next.lockedUntil = now() + LOCKOUT_MS; attempts.set(key, next); securityEvent('LOGIN_FAILED', user); return { ok: false, status: 401, error: GENERIC_LOGIN_ERROR }; }
-    attempts.delete(key); const token = randomBytes(32).toString('hex'); const sessionId = randomUUID(); sessions.set(token, { userId: user.id, sessionId, expiresAt: now() + SESSION_TTL_MS }); securityEvent('LOGIN_SUCCESS', user, sessionId); return { ok: true, token, user: sanitize(user, sessionId), redirectTo: SCHOOL_PORTAL_DASHBOARDS[canonicalRoleKey(user.roleKey)] ?? '/', expiresAt: now() + SESSION_TTL_MS };
+    attempts.delete(key); const sessionId = randomUUID(); const expiresAt = now() + SESSION_TTL_MS; const session = { userId: user.id, sessionId, expiresAt }; const token = signingKey ? signSession(session) : randomBytes(32).toString('hex'); sessions.set(token, session); securityEvent('LOGIN_SUCCESS', user, sessionId); return { ok: true, token, user: sanitize(user, sessionId), redirectTo: SCHOOL_PORTAL_DASHBOARDS[canonicalRoleKey(user.roleKey)] ?? '/', expiresAt };
   }
-  function authenticate(token) { const session = sessions.get(token); if (!session || session.expiresAt <= now()) { if (token) sessions.delete(token); return null; } const user = users.find((candidate) => candidate.id === session.userId); if (!user || !isActive(user)) { sessions.delete(token); if (user) securityEvent('SESSION_REVOKED', user, session.sessionId); return null; } return { ...sanitize(user, session.sessionId), permissions: user.permissions }; }
-  function logout(token) { const session = sessions.get(token); if (session) { const user = users.find((candidate) => candidate.id === session.userId); sessions.delete(token); if (user) securityEvent('SESSION_REVOKED', user, session.sessionId); } }
+  function authenticate(token) { const session = verifiedSession(token); if (!session || session.expiresAt <= now()) { if (token) sessions.delete(token); return null; } const user = users.find((candidate) => candidate.id === session.userId); if (!user || !isActive(user)) { sessions.delete(token); if (user) securityEvent('SESSION_REVOKED', user, session.sessionId); return null; } return { ...sanitize(user, session.sessionId), permissions: user.permissions }; }
+  function logout(token) { const session = verifiedSession(token); if (session) { const user = users.find((candidate) => candidate.id === session.userId); sessions.delete(token); if (user) securityEvent('SESSION_REVOKED', user, session.sessionId); } }
   function changeAccountState(userId, active, status = active ? 'ACTIVE' : 'DISABLED') { const user = users.find((candidate) => candidate.id === userId); if (!user) return false; user.is_active = active; user.accountStatus = status; if (!active) for (const [token, session] of sessions) if (session.userId === userId) { sessions.delete(token); securityEvent(status === 'REVOKED' ? 'SESSION_REVOKED' : 'ACCOUNT_DISABLED', user, session.sessionId); } for (const assignment of administratorAssignments) if (assignment.userId === userId && !active) { assignment.status = status; assignment.removedAt ??= new Date(now()).toISOString(); } return true; }
   function setAccountStatus(userId, status) { return changeAccountState(userId, status === true); }
   function revokeAccount(userId) { return changeAccountState(userId, false, 'REVOKED'); }
