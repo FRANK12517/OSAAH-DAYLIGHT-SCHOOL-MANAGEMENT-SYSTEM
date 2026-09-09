@@ -344,16 +344,19 @@ export function createApp({ auth = createAuthService(), students = createStudent
       ['/compliance/', '/compliance.html'], ['/documents/', '/documents.html'], ['/reports/', '/reports.html']
     ];
     const protectedPage = pathname !== '/parent/admission-prospectus' && SIDEBAR_MODULES.some((module) => module.route === pathname && module.moduleKey !== 'dashboard' && module.moduleKey !== 'logout');
+    let protectedUser = null;
     if (protectedPage) {
       const user = auth.authenticate(readCookie(request, 'osaah_session') ?? bearer(request));
       const accessibleModules = user ? visibleSidebar({ modules: SIDEBAR_MODULES, permissions: user.permissions, roleKey: user.roleKey, portal: user.portal, schoolType: user.schoolType, subscription: user.subscription, entitlements: user.entitlements, featureAvailability: user.featureAvailability }).flatMap((group) => group.modules.flatMap((module) => [module, ...(module.children ?? [])])) : [];
       const authorized = user && accessibleModules.some((module) => module.route === pathname);
       if (!authorized) { response.writeHead(user ? 403 : 401, { 'Content-Type': 'text/plain; charset=utf-8' }); return response.end(user ? 'Forbidden' : 'Authentication required'); }
+      protectedUser = user;
     }
     let publicAdmissionCookie = null;
     if (pathname === '/admissions/apply') { const user = auth.authenticate(readCookie(request, 'osaah_session') ?? bearer(request)); if (user && user.portal !== 'parent') { response.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' }); return response.end('Forbidden'); } if (!user && !readCookie(request, 'osaah_admission_session')) publicAdmissionCookie = `osaah_admission_session=${randomUUID()}; Path=/; HttpOnly; SameSite=Lax${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`; }
     const fallbackPage = modulePageFallbacks.find(([prefix]) => pathname.startsWith(prefix))?.[1];
-    const file = pathname === '/' ? '/index.html' : pathname === '/admissions/apply' ? '/admission-application.html' : pageAliases[pathname] ?? fallbackPage ?? pathname;
+    const proprietorShellNavigation = protectedUser?.roleKey === 'PROPRIETOR' && request.headers['sec-fetch-mode'] === 'navigate' && new URL(request.url, 'http://localhost').searchParams.get('embedded') !== '1';
+    const file = pathname === '/' || proprietorShellNavigation ? '/index.html' : pathname === '/admissions/apply' ? '/admission-application.html' : pageAliases[pathname] ?? fallbackPage ?? pathname;
     try {
       let body = await readFile(join(root, file));
       const selectedModule = PROPRIETOR_SIDEBAR_ROUTES.find((module) => module.route === pathname);
