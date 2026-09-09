@@ -27,11 +27,20 @@ export const PROPRIETOR_SIDEBAR_ROUTES = Object.freeze([
     ['academic-years', 'Academic Years', '/academics/years'], ['attendance-alerts', 'Attendance Alerts', '/attendance/alerts'],
     ['exam-timetable', 'Exam Timetable', '/examinations/timetable'], ['academic-terms', 'Terms', '/academics/terms'],
     ['spreadsheets', 'Spreadsheets', '/academics/spreadsheets'], ['academic-classes', 'Classes', '/academics/classes'],
+    ['broadsheets', 'Broadsheets', '/results/broadsheets'],
     ['report-cards', 'Report Cards', '/results/report-cards'], ['academic-subjects', 'Subjects', '/academics/subjects/list'],
     ['promotion-results', 'Promotion Results', '/results/promotions'], ['teacher-assignments', 'Teacher Assignments', '/academics/teacher-assignments'],
     ['curriculum', 'Curriculum', '/academics/curriculum'], ['lesson-plans', 'Lesson Plans', '/academics/lesson-plans'],
     ['academic-assignments', 'Assignments', '/academics/assignments'], ['timetable', 'Timetable', '/academics/timetable']
-  ]).map((item) => ({ ...item, page: item.route.startsWith('/attendance') ? '/attendance.html' : item.route.startsWith('/examinations/mock') ? '/mock-examinations.html' : item.route.startsWith('/examinations') ? '/examinations.html' : item.route === '/sporting-activities' ? '/sporting-activities.html' : item.route === '/academics/subject-register' ? '/subject-register.html' : item.route.startsWith('/results/mock') ? '/mock-results.html' : item.route.startsWith('/results') || item.route === '/promotion' ? '/results.html' : item.page })),
+  ]).map((item) => ({ ...item, page: ({
+    'exam-timetable': '/exam-timetable.html', 'broadsheets': '/reports-academic.html',
+    'academic-classes': '/academic-modules.html', 'academic-subjects': '/subjects.html',
+    'report-cards': '/results.html', 'promotion-results': '/results.html',
+    'curriculum': '/academic-modules.html', 'lesson-plans': '/academic-modules.html',
+    'academic-assignments': '/academic-modules.html', 'timetable': '/academic-modules.html',
+    'spreadsheets': '/academic-modules.html', 'academic-years': '/academic-modules.html',
+    'academic-terms': '/academic-modules.html', 'teacher-assignments': '/academic-modules.html'
+  })[item.moduleKey] ?? (item.route.startsWith('/attendance') ? '/attendance.html' : item.route.startsWith('/examinations/mock') ? '/mock-examinations.html' : item.route.startsWith('/examinations') ? '/examinations.html' : item.route === '/sporting-activities' ? '/sporting-activities.html' : item.route === '/academics/subject-register' ? '/subject-register.html' : item.route.startsWith('/results/mock') ? '/mock-results.html' : item.route.startsWith('/results') || item.route === '/promotion' ? '/results.html' : item.page) })),
   ...group('FEE HUB', '/fees.html', [
     ['fees', 'Fees', '/fees'], ['finance', 'Finance', '/finance'], ['invoices', 'Invoices & Receipts', '/fees/invoices'],
     ['finance-reports', 'Finance Reports', '/finance/reports'], ['fee-structure', 'Fee Structure', '/fees/structure'],
