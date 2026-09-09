@@ -36,6 +36,14 @@ import { createAIActionAdapters, createHumanControlledActions } from './ai/human
 import { createAIAdministration } from './ai/administration.js';
 import { createAIAuditLogger } from './ai/audit-logger.js';
 import { createDisabledAIPersistence, loadConfiguredAIPersistence, selectAIPersistence } from './ai/durable-stores.js';
+import { buildAIRegistry } from './ai/registry.js';
+import { createProductionDataGuard } from './ai/production-data-guard.js';
+import { createAIDataQualityGuard } from './ai/data-quality-guard.js';
+import { createSchoolContextService } from './ai/school-context.js';
+import { createConfiguredAIProviderRegistry } from './ai/provider-config.js';
+import { createAIGateway } from './ai/gateway.js';
+import { createAIOrchestrator } from './ai/orchestrator.js';
+import { createAIConversationService } from './ai/conversation.js';
 import './module-registry.js';
 import { PROPRIETOR_PAGE_ALIASES, PROPRIETOR_SIDEBAR_ROUTES } from './proprietor-sidebar-routes.js';
 
@@ -43,7 +51,7 @@ const root = join(fileURLToPath(new URL('.', import.meta.url)), '..', 'public');
 const mime = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.svg': 'image/svg+xml' };
 const branding = { schoolName: 'OSAAH DAYLIGHT SCH. COM.', location: 'BOGOSO', motto: 'AIM HIGH, ACADEMIC IS OUR CORE VALUE', logoPath: '/assets/osaah-daylight-logo.png', colours: { navy: '#102a43', royalBlue: '#1769aa', gold: '#d4a72c', white: '#ffffff' } };
 
-export function createApp({ auth = createAuthService(), students = createStudentService(), attendance = createAttendanceService(), examinations = createExaminationService(), fees = createFeeService(), staff = createStaffService(), communication = createCommunicationService(), operations = createOperationsService(), resources = createResourceService(), compliance = createComplianceService(), reporting = createReportingService(), admissionForms = createAdmissionFormService(), admissionProspectus = createAdmissionProspectusService(), subjects = createSubjectService(), signatures = createSignatureService(), academicResults = null, receiptBranding = null, prospectusPdf = createAdmissionProspectusPdfService(), sportingActivities = null, subjectRegister = null, shepActivities = null, aiGateway = null, aiConversation = null, financialIntelligence = null, academicAttendanceIntelligence = null, admissionsWorkforceIntelligence = null, operationalIntelligence = null, schoolKnowledgeIntelligence = null, executiveIntelligence = null, humanControlledActions = null, aiPersistence = null, aiEnabled = null, audit = () => {} } = {}) {
+export function createApp({ auth = createAuthService(), students = createStudentService(), attendance = createAttendanceService(), examinations = createExaminationService(), fees = createFeeService(), staff = createStaffService(), communication = createCommunicationService(), operations = createOperationsService(), resources = createResourceService(), compliance = createComplianceService(), reporting = createReportingService(), admissionForms = createAdmissionFormService(), admissionProspectus = createAdmissionProspectusService(), subjects = createSubjectService(), signatures = createSignatureService(), academicResults = null, receiptBranding = null, prospectusPdf = createAdmissionProspectusPdfService(), sportingActivities = null, subjectRegister = null, shepActivities = null, aiGateway = null, aiConversation = null, capabilityRegistry = null, toolRegistry = null, providerRegistry = null, providerId = process.env.OSAAH_AI_PROVIDER_ID ?? 'openai', modelId = process.env.OSAAH_AI_MODEL_ID ?? 'unconfigured', financialIntelligence = null, academicAttendanceIntelligence = null, admissionsWorkforceIntelligence = null, operationalIntelligence = null, schoolKnowledgeIntelligence = null, executiveIntelligence = null, humanControlledActions = null, aiPersistence = null, aiEnabled = null, audit = () => {} } = {}) {
   const persistence = aiPersistence ?? selectAIPersistence({ environment: process.env.NODE_ENV ?? 'development', allowMemory: process.env.NODE_ENV !== 'production' });
   const aiAuditLogger = createAIAuditLogger({ sink: persistence.auditSink });
   sportingActivities ??= createSportingActivitiesService({ students });
@@ -59,7 +67,7 @@ export function createApp({ auth = createAuthService(), students = createStudent
   executiveIntelligence ??= createExecutiveIntelligence({ capabilities: createExecutiveCapabilityAdapters({ financialIntelligence, academicAttendanceIntelligence, admissionsWorkforceIntelligence, operationalIntelligence, schoolKnowledgeIntelligence }), revisionSources: [fees, academicResults, attendance], auditLogger: aiAuditLogger });
   humanControlledActions ??= createHumanControlledActions({ store: persistence.actionStore, adapters: createAIActionAdapters({ communication, reporting, reportingFeeds: { students, attendance, examinations, fees } }), auditLogger: aiAuditLogger });
   const aiRuntimeEnabled = aiEnabled ?? (String(process.env.OSAAH_AI_ENABLED ?? 'true').toLowerCase() !== 'false');
-  const aiAdministration = createAIAdministration({ enabled: aiRuntimeEnabled, auditLogger: aiAuditLogger, components: { gateway: aiGateway ? 'HEALTHY' : 'DEGRADED', orchestrator: aiConversation ? 'HEALTHY' : 'DEGRADED', productionDataGuard: 'HEALTHY', dataQualityGuard: 'HEALTHY', schoolContext: 'HEALTHY', humanControlledActions } });
+  const aiAdministration = createAIAdministration({ enabled: aiRuntimeEnabled, providerRegistry, providerId, modelId, capabilityRegistry, toolRegistry, auditLogger: aiAuditLogger, components: { gateway: aiGateway ? 'HEALTHY' : 'DEGRADED', orchestrator: aiConversation ? 'HEALTHY' : 'DEGRADED', productionDataGuard: 'HEALTHY', dataQualityGuard: 'HEALTHY', schoolContext: 'HEALTHY', humanControlledActions } });
   receiptBranding.validateAssets().catch((error) => console.error(`Receipt branding validation failed: ${error.message}`));
   return async function handle(request, response) {
     const pathname = new URL(request.url, 'http://localhost').pathname;
@@ -360,7 +368,17 @@ export function createApp({ auth = createAuthService(), students = createStudent
   };
 }
 const aiEnabled = String(process.env.OSAAH_AI_ENABLED ?? 'false').toLowerCase() === 'true';
-const app = createApp({ aiEnabled, aiPersistence: aiEnabled ? await loadConfiguredAIPersistence() : createDisabledAIPersistence() });
+const aiPersistence = aiEnabled ? await loadConfiguredAIPersistence() : createDisabledAIPersistence();
+const { capabilities: capabilityRegistry, tools: toolRegistry } = await buildAIRegistry();
+const aiAuditLoggerForWiring = createAIAuditLogger({ sink: aiPersistence.auditSink });
+const productionDataGuard = createProductionDataGuard({ environment: process.env.NODE_ENV ?? 'development' });
+const dataQualityGuard = createAIDataQualityGuard({ productionDataGuard, auditLogger: aiAuditLoggerForWiring });
+const schoolContextService = createSchoolContextService({ capabilityRegistry, productionDataGuard, dataQualityGuard, auditLogger: aiAuditLoggerForWiring });
+const { registry: providerRegistry, providerId, enabled: providerEnabled } = createConfiguredAIProviderRegistry();
+const orchestrator = providerEnabled ? createAIOrchestrator({ providerRegistry, providerId, capabilityRegistry, toolRegistry, productionDataGuard, dataQualityGuard, auditLogger: aiAuditLoggerForWiring }) : null;
+const aiGateway = aiEnabled ? createAIGateway({ capabilityRegistry, toolRegistry, schoolContextService, productionDataGuard, dataQualityGuard, auditLogger: aiAuditLoggerForWiring, providerRegistry, providerId, orchestrator }) : null;
+const aiConversation = aiEnabled ? createAIConversationService({ gateway: aiGateway, capabilityRegistry, toolRegistry }) : null;
+const app = createApp({ aiEnabled, aiPersistence, capabilityRegistry, toolRegistry, providerRegistry, providerId, aiGateway, aiConversation });
 const server = createServer(app);
 const port = Number(process.env.OSAAH_PORT || 3000);
 if (process.env.NODE_ENV !== 'production' && process.argv[1] === fileURLToPath(import.meta.url)) {
