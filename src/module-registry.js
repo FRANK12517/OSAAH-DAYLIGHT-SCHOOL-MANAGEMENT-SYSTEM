@@ -63,7 +63,7 @@ registerFutureModule({ module_key: 'fee.scholarships', module_name: 'Scholarship
 registerFutureModule({ module_key: 'transport.gps', module_name: 'GPS Tracking', feature_domain: 'transport_management', route: '/transport/gps', icon: '⌖', parent_module_key: 'transport', permissions: ['transport.gps.view'], roles: ['TRANSPORT_MANAGER', 'DRIVER', 'SCHOOL_ADMIN', 'PROPRIETOR', 'HEADTEACHER'], mobile_enabled: true });
 registerFutureModule({ module_key: 'staff.professional-development', module_name: 'Professional Development', feature_domain: 'staff_management', route: '/staff/professional-development', icon: '★', parent_module_key: null, permissions: ['staff.professional-development.view'], roles: ['TEACHER', 'HR_OFFICER', 'SCHOOL_ADMIN', 'HEADTEACHER', 'PROPRIETOR'], mobile_enabled: true });
 
-[['parent-attendance', 'Attendance', '#attendance'], ['parent-results', 'Results', '#results'], ['parent-fees', 'Fees', '#fees'], ['parent-payments', 'Payments', '#payments'], ['parent-timetable', 'Timetable', '#timetable'], ['parent-homework', 'Homework', '#homework'], ['parent-assignments', 'Assignments', '#assignments'], ['parent-announcements', 'Announcements', '#announcements'], ['parent-calendar', 'Calendar', '#calendar'], ['parent-messages', 'Messages', '#messages'], ['parent-transport', 'Transport', '#transport'], ['parent-documents', 'Documents', '#documents']].forEach(([moduleKey, moduleName, route], index) => registerModule({ moduleKey, moduleName, category: 'COMMUNICATION HUB', route: `/${route}`, icon: '•', displayOrder: index + 1, requiredPermission: 'children.read', roles: ['PARENT'], parentDashboard: true, visible: true }));
+[['parent-attendance', 'Attendance', '#attendance'], ['parent-results', 'Results', '#results'], ['parent-fees', 'Fees', '#fees'], ['parent-payments', 'Payments', '#payments'], ['parent-timetable', 'Timetable', 'examinations/timetable'], ['parent-homework', 'Homework', '#homework'], ['parent-assignments', 'Assignments', '#assignments'], ['parent-announcements', 'Announcements', '#announcements'], ['parent-calendar', 'Calendar', '#calendar'], ['parent-messages', 'Messages', '#messages'], ['parent-transport', 'Transport', '#transport'], ['parent-documents', 'Documents', '#documents']].forEach(([moduleKey, moduleName, route], index) => registerModule({ moduleKey, moduleName, category: 'COMMUNICATION HUB', route: `/${route}`, icon: '•', displayOrder: index + 1, requiredPermission: 'children.read', roles: ['PARENT'], parentDashboard: true, visible: true }));
 registerModule({ moduleKey: 'parent-admission-prospectus', moduleName: 'Admission Prospectus', category: 'COMMUNICATION HUB', route: '/parent/admission-prospectus', icon: '▤', displayOrder: 13, requiredPermission: 'children.read', roles: ['PARENT'], visible: true });
 
 // Keep the expanded school navigation declarative so future modules only need one registry entry.
@@ -240,3 +240,7 @@ for (const item of PROPRIETOR_SIDEBAR_ROUTES) {
     parentModule: null
   });
 }
+
+// Timetable publishing is deliberately narrower than score-entry access.
+const examTimetable = SIDEBAR_MODULES.find((module) => module.moduleKey === 'exam-timetable');
+registerModule({ ...examTimetable, roles: ['PROPRIETOR', 'HEADTEACHER', 'ASSISTANT_HEADTEACHER', 'SCHOOL_ADMIN'], allowedRoles: ['PROPRIETOR', 'HEADTEACHER', 'ASSISTANT_HEADTEACHER', 'SCHOOL_ADMIN'] });
