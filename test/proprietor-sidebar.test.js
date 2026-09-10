@@ -47,6 +47,19 @@ test('proprietor sidebar is an accessible responsive accordion with route-based 
   assert.match(css, /\.module-frame/);
 });
 
+test('proprietor shell has one mount point and one replaceable child host', async () => {
+  const script = await readFile(new URL('../public/app.js', import.meta.url), 'utf8');
+  assert.equal((script.match(/class="app-shell"/g) ?? []).length, 1);
+  assert.equal((script.match(/id="primary-sidebar"/g) ?? []).length, 1);
+  assert.equal((script.match(/id="module-frame"/g) ?? []).length, 1);
+  assert.match(script, /if \(dashboardBuildPromise\) return dashboardBuildPromise/);
+  assert.match(script, /dashboard\.querySelector\('\.app-shell'\)\) return/);
+  assert.match(script, /frame\.removeAttribute\('src'\)/);
+  assert.match(script, /navigationVersion/);
+  assert.match(script, /navigateToRoute\(dashboard/);
+  assert.doesNotMatch(script, /createPortal|<Outlet|activeModule|selectedModule/);
+});
+
 test('every registered proprietor route is directly renderable and remains server-authorized', async () => {
   const auth = createAuthService();
   const server = createServer(createApp({ auth }));
