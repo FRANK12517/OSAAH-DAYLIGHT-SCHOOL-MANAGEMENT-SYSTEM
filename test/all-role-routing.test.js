@@ -53,6 +53,27 @@ test('administrative and academic oversight children use distinct canonical rout
   assert.equal(PROPRIETOR_PAGE_ALIASES['/attendance/reports'], '/reports-academic.html');
 });
 
+test('finance, staff, and student management children retain canonical route identity', () => {
+  const expected = {
+    fees: '/fees', finance: '/finance', invoices: '/fees/invoices', 'finance-reports': '/finance/reports',
+    'fee-structure': '/fees/structure', 'fee.scholarships': '/fees/scholarships', 'admission-fee-management': '/fees/admission-structures',
+    'student-fees': '/fees/students', income: '/finance/income', payments: '/fees/payments', expenses: '/finance/expenses',
+    receipts: '/fees/receipts', cashbook: '/finance/cashbook', arrears: '/fees/arrears', budgets: '/finance/budgets',
+    discounts: '/fees/discounts', 'fee-statements': '/fees/statements', 'staff-directory': '/staff', teachers: '/staff/teachers',
+    hr: '/staff/hr', leave: '/staff/leave', 'staff-attendance-hr': '/staff/attendance', qualifications: '/staff/qualifications-licences',
+    performance: '/staff/performance', 'staff.professional-development': '/staff/professional-development',
+    'qualifications-licences': '/staff/qualifications', 'ntc-records': '/staff/ntc-records', appraisals: '/staff/appraisal',
+    'hr-documents': '/staff/documents', 'student-profiles': '/students', admissions: '/admissions', 'student-search': '/students/search',
+    'admission-prospectus': '/admissions/prospectus', 'student-directory': '/students/directory', 'admission-enquiries': '/admissions/enquiries',
+    'student-ids': '/students/ids', 'admission-applications': '/admissions/applications', 'student-transfers': '/students/transfers',
+    'admission-review': '/admissions/review', 'student-alumni': '/students/alumni', 'admission-offers': '/admissions/offers',
+    'admission-enrollment': '/admissions/enrollment'
+  };
+  const routes = new Map(PROPRIETOR_SIDEBAR_ROUTES.map((item) => [item.moduleKey, item.route]));
+  for (const [moduleKey, route] of Object.entries(expected)) assert.equal(routes.get(moduleKey), route, moduleKey);
+  assert.equal(new Set(Object.values(expected)).size, Object.keys(expected).length);
+});
+
 test('every proprietor route has a real render target and unique module identity', async () => {
   assert.equal(new Set(PROPRIETOR_SIDEBAR_ROUTES.map((item) => item.route)).size, PROPRIETOR_SIDEBAR_ROUTES.length);
   for (const item of PROPRIETOR_SIDEBAR_ROUTES) await access(publicFile(item.page));
