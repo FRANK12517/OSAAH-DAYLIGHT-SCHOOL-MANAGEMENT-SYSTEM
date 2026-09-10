@@ -4,6 +4,7 @@ import { access, readFile } from 'node:fs/promises';
 import { createStudentService } from '../src/students.js';
 import { createSubjectService } from '../src/subjects.js';
 import { createSignatureService } from '../src/signatures.js';
+import { createStaffService } from '../src/staff.js';
 import { createAcademicResultsService, RESULT_HEADER_ASSET } from '../src/academic-results.js';
 
 test('academic results persist terminal and mock scores with native Osaah IDs', async () => {
@@ -35,4 +36,39 @@ test('academic results persist terminal and mock scores with native Osaah IDs', 
   await access(new URL(`../public${RESULT_HEADER_ASSET}`, import.meta.url));
   const resultPage = await readFile(new URL('../public/results.html', import.meta.url), 'utf8');
   assert.match(resultPage, /result-header/);
+});
+
+
+test('result signatures resolve by assigned class, academic context, and school scope', () => {
+  const staff = createStaffService();
+  const classes = ['Nursery', 'KG1', 'Primary 1', 'Primary 2', 'Primary 3', 'Primary 4', 'Primary 5', 'Primary 6', 'JHS 1', 'JHS 2', 'JHS 3'];
+  const students = createStudentService();
+  const subjects = createSubjectService({ classes });
+  const signatures = createSignatureService({ staff, classes });
+  const results = createAcademicResultsService({ students, subjects, signatures, classes });
+  const manager = { id: 'head-1', roleKey: 'HEADTEACHER', schoolId: 'school-osaah-daylight', permissions: new Set(['*']) };
+  const teacherA = staff.createProfile({ fullName: 'Teacher A', roleKey: 'TEACHER' });
+  const teacherB = staff.createProfile({ fullName: 'Teacher B', roleKey: 'TEACHER' });
+  const head = staff.createProfile({ fullName: 'Headteacher One', roleKey: 'HEADTEACHER' });
+  staff.assign(teacherA.id, { classId: 'Primary 1', academicYearId: '2026/2027', termId: 'First Term' });
+  staff.assign(teacherB.id, { classId: 'Primary 2', academicYearId: '2026/2027', termId: 'First Term' });
+  const studentA = students.createStudent({ firstName: 'Ama', surname: 'One', classId: 'Primary 1', admissionYearId: '2026' });
+  const studentB = students.createStudent({ firstName: 'Kojo', surname: 'Two', classId: 'Primary 2', admissionYearId: '2026' });
+  const subject = subjects.list({}, manager)[0];
+  for (const [student, classId, teacher] of [[studentA, 'Primary 1', teacherA], [studentB, 'Primary 2', teacherB]]) {
+    results.saveScore({ studentId: student.id, classId, subjectId: subject.id, academicYear: '2026/2027', term: 'First Term', caScore: 40, examScore: 40 }, { ...teacher, schoolId: manager.schoolId, permissions: new Set(['marks.write', 'results.read']) });
+  }
+  signatures.upload({ signatoryRole: 'CLASS_TEACHER', classId: 'Primary 1', teacherId: teacherA.id, academicYear: '2026/2027', term: 'First Term', mimeType: 'image/png', size: 100, storageKey: 'signatures/teacher-a.png' }, manager);
+  signatures.upload({ signatoryRole: 'CLASS_TEACHER', classId: 'Primary 2', teacherId: teacherB.id, academicYear: '2026/2027', term: 'First Term', mimeType: 'image/png', size: 100, storageKey: 'signatures/teacher-b.png' }, manager);
+  signatures.upload({ signatoryRole: 'HEADTEACHER', academicYear: '2026/2027', term: 'First Term', mimeType: 'image/png', size: 100, storageKey: 'signatures/head.png' }, manager);
+  assert.throws(() => signatures.upload({ signatoryRole: 'CLASS_TEACHER', classId: 'Primary 1', teacherId: teacherB.id, academicYear: '2026/2027', term: 'First Term', mimeType: 'image/png', size: 100, storageKey: 'signatures/invalid.png' }, manager), /assigned/);
+  const reportA = results.result({ studentId: studentA.id, classId: 'Primary 1', academicYear: '2026/2027', term: 'First Term' }, manager);
+  const reportB = results.result({ studentId: studentB.id, classId: 'Primary 2', academicYear: '2026/2027', term: 'First Term' }, manager);
+  assert.deepEqual(reportA.signatures.map((item) => item.storageKey), ['signatures/teacher-a.png', 'signatures/head.png']);
+  assert.deepEqual(reportB.signatures.map((item) => item.storageKey), ['signatures/teacher-b.png', 'signatures/head.png']);
+  assert.equal(reportA.signatures[0].name, teacherA.fullName);
+  assert.equal(signatures.options(manager).classes.length, classes.length);
+  assert.equal(signatures.options(manager).teachers.length, 2);
+  assert.equal(signatures.resolveForStudent(studentA, { academicYear: '2027/2028', term: 'First Term' }).classTeacher.signature, null);
+  assert.equal(head.fullName, 'Headteacher One');
 });
