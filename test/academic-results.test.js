@@ -72,3 +72,12 @@ test('result signatures resolve by assigned class, academic context, and school 
   assert.equal(signatures.resolveForStudent(studentA, { academicYear: '2027/2028', term: 'First Term' }).classTeacher.signature, null);
   assert.equal(head.fullName, 'Headteacher One');
 });
+
+test('result publication is scoped to assigned teachers and records publication metadata', () => {
+  const results = createAcademicResultsService({ classes: ['KG 1', 'JHS 3'], now: () => '2026-09-10T10:00:00.000Z' });
+  const teacher = { id: 'teacher-1', userId: 'teacher-1', roleKey: 'TEACHER', schoolId: 'school-osaah-daylight', permissions: new Set(['results.publish']), assignedClassIds: ['KG 1'] };
+  assert.throws(() => results.publishResults({ academicYear: '2026/2027', term: 'First Term', classId: 'JHS 3' }, teacher), /assignment/);
+  const publication = results.publishResults({ academicYear: '2026/2027', term: 'First Term', classId: 'KG 1' }, teacher);
+  assert.deepEqual(results.publicationFor({ academicYear: '2026/2027', term: 'First Term', classId: 'KG 1' }), publication);
+  assert.equal(publication.publishedBy, 'teacher-1');
+});

@@ -88,4 +88,4 @@ export function createAuthService({ users = DEMO_USERS, now = () => Date.now(), 
   return { login, authenticate, logout, requestPasswordReset, completePasswordReset, setAccountStatus, revokeAccount, createAdministrator, listAdministrators, getAdministrator, updateAdministrator, resetAdministratorCredentials, registerStaff, listStaff, getStaff, updateStaff, changeStaffRole, assignStaff, resetStaffCredentials, sessionTtlMs: SESSION_TTL_MS, genericLoginError: GENERIC_LOGIN_ERROR };
 }
 
-export function canAccess(user, permission) { return Boolean(user && (user.permissions.has('*') || user.permissions.has(permission))); }
+export function canAccess(user, permission) { return Boolean(user && (user.permissions.has('*') || user.permissions.has(permission) || permission === 'results.publish' && ['TEACHER', 'HEADTEACHER'].includes(user.roleKey))); }
