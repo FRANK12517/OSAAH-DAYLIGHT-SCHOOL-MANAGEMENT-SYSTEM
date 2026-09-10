@@ -21,6 +21,8 @@ import { createAdmissionProspectusService, DEFAULT_PROSPECTUS_TEMPLATE, PROSPECT
 import { createAcademicResultsService, RESULT_HEADER_ASSET } from './academic-results.js';
 import { createSubjectService } from './subjects.js';
 import { createSignatureService } from './signatures.js';
+import { createDatabaseAdapter } from './ai/tidb-database-adapter.js';
+import { createProprietorAuthenticationController } from './proprietor-authentication-controller.js';
 import { createReceiptBrandingService } from './receipt-branding.js';
 import { createSportingActivitiesService, SPORTING_PERMISSIONS } from './sporting-activities.js';
 import { createSubjectRegisterService, SUBJECT_REGISTER_PERMISSIONS } from './subject-register.js';
@@ -51,7 +53,8 @@ const root = join(fileURLToPath(new URL('.', import.meta.url)), '..', 'public');
 const mime = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.svg': 'image/svg+xml' };
 const branding = { schoolName: 'OSAAH DAYLIGHT SCH. COM.', location: 'BOGOSO', motto: 'AIM HIGH, ACADEMIC IS OUR CORE VALUE', logoPath: '/assets/osaah-daylight-logo.png', colours: { navy: '#102a43', royalBlue: '#1769aa', gold: '#d4a72c', white: '#ffffff' } };
 
-export function createApp({ auth = createAuthService(), students = createStudentService(), attendance = createAttendanceService(), examinations = createExaminationService(), fees = createFeeService(), staff = createStaffService(), communication = createCommunicationService(), operations = createOperationsService(), resources = createResourceService(), compliance = createComplianceService(), reporting = createReportingService(), admissionForms = createAdmissionFormService(), admissionProspectus = createAdmissionProspectusService(), subjects = createSubjectService(), signatures = createSignatureService({ staff }), academicResults = null, receiptBranding = null, prospectusPdf = createAdmissionProspectusPdfService(), sportingActivities = null, subjectRegister = null, shepActivities = null, aiGateway = null, aiConversation = null, capabilityRegistry = null, toolRegistry = null, providerRegistry = null, providerId = process.env.OSAAH_AI_PROVIDER_ID ?? 'openai', modelId = process.env.OSAAH_AI_MODEL_ID ?? 'unconfigured', financialIntelligence = null, academicAttendanceIntelligence = null, admissionsWorkforceIntelligence = null, operationalIntelligence = null, schoolKnowledgeIntelligence = null, executiveIntelligence = null, humanControlledActions = null, aiPersistence = null, aiEnabled = null, audit = () => {} } = {}) {
+export function createApp({ auth = createAuthService(), students = createStudentService(), attendance = createAttendanceService(), examinations = createExaminationService(), fees = createFeeService(), staff = createStaffService(), communication = createCommunicationService(), operations = createOperationsService(), resources = createResourceService(), compliance = createComplianceService(), reporting = createReportingService(), admissionForms = createAdmissionFormService(), admissionProspectus = createAdmissionProspectusService(), subjects = createSubjectService(), signatures = createSignatureService({ staff }), database = null, academicResults = null, receiptBranding = null, prospectusPdf = createAdmissionProspectusPdfService(), sportingActivities = null, subjectRegister = null, shepActivities = null, aiGateway = null, aiConversation = null, capabilityRegistry = null, toolRegistry = null, providerRegistry = null, providerId = process.env.OSAAH_AI_PROVIDER_ID ?? 'openai', modelId = process.env.OSAAH_AI_MODEL_ID ?? 'unconfigured', financialIntelligence = null, academicAttendanceIntelligence = null, admissionsWorkforceIntelligence = null, operationalIntelligence = null, schoolKnowledgeIntelligence = null, executiveIntelligence = null, humanControlledActions = null, aiPersistence = null, aiEnabled = null, audit = () => {} } = {}) {
+  const proprietorAuthentication = database ? createProprietorAuthenticationController({ database }) : null;
   const persistence = aiPersistence ?? selectAIPersistence({ environment: process.env.NODE_ENV ?? 'development', allowMemory: process.env.NODE_ENV !== 'production' });
   const aiAuditLogger = createAIAuditLogger({ sink: persistence.auditSink });
   sportingActivities ??= createSportingActivitiesService({ students });
@@ -91,6 +94,16 @@ export function createApp({ auth = createAuthService(), students = createStudent
     if (pathname.startsWith('/api/public/admission-prospectus/') && pathname.endsWith('/pdf') && request.method === 'GET') { const id = pathname.split('/').filter(Boolean)[3]; const prospectus = admissionProspectus.get(id, publicProspectusActor); if (!prospectus) return json(response, { error: 'Published prospectus not found.' }, 404); try { const body = await prospectusPdf.pdf(prospectus); response.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="${safeProspectusFilename(prospectus)}"`, 'Cache-Control': 'public, max-age=300' }); return response.end(body); } catch { return json(response, { error: 'Prospectus PDF is temporarily unavailable.' }, 500); } }
     if (pathname === '/api/auth/login' && request.method === 'POST') return login(request, response, auth, audit);
     if (pathname === '/api/auth/logout' && request.method === 'POST') { auth.logout(readCookie(request, 'osaah_session')); return json(response, { ok: true }, 200, 'osaah_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'); }
+    if (pathname === '/api/auth/proprietor/login' && request.method === 'POST') {
+      if (!proprietorAuthentication) return json(response, { error: 'Authentication service unavailable.' }, 500);
+      try {
+        const result = await proprietorAuthentication(await readJson(request));
+        if (result.status === 200) audit(createAuditLog({ userId: result.body.user.id, roleId: result.body.user.role, action: 'DATABASE_LOGIN_SUCCESS', entity: 'Authentication' }));
+        return json(response, result.body, result.status);
+      } catch {
+        return json(response, { error: 'Authentication service unavailable.' }, 500);
+      }
+    }
     if (pathname === '/api/auth/session' && request.method === 'GET') {
       const user = auth.authenticate(readCookie(request, 'osaah_session') ?? bearer(request));
       return user ? json(response, { user: publicUser(user), redirectTo: user.dashboard }) : json(response, { error: 'Authentication required.' }, 401);
@@ -384,7 +397,8 @@ const { registry: providerRegistry, providerId, enabled: providerEnabled } = cre
 const orchestrator = providerEnabled ? createAIOrchestrator({ providerRegistry, providerId, capabilityRegistry, toolRegistry, productionDataGuard, dataQualityGuard, auditLogger: aiAuditLoggerForWiring }) : null;
 const aiGateway = aiEnabled ? createAIGateway({ capabilityRegistry, toolRegistry, schoolContextService, productionDataGuard, dataQualityGuard, auditLogger: aiAuditLoggerForWiring, providerRegistry, providerId, orchestrator }) : null;
 const aiConversation = aiEnabled ? createAIConversationService({ gateway: aiGateway, capabilityRegistry, toolRegistry }) : null;
-const app = createApp({ aiEnabled, aiPersistence, capabilityRegistry, toolRegistry, providerRegistry, providerId, aiGateway, aiConversation });
+const configuredDatabase = process.env.DATABASE_URL ? createDatabaseAdapter() : null;
+const app = createApp({ aiEnabled, aiPersistence, capabilityRegistry, toolRegistry, providerRegistry, providerId, aiGateway, aiConversation, database: configuredDatabase });
 const server = createServer(app);
 const port = Number(process.env.OSAAH_PORT || 3000);
 if (process.env.NODE_ENV !== 'production' && process.argv[1] === fileURLToPath(import.meta.url)) {
