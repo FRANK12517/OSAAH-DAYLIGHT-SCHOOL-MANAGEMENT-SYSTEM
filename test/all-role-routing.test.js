@@ -74,6 +74,24 @@ test('finance, staff, and student management children retain canonical route ide
   assert.equal(new Set(Object.values(expected)).size, Object.keys(expected).length);
 });
 
+test('reports, operations, and system children are all canonical and unique', () => {
+  const expectedKeys = [
+    'reports', 'admission-analytics', 'academic-reports', 'attendance-reports-management', 'financial-reports',
+    'enrollment-reports', 'staff-reports', 'operational-reports', 'management-dashboard', 'library', 'transport',
+    'transport.gps', 'transport-routes', 'hostel-residences', 'health-records', 'inventory', 'assets', 'procurement',
+    'library-circulation', 'transport-students', 'hostel-roll-call', 'discipline', 'inventory-movements', 'property',
+    'counselling', 'shep-activities', 'books', 'vehicles', 'houses', 'health', 'stock', 'buildings', 'purchase-requests',
+    'borrowing', 'drivers', 'dormitories', 'sick-bay', 'stock-in', 'furniture', 'quotations', 'returns', 'routes', 'beds',
+    'student-welfare', 'stock-out', 'maintenance', 'purchase-orders', 'library-reports', 'boarders', 'suppliers',
+    'property-reports', 'goods-received', 'trips', 'roll-call', 'inventory-reports', 'transport-fees', 'hostel-fees',
+    'compliance', 'documents', 'privacy', 'nasia', 'roles', 'ntc', 'permissions', 'fire-safety', 'audit-logs', 'emis-census',
+    'sessions', 'inspections', 'backups', 'compliance-calendar', 'document-repository'
+  ];
+  const routes = new Map(PROPRIETOR_SIDEBAR_ROUTES.map((item) => [item.moduleKey, item.route]));
+  for (const moduleKey of expectedKeys) assert.match(routes.get(moduleKey) ?? '', /^\//, moduleKey);
+  assert.equal(new Set(expectedKeys.map((moduleKey) => routes.get(moduleKey))).size, expectedKeys.length);
+});
+
 test('every proprietor route has a real render target and unique module identity', async () => {
   assert.equal(new Set(PROPRIETOR_SIDEBAR_ROUTES.map((item) => item.route)).size, PROPRIETOR_SIDEBAR_ROUTES.length);
   for (const item of PROPRIETOR_SIDEBAR_ROUTES) await access(publicFile(item.page));
