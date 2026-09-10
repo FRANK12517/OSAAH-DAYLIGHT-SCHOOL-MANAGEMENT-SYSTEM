@@ -2,6 +2,8 @@ import { registerModule, SIDEBAR_MODULES } from './sidebar-registry.js';
 import { registerFutureModule } from './sidebar-classification.js';
 import { PROPRIETOR_SIDEBAR_ROUTES } from './proprietor-sidebar-routes.js';
 
+const proprietorRoute = (moduleKey) => PROPRIETOR_SIDEBAR_ROUTES.find((module) => module.moduleKey === moduleKey)?.route;
+
 registerModule({ moduleKey: 'student-profiles', moduleName: 'Student Profiles', category: 'STUDENTS MANAGEMENT', route: '/students', icon: '◎', displayOrder: 1, requiredPermission: 'students.read', roles: ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'TEACHER'] });
 registerModule({ moduleKey: 'student-search', moduleName: 'Student Search', category: 'STUDENTS MANAGEMENT', route: '/students/search', icon: '⌕', displayOrder: 2, requiredPermission: 'students.read', roles: ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'TEACHER', 'ADMISSIONS_OFFICER'] });
 registerModule({ moduleKey: 'admissions', moduleName: 'Admissions', category: 'ADMISSIONS', route: '/admissions', icon: '✦', displayOrder: 1, requiredPermission: 'admissions.read', roles: ['PROPRIETOR', 'SCHOOL_ADMIN', 'ADMISSIONS_OFFICER'] });
@@ -21,10 +23,10 @@ registerModule({ moduleKey: 'subject-management', moduleName: 'Subject Managemen
 registerModule({ moduleKey: 'subject-register', moduleName: 'Subject Register', description: 'A per-class register of subjects taught, distinct from Subject Config.', category: 'ACADEMICS', route: '/academics/subject-register', icon: '▦', displayOrder: 6, requiredPermission: 'subject_register.view', roles: ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'ASSISTANT_HEADTEACHER', 'TEACHER'] });
 registerModule({ moduleKey: 'sporting-activities', moduleName: 'Sporting Activities', description: 'Record inter-house and inter-school sporting activities, fixtures, and participation.', category: 'ACADEMICS', route: '/sporting-activities', icon: '⚽', displayOrder: 1, requiredPermissions: ['sporting_activities.view'], roles: ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'ASSISTANT_HEADTEACHER', 'TEACHER'] });
 registerModule({ moduleKey: 'signature-management', moduleName: 'Result Signatures', category: 'ADMINISTRATIVE', route: '/settings/result-signatures', icon: '✍', displayOrder: 9, requiredPermission: 'signatures.manage', roles: ['PROPRIETOR', 'HEADTEACHER'] });
-registerModule({ moduleKey: 'fee-structure', moduleName: 'Fee Structure', category: 'FEE HUB', route: '/fees', icon: '$', displayOrder: 3, requiredPermission: 'fees.read', roles: ['PROPRIETOR', 'SCHOOL_ADMIN', 'ACCOUNTANT_BURSAR', 'HEADTEACHER'] });
-registerModule({ moduleKey: 'admission-fee-management', moduleName: 'Admission Fee Structures', category: 'FEE HUB', route: '/fees/admission-structures', icon: '$', displayOrder: 4, requiredPermission: 'fees.read', roles: ['PROPRIETOR', 'ACCOUNTANT_BURSAR', 'HEADTEACHER', 'ASSISTANT_HEADTEACHER'] });
-registerModule({ moduleKey: 'invoices', moduleName: 'Invoices & Receipts', category: 'FEE HUB', route: '/fees/invoices', icon: '▤', displayOrder: 2, requiredPermission: 'fees.read', roles: ['PROPRIETOR', 'ACCOUNTANT_BURSAR'] });
-registerModule({ moduleKey: 'finance-reports', moduleName: 'Finance Reports', category: 'FINANCE', route: '/finance', icon: '₵', displayOrder: 2, requiredPermission: 'finance.read', roles: ['PROPRIETOR', 'ACCOUNTANT_BURSAR', 'HEADTEACHER'] });
+registerModule({ moduleKey: 'fee-structure', moduleName: 'Fee Structure', category: 'FEE HUB', route: proprietorRoute('fee-structure'), icon: '$', displayOrder: 3, requiredPermission: 'fees.read', roles: ['PROPRIETOR', 'SCHOOL_ADMIN', 'ACCOUNTANT_BURSAR', 'HEADTEACHER'] });
+registerModule({ moduleKey: 'admission-fee-management', moduleName: 'Admission Fee Structures', category: 'FEE HUB', route: proprietorRoute('admission-fee-management'), icon: '$', displayOrder: 4, requiredPermission: 'fees.read', roles: ['PROPRIETOR', 'ACCOUNTANT_BURSAR', 'HEADTEACHER', 'ASSISTANT_HEADTEACHER'] });
+registerModule({ moduleKey: 'invoices', moduleName: 'Invoices & Receipts', category: 'FEE HUB', route: proprietorRoute('invoices'), icon: '▤', displayOrder: 2, requiredPermission: 'fees.read', roles: ['PROPRIETOR', 'ACCOUNTANT_BURSAR'] });
+registerModule({ moduleKey: 'finance-reports', moduleName: 'Finance Reports', category: 'FINANCE', route: proprietorRoute('finance-reports'), icon: '₵', displayOrder: 2, requiredPermission: 'finance.read', roles: ['PROPRIETOR', 'ACCOUNTANT_BURSAR', 'HEADTEACHER'] });
 registerModule({ moduleKey: 'staff-directory', moduleName: 'Staff Directory', category: 'STAFF MANAGEMENT', route: '/staff', icon: '◉', displayOrder: 1, requiredPermission: 'staff.read', roles: ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'HR_OFFICER'] });
 registerModule({ moduleKey: 'teachers', moduleName: 'Teachers', category: 'STAFF MANAGEMENT', route: '/staff/teachers', icon: '✎', displayOrder: 2, requiredPermission: 'staff.read', roles: ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'HR_OFFICER'] });
 registerModule({ moduleKey: 'hr', moduleName: 'HR', category: 'STAFF MANAGEMENT', route: '/staff/hr', icon: '▣', displayOrder: 3, requiredPermission: 'hr.read', roles: ['PROPRIETOR', 'SCHOOL_ADMIN', 'HR_OFFICER'] });
@@ -34,7 +36,7 @@ registerModule({ moduleKey: 'qualifications', moduleName: 'Qualifications / Lice
 registerModule({ moduleKey: 'performance', moduleName: 'Performance', category: 'STAFF MANAGEMENT', route: '/staff/performance', icon: '★', displayOrder: 7, requiredPermission: 'hr.read', roles: ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'HR_OFFICER'] });
 registerModule({ moduleKey: 'announcements', moduleName: 'Announcements', category: 'COMMUNICATION HUB', route: '/communication', icon: '!', displayOrder: 1, requiredPermission: 'communication.read', roles: ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'TEACHER', 'PARENT'] });
 registerModule({ moduleKey: 'messages', moduleName: 'Messages', category: 'COMMUNICATION HUB', route: '/communication/messages', icon: '✉', displayOrder: 2, requiredPermission: 'messages.read', roles: ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'TEACHER', 'PARENT'] });
-registerModule({ moduleKey: 'calendar', moduleName: 'School Calendar', category: 'COMMUNICATION HUB', route: '/communication/calendar', icon: '□', displayOrder: 3, requiredPermission: 'calendar.read', roles: ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'TEACHER', 'PARENT'] });
+registerModule({ moduleKey: 'calendar', moduleName: 'School Calendar', category: 'COMMUNICATION HUB', route: proprietorRoute('calendar'), icon: '□', displayOrder: 3, requiredPermission: 'calendar.read', roles: ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'TEACHER', 'PARENT'] });
 registerModule({ moduleKey: 'library-circulation', moduleName: 'Borrowing & Returns', category: 'LIBRARY MANAGEMENT', route: '/library/circulation', icon: '↔', displayOrder: 2, requiredPermission: 'library.write', roles: ['PROPRIETOR', 'SCHOOL_ADMIN', 'LIBRARIAN'] });
 registerModule({ moduleKey: 'transport-routes', moduleName: 'Routes & Students', category: 'TRANSPORT MANAGEMENT', route: '/transport/routes', icon: '⌖', displayOrder: 2, requiredPermission: 'transport.read', roles: ['PROPRIETOR', 'SCHOOL_ADMIN', 'TRANSPORT_MANAGER', 'DRIVER', 'PARENT'] });
 registerModule({ moduleKey: 'hostel-residences', moduleName: 'Dormitories & Beds', category: 'HOSTEL MANAGEMENT', route: '/hostel', icon: '⌂', displayOrder: 1, requiredPermission: 'hostel.read', roles: ['PROPRIETOR', 'SCHOOL_ADMIN', 'HOSTEL_MANAGER_MATRON', 'PARENT'] });
@@ -81,8 +83,8 @@ function registerNavigationGroup(category, requiredPermission, roles, entries) {
 }
 
 registerNavigationGroup('ADMINISTRATIVE', 'settings.read', ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER'], [
-  ['school-profile', 'School Profile', '/settings', '▣'],
-  ['academic-calendar', 'Academic Calendar', '/communication/calendar', '□']
+  ['school-profile', 'School Profile', proprietorRoute('school-profile'), '▣'],
+  ['academic-calendar', 'Academic Calendar', proprietorRoute('academic-calendar'), '□']
 ]);
 registerNavigationGroup('STUDENTS MANAGEMENT', 'students.read', ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'TEACHER', 'ADMISSIONS_OFFICER'], [
   ['student-directory', 'Student Directory', '/students', '◎'],
@@ -98,44 +100,44 @@ registerNavigationGroup('ADMISSIONS', 'admissions.read', ['PROPRIETOR', 'SCHOOL_
   ['admission-enrollment', 'Enrollment', '/admissions', '◎']
 ]);
 registerNavigationGroup('ACADEMICS', 'academics.read', ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'ACADEMIC_COORDINATOR', 'TEACHER'], [
-  ['academic-years', 'Academic Years', '/academics', '□'],
-  ['academic-terms', 'Terms', '/academics', '◷'],
-  ['academic-classes', 'Classes', '/academics', '▦'],
-  ['academic-subjects', 'Subjects', '/academics', '✎'],
-  ['teacher-assignments', 'Teacher Assignments', '/academics', '◉'],
-  ['curriculum', 'Curriculum', '/academics', '▤'],
-  ['lesson-plans', 'Lesson Plans', '/academics', '✎'],
-  ['academic-assignments', 'Assignments', '/academics', '✦'],
-  ['timetable', 'Timetable', '/academics', '□']
+  ['academic-years', 'Academic Years', proprietorRoute('academic-years'), '□'],
+  ['academic-terms', 'Terms', proprietorRoute('academic-terms'), '◷'],
+  ['academic-classes', 'Classes', proprietorRoute('academic-classes'), '▦'],
+  ['academic-subjects', 'Subjects', proprietorRoute('academic-subjects'), '✎'],
+  ['teacher-assignments', 'Teacher Assignments', proprietorRoute('teacher-assignments'), '◉'],
+  ['curriculum', 'Curriculum', proprietorRoute('curriculum'), '▤'],
+  ['lesson-plans', 'Lesson Plans', proprietorRoute('lesson-plans'), '✎'],
+  ['academic-assignments', 'Assignments', proprietorRoute('academic-assignments'), '✦'],
+  ['timetable', 'Timetable', proprietorRoute('timetable'), '□']
 ]);
 registerNavigationGroup('ATTENDANCE MANAGEMENT', 'attendance.read', ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'TEACHER'], [
   ['attendance-alerts', 'Attendance Alerts', '/attendance', '!']
 ]);
 registerNavigationGroup('EXAMINATIONS & RESULTS', 'examinations.read', ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'EXAMINATION_OFFICER', 'TEACHER'], [
-  ['exam-timetable', 'Exam Timetable', '/examinations', '□'],
-  ['broadsheets', 'Broadsheets', '/results', '▥'],
-  ['report-cards', 'Report Cards', '/results', '▤'],
-  ['promotion-results', 'Promotion Results', '/promotion', '↑']
+  ['exam-timetable', 'Exam Timetable', proprietorRoute('exam-timetable'), '□'],
+  ['broadsheets', 'Broadsheets', proprietorRoute('broadsheets'), '▥'],
+  ['report-cards', 'Report Cards', proprietorRoute('report-cards'), '▤'],
+  ['promotion-results', 'Promotion Results', proprietorRoute('promotion-results'), '↑']
 ]);
 registerNavigationGroup('FEE HUB', 'fees.read', ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'ACCOUNTANT_BURSAR'], [
-  ['student-fees', 'Student Fees', '/fees', '$'],
-  ['payments', 'Payments', '/fees', '₵'],
-  ['receipts', 'Receipts', '/fees/invoices', '▤'],
-  ['arrears', 'Arrears', '/fees', '!'],
-  ['discounts', 'Discounts', '/fees', '%'],
-  ['fee-statements', 'Fee Statements', '/fees', '▥']
+  ['student-fees', 'Student Fees', proprietorRoute('student-fees'), '$'],
+  ['payments', 'Payments', proprietorRoute('payments'), '₵'],
+  ['receipts', 'Receipts', proprietorRoute('receipts'), '▤'],
+  ['arrears', 'Arrears', proprietorRoute('arrears'), '!'],
+  ['discounts', 'Discounts', proprietorRoute('discounts'), '%'],
+  ['fee-statements', 'Fee Statements', proprietorRoute('fee-statements'), '▥']
 ]);
 registerNavigationGroup('FINANCE', 'finance.read', ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'ACCOUNTANT_BURSAR'], [
-  ['income', 'Income', '/finance', '₵'],
-  ['expenses', 'Expenses', '/finance', '−'],
-  ['cashbook', 'Cashbook', '/finance', '▤'],
-  ['budgets', 'Budgets', '/finance', '▦']
+  ['income', 'Income', proprietorRoute('income'), '₵'],
+  ['expenses', 'Expenses', proprietorRoute('expenses'), '−'],
+  ['cashbook', 'Cashbook', proprietorRoute('cashbook'), '▤'],
+  ['budgets', 'Budgets', proprietorRoute('budgets'), '▦']
 ]);
 registerNavigationGroup('STAFF MANAGEMENT', 'staff.read', ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'HR_OFFICER'], [
-  ['qualifications-licences', 'Qualifications', '/staff/qualifications', '▤'],
-  ['ntc-records', 'NTC Records', '/staff/qualifications', '✓'],
-  ['appraisals', 'Appraisal', '/staff/performance', '★'],
-  ['hr-documents', 'HR Documents', '/staff/hr', '▤']
+  ['qualifications-licences', 'Qualifications', proprietorRoute('qualifications-licences'), '▤'],
+  ['ntc-records', 'NTC Records', proprietorRoute('ntc-records'), '✓'],
+  ['appraisals', 'Appraisal', proprietorRoute('appraisals'), '★'],
+  ['hr-documents', 'HR Documents', proprietorRoute('hr-documents'), '▤']
 ]);
 registerNavigationGroup('COMMUNICATION HUB', 'communication.read', ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'TEACHER', 'PARENT'], [
   ['sms', 'SMS', '/communication', '✉'],
