@@ -6,7 +6,8 @@ const group = (category, page, entries) => entries.map(([moduleKey, moduleName, 
 
 export const PROPRIETOR_SIDEBAR_ROUTES = Object.freeze([
   ...group('ADMINISTRATIVE', '/index.html', [
-    ['settings', 'School Settings', '/settings'], ['users', 'Users & Roles', '/users'],
+    ['settings', 'School Settings', '/settings'], ['users', 'Users & Roles', '/users'], ['school-profile', 'School Profile', '/settings/profile'],
+    ['academic-calendar', 'Academic Calendar', '/communication/calendar'],
     ['multi-school-panel', 'Multi-School Panel', '/settings/multi-school'],
     ['official-documents', 'Official Documents', '/official-documents'],
     ['public-website', 'Public School Website', '/website'],
@@ -33,7 +34,7 @@ export const PROPRIETOR_SIDEBAR_ROUTES = Object.freeze([
     ['curriculum', 'Curriculum', '/academics/curriculum'], ['lesson-plans', 'Lesson Plans', '/academics/lesson-plans'],
     ['academic-assignments', 'Assignments', '/academics/assignments'], ['timetable', 'Timetable', '/academics/timetable']
   ]).map((item) => ({ ...item, page: ({
-    'exam-timetable': '/exam-timetable.html', 'broadsheets': '/reports-academic.html',
+    'exam-timetable': '/exam-timetable.html', 'broadsheets': '/academic-modules.html', 'attendance-reports': '/reports-academic.html',
     'academic-classes': '/academic-modules.html', 'academic-subjects': '/subjects.html',
     'report-cards': '/results.html', 'promotion-results': '/results.html',
     'curriculum': '/academic-modules.html', 'lesson-plans': '/academic-modules.html',
@@ -75,7 +76,7 @@ export const PROPRIETOR_SIDEBAR_ROUTES = Object.freeze([
   ]).map((item) => ({ ...item, page: item.moduleKey === 'admission-analytics' ? '/admission-analytics.html' : item.moduleKey === 'academic-reports' ? '/reports-academic.html' : item.moduleKey === 'financial-reports' ? '/reports-financial.html' : item.page })),
   ...group('COMMUNICATION HUB', '/communication.html', [
     ['announcements', 'Announcements', '/communication'], ['messages', 'Messages', '/communication/messages'],
-    ['calendar', 'School Calendar', '/communication/calendar'], ['sms', 'SMS', '/communication/sms'], ['email', 'Email', '/communication/email'],
+    ['calendar', 'School Calendar', '/communication/school-calendar'], ['sms', 'SMS', '/communication/sms'], ['email', 'Email', '/communication/email'],
     ['notifications', 'Notifications', '/communication/notifications'], ['communication-history', 'Communication History', '/communication/history']
   ]),
   ...group('LIBRARY MANAGEMENT', '/library.html', [['library', 'Library', '/library'], ['library-circulation', 'Borrowing & Returns', '/library/circulation']]),

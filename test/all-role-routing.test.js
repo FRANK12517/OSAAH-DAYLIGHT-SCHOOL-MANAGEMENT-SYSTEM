@@ -11,7 +11,7 @@ const publicFile = (page) => new URL(`../public/${page.replace(/^\//, '')}`, imp
 test('broken academic links resolve to their intended existing module pages', async () => {
   const expected = {
     '/examinations/timetable': ['/exam-timetable.html', /Examination Timetable/],
-    '/results/broadsheets': ['/reports-academic.html', /ACADEMIC PERFORMANCE REPORTS/],
+    '/results/broadsheets': ['/academic-modules.html', /Academic Module/],
     '/academics/classes': ['/academic-modules.html', /academic-classes/],
     '/results/report-cards': ['/results.html', /Student Result Slip/],
     '/academics/subjects/list': ['/subjects.html', /Subject Management/],
@@ -30,6 +30,27 @@ test('broken academic links resolve to their intended existing module pages', as
   assert.notEqual(PROPRIETOR_PAGE_ALIASES['/examinations/timetable'], PROPRIETOR_PAGE_ALIASES['/examinations/marks']);
   assert.notEqual(PROPRIETOR_PAGE_ALIASES['/results/broadsheets'], PROPRIETOR_PAGE_ALIASES['/results']);
   assert.notEqual(PROPRIETOR_PAGE_ALIASES['/academics/classes'], PROPRIETOR_PAGE_ALIASES['/academics/subjects']);
+});
+
+test('administrative and academic oversight children use distinct canonical routes', () => {
+  const expected = {
+    'school-profile': '/settings/profile', 'academic-calendar': '/communication/calendar',
+    academics: '/academics', 'attendance-dashboard': '/attendance', examinations: '/examinations',
+    'sporting-activities': '/sporting-activities', 'student-attendance': '/attendance/students',
+    'marks-entry': '/examinations/marks', 'staff-attendance': '/attendance/staff', results: '/results',
+    'attendance-reports': '/attendance/reports', promotion: '/promotion', 'mock-score-entry': '/examinations/mock',
+    'subject-management': '/academics/subjects', 'mock-results': '/results/mock', 'subject-register': '/academics/subject-register',
+    'academic-years': '/academics/years', 'attendance-alerts': '/attendance/alerts', 'exam-timetable': '/examinations/timetable',
+    'academic-terms': '/academics/terms', spreadsheets: '/academics/spreadsheets', 'academic-classes': '/academics/classes',
+    broadsheets: '/results/broadsheets', 'report-cards': '/results/report-cards', 'academic-subjects': '/academics/subjects/list',
+    'promotion-results': '/results/promotions', 'teacher-assignments': '/academics/teacher-assignments', curriculum: '/academics/curriculum',
+    'lesson-plans': '/academics/lesson-plans', 'academic-assignments': '/academics/assignments', timetable: '/academics/timetable'
+  };
+  const routes = new Map(PROPRIETOR_SIDEBAR_ROUTES.map((item) => [item.moduleKey, item.route]));
+  for (const [moduleKey, route] of Object.entries(expected)) assert.equal(routes.get(moduleKey), route, moduleKey);
+  assert.equal(new Set(Object.values(expected)).size, Object.keys(expected).length);
+  assert.equal(PROPRIETOR_PAGE_ALIASES['/results/broadsheets'], '/academic-modules.html');
+  assert.equal(PROPRIETOR_PAGE_ALIASES['/attendance/reports'], '/reports-academic.html');
 });
 
 test('every proprietor route has a real render target and unique module identity', async () => {
