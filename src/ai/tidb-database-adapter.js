@@ -3,7 +3,7 @@ import mysql from 'mysql2/promise';
 function normalizeTrustedMigrationSql(sql) {
   return String(sql)
     .replace(/^\s*PRAGMA\s+foreign_keys\s*=\s*ON\s*;?/gim, '')
-    .replace(/\bTEXT\b/g, 'VARCHAR(255)')
+    .replace(/\bTEXT\b/g, 'VARCHAR(191)')
     .replace(/CREATE\s+INDEX\s+IF\s+NOT\s+EXISTS/gi, 'CREATE INDEX')
     .replace(/INSERT\s+OR\s+IGNORE\s+INTO/gi, 'INSERT IGNORE INTO')
     .replace(/'category-'\s*\|\|\s*lower\(replace\(category_name,\s*' ',\s*'-'\)\)/gi, "CONCAT('category-', LOWER(REPLACE(category_name, ' ', '-')))")
