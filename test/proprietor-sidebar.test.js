@@ -48,16 +48,25 @@ test('proprietor sidebar is an accessible responsive accordion with route-based 
 });
 
 test('proprietor shell has one mount point and one replaceable child host', async () => {
-  const script = await readFile(new URL('../public/app.js', import.meta.url), 'utf8');
+  const [script, css] = await Promise.all([
+    readFile(new URL('../public/app.js', import.meta.url), 'utf8'),
+    readFile(new URL('../public/styles.css', import.meta.url), 'utf8')
+  ]);
   assert.equal((script.match(/class="app-shell"/g) ?? []).length, 1);
   assert.equal((script.match(/id="primary-sidebar"/g) ?? []).length, 1);
   assert.equal((script.match(/id="module-frame"/g) ?? []).length, 1);
   assert.match(script, /if \(dashboardBuildPromise\) return dashboardBuildPromise/);
   assert.match(script, /dashboard\.querySelector\('\.app-shell'\)\) return/);
   assert.match(script, /frame\.removeAttribute\('src'\)/);
+  assert.match(script, /hero\.hidden = true; host\.hidden = false/);
+  assert.match(script, /if \(route === '\/'\) \{ hero\.hidden = false; host\.hidden = true/);
   assert.match(script, /navigationVersion/);
   assert.match(script, /navigateToRoute\(dashboard/);
   assert.doesNotMatch(script, /createPortal|<Outlet|activeModule|selectedModule/);
+  assert.match(css, /\.app-shell\{--sidebar-width:250px\}/);
+  assert.match(css, /\.sidebar\{width:var\(--sidebar-width\)\}/);
+  assert.match(css, /\.workspace\{margin-left:var\(--sidebar-width\);min-width:0\}/);
+  assert.match(css, /@media\(max-width:759px\)\{\.workspace\{margin-left:0\}\}/);
 });
 
 test('every registered proprietor route is directly renderable and remains server-authorized', async () => {
