@@ -58,8 +58,9 @@ test('proprietor shell has one mount point and one replaceable child host', asyn
   assert.match(script, /if \(dashboardBuildPromise\) return dashboardBuildPromise/);
   assert.match(script, /dashboard\.querySelector\('\.app-shell'\)\) return/);
   assert.match(script, /frame\.removeAttribute\('src'\)/);
-  assert.match(script, /hero\.hidden = true; host\.hidden = false/);
-  assert.match(script, /if \(route === '\/'\) \{ hero\.hidden = false; host\.hidden = true/);
+  assert.match(script, /overview\.hidden = true; host\.hidden = false/);
+  assert.match(script, /if \(route === '\/'\) \{ overview\.hidden = false; host\.hidden = true/);
+  assert.equal((script.match(/id="dashboard-overview"/g) ?? []).length, 1);
   assert.match(script, /navigationVersion/);
   assert.match(script, /navigateToRoute\(dashboard/);
   assert.doesNotMatch(script, /createPortal|<Outlet|activeModule|selectedModule/);
