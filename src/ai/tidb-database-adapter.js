@@ -68,6 +68,31 @@ export function createDatabaseAdapter({ environment } = {}) {
       } catch (error) {
         return { healthy: false, error: error.message };
       }
+    },
+
+    async ensureMetadata() {
+      await pool.query(`CREATE TABLE IF NOT EXISTS schema_migrations (version INT PRIMARY KEY, name VARCHAR(255) NOT NULL, checksum CHAR(64) NOT NULL, applied_at DATETIME NOT NULL)`);
+      await pool.query(`CREATE TABLE IF NOT EXISTS schema_migration_lock (lock_id TINYINT PRIMARY KEY, locked TINYINT NOT NULL DEFAULT 0, acquired_at DATETIME NULL)`);
+      await pool.query(`INSERT INTO schema_migration_lock (lock_id, locked) VALUES (1, 0) ON DUPLICATE KEY UPDATE lock_id = lock_id`);
+    },
+
+    async listApplied() {
+      const [rows] = await pool.query('SELECT version, name, checksum, applied_at AS appliedAt FROM schema_migrations ORDER BY version ASC');
+      return rows;
+    },
+
+    async recordApplied(record) {
+      if (!record || !Number.isInteger(Number(record.version)) || !record.name || !record.checksum || !record.appliedAt) throw new Error('Invalid migration metadata.');
+      await pool.execute('INSERT INTO schema_migrations (version, name, checksum, applied_at) VALUES (?, ?, ?, ?)', [Number(record.version), record.name, record.checksum, record.appliedAt]);
+    },
+
+    async acquireLock() {
+      const [result] = await pool.execute('UPDATE schema_migration_lock SET locked = 1, acquired_at = CURRENT_TIMESTAMP WHERE lock_id = 1 AND locked = 0', []);
+      return Number(result.affectedRows) === 1;
+    },
+
+    async releaseLock() {
+      await pool.execute('UPDATE schema_migration_lock SET locked = 0, acquired_at = NULL WHERE lock_id = 1', []);
     }
   };
 }
