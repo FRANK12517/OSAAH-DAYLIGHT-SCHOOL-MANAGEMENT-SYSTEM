@@ -15,6 +15,7 @@ test('authoritative proprietor mapping covers every requested item with unique r
   for (const item of PROPRIETOR_SIDEBAR_ROUTES) {
     assert.match(item.route, /^\//, `${item.moduleName} must have an application route`);
     assert.match(item.page, /^\/.+\.html$/, `${item.moduleName} must reuse an existing page`);
+    assert.notEqual(item.page, '/index.html', `${item.moduleName} must never embed the authenticated dashboard shell`);
   }
 });
 
@@ -61,6 +62,7 @@ test('proprietor shell has one mount point and one replaceable child host', asyn
   assert.match(script, /overview\.hidden = true; host\.hidden = false/);
   assert.match(script, /if \(route === '\/'\) \{ overview\.hidden = false; host\.hidden = true/);
   assert.equal((script.match(/id="dashboard-overview"/g) ?? []).length, 1);
+  assert.match(script, /url\.searchParams\.set\('embedded', '1'\)/);
   assert.match(script, /navigationVersion/);
   assert.match(script, /navigateToRoute\(dashboard/);
   assert.doesNotMatch(script, /createPortal|<Outlet|activeModule|selectedModule/);
@@ -68,6 +70,36 @@ test('proprietor shell has one mount point and one replaceable child host', asyn
   assert.match(css, /\.sidebar\{width:var\(--sidebar-width\);flex:0 0 var\(--sidebar-width\)\}/);
   assert.match(css, /\.workspace\{margin-left:var\(--sidebar-width\);width:calc\(100% - var\(--sidebar-width\)\);max-width:calc\(100% - var\(--sidebar-width\)\);min-width:0\}/);
   assert.match(css, /@media\(max-width:759px\)\{\.workspace\{margin-left:0;width:100%;max-width:100%\}\}/);
+});
+
+test('administrator form reports the actual missing required field and preserves valid submissions', async () => {
+  const page = await readFile(new URL('../public/administrator-management.html', import.meta.url), 'utf8');
+  assert.match(page, /novalidate/);
+  assert.match(page, /Enter the administrator’s full name\./);
+  assert.match(page, /Enter the administrator’s Staff ID\./);
+  assert.match(page, /field\.reportValidity\(\)/);
+  assert.match(page, /Object\.fromEntries\(new FormData\(form\)\)/);
+});
+
+test('embedded proprietor children never return the authenticated dashboard shell', async () => {
+  const auth = createAuthService();
+  const server = createServer(createApp({ auth }));
+  await new Promise((resolve) => server.listen(0, resolve));
+  const token = auth.login({ username: 'proprietor@osaah.edu.gh', password: 'Proprietor123!', portal: 'school' }).token;
+  const request = (path) => new Promise((resolve, reject) => {
+    const req = httpRequest({ port: server.address().port, path: `${path}?embedded=1`, headers: { Authorization: `Bearer ${token}` } }, (response) => {
+      let body = ''; response.setEncoding('utf8'); response.on('data', (chunk) => { body += chunk; });
+      response.on('end', () => resolve({ status: response.statusCode, body }));
+    });
+    req.on('error', reject); req.end();
+  });
+  try {
+    for (const item of PROPRIETOR_SIDEBAR_ROUTES) {
+      const response = await request(item.route);
+      assert.equal(response.status, 200, item.route);
+      assert.doesNotMatch(response.body, /id="dashboard"/, `${item.moduleName} must not nest the dashboard shell`);
+    }
+  } finally { await new Promise((resolve) => server.close(resolve)); }
 });
 
 test('every registered proprietor route is directly renderable and remains server-authorized', async () => {
