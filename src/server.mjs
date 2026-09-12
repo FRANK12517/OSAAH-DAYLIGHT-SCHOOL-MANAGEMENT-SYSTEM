@@ -40,6 +40,7 @@ import { createAIActionAdapters, createHumanControlledActions } from './ai/human
 import { createAIAdministration } from './ai/administration.js';
 import { createAIAuditLogger } from './ai/audit-logger.js';
 import { createDisabledAIPersistence, loadConfiguredAIPersistence, selectAIPersistence } from './ai/durable-stores.js';
+import { assertProductionAISystemOfRecordReady } from './ai/system-of-record-readiness.js';
 import { buildAIRegistry } from './ai/registry.js';
 import { createProductionDataGuard } from './ai/production-data-guard.js';
 import { createAIDataQualityGuard } from './ai/data-quality-guard.js';
@@ -444,6 +445,7 @@ export function createApp({ auth = createAuthService(), students = createStudent
   };
 }
 const aiEnabled = String(process.env.OSAAH_AI_ENABLED ?? 'false').toLowerCase() === 'true';
+assertProductionAISystemOfRecordReady({ aiEnabled });
 const aiPersistence = aiEnabled ? await loadConfiguredAIPersistence() : createDisabledAIPersistence();
 const { capabilities: capabilityRegistry, tools: toolRegistry } = await buildAIRegistry();
 const aiAuditLoggerForWiring = createAIAuditLogger({ sink: aiPersistence.auditSink });

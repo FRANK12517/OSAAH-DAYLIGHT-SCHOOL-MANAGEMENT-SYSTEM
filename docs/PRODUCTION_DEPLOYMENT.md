@@ -24,7 +24,7 @@ The deployment URL is protected by Vercel authentication. A canonical custom pro
 
 ## Current decision: NO-GO
 
-Do not deploy or enable production AI. Production persistence is not ready: the business domains audited in Part 16E still use process-local stores, no approved production database vendor/adapter is configured, and durable connectivity/migration health cannot be verified. The Vercel project environment could not be inspected with the local OIDC identity, so every required name below remains unverified and is treated as missing for release approval.
+Do not deploy or enable production AI. Production persistence is not ready: the business domains audited in [the system-of-record durability assessment](OSAAH_AI_SYSTEM_OF_RECORD_DURABILITY.md) still use process-local stores, no approved production database vendor/adapter is configured, and durable connectivity/migration health cannot be verified. The server now fails closed with `SYSTEM_OF_RECORD_PERSISTENCE_REQUIRED` if production AI is enabled while those sources are transient. The Vercel project environment could not be inspected with the local OIDC identity, so every required name below remains unverified and is treated as missing for release approval.
 
 ### Required AI names to verify in Vercel Production
 

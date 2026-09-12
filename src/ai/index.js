@@ -28,4 +28,5 @@ export { KNOWLEDGE_SOURCE_STATUSES, createSchoolKnowledgeIntelligence, createSch
 export { createExecutiveCapabilityAdapters, createExecutiveIntelligence } from './executive-intelligence.js';
 export { AI_ACTION_STATUSES, AI_ACTION_TYPES, createAIActionAdapters, createAIActionStore, createHumanControlledActions } from './human-controlled-actions.js';
 export { createDatabaseAIAuditSink, createDatabaseAIActionStore, loadConfiguredAIPersistence, selectAIPersistence } from './durable-stores.js';
+export { DURABLE_AI_INFRASTRUCTURE, SYSTEM_OF_RECORD_DURABILITY, assertProductionAISystemOfRecordReady, systemOfRecordReadiness } from './system-of-record-readiness.js';
 export { createAIAdministration } from './administration.js';
