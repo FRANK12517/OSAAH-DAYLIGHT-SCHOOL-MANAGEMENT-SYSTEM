@@ -22,7 +22,7 @@ before(async () => {
   repositories = createDurableFoundationRepositories({ adapter });
 });
 
-after(async () => { await adapter?.release?.(); });
+after(async () => { await adapter?.close?.(); });
 
 test('migration metadata is applied and durable factory is constructed', { skip: !url }, async () => {
   const migrations = await adapter.listApplied();

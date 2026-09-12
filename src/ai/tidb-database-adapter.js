@@ -72,6 +72,10 @@ export function createDatabaseAdapter({ environment } = {}) {
       }
     },
 
+    async close() {
+      await pool.end();
+    },
+
     async ensureMetadata() {
       await pool.query(`CREATE TABLE IF NOT EXISTS schema_migrations (version INT PRIMARY KEY, name VARCHAR(255) NOT NULL, checksum CHAR(64) NOT NULL, applied_at DATETIME NOT NULL)`);
       await pool.query(`CREATE TABLE IF NOT EXISTS schema_migration_lock (lock_id TINYINT PRIMARY KEY, locked TINYINT NOT NULL DEFAULT 0, acquired_at DATETIME NULL)`);
