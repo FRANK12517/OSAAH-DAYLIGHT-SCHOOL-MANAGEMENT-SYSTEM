@@ -41,7 +41,10 @@ export function createDatabaseAdapter({ environment } = {}) {
             return rows;
           },
           async execute(sql, params = []) {
-            const [result] = await connection.execute(sql, params);
+            const statement = params.length === 0 ? String(sql).replace(/^\s*PRAGMA\s+foreign_keys\s*=\s*ON\s*;?/gim, '').trim() : sql;
+            const [result] = params.length === 0 && statement.includes(';')
+              ? await connection.query(statement)
+              : await connection.execute(statement, params);
             return {
               insertId: result.insertId,
               affectedRows: result.affectedRows
