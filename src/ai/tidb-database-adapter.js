@@ -5,7 +5,10 @@ function normalizeTrustedMigrationSql(sql) {
     .replace(/^\s*PRAGMA\s+foreign_keys\s*=\s*ON\s*;?/gim, '')
     .replace(/\bTEXT\b/g, 'VARCHAR(255)')
     .replace(/CREATE\s+INDEX\s+IF\s+NOT\s+EXISTS/gi, 'CREATE INDEX')
-    .replace(/INSERT\s+OR\s+IGNORE\s+INTO/gi, 'INSERT IGNORE INTO');
+    .replace(/INSERT\s+OR\s+IGNORE\s+INTO/gi, 'INSERT IGNORE INTO')
+    .replace(/'category-'\s*\|\|\s*lower\(replace\(category_name,\s*' ',\s*'-'\)\)/gi, "CONCAT('category-', LOWER(REPLACE(category_name, ' ', '-')))")
+    .replace(/FROM\s*\(SELECT\s+'ADMINISTRATIVE'/i, "FROM (SELECT 'ADMINISTRATIVE'")
+    .replace(/(UNION ALL SELECT 'SYSTEM & SECURITY', 20)\s*\)/i, '$1) AS seed');
 }
 
 export function createDatabaseAdapter({ environment } = {}) {
