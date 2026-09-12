@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { isValidGhanaPhone } from './ghana-phone.js';
 
 export const ADMISSION_FORM_STATUSES = ['DRAFT', 'SUBMITTED', 'UNDER_REVIEW', 'ACCEPTED', 'REJECTED'];
 export const ADMISSION_CLASSES = ['Crèche', 'Nursery', 'KG 1', 'KG 2', 'Basic 1', 'Basic 2', 'Basic 3', 'Basic 4', 'Basic 5', 'Basic 6', 'JHS 1', 'JHS 2', 'JHS 3'];
@@ -21,7 +22,7 @@ const REQUIRED_FIELDS = ['studentSurname', 'studentFirstName', 'dateOfBirth', 'g
 const DOCUMENT_TYPES = ['PASSPORT_PHOTOGRAPHS', 'BIRTH_CERTIFICATE_OR_GHANA_CARD', 'NHIS_CARD', 'LAST_ACADEMIC_REPORT'];
 
 export function feeDivisionForClass(classAppliedFor) { return CLASS_DIVISIONS.get(String(classAppliedFor ?? '').trim().toLowerCase()) ?? null; }
-export function isGhanaPhone(value) { return /^(?:\+233|0)(?:2[0-9]|5[0-9])\d{7}$/.test(String(value ?? '').replace(/[\s-]/g, '')); }
+export function isGhanaPhone(value) { return isValidGhanaPhone(value); }
 
 export function createAdmissionFormService({ now = () => new Date().toISOString(), schoolId = 'school-osaah-daylight' } = {}) {
   const applications = new Map();

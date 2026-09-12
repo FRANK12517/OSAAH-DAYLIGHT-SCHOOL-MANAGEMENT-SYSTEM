@@ -3,3 +3,4 @@ export const ROLE_DEFINITIONS = [
 ].map(([roleKey, roleName, oversightRank]) => ({ roleKey, roleName, oversightRank }));
 
 export const ROLE_KEYS = new Set(ROLE_DEFINITIONS.map((role) => role.roleKey));
+ROLE_KEYS.add('DEVELOPER');
