@@ -44,6 +44,40 @@ test('signed proprietor session survives a different serverless instance', async
   } finally { await new Promise((resolve) => server.close(resolve)); }
 });
 
+test('logout returns every school role to the public home and keeps protected routes guarded', async () => {
+  const auth = createAuthService({ sessionSecret: SESSION_SECRET });
+  const server = createServer(createApp({ auth, aiEnabled: false }));
+  await new Promise((resolve) => server.listen(0, resolve));
+  const headteacher = auth.registerStaff({ fullName: 'Test Headteacher', staffId: 'STAFF-LOGOUT-HEAD', primaryRole: 'TEACHER' }, { schoolId: 'school-osaah-daylight' });
+  auth.changeStaffRole(headteacher.staff.id, 'HEADTEACHER', 'school-osaah-daylight');
+  const assistantHeadteacher = auth.registerStaff({ fullName: 'Test Assistant Headteacher', staffId: 'STAFF-LOGOUT-ASSISTANT', primaryRole: 'TEACHER' }, { schoolId: 'school-osaah-daylight' });
+  auth.changeStaffRole(assistantHeadteacher.staff.id, 'ASSISTANT_HEADTEACHER', 'school-osaah-daylight');
+  const schoolUsers = [
+    ['proprietor@osaah.edu.gh', 'Proprietor123!', '/reports'],
+    [headteacher.staff.username, headteacher.temporaryPassword, '/academics'],
+    [assistantHeadteacher.staff.username, assistantHeadteacher.temporaryPassword, '/academics'],
+    ['bursar@osaah.edu.gh', 'Bursar123!', '/fees'],
+    ['teacher@osaah.edu.gh', 'Teacher123!', '/academics']
+  ];
+  try {
+    for (const [username, password, protectedRoute] of schoolUsers) {
+      const login = auth.login({ username, password, portal: 'school' });
+      assert.equal(login.ok, true, `${username} should log in`);
+      const logout = await request(server, '/api/auth/logout', { method: 'POST', cookie: `osaah_session=${login.token}` });
+      assert.equal(logout.status, 204, `${username} logout should succeed`);
+      assert.match(logout.headers['set-cookie'][0], /osaah_session=;/);
+      const publicHome = await request(server, '/', { headers: { 'Sec-Fetch-Mode': 'navigate' } });
+      assert.equal(publicHome.status, 200);
+      assert.match(publicHome.body, /id="login-form"/);
+      const protectedNavigation = await request(server, protectedRoute, { headers: { 'Sec-Fetch-Mode': 'navigate' } });
+      assert.equal(protectedNavigation.status, 303, `${username} must be redirected away from protected navigation`);
+      assert.equal(protectedNavigation.headers.location, '/');
+      const protectedApi = await request(server, '/api/sidebar');
+      assert.equal(protectedApi.status, 401, 'API authorization must remain enforced after logout');
+    }
+  } finally { await new Promise((resolve) => server.close(resolve)); }
+});
+
 test('signed session rejects tampering, expires, and logout clears the cookie', async () => {
   let clock = 1_000;
   const auth = createAuthService({ sessionSecret: SESSION_SECRET, now: () => clock });
