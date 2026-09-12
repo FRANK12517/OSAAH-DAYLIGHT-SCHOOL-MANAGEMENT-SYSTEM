@@ -5,7 +5,7 @@ const group = (category, page, entries) => entries.map(([moduleKey, moduleName, 
 }));
 
 export const PROPRIETOR_SIDEBAR_ROUTES = Object.freeze([
-  ...group('ADMINISTRATIVE', '/index.html', [
+  ...group('ADMINISTRATIVE', '/administrative-modules.html', [
     ['settings', 'School Settings', '/settings'], ['users', 'Users & Roles', '/users'], ['school-profile', 'School Profile', '/settings/profile'],
     ['academic-calendar', 'Academic Calendar', '/communication/calendar'],
     ['multi-school-panel', 'Multi-School Panel', '/settings/multi-school'],
