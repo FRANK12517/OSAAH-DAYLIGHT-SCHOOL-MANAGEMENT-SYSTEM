@@ -12,6 +12,7 @@ export function createDatabaseAdapter({ environment } = {}) {
     uri: connectionString,
     ...(testConnection ? {} : { ssl: { minVersion: 'TLSv1.2', rejectUnauthorized: true } }),
     waitForConnections: true,
+    multipleStatements: true,
     connectionLimit: 10,
     queueLimit: 0
   });
