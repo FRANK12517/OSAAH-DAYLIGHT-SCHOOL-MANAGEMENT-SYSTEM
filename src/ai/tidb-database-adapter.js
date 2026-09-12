@@ -7,12 +7,10 @@ export function createDatabaseAdapter({ environment } = {}) {
     throw new Error('DATABASE_URL is required for the TiDB AI persistence adapter.');
   }
 
+  const testConnection = environment?.OSAAH_TEST_DATABASE_URL || process.env.OSAAH_TEST_DATABASE_URL;
   const pool = mysql.createPool({
     uri: connectionString,
-    ssl: {
-      minVersion: 'TLSv1.2',
-      rejectUnauthorized: true
-    },
+    ...(testConnection ? {} : { ssl: { minVersion: 'TLSv1.2', rejectUnauthorized: true } }),
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0

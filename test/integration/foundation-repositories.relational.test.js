@@ -14,7 +14,7 @@ let repositories;
 
 before(async () => {
   if (!url) return;
-  adapter = createDatabaseAdapter({ environment: { DATABASE_URL: url } });
+  adapter = createDatabaseAdapter({ environment: { DATABASE_URL: url, OSAAH_TEST_DATABASE_URL: url } });
   const health = await adapter.healthCheck();
   assert.equal(health.healthy, true, 'relational test database is unhealthy');
   const runner = createMigrationRunner({ adapter, directory: resolve('schema') });
