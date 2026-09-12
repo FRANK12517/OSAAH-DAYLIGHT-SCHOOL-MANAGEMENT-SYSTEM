@@ -56,6 +56,7 @@ test('proprietor shell has one mount point and one replaceable child host', asyn
   assert.equal((script.match(/class="app-shell"/g) ?? []).length, 1);
   assert.equal((script.match(/id="primary-sidebar"/g) ?? []).length, 1);
   assert.equal((script.match(/id="module-frame"/g) ?? []).length, 1);
+  assert.ok(script.includes('Log out</button></header><section id='));
   assert.match(script, /if \(dashboardBuildPromise\) return dashboardBuildPromise/);
   assert.match(script, /dashboard\.querySelector\('\.app-shell'\)\) return/);
   assert.match(script, /frame\.removeAttribute\('src'\)/);
