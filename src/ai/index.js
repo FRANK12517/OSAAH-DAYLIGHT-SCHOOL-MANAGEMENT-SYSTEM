@@ -30,3 +30,4 @@ export { AI_ACTION_STATUSES, AI_ACTION_TYPES, createAIActionAdapters, createAIAc
 export { createDatabaseAIAuditSink, createDatabaseAIActionStore, loadConfiguredAIPersistence, selectAIPersistence } from './durable-stores.js';
 export { DURABLE_AI_INFRASTRUCTURE, SYSTEM_OF_RECORD_DURABILITY, assertProductionAISystemOfRecordReady, systemOfRecordReadiness } from './system-of-record-readiness.js';
 export { createAIAdministration } from './administration.js';
+export { createDatabaseRepository, createInMemoryRepository, selectRepository } from '../platform/repositories.js';
