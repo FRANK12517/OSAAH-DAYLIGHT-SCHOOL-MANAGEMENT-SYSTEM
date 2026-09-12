@@ -429,7 +429,11 @@ export function createApp({ auth = createAuthService(), students = createStudent
       const user = auth.authenticate(readCookie(request, 'osaah_session') ?? bearer(request));
       const accessibleModules = user ? visibleSidebar({ modules: SIDEBAR_MODULES, permissions: user.permissions, roleKey: user.roleKey, portal: user.portal, schoolType: user.schoolType, subscription: user.subscription, entitlements: user.entitlements, featureAvailability: user.featureAvailability }).flatMap((group) => group.modules.flatMap((module) => [module, ...(module.children ?? [])])) : [];
       const authorized = user && (accessibleModules.some((module) => module.route === pathname) || user.portal === 'parent' && pathname === '/examinations/timetable');
-      if (!authorized) { response.writeHead(user ? 403 : 401, { 'Content-Type': 'text/plain; charset=utf-8' }); return response.end(user ? 'Forbidden' : 'Authentication required'); }
+      if (!authorized) {
+        const isDocumentNavigation = request.headers['sec-fetch-mode'] === 'navigate' && new URL(request.url, 'http://localhost').searchParams.get('embedded') !== '1';
+        if (!user && isDocumentNavigation) { response.writeHead(303, { Location: '/', 'Cache-Control': 'no-store' }); return response.end(); }
+        response.writeHead(user ? 403 : 401, { 'Content-Type': 'text/plain; charset=utf-8' }); return response.end(user ? 'Forbidden' : 'Authentication required');
+      }
       protectedUser = user;
     }
     let publicAdmissionCookie = null;

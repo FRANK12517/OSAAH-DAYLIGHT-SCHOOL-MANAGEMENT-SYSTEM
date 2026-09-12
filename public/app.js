@@ -49,6 +49,13 @@ function navigateToRoute(dashboard, route, title, { replace = false } = {}) {
   }
   renderWorkspaceRoute(dashboard, normalizedRoute, title);
 }
+async function logoutToPublicHome() {
+  const response = await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin', cache: 'no-store' });
+  if (!response.ok) throw new Error('Unable to end the current session.');
+  state.portal = null;
+  dashboardBuildPromise = null;
+  window.location.replace('/');
+}
 function renderNavItem(module, nested = false) { const href = module.moduleKey === 'logout' ? '#logout' : escapeHtml(module.route); const active = routeIsActive(module.route); const children = (module.children ?? []).map((child) => renderNavItem(child, true)).join(''); return `<a class="sidebar-link ${nested ? 'sidebar-child' : ''}${active ? ' active' : ''}" href="${href}" data-module="${escapeHtml(module.moduleKey)}"${active ? ' aria-current="page"' : ''} title="${escapeHtml(module.moduleName)}"><span class="sidebar-icon" aria-hidden="true">${escapeHtml(module.icon)}</span><span>${escapeHtml(module.moduleName)}</span></a>${children}`; }
 function renderNavGroup(group, index) { const direct = group.category === 'DASHBOARD OVERVIEW' || group.category === 'LOGOUT'; if (direct) return `<div class="sidebar-direct">${group.modules.map((module) => renderNavItem(module)).join('')}</div>`; const active = group.modules.some((module) => routeIsActive(module.route) || (module.children ?? []).some((child) => routeIsActive(child.route))); const groupId = `sidebar-group-${index}`; return `<section class="sidebar-group${active ? ' is-active' : ''}"><button class="sidebar-group-toggle" type="button" aria-expanded="${active}" aria-controls="${groupId}"><span>${escapeHtml(group.category)}</span><span class="sidebar-chevron" aria-hidden="true">⌄</span></button><div class="sidebar-group-items" id="${groupId}"${active ? '' : ' hidden'}>${group.modules.map((module) => renderNavItem(module, true)).join('')}</div></section>`; }
 document.querySelectorAll('[data-portal]').forEach((card) => card.addEventListener('click', () => { state.portal = card.dataset.portal; document.querySelector('.portal-grid').hidden = true; form.hidden = false; document.querySelector('#portal-label').textContent = `${state.portal.toUpperCase()} PORTAL SIGN IN`; document.querySelector('[name=username]').focus(); }));
@@ -67,6 +74,6 @@ function renderDashboard(user) {
   dashboard.querySelectorAll('.sidebar-group-toggle').forEach((button) => button.addEventListener('click', () => { const open = button.getAttribute('aria-expanded') === 'true'; button.setAttribute('aria-expanded', String(!open)); document.getElementById(button.getAttribute('aria-controls')).hidden = open; }));
   dashboard.querySelectorAll('.sidebar-link:not([data-module="logout"])').forEach((link) => link.addEventListener('click', (event) => { setDrawer(false); if (user.portal !== 'school') return; event.preventDefault(); const route = new URL(link.href, location.origin).pathname; navigateToRoute(dashboard, route, link.title || link.textContent.trim()); }));
   if (user.portal === 'school') { const renderCurrent = () => { const link = [...dashboard.querySelectorAll('.sidebar-link')].find((item) => new URL(item.href, location.origin).pathname === location.pathname); navigateToRoute(dashboard, location.pathname, link?.title || document.body.dataset.currentModule || 'School Module', { replace: true }); }; if (location.pathname !== '/') renderCurrent(); window.onpopstate = () => renderCurrent(); }
-  document.querySelector('#logout').addEventListener('click', async () => { await fetch('/api/auth/logout', { method: 'POST' }); location.reload(); }); dashboard.querySelectorAll('[data-module="logout"]').forEach((link) => link.addEventListener('click', async (event) => { event.preventDefault(); await fetch('/api/auth/logout', { method: 'POST' }); location.reload(); })); })();
+  document.querySelector('#logout').addEventListener('click', () => { logoutToPublicHome().catch((error) => console.error('OSAAH logout failed', error)); }); dashboard.querySelectorAll('[data-module="logout"]').forEach((link) => link.addEventListener('click', (event) => { event.preventDefault(); logoutToPublicHome().catch((error) => console.error('OSAAH logout failed', error)); })); })();
   return dashboardBuildPromise;
 }

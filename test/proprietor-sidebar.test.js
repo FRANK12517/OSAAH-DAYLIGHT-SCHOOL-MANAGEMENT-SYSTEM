@@ -64,10 +64,10 @@ test('proprietor shell has one mount point and one replaceable child host', asyn
   assert.match(script, /navigationVersion/);
   assert.match(script, /navigateToRoute\(dashboard/);
   assert.doesNotMatch(script, /createPortal|<Outlet|activeModule|selectedModule/);
-  assert.match(css, /\.app-shell\{--sidebar-width:250px\}/);
-  assert.match(css, /\.sidebar\{width:var\(--sidebar-width\)\}/);
-  assert.match(css, /\.workspace\{margin-left:var\(--sidebar-width\);min-width:0\}/);
-  assert.match(css, /@media\(max-width:759px\)\{\.workspace\{margin-left:0\}\}/);
+  assert.match(css, /\.app-shell\{--sidebar-width:250px;min-height:100vh\}/);
+  assert.match(css, /\.sidebar\{width:var\(--sidebar-width\);flex:0 0 var\(--sidebar-width\)\}/);
+  assert.match(css, /\.workspace\{margin-left:var\(--sidebar-width\);width:calc\(100% - var\(--sidebar-width\)\);max-width:calc\(100% - var\(--sidebar-width\)\);min-width:0\}/);
+  assert.match(css, /@media\(max-width:759px\)\{\.workspace\{margin-left:0;width:100%;max-width:100%\}\}/);
 });
 
 test('every registered proprietor route is directly renderable and remains server-authorized', async () => {
