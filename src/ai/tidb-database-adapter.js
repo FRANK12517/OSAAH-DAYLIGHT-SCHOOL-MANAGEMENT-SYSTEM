@@ -6,6 +6,7 @@ function normalizeTrustedMigrationSql(sql) {
     .replace(/\bTEXT\b/g, 'VARCHAR(191)')
     .replace(/CREATE\s+INDEX\s+IF\s+NOT\s+EXISTS/gi, 'CREATE INDEX')
     .replace(/CREATE\s+UNIQUE\s+INDEX\s+IF\s+NOT\s+EXISTS/gi, 'CREATE UNIQUE INDEX')
+    .replace(/\)\s+WHERE\s+is_published\s*=\s*1/gi, ')')
     .replace(/INSERT\s+OR\s+IGNORE\s+INTO/gi, 'INSERT IGNORE INTO')
     .replace(/(official_use\s+JSON\s+NOT\s+NULL)\s+DEFAULT\s+'\{\}'/gi, '$1')
     .replace(/(?<!`)\bcondition\b(?!`)/gi, '`condition`')
