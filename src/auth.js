@@ -46,6 +46,10 @@ export function createAuthService({ users = DEMO_USERS, now = () => Date.now(), 
     const parts = token.split('.'); if (parts.length !== 3) return null;
     const expected = createHmac('sha256', signingKey).update(parts[1]).digest(); let actual;
     try { actual = Buffer.from(parts[2], 'base64url'); } catch { return null; }
+    // Reject alternate base64url encodings that decode to the same bytes. Without
+    // this canonical-form check, changing unused trailing bits can leave the
+    // decoded HMAC unchanged and make a tampered token appear valid.
+    if (actual.toString('base64url') !== parts[2]) return null;
     if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) return null;
     try { const session = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')); return session && typeof session.userId === 'string' && typeof session.sessionId === 'string' && Number.isFinite(session.expiresAt) ? session : null; } catch { return null; }
   }
