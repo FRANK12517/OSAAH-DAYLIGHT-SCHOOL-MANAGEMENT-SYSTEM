@@ -97,7 +97,10 @@ export function createDatabaseAdapter({ environment } = {}) {
 
     async recordApplied(record) {
       if (!record || !Number.isInteger(Number(record.version)) || !record.name || !record.checksum || !record.appliedAt) throw new Error('Invalid migration metadata.');
-      await pool.execute('INSERT INTO schema_migrations (version, name, checksum, applied_at) VALUES (?, ?, ?, ?)', [Number(record.version), record.name, record.checksum, record.appliedAt]);
+      const appliedAt = new Date(record.appliedAt);
+      if (Number.isNaN(appliedAt.getTime())) throw new Error('Invalid migration metadata.');
+      const mysqlTimestamp = appliedAt.toISOString().slice(0, 19).replace('T', ' ');
+      await pool.execute('INSERT INTO schema_migrations (version, name, checksum, applied_at) VALUES (?, ?, ?, ?)', [Number(record.version), record.name, record.checksum, mysqlTimestamp]);
     },
 
     async acquireLock() {
