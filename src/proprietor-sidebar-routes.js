@@ -6,7 +6,8 @@ const group = (category, page, entries) => entries.map(([moduleKey, moduleName, 
 
 export const PROPRIETOR_SIDEBAR_ROUTES = Object.freeze([
   ...group('ADMINISTRATIVE', '/index.html', [
-    ['settings', 'School Settings', '/settings'], ['users', 'Users & Roles', '/users'],
+    ['settings', 'School Settings', '/settings'], ['users', 'Users & Roles', '/users'], ['school-profile', 'School Profile', '/settings/profile'],
+    ['academic-calendar', 'Academic Calendar', '/communication/calendar'],
     ['multi-school-panel', 'Multi-School Panel', '/settings/multi-school'],
     ['official-documents', 'Official Documents', '/official-documents'],
     ['public-website', 'Public School Website', '/website'],
@@ -33,7 +34,7 @@ export const PROPRIETOR_SIDEBAR_ROUTES = Object.freeze([
     ['curriculum', 'Curriculum', '/academics/curriculum'], ['lesson-plans', 'Lesson Plans', '/academics/lesson-plans'],
     ['academic-assignments', 'Assignments', '/academics/assignments'], ['timetable', 'Timetable', '/academics/timetable']
   ]).map((item) => ({ ...item, page: ({
-    'exam-timetable': '/exam-timetable.html', 'broadsheets': '/reports-academic.html',
+    'exam-timetable': '/exam-timetable.html', 'broadsheets': '/academic-modules.html', 'attendance-reports': '/reports-academic.html',
     'academic-classes': '/academic-modules.html', 'academic-subjects': '/subjects.html',
     'report-cards': '/results.html', 'promotion-results': '/results.html',
     'curriculum': '/academic-modules.html', 'lesson-plans': '/academic-modules.html',
@@ -75,16 +76,17 @@ export const PROPRIETOR_SIDEBAR_ROUTES = Object.freeze([
   ]).map((item) => ({ ...item, page: item.moduleKey === 'admission-analytics' ? '/admission-analytics.html' : item.moduleKey === 'academic-reports' ? '/reports-academic.html' : item.moduleKey === 'financial-reports' ? '/reports-financial.html' : item.page })),
   ...group('COMMUNICATION HUB', '/communication.html', [
     ['announcements', 'Announcements', '/communication'], ['messages', 'Messages', '/communication/messages'],
-    ['calendar', 'School Calendar', '/communication/calendar'], ['sms', 'SMS', '/communication/sms'], ['email', 'Email', '/communication/email'],
+    ['calendar', 'School Calendar', '/communication/school-calendar'], ['sms', 'SMS', '/communication/sms'], ['email', 'Email', '/communication/email'],
     ['notifications', 'Notifications', '/communication/notifications'], ['communication-history', 'Communication History', '/communication/history']
   ]),
-  ...group('LIBRARY MANAGEMENT', '/library.html', [['library', 'Library', '/library'], ['library-circulation', 'Borrowing & Returns', '/library/circulation']]),
-  ...group('TRANSPORT MANAGEMENT', '/transport.html', [['transport', 'Transport', '/transport'], ['transport.gps', 'GPS Tracking', '/transport/gps'], ['transport-routes', 'Routes & Students', '/transport/routes']]),
-  ...group('HOSTEL MANAGEMENT', '/hostel.html', [['hostel-residences', 'Dormitories & Beds', '/hostel'], ['hostel-roll-call', 'Boarding Roll Call', '/hostel/roll-call']]),
-  ...group('HEALTH & WELFARE', '/welfare.html', [['health-records', 'Health Records', '/welfare/health'], ['discipline', 'Discipline', '/welfare/discipline'], ['counselling', 'Guidance & Counselling', '/welfare/counselling'], ['shep-activities', 'SHEP Activities', '/welfare/shep']]),
-  ...group('INVENTORY & STORES', '/inventory.html', [['inventory', 'Inventory & Stores', '/inventory'], ['inventory-movements', 'Stock Movements', '/inventory/movements']]),
-  ...group('ASSETS & PROPERTY', '/assets.html', [['assets', 'Assets', '/assets'], ['property', 'School Property', '/property']]),
-  ...group('PROCUREMENT', '/procurement.html', [['procurement', 'Procurement', '/procurement']])
+  ...group('LIBRARY MANAGEMENT', '/library.html', [['library', 'Library', '/library'], ['library-circulation', 'Borrowing & Returns', '/library/circulation'], ['books', 'Books', '/library/books'], ['borrowing', 'Borrowing', '/library/borrowing'], ['returns', 'Returns', '/library/returns'], ['library-reports', 'Library Reports', '/library/reports']]),
+  ...group('TRANSPORT MANAGEMENT', '/transport.html', [['transport', 'Transport', '/transport'], ['transport.gps', 'GPS Tracking', '/transport/gps'], ['transport-routes', 'Routes & Students', '/transport/routes'], ['vehicles', 'Vehicles', '/transport/vehicles'], ['drivers', 'Drivers', '/transport/drivers'], ['routes', 'Routes', '/transport/routes/list'], ['transport-students', 'Students', '/transport/students'], ['trips', 'Trips', '/transport/trips'], ['transport-fees', 'Transport Fees', '/transport/fees']]),
+  ...group('HOSTEL MANAGEMENT', '/hostel.html', [['hostel-residences', 'Dormitories & Beds', '/hostel'], ['hostel-roll-call', 'Boarding Roll Call', '/hostel/roll-call'], ['houses', 'Houses', '/hostel/houses'], ['dormitories', 'Dormitories', '/hostel/dormitories'], ['beds', 'Beds', '/hostel/beds'], ['boarders', 'Boarders', '/hostel/boarders'], ['roll-call', 'Roll Call', '/hostel/roll-call/list'], ['hostel-fees', 'Hostel Fees', '/hostel/fees']]),
+  ...group('HEALTH & WELFARE', '/welfare.html', [['health-records', 'Health Records', '/welfare/health'], ['discipline', 'Discipline', '/welfare/discipline'], ['counselling', 'Guidance & Counselling', '/welfare/counselling'], ['shep-activities', 'SHEP Activities', '/welfare/shep'], ['health', 'Health', '/welfare/health/overview'], ['sick-bay', 'Sick Bay', '/welfare/health/sick-bay'], ['student-welfare', 'Student Welfare', '/welfare/health/student-welfare']]),
+  ...group('INVENTORY & STORES', '/inventory.html', [['inventory', 'Inventory & Stores', '/inventory'], ['inventory-movements', 'Stock Movements', '/inventory/movements'], ['stock', 'Stock', '/inventory/stock'], ['stock-in', 'Stock In', '/inventory/stock-in'], ['stock-out', 'Stock Out', '/inventory/stock-out'], ['suppliers', 'Suppliers', '/inventory/suppliers'], ['inventory-reports', 'Inventory Reports', '/inventory/reports']]),
+  ...group('ASSETS & PROPERTY', '/assets.html', [['assets', 'Assets', '/assets'], ['property', 'School Property', '/property'], ['buildings', 'Buildings', '/property/buildings'], ['furniture', 'Furniture', '/property/furniture'], ['maintenance', 'Maintenance', '/property/maintenance'], ['property-reports', 'Property Reports', '/property/reports']]),
+  ...group('PROCUREMENT', '/procurement.html', [['procurement', 'Procurement', '/procurement'], ['purchase-requests', 'Purchase Requests', '/procurement/requests'], ['quotations', 'Quotations', '/procurement/quotations'], ['purchase-orders', 'Purchase Orders', '/procurement/orders'], ['goods-received', 'Goods Received', '/procurement/goods-received'], ['procurement-suppliers', 'Suppliers', '/procurement/suppliers']]),
+  ...group('SYSTEM & INFORMATION', '/compliance.html', [['compliance', 'Compliance & Regulatory', '/compliance'], ['documents', 'Document Management', '/documents'], ['privacy', 'Privacy & Data Protection', '/privacy'], ['nasia', 'NaSIA', '/compliance/nasia'], ['roles', 'Roles', '/users/roles'], ['ntc', 'NTC', '/compliance/ntc'], ['permissions', 'Permissions', '/users/permissions'], ['fire-safety', 'Fire Safety', '/compliance/fire-safety'], ['audit-logs', 'Audit Logs', '/settings/audit-logs'], ['emis-census', 'EMIS / School Census', '/compliance/emis-census'], ['sessions', 'Sessions', '/settings/sessions'], ['inspections', 'Inspections', '/compliance/inspections'], ['backups', 'Backups', '/settings/backups'], ['compliance-calendar', 'Compliance Calendar', '/compliance/calendar'], ['document-repository', 'Document Repository', '/documents/repository']])
 ]);
 
 export const PROPRIETOR_PAGE_ALIASES = Object.freeze(Object.fromEntries(PROPRIETOR_SIDEBAR_ROUTES.map(({ route, page }) => [route, page])));

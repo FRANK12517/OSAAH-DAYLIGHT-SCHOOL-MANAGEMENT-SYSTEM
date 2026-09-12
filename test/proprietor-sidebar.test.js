@@ -9,7 +9,7 @@ import { PROPRIETOR_SIDEBAR_CATEGORIES, SIDEBAR_MODULES, visibleSidebar } from '
 import { PROPRIETOR_SIDEBAR_ROUTES } from '../src/proprietor-sidebar-routes.js';
 
 test('authoritative proprietor mapping covers every requested item with unique routes', () => {
-  assert.equal(PROPRIETOR_SIDEBAR_ROUTES.length, 110);
+  assert.equal(PROPRIETOR_SIDEBAR_ROUTES.length, 160);
   assert.equal(new Set(PROPRIETOR_SIDEBAR_ROUTES.map((item) => item.moduleKey)).size, PROPRIETOR_SIDEBAR_ROUTES.length);
   assert.equal(new Set(PROPRIETOR_SIDEBAR_ROUTES.map((item) => item.route)).size, PROPRIETOR_SIDEBAR_ROUTES.length);
   for (const item of PROPRIETOR_SIDEBAR_ROUTES) {
@@ -45,6 +45,19 @@ test('proprietor sidebar is an accessible responsive accordion with route-based 
   assert.match(css, /\.sidebar-open \.sidebar/);
   assert.match(css, /overflow-y:auto/);
   assert.match(css, /\.module-frame/);
+});
+
+test('proprietor shell has one mount point and one replaceable child host', async () => {
+  const script = await readFile(new URL('../public/app.js', import.meta.url), 'utf8');
+  assert.equal((script.match(/class="app-shell"/g) ?? []).length, 1);
+  assert.equal((script.match(/id="primary-sidebar"/g) ?? []).length, 1);
+  assert.equal((script.match(/id="module-frame"/g) ?? []).length, 1);
+  assert.match(script, /if \(dashboardBuildPromise\) return dashboardBuildPromise/);
+  assert.match(script, /dashboard\.querySelector\('\.app-shell'\)\) return/);
+  assert.match(script, /frame\.removeAttribute\('src'\)/);
+  assert.match(script, /navigationVersion/);
+  assert.match(script, /navigateToRoute\(dashboard/);
+  assert.doesNotMatch(script, /createPortal|<Outlet|activeModule|selectedModule/);
 });
 
 test('every registered proprietor route is directly renderable and remains server-authorized', async () => {

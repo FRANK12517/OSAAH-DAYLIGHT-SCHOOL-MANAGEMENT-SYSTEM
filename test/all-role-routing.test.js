@@ -11,7 +11,7 @@ const publicFile = (page) => new URL(`../public/${page.replace(/^\//, '')}`, imp
 test('broken academic links resolve to their intended existing module pages', async () => {
   const expected = {
     '/examinations/timetable': ['/exam-timetable.html', /Examination Timetable/],
-    '/results/broadsheets': ['/reports-academic.html', /ACADEMIC PERFORMANCE REPORTS/],
+    '/results/broadsheets': ['/academic-modules.html', /Academic Module/],
     '/academics/classes': ['/academic-modules.html', /academic-classes/],
     '/results/report-cards': ['/results.html', /Student Result Slip/],
     '/academics/subjects/list': ['/subjects.html', /Subject Management/],
@@ -30,6 +30,66 @@ test('broken academic links resolve to their intended existing module pages', as
   assert.notEqual(PROPRIETOR_PAGE_ALIASES['/examinations/timetable'], PROPRIETOR_PAGE_ALIASES['/examinations/marks']);
   assert.notEqual(PROPRIETOR_PAGE_ALIASES['/results/broadsheets'], PROPRIETOR_PAGE_ALIASES['/results']);
   assert.notEqual(PROPRIETOR_PAGE_ALIASES['/academics/classes'], PROPRIETOR_PAGE_ALIASES['/academics/subjects']);
+});
+
+test('administrative and academic oversight children use distinct canonical routes', () => {
+  const expected = {
+    'school-profile': '/settings/profile', 'academic-calendar': '/communication/calendar',
+    academics: '/academics', 'attendance-dashboard': '/attendance', examinations: '/examinations',
+    'sporting-activities': '/sporting-activities', 'student-attendance': '/attendance/students',
+    'marks-entry': '/examinations/marks', 'staff-attendance': '/attendance/staff', results: '/results',
+    'attendance-reports': '/attendance/reports', promotion: '/promotion', 'mock-score-entry': '/examinations/mock',
+    'subject-management': '/academics/subjects', 'mock-results': '/results/mock', 'subject-register': '/academics/subject-register',
+    'academic-years': '/academics/years', 'attendance-alerts': '/attendance/alerts', 'exam-timetable': '/examinations/timetable',
+    'academic-terms': '/academics/terms', spreadsheets: '/academics/spreadsheets', 'academic-classes': '/academics/classes',
+    broadsheets: '/results/broadsheets', 'report-cards': '/results/report-cards', 'academic-subjects': '/academics/subjects/list',
+    'promotion-results': '/results/promotions', 'teacher-assignments': '/academics/teacher-assignments', curriculum: '/academics/curriculum',
+    'lesson-plans': '/academics/lesson-plans', 'academic-assignments': '/academics/assignments', timetable: '/academics/timetable'
+  };
+  const routes = new Map(PROPRIETOR_SIDEBAR_ROUTES.map((item) => [item.moduleKey, item.route]));
+  for (const [moduleKey, route] of Object.entries(expected)) assert.equal(routes.get(moduleKey), route, moduleKey);
+  assert.equal(new Set(Object.values(expected)).size, Object.keys(expected).length);
+  assert.equal(PROPRIETOR_PAGE_ALIASES['/results/broadsheets'], '/academic-modules.html');
+  assert.equal(PROPRIETOR_PAGE_ALIASES['/attendance/reports'], '/reports-academic.html');
+});
+
+test('finance, staff, and student management children retain canonical route identity', () => {
+  const expected = {
+    fees: '/fees', finance: '/finance', invoices: '/fees/invoices', 'finance-reports': '/finance/reports',
+    'fee-structure': '/fees/structure', 'fee.scholarships': '/fees/scholarships', 'admission-fee-management': '/fees/admission-structures',
+    'student-fees': '/fees/students', income: '/finance/income', payments: '/fees/payments', expenses: '/finance/expenses',
+    receipts: '/fees/receipts', cashbook: '/finance/cashbook', arrears: '/fees/arrears', budgets: '/finance/budgets',
+    discounts: '/fees/discounts', 'fee-statements': '/fees/statements', 'staff-directory': '/staff', teachers: '/staff/teachers',
+    hr: '/staff/hr', leave: '/staff/leave', 'staff-attendance-hr': '/staff/attendance', qualifications: '/staff/qualifications-licences',
+    performance: '/staff/performance', 'staff.professional-development': '/staff/professional-development',
+    'qualifications-licences': '/staff/qualifications', 'ntc-records': '/staff/ntc-records', appraisals: '/staff/appraisal',
+    'hr-documents': '/staff/documents', 'student-profiles': '/students', admissions: '/admissions', 'student-search': '/students/search',
+    'admission-prospectus': '/admissions/prospectus', 'student-directory': '/students/directory', 'admission-enquiries': '/admissions/enquiries',
+    'student-ids': '/students/ids', 'admission-applications': '/admissions/applications', 'student-transfers': '/students/transfers',
+    'admission-review': '/admissions/review', 'student-alumni': '/students/alumni', 'admission-offers': '/admissions/offers',
+    'admission-enrollment': '/admissions/enrollment'
+  };
+  const routes = new Map(PROPRIETOR_SIDEBAR_ROUTES.map((item) => [item.moduleKey, item.route]));
+  for (const [moduleKey, route] of Object.entries(expected)) assert.equal(routes.get(moduleKey), route, moduleKey);
+  assert.equal(new Set(Object.values(expected)).size, Object.keys(expected).length);
+});
+
+test('reports, operations, and system children are all canonical and unique', () => {
+  const expectedKeys = [
+    'reports', 'admission-analytics', 'academic-reports', 'attendance-reports-management', 'financial-reports',
+    'enrollment-reports', 'staff-reports', 'operational-reports', 'management-dashboard', 'library', 'transport',
+    'transport.gps', 'transport-routes', 'hostel-residences', 'health-records', 'inventory', 'assets', 'procurement',
+    'library-circulation', 'transport-students', 'hostel-roll-call', 'discipline', 'inventory-movements', 'property',
+    'counselling', 'shep-activities', 'books', 'vehicles', 'houses', 'health', 'stock', 'buildings', 'purchase-requests',
+    'borrowing', 'drivers', 'dormitories', 'sick-bay', 'stock-in', 'furniture', 'quotations', 'returns', 'routes', 'beds',
+    'student-welfare', 'stock-out', 'maintenance', 'purchase-orders', 'library-reports', 'boarders', 'suppliers',
+    'property-reports', 'goods-received', 'trips', 'roll-call', 'inventory-reports', 'transport-fees', 'hostel-fees',
+    'compliance', 'documents', 'privacy', 'nasia', 'roles', 'ntc', 'permissions', 'fire-safety', 'audit-logs', 'emis-census',
+    'sessions', 'inspections', 'backups', 'compliance-calendar', 'document-repository'
+  ];
+  const routes = new Map(PROPRIETOR_SIDEBAR_ROUTES.map((item) => [item.moduleKey, item.route]));
+  for (const moduleKey of expectedKeys) assert.match(routes.get(moduleKey) ?? '', /^\//, moduleKey);
+  assert.equal(new Set(expectedKeys.map((moduleKey) => routes.get(moduleKey))).size, expectedKeys.length);
 });
 
 test('every proprietor route has a real render target and unique module identity', async () => {
