@@ -7,6 +7,7 @@ function normalizeTrustedMigrationSql(sql) {
     .replace(/CREATE\s+INDEX\s+IF\s+NOT\s+EXISTS/gi, 'CREATE INDEX')
     .replace(/CREATE\s+UNIQUE\s+INDEX\s+IF\s+NOT\s+EXISTS/gi, 'CREATE UNIQUE INDEX')
     .replace(/\)\s+WHERE\s+is_published\s*=\s*1/gi, ')')
+    .replace(/(ON\s+shep_activities\s*\()([^)]*)(\))/gi, '$1school_id(32), academic_year(32), term(32), activity_type(32), status(32), activity_date$3')
     .replace(/INSERT\s+OR\s+IGNORE\s+INTO/gi, 'INSERT IGNORE INTO')
     .replace(/(official_use\s+JSON\s+NOT\s+NULL)\s+DEFAULT\s+'\{\}'/gi, '$1')
     .replace(/(?<!`)\bcondition\b(?!`)/gi, '`condition`')
