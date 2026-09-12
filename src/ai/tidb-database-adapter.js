@@ -1,5 +1,11 @@
 import mysql from 'mysql2/promise';
 
+function normalizeTrustedMigrationSql(sql) {
+  return String(sql)
+    .replace(/^\s*PRAGMA\s+foreign_keys\s*=\s*ON\s*;?/gim, '')
+    .replace(/\bTEXT\b/g, 'VARCHAR(255)');
+}
+
 export function createDatabaseAdapter({ environment } = {}) {
   const connectionString = environment?.DATABASE_URL || process.env.DATABASE_URL;
 
@@ -24,7 +30,7 @@ export function createDatabaseAdapter({ environment } = {}) {
     },
 
     async execute(sql, params = []) {
-      const statement = params.length === 0 ? String(sql).replace(/^\s*PRAGMA\s+foreign_keys\s*=\s*ON\s*;?/gim, '').trim() : sql;
+      const statement = params.length === 0 ? normalizeTrustedMigrationSql(sql).trim() : sql;
       const [result] = params.length === 0 && statement.includes(';') ? await pool.query(statement) : await pool.execute(statement, params);
       return {
         insertId: result.insertId,
@@ -42,7 +48,7 @@ export function createDatabaseAdapter({ environment } = {}) {
             return rows;
           },
           async execute(sql, params = []) {
-            const statement = params.length === 0 ? String(sql).replace(/^\s*PRAGMA\s+foreign_keys\s*=\s*ON\s*;?/gim, '').trim() : sql;
+            const statement = params.length === 0 ? normalizeTrustedMigrationSql(sql).trim() : sql;
             const [result] = params.length === 0 && statement.includes(';')
               ? await connection.query(statement)
               : await connection.execute(statement, params);
