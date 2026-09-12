@@ -81,3 +81,30 @@ test('result publication is scoped to assigned teachers and records publication 
   assert.deepEqual(results.publicationFor({ academicYear: '2026/2027', term: 'First Term', classId: 'KG 1' }), publication);
   assert.equal(publication.publishedBy, 'teacher-1');
 });
+
+test('result blocks are access controls and preserve result records', () => {
+  const students = createStudentService();
+  const student = students.createStudent({ firstName: 'Ama', surname: 'Blockable', classId: 'KG 1', admissionYearId: '2026' });
+  const results = createAcademicResultsService({ students, classes: ['KG 1', 'JHS 3'], now: () => '2026-09-10T10:00:00.000Z' });
+  const teacher = { id: 'teacher-1', roleKey: 'TEACHER', schoolId: 'school-osaah-daylight', assignedClassIds: ['KG 1'], permissions: new Set(['results.publish']) };
+  const block = results.blockResults({ academicYear: '2026/2027', term: 'First Term', classId: 'KG 1', studentId: student.id, reason: 'Clearance review' }, teacher);
+  assert.equal(block.scope, 'STUDENT');
+  assert.equal(results.blockFor({ academicYear: '2026/2027', term: 'First Term', classId: 'KG 1', studentId: student.id }).reason, 'Clearance review');
+  assert.equal(results.listScores({}, { ...teacher, permissions: new Set(['results.read']) }).length, 0);
+  assert.throws(() => results.blockResults({ academicYear: '2026/2027', term: 'First Term', classId: 'JHS 3', reason: 'No' }, teacher), /assignment/);
+});
+
+test('unblock requests require Headteacher approval and retain audit history', () => {
+  const students = createStudentService();
+  const student = students.createStudent({ firstName: 'Kojo', surname: 'Blocked', classId: 'KG 1', admissionYearId: '2026' });
+  const results = createAcademicResultsService({ students, classes: ['KG 1'], now: () => '2026-09-10T10:00:00.000Z' });
+  const accountant = { id: 'accountant-1', roleKey: 'ACCOUNTANT_BURSAR', schoolId: 'school-osaah-daylight' };
+  const headteacher = { id: 'head-1', roleKey: 'HEADTEACHER', schoolId: 'school-osaah-daylight' };
+  results.blockResults({ academicYear: '2026/2027', term: 'First Term', classId: 'KG 1', studentId: student.id, reason: 'Outstanding fees' }, accountant);
+  const request = results.requestUnblock({ academicYear: '2026/2027', term: 'First Term', classId: 'KG 1', studentId: student.id, reason: 'Fees cleared' }, accountant);
+  assert.equal(request.status, 'PENDING');
+  assert.throws(() => results.decideUnblock(request.id, 'APPROVED', accountant), /Headteacher/);
+  assert.equal(results.decideUnblock(request.id, 'APPROVED', headteacher).status, 'APPROVED');
+  assert.equal(results.blockFor({ academicYear: '2026/2027', term: 'First Term', classId: 'KG 1', studentId: student.id }).status, 'UNBLOCKED');
+  assert.equal(results.auditTrail().filter((entry) => entry.recordId === request.id).length, 2);
+});
