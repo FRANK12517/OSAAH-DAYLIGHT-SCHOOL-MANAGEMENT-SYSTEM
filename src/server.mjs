@@ -33,6 +33,11 @@ import { createAdmissionProspectusPdfService } from './admission-prospectus-pdf.
 import { createFinancialIntelligenceService } from './ai/financial-intelligence.js';
 import { createAcademicAttendanceIntelligence } from './ai/academic-attendance-intelligence.js';
 import { createAdmissionsWorkforceIntelligence } from './ai/admissions-workforce-intelligence.js';
+const releaseMetadata = Object.freeze({
+  commitSha: process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.GIT_COMMIT_SHA ?? 'unknown',
+  deploymentId: process.env.VERCEL_DEPLOYMENT_ID ?? process.env.VERCEL_URL ?? 'local',
+  environment: process.env.VERCEL_ENV ?? 'development'
+});
 import { createOperationalAnalyticsRegistry, createOperationalIntelligence, registerBuiltInOperationalProviders } from './ai/operational-intelligence.js';
 import { createSchoolKnowledgeIntelligence, syncRepositoryKnowledgeSources } from './ai/school-knowledge-intelligence.js';
 import { createExecutiveCapabilityAdapters, createExecutiveIntelligence } from './ai/executive-intelligence.js';
@@ -119,6 +124,7 @@ export function createApp({ auth = createAuthService(), students = createStudent
         response.writeHead(404); return response.end('Not found');
       }
     }
+    if (pathname === '/api/release' && request.method === 'GET') return json(response, releaseMetadata);
     if (pathname === '/api/branding') return json(response, branding);
     const publicProspectusActor = { id: 'public-parent', portal: 'parent', schoolId: 'school-osaah-daylight', permissions: new Set() };
     if (pathname === '/api/public/admission-prospectus/options' && request.method === 'GET') return json(response, admissionProspectus.listOptions());
