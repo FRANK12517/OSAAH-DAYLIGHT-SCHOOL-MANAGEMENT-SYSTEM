@@ -6,6 +6,7 @@ function normalizeTrustedMigrationSql(sql) {
     .replace(/\bTEXT\b/g, 'VARCHAR(191)')
     .replace(/CREATE\s+INDEX\s+IF\s+NOT\s+EXISTS/gi, 'CREATE INDEX')
     .replace(/INSERT\s+OR\s+IGNORE\s+INTO/gi, 'INSERT IGNORE INTO')
+    .replace(/\bcondition\s+VARCHAR\(/gi, '`condition` VARCHAR(')
     .replace(/'category-'\s*\|\|\s*lower\(replace\(category_name,\s*' ',\s*'-'\)\)/gi, "CONCAT('category-', LOWER(REPLACE(category_name, ' ', '-')))")
     .replace(/FROM\s*\(SELECT\s+'ADMINISTRATIVE'/i, "FROM (SELECT 'ADMINISTRATIVE'")
     .replace(/(UNION ALL SELECT 'SYSTEM & SECURITY', 20)\s*\)/i, '$1) AS seed');
