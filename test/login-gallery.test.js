@@ -45,6 +45,11 @@ test('parent and school sign-in share an accessible password visibility toggle',
   assert.match(html, /class="password-toggle-icon"/);
   assert.match(script, /passwordInput\.type === 'password'/);
   assert.match(script, /passwordToggle\.setAttribute\('aria-pressed'/);
+  assert.match(script, /data-switch-portal="parent"/);
+  assert.match(script, /data-switch-portal="school"/);
+  assert.match(script, /function selectPortal\(portal/);
+  assert.match(script, /password\.value = ''/);
+  assert.match(script, /data\.portal = state\.portal/);
   assert.match(css, /\.password-field\{position:relative/);
   assert.match(css, /\.password-toggle\{position:absolute/);
 });
