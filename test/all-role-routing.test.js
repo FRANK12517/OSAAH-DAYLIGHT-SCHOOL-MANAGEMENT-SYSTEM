@@ -19,7 +19,7 @@ test('broken academic links resolve to their intended existing module pages', as
     '/academics/curriculum': ['/academic-modules.html', /curriculum/],
     '/academics/lesson-plans': ['/academic-modules.html', /lesson-plans/],
     '/academics/assignments': ['/academic-modules.html', /academic-assignments/],
-    '/academics/timetable': ['/academic-modules.html', /class teaching timetable/],
+    '/academics/timetable': ['/exam-timetable.html', /Examination Timetable/],
     '/academics/spreadsheets': ['/academic-modules.html', /spreadsheets/]
   };
   for (const [route, [page, marker]] of Object.entries(expected)) {
@@ -109,6 +109,8 @@ test('exam timetable creation is restricted, conflict checked and publication sc
   assert.throws(() => service.saveTimetable({ ...draft, id: undefined, subjectId: 'English', startTime: '09:30', endTime: '10:30' }, head), { code: 'TIMETABLE_CONFLICT' });
   service.publishTimetable(draft.id, { id: 'admin-1', roleKey: 'SCHOOL_ADMIN' });
   assert.equal(service.listTimetables({}, { roleKey: 'PROPRIETOR', schoolId: draft.schoolId }).length, 1);
+  assert.equal(service.listTimetables({}, { roleKey: 'TEACHER', assignedClassIds: ['Primary 4'], schoolId: draft.schoolId }).length, 1);
+  assert.equal(service.listTimetables({}, { roleKey: 'TEACHER', assignedClassIds: ['Primary 5'], schoolId: draft.schoolId }).length, 0);
   assert.equal(service.listTimetables({}, { portal: 'parent', children: [{ className: 'Primary 4' }], schoolId: draft.schoolId }).length, 1);
   assert.equal(service.listTimetables({}, { portal: 'parent', children: [{ className: 'Primary 5' }], schoolId: draft.schoolId }).length, 0);
 });
