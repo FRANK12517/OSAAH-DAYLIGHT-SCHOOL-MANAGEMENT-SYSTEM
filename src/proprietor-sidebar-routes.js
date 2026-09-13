@@ -10,11 +10,10 @@ export const PROPRIETOR_SIDEBAR_ROUTES = Object.freeze([
     ['academic-calendar', 'Academic Calendar', '/communication/calendar'],
     ['multi-school-panel', 'Multi-School Panel', '/settings/multi-school'],
     ['official-documents', 'Official Documents', '/official-documents'],
-    ['public-website', 'Public School Website', '/website'],
     ['administrator-management', 'Administrator Management', '/administrator-management'],
     ['signature-management', 'Result Signatures', '/settings/result-signatures']
   ]).map((item) => ({ ...item, page: ({
-    'official-documents': '/official-documents.html', 'public-website': '/website.html',
+    'official-documents': '/official-documents.html',
     'administrator-management': '/administrator-management.html', 'signature-management': '/result-signatures.html'
   })[item.moduleKey] ?? item.page })),
   ...group('ACADEMICS', '/subjects.html', [
