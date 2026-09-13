@@ -2,6 +2,11 @@ name: Production admission database migration
 
 on:
   workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Exact tested release commit SHA to migrate
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -22,7 +27,7 @@ jobs:
       - name: Check out dispatched release commit
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ inputs.release_ref }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
