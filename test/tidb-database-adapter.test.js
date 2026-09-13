@@ -11,10 +11,15 @@ test('TiDB database adapter requires DATABASE_URL', () => {
 
 test('TiDB database adapter exposes the durable persistence contract', async () => {
   const adapter = createDatabaseAdapter({ environment: { DATABASE_URL: 'mysql://user:password@example.test:4000/osaah' } });
-  assert.deepEqual(Object.keys(adapter).sort(), ['execute', 'healthCheck', 'query', 'transaction']);
+  assert.deepEqual(Object.keys(adapter).sort(), ['acquireLock', 'ensureMetadata', 'execute', 'healthCheck', 'listApplied', 'query', 'recordApplied', 'releaseLock', 'transaction']);
   assert.equal(typeof adapter.query, 'function');
   assert.equal(typeof adapter.execute, 'function');
   assert.equal(typeof adapter.transaction, 'function');
+  assert.equal(typeof adapter.ensureMetadata, 'function');
+  assert.equal(typeof adapter.listApplied, 'function');
+  assert.equal(typeof adapter.recordApplied, 'function');
+  assert.equal(typeof adapter.acquireLock, 'function');
+  assert.equal(typeof adapter.releaseLock, 'function');
   assert.equal(typeof adapter.healthCheck, 'function');
 });
 
