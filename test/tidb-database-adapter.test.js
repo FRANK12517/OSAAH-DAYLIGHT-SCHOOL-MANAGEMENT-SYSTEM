@@ -4,9 +4,16 @@ import { createDatabaseAdapter } from '../src/ai/tidb-database-adapter.js';
 import { loadConfiguredAIPersistence } from '../src/ai/durable-stores.js';
 
 test('TiDB database adapter requires DATABASE_URL', () => {
-  assert.throws(() => createDatabaseAdapter({ environment: {} }), {
-    message: 'DATABASE_URL is required for the TiDB AI persistence adapter.'
-  });
+  const original = process.env.DATABASE_URL;
+  try {
+    delete process.env.DATABASE_URL;
+    assert.throws(() => createDatabaseAdapter({ environment: {} }), {
+      message: 'DATABASE_URL is required for the TiDB AI persistence adapter.'
+    });
+  } finally {
+    if (original === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = original;
+  }
 });
 
 test('TiDB database adapter exposes the durable persistence contract', async () => {
