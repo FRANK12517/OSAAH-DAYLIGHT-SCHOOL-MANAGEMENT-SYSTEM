@@ -34,11 +34,11 @@ export const PROPRIETOR_SIDEBAR_ROUTES = Object.freeze([
     ['curriculum', 'Curriculum', '/academics/curriculum'], ['lesson-plans', 'Lesson Plans', '/academics/lesson-plans'],
     ['academic-assignments', 'Assignments', '/academics/assignments'], ['timetable', 'Timetable', '/academics/timetable']
   ]).map((item) => ({ ...item, page: ({
-    'exam-timetable': '/exam-timetable.html', 'broadsheets': '/academic-modules.html', 'attendance-reports': '/reports-academic.html', 'attendance-alerts': '/attendance-alerts.html',
+    'exam-timetable': '/exam-timetable.html', 'staff-attendance': '/staff-attendance.html', 'broadsheets': '/academic-modules.html', 'attendance-reports': '/reports-academic.html', 'attendance-alerts': '/attendance-alerts.html',
     'academic-classes': '/academic-modules.html', 'academic-subjects': '/subjects.html',
     'promotion': '/promotion.html', 'report-cards': '/results.html', 'promotion-results': '/results.html',
     'curriculum': '/academic-modules.html', 'lesson-plans': '/academic-modules.html',
-    'academic-assignments': '/academic-modules.html', 'timetable': '/academic-modules.html',
+    'academic-assignments': '/academic-modules.html', 'timetable': '/exam-timetable.html',
     'spreadsheets': '/academic-modules.html', 'academic-years': '/academic-modules.html',
     'academic-terms': '/academic-modules.html', 'teacher-assignments': '/academic-modules.html'
   })[item.moduleKey] ?? (item.route.startsWith('/attendance') ? '/attendance.html' : item.route.startsWith('/examinations/mock') ? '/mock-examinations.html' : item.route.startsWith('/examinations') ? '/examinations.html' : item.route === '/sporting-activities' ? '/sporting-activities.html' : item.route === '/academics/subject-register' ? '/subject-register.html' : item.route.startsWith('/results/mock') ? '/mock-results.html' : item.route.startsWith('/results') || item.route === '/promotion' ? '/results.html' : item.page) })),
