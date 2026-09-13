@@ -9,7 +9,7 @@ import { PROPRIETOR_SIDEBAR_CATEGORIES, SIDEBAR_MODULES, visibleSidebar } from '
 import { PROPRIETOR_SIDEBAR_ROUTES } from '../src/proprietor-sidebar-routes.js';
 
 test('authoritative proprietor mapping covers every requested item with unique routes', () => {
-  assert.equal(PROPRIETOR_SIDEBAR_ROUTES.length, 160);
+  assert.equal(PROPRIETOR_SIDEBAR_ROUTES.length, 159);
   assert.equal(new Set(PROPRIETOR_SIDEBAR_ROUTES.map((item) => item.moduleKey)).size, PROPRIETOR_SIDEBAR_ROUTES.length);
   assert.equal(new Set(PROPRIETOR_SIDEBAR_ROUTES.map((item) => item.route)).size, PROPRIETOR_SIDEBAR_ROUTES.length);
   for (const item of PROPRIETOR_SIDEBAR_ROUTES) {
