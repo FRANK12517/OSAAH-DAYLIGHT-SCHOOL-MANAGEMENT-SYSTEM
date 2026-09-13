@@ -65,7 +65,7 @@ export const PROPRIETOR_SIDEBAR_ROUTES = Object.freeze([
     ['admission-applications', 'Applications', '/admissions/applications'], ['student-transfers', 'Transfers', '/students/transfers'],
     ['admission-review', 'Application Review', '/admissions/review'], ['student-alumni', 'Alumni', '/students/alumni'],
     ['admission-offers', 'Admission Offers', '/admissions/offers'], ['admission-enrollment', 'Enrollment', '/admissions/enrollment']
-  ]).map((item) => ({ ...item, page: item.moduleKey === 'admission-prospectus' ? '/admission-prospectus.html' : item.route.startsWith('/admissions') ? '/admissions.html' : item.page })),
+    ]).map((item) => ({ ...item, page: item.moduleKey === 'admission-prospectus' ? '/admission-prospectus.html' : item.moduleKey === 'admissions' ? '/admissions.html' : '/student-canonical.html' })),
   ...group('REPORTS & ANALYTICS', '/reports.html', [
     ['reports', 'Reports & Analytics', '/reports'], ['admission-analytics', 'Admission Analytics', '/reports/admissions'],
     ['academic-reports', 'Academic Reports', '/reports/academic'], ['attendance-reports-management', 'Attendance Reports', '/reports/attendance'],
