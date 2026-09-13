@@ -6,7 +6,6 @@ function fail(code, message, status = 400) { throw Object.assign(new Error(messa
 function value(...items) { return items.find((item) => item !== undefined && item !== null && item !== '') ?? null; }
 function json(valueToEncode) { return JSON.stringify(valueToEncode ?? {}); }
 function rows(result) { return Array.isArray(result) ? result : []; }
-function affected(result) { return Number(result?.affectedRows ?? result?.rowCount ?? result?.changes ?? 0); }
 
 /**
  * TiDB-backed final step for the existing admission review workflow. The
@@ -34,19 +33,15 @@ export function createAdmissionEnrollmentService({ database, clock = () => new D
   }
 
   async function resolveParent(tx, application, applicant, timestamp) {
-    if (application.parent_user_id) {
-      const parent = rows(await tx.query('SELECT id FROM users WHERE id=? AND school_id=? LIMIT 1', [application.parent_user_id, application.school_id]))[0];
-      if (parent) return parent.id;
-    }
-    const email = String(value(applicant.primaryGuardianEmail, applicant.guardianEmail, applicant.email) ?? '').trim().toLowerCase();
+    const email = String(value(application.parent_email, applicant.primaryGuardianEmail, applicant.guardianEmail, applicant.email) ?? '').trim().toLowerCase();
     if (email) {
-      const parent = rows(await tx.query('SELECT id FROM users WHERE school_id=? AND (LOWER(email)=? OR LOWER(username)=?) LIMIT 1', [application.school_id, email, email]))[0];
+      const parent = rows(await tx.query('SELECT id FROM users WHERE school_id=? AND LOWER(email)=? LIMIT 1', [application.school_id, email]))[0];
       if (parent) return parent.id;
     }
     if (!email) fail('PARENT_IDENTITY_REQUIRED', 'An authorized parent identity is required before enrollment.', 409);
     const parentId = idFactory();
     const passwordHash = await bcrypt.hash(randomBytes(32).toString('base64url'), 12);
-    await tx.execute('INSERT INTO users (id,school_id,username,email,password_hash,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)', [parentId, application.school_id, email, email, passwordHash, 'ACTIVE', timestamp, timestamp]);
+    await tx.execute('INSERT INTO users (id,school_id,email,password_hash,full_name,phone,role,status,created_at) VALUES (?,?,?,?,?,?,?,?,?)', [parentId, application.school_id, email, passwordHash, value(application.parent_name, applicant.primaryGuardianFullName, 'Parent'), value(application.parent_phone, applicant.primaryGuardianPrimaryPhone), 'PARENT', 'ACTIVE', timestamp]);
     return parentId;
   }
 
@@ -80,13 +75,13 @@ export function createAdmissionEnrollmentService({ database, clock = () => new D
 
         await tx.execute('INSERT INTO students (id,permanent_student_id,school_id,admission_number,current_class_id,first_name,middle_name,last_name,gender,date_of_birth,admission_date,admission_type,student_status,is_test_record,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [studentId, permanentStudentId, application.school_id, admissionNumber, classId, firstName, middleName, lastName, value(applicant.gender), value(applicant.dateOfBirth), value(application.admission_date, applicant.applicationDate, timestamp.slice(0, 10)), value(applicant.admissionType, 'NEW'), 'ACTIVE', 0, timestamp, timestamp]);
         const profileId = idFactory();
-        await tx.execute('INSERT INTO student_profiles (id,student_master_id,student_id,school_id,class_id,stream_id,admission_number,admission_date,first_name,middle_name,surname,gender,date_of_birth,applicant_data,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [profileId, studentId, permanentStudentId, application.school_id, classId, value(application.stream_id, applicant.streamId), admissionNumber, value(application.admission_date, applicant.applicationDate, timestamp.slice(0, 10)), firstName, middleName, lastName, value(applicant.gender), value(applicant.dateOfBirth), json(applicant), timestamp, timestamp]);
+        await tx.execute('INSERT INTO student_profiles (id,student_master_id,student_id,school_id,class_id,stream_id,admission_number,admission_date,first_name,last_name,gender,date_of_birth,enrollment_status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [profileId, studentId, permanentStudentId, application.school_id, classId, value(application.stream_id, applicant.streamId), admissionNumber, value(application.admission_date, applicant.applicationDate, timestamp.slice(0, 10)), firstName, lastName, value(applicant.gender), value(applicant.dateOfBirth), 'ACTIVE', timestamp]);
         const enrollmentId = idFactory();
-        await tx.execute('INSERT INTO student_enrollments (id,school_id,student_id,class_id,academic_year_id,stream_id,enrollment_status,enrolled_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)', [enrollmentId, application.school_id, studentId, classId, value(application.academic_year_id, applicant.academicYearId, applicant.academicYear), value(application.stream_id, applicant.streamId), 'ACTIVE', timestamp, timestamp, timestamp]);
+        await tx.execute('INSERT INTO student_enrollments (id,student_id,class_id,academic_year_id) VALUES (?,?,?,?)', [enrollmentId, studentId, classId, value(application.academic_year_id, applicant.academicYearId, applicant.academicYear)]);
         const parentUserId = await resolveParent(tx, application, applicant, timestamp);
         await tx.execute('INSERT INTO parent_student_links (parent_user_id,student_id,permanent_student_id,telephone,relationship,relationship_type,link_status,created_at,updated_at) SELECT ?,?,?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM parent_student_links WHERE parent_user_id=? AND student_id=?)', [parentUserId, profileId, permanentStudentId, value(applicant.primaryGuardianPrimaryPhone, applicant.guardianPhone, applicant.telephone), value(applicant.primaryGuardianRelationship, 'Guardian'), value(applicant.primaryGuardianRelationship, 'GUARDIAN'), 'ACTIVE', timestamp, timestamp, parentUserId, profileId]);
-        await tx.execute('UPDATE admission_applications SET student_id=?,permanent_student_id=?,stage=?,status=?,updated_at=? WHERE id=? AND student_id IS NULL AND permanent_student_id IS NULL', [studentId, permanentStudentId, 'ENROLLMENT', 'ACCEPTED', timestamp, application.id]);
-        await tx.execute('INSERT INTO audit_logs (id,school_id,user_id,action,entity,entity_id,new_value,occurred_at) VALUES (?,?,?,?,?,?,?,?)', [idFactory(), application.school_id, actorId ?? null, 'ADMISSION_ENROLLMENT_CREATED', 'Student', studentId, json({ applicationId: application.id, studentId, permanentStudentId, profileId, enrollmentId, parentUserId }), timestamp]);
+        await tx.execute('UPDATE admission_applications SET student_id=?,permanent_student_id=?,stage=?,updated_at=? WHERE id=? AND student_id IS NULL AND permanent_student_id IS NULL', [studentId, permanentStudentId, 'ENROLLMENT', timestamp, application.id]);
+        await tx.execute('INSERT INTO audit_logs (id,school_id,user_id,action,entity,entity_id,details,created_at) VALUES (?,?,?,?,?,?,?,?)', [idFactory(), application.school_id, actorId ?? null, 'ADMISSION_ENROLLMENT_CREATED', 'Student', studentId, json({ applicationId: application.id, studentId, permanentStudentId, profileId, enrollmentId, parentUserId }), timestamp]);
         return { student: { id: studentId, permanentStudentId, schoolId: application.school_id, admissionNumber, classId, firstName, middleName, lastName }, profileId, enrollmentId, parentUserId, created: true };
       });
     } catch (cause) {

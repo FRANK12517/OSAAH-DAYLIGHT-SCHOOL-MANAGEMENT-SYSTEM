@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createAdmissionEnrollmentService } from '../src/admission-enrollment.js';
 
-const application = () => ({ id: 'app-1', application_number: 'APP-1', school_id: 'school-1', status: 'ACCEPTED', student_id: null, permanent_student_id: null, parent_user_id: 'parent-1', academic_year_id: '2026', class_id: 'class-1', applicant_data: JSON.stringify({ studentFirstName: 'Ama', studentSurname: 'Mensah', gender: 'Female', dateOfBirth: '2018-01-02', primaryGuardianPrimaryPhone: '0240000000' }) });
+const application = () => ({ id: 'app-1', application_number: 'APP-1', school_id: 'school-1', status: 'ACCEPTED', student_id: null, permanent_student_id: null, parent_email: 'parent@example.test', academic_year_id: '2026', class_id: 'class-1', applicant_data: JSON.stringify({ studentFirstName: 'Ama', studentSurname: 'Mensah', gender: 'Female', dateOfBirth: '2018-01-02', primaryGuardianPrimaryPhone: '0240000000' }) });
 
 function adapter({ failOn = null, initialApplication = application(), authorized = true } = {}) {
   const state = { application: structuredClone(initialApplication), sequence: 1, students: [], profiles: [], enrollments: [], links: [], audits: [], calls: [] };
@@ -12,7 +12,7 @@ function adapter({ failOn = null, initialApplication = application(), authorized
       if (sql.includes('FROM admission_applications')) return state.application ? [structuredClone(state.application)] : [];
       if (sql.includes("FROM students WHERE id LIKE")) return state.students.length ? [{ id: state.students.at(-1).id }] : [];
       if (sql.includes('FROM student_id_sequences')) return [{ next_sequence: state.sequence }];
-      if (sql.includes('FROM users WHERE id=')) return [{ id: 'parent-1' }];
+      if (sql.includes('FROM users WHERE school_id=')) return [{ id: 'parent-1' }];
       if (sql.includes('SELECT * FROM students WHERE id=')) return state.students.filter((row) => row.id === params[0] && row.permanent_student_id === params[1]);
       if (sql.includes('JOIN student_profiles')) return authorized ? [{ student_id: 'STD-000001', permanent_student_id: params[4], student_profile_id: 'profile-1', class_id: 'class-1' }] : [];
       return [];
@@ -23,9 +23,9 @@ function adapter({ failOn = null, initialApplication = application(), authorized
       if (sql.startsWith('UPDATE student_id_sequences')) state.sequence = params[0];
       if (sql.startsWith('INSERT INTO students ')) state.students.push({ id: params[0], permanent_student_id: params[1], school_id: params[2], is_test_record: params[13] });
       if (sql.startsWith('INSERT INTO student_profiles ')) state.profiles.push({ id: params[0], student_master_id: params[1], student_id: params[2] });
-      if (sql.startsWith('INSERT INTO student_enrollments ')) state.enrollments.push({ id: params[0], student_id: params[2] });
+      if (sql.startsWith('INSERT INTO student_enrollments ')) state.enrollments.push({ id: params[0], student_id: params[1] });
       if (sql.startsWith('INSERT INTO parent_student_links ')) state.links.push({ parent_user_id: params[0], student_id: params[1], permanent_student_id: params[2] });
-      if (sql.startsWith('UPDATE admission_applications ')) Object.assign(state.application, { student_id: params[0], permanent_student_id: params[1], stage: params[2], status: params[3] });
+      if (sql.startsWith('UPDATE admission_applications ')) Object.assign(state.application, { student_id: params[0], permanent_student_id: params[1], stage: params[2] });
       if (sql.startsWith('INSERT INTO audit_logs ')) state.audits.push(params);
       return { affectedRows: 1 };
     },
