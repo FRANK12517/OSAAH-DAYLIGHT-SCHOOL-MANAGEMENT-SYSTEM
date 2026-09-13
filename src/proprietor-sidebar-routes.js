@@ -34,9 +34,9 @@ export const PROPRIETOR_SIDEBAR_ROUTES = Object.freeze([
     ['curriculum', 'Curriculum', '/academics/curriculum'], ['lesson-plans', 'Lesson Plans', '/academics/lesson-plans'],
     ['academic-assignments', 'Assignments', '/academics/assignments'], ['timetable', 'Timetable', '/academics/timetable']
   ]).map((item) => ({ ...item, page: ({
-    'exam-timetable': '/exam-timetable.html', 'broadsheets': '/academic-modules.html', 'attendance-reports': '/reports-academic.html',
+    'exam-timetable': '/exam-timetable.html', 'broadsheets': '/academic-modules.html', 'attendance-reports': '/reports-academic.html', 'attendance-alerts': '/attendance-alerts.html',
     'academic-classes': '/academic-modules.html', 'academic-subjects': '/subjects.html',
-    'report-cards': '/results.html', 'promotion-results': '/results.html',
+    'promotion': '/promotion.html', 'report-cards': '/results.html', 'promotion-results': '/results.html',
     'curriculum': '/academic-modules.html', 'lesson-plans': '/academic-modules.html',
     'academic-assignments': '/academic-modules.html', 'timetable': '/academic-modules.html',
     'spreadsheets': '/academic-modules.html', 'academic-years': '/academic-modules.html',
