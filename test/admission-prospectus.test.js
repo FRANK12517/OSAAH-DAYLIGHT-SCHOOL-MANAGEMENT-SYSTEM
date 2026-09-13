@@ -81,7 +81,7 @@ test('parent portal exposes prospectus below online admission and produces brand
   assert.doesNotMatch(index, /parent-admission-actions[^>]*hidden/);
   assert.doesNotMatch(app, /parent-admission-actions/);
   assert.match(index, /app\.js\?v=20260903-2/);
-  assert.match(serviceWorker, /osaah-shell-v2/);
+  assert.match(serviceWorker, /osaah-shell-v3/);
   assert.match(serviceWorker, /caches\.delete/);
   assert.match(page, /Export Branded PDF/);
   assert.match(page, /\/api\/public\/admission-prospectus/);

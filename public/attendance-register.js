@@ -14,7 +14,7 @@ document.querySelector('#load-register').addEventListener('click', async () => {
   const result = await response.json();
   if (!response.ok) { status.textContent = result.error ?? 'Register could not be loaded.'; return; }
   register = result.register;
-  tbody.innerHTML = register.length ? register.map((row) => `<tr data-student-id="${escape(row.studentId)}"><td>${row.number}</td><td>${escape(row.permanentStudentId)}</td><td>${escape(row.studentName)}</td><td><select><option>PRESENT</option><option>ABSENT</option><option>LATE</option><option>EXCUSED_ABSENCE</option></select></td></tr>`).join('') : '<tr><td colspan="4">No enrolled students in this class.</td></tr>';
+  tbody.innerHTML = register.length ? register.map((row) => `<tr data-student-id="${escape(row.studentId)}"><td>${row.number}</td><td>${escape(row.permanentStudentId)}${row.isTestRecord ? ' <small>(SAMPLE)</small>' : ''}</td><td>${escape(row.studentName)}</td><td><select><option>PRESENT</option><option>ABSENT</option><option>LATE</option><option>EXCUSED_ABSENCE</option></select></td></tr>`).join('') : '<tr><td colspan="4">No enrolled students in this class.</td></tr>';
   status.textContent = `${register.length} student${register.length === 1 ? '' : 's'} loaded.`;
 });
 form.addEventListener('submit', async (event) => {
