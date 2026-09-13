@@ -57,7 +57,7 @@ export const PROPRIETOR_SIDEBAR_ROUTES = Object.freeze([
     ['staff.professional-development', 'Professional Development', '/staff/professional-development'],
     ['qualifications-licences', 'Qualifications', '/staff/qualifications'], ['ntc-records', 'NTC Records', '/staff/ntc-records'],
     ['appraisals', 'Appraisal', '/staff/appraisal'], ['hr-documents', 'HR Documents', '/staff/documents']
-  ]).map((item) => ({ ...item, page: item.moduleKey === 'leave' ? '/leave.html' : item.page })),
+    ]).map((item) => ({ ...item, page: item.moduleKey === 'leave' ? '/leave.html' : item.moduleKey === 'staff-attendance-hr' ? '/staff-attendance.html' : '/staff-canonical.html' })),
   ...group('STUDENTS MANAGEMENT', '/students.html', [
     ['student-profiles', 'Student Profiles', '/students'], ['admissions', 'Admissions', '/admissions'], ['student-search', 'Student Search', '/students/search'],
     ['admission-prospectus', 'Admission Prospectus Management', '/admissions/prospectus'], ['student-directory', 'Student Directory', '/students/directory'],
