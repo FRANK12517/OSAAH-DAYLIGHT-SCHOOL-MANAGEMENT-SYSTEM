@@ -49,7 +49,7 @@ export const PROPRIETOR_SIDEBAR_ROUTES = Object.freeze([
     ['expenses', 'Expenses', '/finance/expenses'], ['receipts', 'Receipts', '/fees/receipts'], ['cashbook', 'Cashbook', '/finance/cashbook'],
     ['arrears', 'Arrears', '/fees/arrears'], ['budgets', 'Budgets', '/finance/budgets'], ['discounts', 'Discounts', '/fees/discounts'],
     ['fee-statements', 'Fee Statements', '/fees/statements']
-  ]).map((item) => ({ ...item, page: item.route.startsWith('/finance') ? '/finance.html' : item.moduleKey === 'invoices' || item.moduleKey === 'receipts' ? '/receipts.html' : item.moduleKey === 'admission-fee-management' ? '/admission-fees.html' : item.page })),
+  ]).map((item) => ({ ...item, page: '/finance-canonical.html' })),
   ...group('STAFF MANAGEMENT', '/staff.html', [
     ['staff-directory', 'Staff Directory', '/staff'], ['teachers', 'Teachers', '/staff/teachers'], ['hr', 'HR', '/staff/hr'],
     ['leave', 'Leave', '/staff/leave'], ['staff-attendance-hr', 'Staff Attendance', '/staff/attendance'],

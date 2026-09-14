@@ -35,7 +35,7 @@ function renderWorkspaceRoute(dashboard, route, title) {
   frame.onload = null; frame.onerror = null; frame.removeAttribute('src'); frame.hidden = true;
   if (route === '/') { overview.hidden = false; host.hidden = true; mountDashboardOverview(dashboard); document.title = 'OsaaH Daylight School'; return; }
   overview.hidden = true; host.hidden = false; status.hidden = false; status.className = 'module-status'; status.textContent = `Loading ${title}…`; frame.title = title;
-  const url = new URL(route, location.origin); url.searchParams.set('embedded', '1');
+  const url = new URL(route, location.origin); url.searchParams.set('embedded', '1'); url.searchParams.set('route', normalizedRoute);
   frame.onload = () => { if (Number(dashboard.dataset.navigationVersion) !== navigationVersion) return; try { const body = frame.contentDocument?.body; if (!body || !body.textContent.trim() || /Authentication required/i.test(body.textContent)) throw new Error('The authorized module did not render.'); frame.hidden = false; status.hidden = true; document.title = `${title} | OsaaH Daylight`; } catch (error) { console.error('OSAAH module render failure', { route, error }); status.hidden = false; status.className = 'module-status error'; status.textContent = `Unable to open ${title}. Please retry or contact the system administrator.`; } };
   frame.onerror = (error) => { if (Number(dashboard.dataset.navigationVersion) !== navigationVersion) return; console.error('OSAAH module load failure', { route, error }); frame.hidden = true; status.hidden = false; status.className = 'module-status error'; status.textContent = `Unable to open ${title}. Please retry or contact the system administrator.`; };
   frame.src = url.pathname + url.search;
