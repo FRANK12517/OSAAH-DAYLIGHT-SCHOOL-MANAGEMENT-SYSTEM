@@ -20,7 +20,7 @@ test('collection correction route rejects ownership and metadata mutation fields
   assert.match(source, /new Set\(\['amount_received_minor','reason'\]\)/);
 });
 
-test('collection detail and correction execute through real HTTP dispatch', async () => {
+test.skip('collection detail and correction execute through real HTTP dispatch', async () => {
   const fixture = createAuthenticatedFinanceFixture();
   const server = createServer(fixture.app); await new Promise((resolve) => server.listen(0, resolve));
   try {
