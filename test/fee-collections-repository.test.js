@@ -61,3 +61,21 @@ test('publication never creates obligations for another school', async () => {
   await publish(repo, actor('school-a'));
   assert.deepEqual(db.state.obligations.map((o) => o.studentId), ['a']);
 });
+
+test('eligibility and inserts use the transaction client', async () => {
+  const db = adapter({ students: [{ id: 'a', schoolId: 'school-a', status: 'ACTIVE' }] });
+  const calls = [];
+  const rootQuery = db.query.bind(db), rootExecute = db.execute.bind(db);
+  db.query = async (...args) => { calls.push('root-query'); return rootQuery(...args); };
+  db.execute = async (...args) => { calls.push('root-execute'); return rootExecute(...args); };
+  const tx = { query: async (...args) => { calls.push('tx-query'); return rootQuery(...args); }, execute: async (...args) => { calls.push('tx-execute'); return rootExecute(...args); } };
+  db.transaction = async (work) => work(tx);
+  await publish(createFeeCollectionsRepository({ adapter: db }), actor());
+  assert.deepEqual(calls, ['tx-query', 'tx-query', 'tx-execute']);
+});
+
+test('unrelated database errors propagate instead of being swallowed', async () => {
+  const db = adapter({ students: [{ id: 'a', schoolId: 'school-a', status: 'ACTIVE' }] });
+  db.execute = async () => { throw Object.assign(new Error('deadlock'), { code: 'ER_LOCK_DEADLOCK' }); };
+  await assert.rejects(() => publish(createFeeCollectionsRepository({ adapter: db }), actor()), (error) => error.code === 'ER_LOCK_DEADLOCK');
+});
