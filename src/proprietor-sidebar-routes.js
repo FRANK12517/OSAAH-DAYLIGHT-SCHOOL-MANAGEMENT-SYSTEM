@@ -72,7 +72,7 @@ export const PROPRIETOR_SIDEBAR_ROUTES = Object.freeze([
     ['financial-reports', 'Financial Reports', '/reports/financial'], ['enrollment-reports', 'Enrollment Reports', '/reports/enrollment'],
     ['staff-reports', 'Staff Reports', '/reports/staff'], ['operational-reports', 'Operational Reports', '/reports/operations'],
     ['management-dashboard', 'Management Dashboard', '/reports/management']
-  ]).map((item) => ({ ...item, page: item.moduleKey === 'admission-analytics' ? '/admission-analytics.html' : item.moduleKey === 'academic-reports' ? '/reports-academic.html' : item.moduleKey === 'financial-reports' ? '/reports-financial.html' : item.page })),
+    ]).map((item) => ({ ...item, page: item.moduleKey === 'admission-analytics' ? '/admission-analytics.html' : item.moduleKey === 'academic-reports' ? '/reports-academic.html' : item.moduleKey === 'financial-reports' ? '/reports-financial.html' : '/reports-canonical.html' })),
   ...group('COMMUNICATION HUB', '/communication.html', [
     ['announcements', 'Announcements', '/communication'], ['messages', 'Messages', '/communication/messages'],
     ['calendar', 'School Calendar', '/communication/school-calendar'], ['sms', 'SMS', '/communication/sms'], ['email', 'Email', '/communication/email'],
