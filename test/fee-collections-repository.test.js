@@ -4,11 +4,12 @@ import { createFeeCollectionsRepository } from '../src/fee-collections-repositor
 
 const actor = (schoolId = 'school-a') => ({ id: 'user-1', schoolId, roleKey: 'PROPRIETOR', permissions: new Set(['*']) });
 
-function adapter({ students = [], failOnInsert = false } = {}) {
-  const state = { students: structuredClone(students), obligations: [], rollbackCount: 0 };
+function adapter({ students = [], fees = [{ id: 'fee-1', schoolId: 'school-a' }], failOnInsert = false } = {}) {
+  const state = { students: structuredClone(students), fees: structuredClone(fees), obligations: [], rollbackCount: 0 };
   return {
     state,
     async query(sql, params = []) {
+      if (sql.includes('FROM fee_structures')) return state.fees.filter((f) => f.id === params[0] && f.schoolId === params[1]);
       if (sql.includes('FROM students')) {
         return state.students.filter((s) => s.schoolId === params[0] && (params[1] == null || s.classId === params[1]) && !['INACTIVE', 'TRANSFERRED_OUT', 'WITHDRAWN', 'DELETED', 'ARCHIVED'].includes(String(s.status ?? 'ACTIVE').toUpperCase()));
       }
@@ -60,6 +61,14 @@ test('publication never creates obligations for another school', async () => {
   const repo = createFeeCollectionsRepository({ adapter: db });
   await publish(repo, actor('school-a'));
   assert.deepEqual(db.state.obligations.map((o) => o.studentId), ['a']);
+});
+
+test('fee ownership and existence are tenant-safe', async () => {
+  const db = adapter({ students: [{ id: 'a', schoolId: 'school-a', status: 'ACTIVE' }], fees: [{ id: 'fee-b', schoolId: 'school-b' }] });
+  const repo = createFeeCollectionsRepository({ adapter: db });
+  await assert.rejects(() => publish(repo, actor(), { feeStructureId: 'fee-b' }), /Fee structure not found/);
+  await assert.rejects(() => publish(repo, actor(), { feeStructureId: 'missing' }), /Fee structure not found/);
+  assert.equal(db.state.obligations.length, 0);
 });
 
 test('eligibility and inserts use the transaction client', async () => {
