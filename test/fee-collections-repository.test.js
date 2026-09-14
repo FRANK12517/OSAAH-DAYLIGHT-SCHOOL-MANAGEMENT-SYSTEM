@@ -80,7 +80,7 @@ test('eligibility and inserts use the transaction client', async () => {
   const tx = { query: async (...args) => { calls.push('tx-query'); return rootQuery(...args); }, execute: async (...args) => { calls.push('tx-execute'); return rootExecute(...args); } };
   db.transaction = async (work) => work(tx);
   await publish(createFeeCollectionsRepository({ adapter: db }), actor());
-  assert.deepEqual(calls, ['tx-query', 'tx-query', 'tx-execute']);
+  assert.deepEqual(calls, ['tx-query', 'tx-query', 'tx-query', 'tx-execute']);
 });
 
 test('unrelated database errors propagate instead of being swallowed', async () => {
