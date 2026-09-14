@@ -15,7 +15,7 @@ export function createAuthenticatedFinanceFixture() {
   ];
   const rows = [{ id: 'collection-test-1', school_id: schoolA, collection_type: 'CANTEEN', amount_received_minor: 10000 }];
   const database = { async query(sql, params = []) { if (sql.includes('fee_collection_records')) return rows.filter((r) => r.school_id === params[0] && (!params[1] || r.id === params[1])); return []; }, async execute(sql, params = []) { if (sql.startsWith('UPDATE')) rows[0].amount_received_minor = params[0]; return { affectedRows: 1 }; }, async transaction(work) { return work(this); } };
-  const audit = []; const auth = createAuthService({ users, audit, sessionSecret: 'test-only-session-secret-0123456789012345' });
+  const audit = []; const auditSink = (event) => audit.push(event); const auth = createAuthService({ users, audit: auditSink, sessionSecret: 'test-only-session-secret-0123456789012345' });
   const app = createApp({ auth, database });
   const tokens = { accountant: auth.login({ username: 'accountant@test.local', password: 'AccountantTest123!', portal: 'school' }).token, teacher: auth.login({ username: 'teacher@test.local', password: 'TeacherTest123!', portal: 'school' }).token, parent: auth.login({ username: 'parent@test.local', password: 'ParentTest123!', portal: 'parent' }).token };
   return { app, auth, database, users, schoolA, schoolB, accountant: users[0], teacher: users[1], parent: users[2], ...tokens, audit, rows };
