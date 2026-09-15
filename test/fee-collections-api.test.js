@@ -11,7 +11,7 @@ test('collection detail and correction routes delegate to scoped repository meth
   assert.match(source, /pathname\.startsWith\('\/api\/fees\/collections\/'\) && request\.method === 'GET'/);
   assert.match(source, /feeCollections\.getCollectionById\(pathname\.split\('\/'\)\.pop\(\),user\)/);
   assert.match(source, /pathname\.startsWith\('\/api\/fees\/collections\/'\) && request\.method === 'PATCH'/);
-  assert.match(source, /feeCollections\.correctCollection\(pathname\.split\('\/'\)\.pop\(\),body,user\)/);
+  assert.match(source, /feeCollections\.correctCollection\(pathname\.split\('\/'\)\.pop\(\),\{amountReceivedMinor:body\.amount_received_minor,reason:body\.reason\},user\)/);
   assert.match(source, /Unsupported correction field/);
 });
 
