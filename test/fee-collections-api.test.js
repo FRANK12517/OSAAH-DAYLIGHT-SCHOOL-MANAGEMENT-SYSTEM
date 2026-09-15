@@ -41,6 +41,13 @@ test('teacher, parent, and anonymous users cannot correct collections', async ()
   try { assert.ok(fixture.auth.authenticate(fixture.teacherToken)); assert.ok(fixture.auth.authenticate(fixture.parentToken)); for (const [token, expected] of [[fixture.teacherToken, 400], [fixture.parentToken, 400], [undefined, 401]]) { const before = fixture.rows[0].amount_received_minor; const audits = fixture.corrections.length; const result = await call(token); assert.equal(result.status, expected); assert.equal(fixture.rows[0].amount_received_minor, before); assert.equal(fixture.corrections.length, audits); } } finally { await new Promise((resolve) => server.close(resolve)); }
 });
 
+test('correction rejects every forbidden mutation field', async () => {
+  for (const field of ['school_id','recorded_by','collection_type','class_id','collection_date','academic_year_id','term_id']) {
+    const fixture = createAuthenticatedFinanceFixture(); const server = createServer(fixture.app); await new Promise((resolve) => server.listen(0, resolve));
+    try { const body = { amount_received_minor: 12000, reason: 'Forbidden field acceptance test', [field]: 'forged' }; const result = await new Promise((resolve, reject) => { const req = httpRequest({ port: server.address().port, path: '/api/fees/collections/collection-test-1', method: 'PATCH', headers: { Authorization: `Bearer ${fixture.accountantToken}`, 'Content-Type': 'application/json' } }, (res) => { let text = ''; res.on('data', (c) => { text += c; }); res.on('end', () => resolve({ status: res.statusCode, body: text })); }); req.on('error', reject); req.write(JSON.stringify(body)); req.end(); }); assert.equal(result.status, 400, field); assert.equal(fixture.rows[0].amount_received_minor, 10000, field); assert.equal(fixture.corrections.length, 0, field); } finally { await new Promise((resolve) => server.close(resolve)); }
+  }
+});
+
 test('collection detail and correction execute through real HTTP dispatch', async () => {
   const fixture = createAuthenticatedFinanceFixture();
   const server = createServer(fixture.app); await new Promise((resolve) => server.listen(0, resolve));
