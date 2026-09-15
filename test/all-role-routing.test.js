@@ -122,3 +122,16 @@ test('all school roles use canonical non-fallback routes for their visible navig
     for (const module of modules.filter((item) => !['dashboard','logout'].includes(item.moduleKey))) assert.ok(module.route.startsWith('/') && module.route !== '/', `${roleKey}:${module.moduleKey}`);
   }
 });
+
+test('workspace navigation normalizes the route inside the renderer and terminates iframe failures', async () => {
+  const app = await readFile(new URL('../public/app.js', import.meta.url), 'utf8');
+  const renderStart = app.indexOf('function renderWorkspaceRoute');
+  const navigateStart = app.indexOf('function navigateToRoute');
+  assert.ok(renderStart >= 0);
+  assert.ok(navigateStart > renderStart);
+  const renderBody = app.slice(renderStart, navigateStart);
+  assert.match(renderBody, /const normalizedRoute = String\(route \|\| '\/'\)/);
+  assert.match(renderBody, /url\.searchParams\.set\('route', normalizedRoute\)/);
+  assert.match(renderBody, /frame\.onerror = \(error\) =>/);
+  assert.match(renderBody, /Unable to open \$\{title\}/);
+});
