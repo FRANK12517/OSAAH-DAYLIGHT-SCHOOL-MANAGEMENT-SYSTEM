@@ -20,12 +20,12 @@ test('collection correction route rejects ownership and metadata mutation fields
   assert.match(source, /new Set\(\['amount_received_minor','reason'\]\)/);
 });
 
-test.skip('collection detail and correction execute through real HTTP dispatch', async () => {
+test('collection detail and correction execute through real HTTP dispatch', async () => {
   const fixture = createAuthenticatedFinanceFixture();
   const server = createServer(fixture.app); await new Promise((resolve) => server.listen(0, resolve));
   try {
     const request = (method, path, body) => new Promise((resolve, reject) => { const req = httpRequest({ port: server.address().port, path, method, headers: { Authorization: `Bearer ${fixture.accountantToken}`, 'Content-Type': 'application/json' } }, (res) => { let text = ''; res.on('data', (chunk) => { text += chunk; }); res.on('end', () => resolve({ status: res.statusCode, body: text ? JSON.parse(text) : null })); }); req.on('error', reject); if (body) req.write(JSON.stringify(body)); req.end(); });
-    const detail = await request('GET', '/api/fees/collections/collection-test-1'); assert.equal(detail.status, 200); assert.equal(detail.body.id, 'collection-test-1');
+    const detail = await request('GET', '/api/fees/collections/collection-test-1'); assert.equal(detail.status, 200, JSON.stringify(detail)); assert.equal(detail.body.id, 'collection-test-1');
     const patched = await request('PATCH', '/api/fees/collections/collection-test-1', { amount_received_minor: 12000, reason: 'Cashbook reconciliation' }); assert.equal(patched.status, 200); assert.equal(patched.body.afterAmountReceivedMinor, 12000);
   } finally { await new Promise((resolve) => server.close(resolve)); }
 });
