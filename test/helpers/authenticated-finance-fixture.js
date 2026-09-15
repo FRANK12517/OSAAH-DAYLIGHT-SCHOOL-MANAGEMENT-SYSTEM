@@ -13,7 +13,7 @@ export function createAuthenticatedFinanceFixture() {
     user('test-parent-a', 'parent@test.local', 'ParentTest123!', 'PARENT', 'parent', schoolA, ['children.read']),
     user('test-accountant-b', 'accountant-b@test.local', 'AccountantBTest123!', 'ACCOUNTANT_BURSAR', 'school', schoolB, ['fees.read', 'fees.write', 'finance.read'])
   ];
-  const rows = [{ id: 'collection-test-1', school_id: schoolA, collection_type: 'CANTEEN', amount_received_minor: 10000 }];
+  const rows = [{ id: 'collection-test-1', school_id: schoolA, collection_type: 'CANTEEN', amount_received_minor: 10000 }, { id: 'collection-test-b', school_id: schoolB, collection_type: 'CANTEEN', amount_received_minor: 99000 }];
   const database = { async query(sql, params = []) { if (sql.includes('fee_collection_records')) return rows.filter((r) => r.school_id === params[0] && (!params[1] || r.id === params[1])); return []; }, async execute(sql, params = []) { if (sql.startsWith('UPDATE')) rows[0].amount_received_minor = params[0]; return { affectedRows: 1 }; }, async transaction(work) { return work(this); } };
   const audit = []; const auditSink = (event) => audit.push(event); const auth = createAuthService({ users, audit: auditSink, sessionSecret: 'test-only-session-secret-0123456789012345' });
   const app = createApp({ auth, database });

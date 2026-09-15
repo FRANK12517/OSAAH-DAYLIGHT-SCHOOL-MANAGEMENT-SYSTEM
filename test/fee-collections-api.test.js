@@ -25,6 +25,11 @@ test('unknown collection detail returns not-found for authenticated accountant',
   try { const result = await new Promise((resolve, reject) => { const req = httpRequest({ port: server.address().port, path: '/api/fees/collections/missing', headers: { Authorization: `Bearer ${fixture.accountantToken}` } }, (res) => { let body = ''; res.on('data', (c) => { body += c; }); res.on('end', () => resolve({ status: res.statusCode, body: body ? JSON.parse(body) : null })); }); req.on('error', reject); req.end(); }); assert.equal(result.status, 404); assert.equal(result.body.error, 'Not found.'); } finally { await new Promise((resolve) => server.close(resolve)); }
 });
 
+test('school-scoped detail hides another school collection', async () => {
+  const fixture = createAuthenticatedFinanceFixture(); const server = createServer(fixture.app); await new Promise((resolve) => server.listen(0, resolve));
+  try { const result = await new Promise((resolve, reject) => { const req = httpRequest({ port: server.address().port, path: '/api/fees/collections/collection-test-b', headers: { Authorization: `Bearer ${fixture.accountantToken}` } }, (res) => { let body = ''; res.on('data', (c) => { body += c; }); res.on('end', () => resolve({ status: res.statusCode, body })); }); req.on('error', reject); req.end(); }); assert.equal(result.status, 404); assert.doesNotMatch(result.body, /99000|school-test-b/); } finally { await new Promise((resolve) => server.close(resolve)); }
+});
+
 test('collection detail and correction execute through real HTTP dispatch', async () => {
   const fixture = createAuthenticatedFinanceFixture();
   const server = createServer(fixture.app); await new Promise((resolve) => server.listen(0, resolve));
