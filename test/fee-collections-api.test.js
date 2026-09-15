@@ -48,6 +48,11 @@ test('correction rejects every forbidden mutation field', async () => {
   }
 });
 
+test('correction rejects invalid amounts and reasons without mutation', async () => {
+  const cases = [{ amount_received_minor: -1, reason: 'Validation test' }, { amount_received_minor: 12000.5, reason: 'Validation test' }, { amount_received_minor: 'abc', reason: 'Validation test' }, { reason: 'Validation test' }, { amount_received_minor: 12000 }, { amount_received_minor: 12000, reason: '' }, { amount_received_minor: 12000, reason: '   ' }];
+  for (const body of cases) { const fixture = createAuthenticatedFinanceFixture(); const server = createServer(fixture.app); await new Promise((resolve) => server.listen(0, resolve)); try { const result = await new Promise((resolve, reject) => { const req = httpRequest({ port: server.address().port, path: '/api/fees/collections/collection-test-1', method: 'PATCH', headers: { Authorization: `Bearer ${fixture.accountantToken}`, 'Content-Type': 'application/json' } }, (res) => { res.resume(); res.on('end', () => resolve(res.statusCode)); }); req.on('error', reject); req.write(JSON.stringify(body)); req.end(); }); assert.equal(result, 400); assert.equal(fixture.rows[0].amount_received_minor, 10000); assert.equal(fixture.corrections.length, 0); } finally { await new Promise((resolve) => server.close(resolve)); } }
+});
+
 test('collection detail and correction execute through real HTTP dispatch', async () => {
   const fixture = createAuthenticatedFinanceFixture();
   const server = createServer(fixture.app); await new Promise((resolve) => server.listen(0, resolve));
