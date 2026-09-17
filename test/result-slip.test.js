@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
 import { averageScore, assessmentLibraryStatus, assessmentStorageKey, ordinalPosition, subjectPositions, termAttendance } from '../src/result-slip.js';
 
 test('result-slip average excludes invalid, blank, placeholder, and unsubmitted rows', () => {
@@ -23,8 +25,18 @@ test('assessment persistence key isolates student, year, term, class, and examin
   assert.notEqual(a, b); assert.equal(a.split(':').length, 7);
 });
 
-test('EduTrack library audit refuses to claim unverified 30/30 parity', () => {
-  assert.equal(assessmentLibraryStatus.authoritative, false);
-  assert.equal(assessmentLibraryStatus.positiveCount, 0);
-  assert.equal(assessmentLibraryStatus.negativeCount, 0);
+test('verified EduTrack assessment libraries contain exact 30 positive and 30 negative statements', () => {
+  const fixture = JSON.parse(fs.readFileSync(new URL('./fixtures/edutrack-ges-assessment-libraries.json', import.meta.url)));
+  const context = { window: {} };
+  vm.runInNewContext(fs.readFileSync(new URL('../public/ges-assessment-libraries.js', import.meta.url), 'utf8'), context);
+  assert.equal(JSON.stringify(context.window.OSAAH_GES_ASSESSMENT_LIBRARIES), JSON.stringify(fixture));
+  for (const [category, library] of Object.entries(fixture)) {
+    assert.equal(library.positive.length, 30, `${category} positive count`);
+    assert.equal(library.negative.length, 30, `${category} negative count`);
+    assert.equal(new Set(library.positive).size, 30, `${category} positive duplicates`);
+    assert.equal(new Set(library.negative).size, 30, `${category} negative duplicates`);
+  }
+  assert.equal(assessmentLibraryStatus.authoritative, true);
+  assert.equal(assessmentLibraryStatus.positiveCount, 30);
+  assert.equal(assessmentLibraryStatus.negativeCount, 30);
 });
