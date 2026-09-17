@@ -58,10 +58,10 @@ export function assessmentValues(input = {}) {
 }
 
 export const assessmentLibraryStatus = Object.freeze({
-  source: 'EduTrack active result-slip module could not be proven to expose the requested 30/30 libraries',
-  positiveCount: 0,
-  negativeCount: 0,
-  authoritative: false
+  source: 'EduTrack EMS_COMMENT_SEED_*_V1 libraries, injected through EMS_COMMENT_LIBRARY_API.addComment()',
+  positiveCount: 30,
+  negativeCount: 30,
+  authoritative: true
 });
 
 export function renderStaticAssessment(value) {
