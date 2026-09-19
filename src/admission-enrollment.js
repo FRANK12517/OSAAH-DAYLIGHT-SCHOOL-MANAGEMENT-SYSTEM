@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import bcrypt from 'bcrypt';
 import { admissionYearFor } from './permanent-student-id.js';
+import { requireStudentGender } from './student-gender.js';
 
 function fail(code, message, status = 400) { throw Object.assign(new Error(message), { code, status }); }
 function value(...items) { return items.find((item) => item !== undefined && item !== null && item !== '') ?? null; }
@@ -72,10 +73,11 @@ export function createAdmissionEnrollmentService({ database, clock = () => new D
         const middleName = value(applicant.middleName, applicant.studentMiddleName);
         const lastName = value(applicant.lastName, applicant.surname, applicant.studentSurname);
         if (!firstName || !lastName || !classId) fail('APPLICANT_DATA_INCOMPLETE', 'Candidate name and assigned class are required for enrollment.', 409);
+        const gender = requireStudentGender(applicant.gender);
 
-        await tx.execute('INSERT INTO students (id,permanent_student_id,school_id,admission_number,current_class_id,first_name,middle_name,last_name,gender,date_of_birth,admission_date,admission_type,student_status,is_test_record,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [studentId, permanentStudentId, application.school_id, admissionNumber, classId, firstName, middleName, lastName, value(applicant.gender), value(applicant.dateOfBirth), value(application.admission_date, applicant.applicationDate, timestamp.slice(0, 10)), value(applicant.admissionType, 'NEW'), 'ACTIVE', 0, timestamp, timestamp]);
+        await tx.execute('INSERT INTO students (id,permanent_student_id,school_id,admission_number,current_class_id,first_name,middle_name,last_name,gender,date_of_birth,admission_date,admission_type,student_status,is_test_record,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [studentId, permanentStudentId, application.school_id, admissionNumber, classId, firstName, middleName, lastName, gender, value(applicant.dateOfBirth), value(application.admission_date, applicant.applicationDate, timestamp.slice(0, 10)), value(applicant.admissionType, 'NEW'), 'ACTIVE', 0, timestamp, timestamp]);
         const profileId = idFactory();
-        await tx.execute('INSERT INTO student_profiles (id,student_master_id,student_id,school_id,class_id,stream_id,admission_number,admission_date,first_name,last_name,gender,date_of_birth,enrollment_status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [profileId, studentId, permanentStudentId, application.school_id, classId, value(application.stream_id, applicant.streamId), admissionNumber, value(application.admission_date, applicant.applicationDate, timestamp.slice(0, 10)), firstName, lastName, value(applicant.gender), value(applicant.dateOfBirth), 'ACTIVE', timestamp]);
+        await tx.execute('INSERT INTO student_profiles (id,student_master_id,student_id,school_id,class_id,stream_id,admission_number,admission_date,first_name,last_name,gender,date_of_birth,enrollment_status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [profileId, studentId, permanentStudentId, application.school_id, classId, value(application.stream_id, applicant.streamId), admissionNumber, value(application.admission_date, applicant.applicationDate, timestamp.slice(0, 10)), firstName, lastName, gender, value(applicant.dateOfBirth), 'ACTIVE', timestamp]);
         const enrollmentId = idFactory();
         await tx.execute('INSERT INTO student_enrollments (id,student_id,class_id,academic_year_id) VALUES (?,?,?,?)', [enrollmentId, studentId, classId, value(application.academic_year_id, applicant.academicYearId, applicant.academicYear)]);
         const parentUserId = await resolveParent(tx, application, applicant, timestamp);

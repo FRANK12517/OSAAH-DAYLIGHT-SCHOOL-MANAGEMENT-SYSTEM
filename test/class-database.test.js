@@ -9,7 +9,7 @@ test('Class Database derives current students and canonical parent contact data'
   const actor = { id: 'admin', roleKey: 'SCHOOL_ADMIN', schoolId: 'school-osaah-daylight', permissions: new Set(['students.read']) };
   const student = students.createStudent({ firstName: 'Ama', surname: 'Mensah', classId: 'Nursery 1', admissionYearId: '2026', family: [{ parentId: 'parent-1', fullName: 'Akosua Mensah', primary: true, telephone: '0240000000' }] });
   students.linkParent(student.id, { parentId: 'parent-1', fullName: 'Akosua Mensah', primary: true, telephone: '0240000000' });
-  assert.deepEqual(database.list({ classId: 'Nursery 1', academicYear: '2026/2027' }, actor), [{ permanentStudentId: student.permanentStudentId, studentId: student.id, studentName: 'Ama Mensah', parentGuardianName: 'Akosua Mensah', registeredParentPhone: '+233240000000', classId: 'Nursery 1', academicYear: '2026/2027', isTestRecord: false }]);
+  assert.deepEqual(database.list({ classId: 'Nursery 1', academicYear: '2026/2027' }, actor), [{ permanentStudentId: student.permanentStudentId, studentId: student.id, studentName: 'Ama Mensah', gender: 'Not Recorded', parentGuardianName: 'Akosua Mensah', registeredParentPhone: '+233240000000', classId: 'Nursery 1', academicYear: '2026/2027', isTestRecord: false }]);
   assert.equal(database.list({ classId: 'Nursery 1', search: student.permanentStudentId }, actor).length, 1);
   assert.equal(database.list({ classId: 'Nursery 1', search: 'akosua' }, actor).length, 1);
   assert.equal(database.list({ classId: 'Nursery 1', search: '0240000000' }, actor).length, 1);
