@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { classGenderDistribution } from './gender-distribution.js';
+import { displayStudentGender } from './student-gender.js';
 
 const BRAND = { schoolName: 'OSAAH DAYLIGHT SCH. COM.', location: 'BOGOSO', motto: 'AIM HIGH, ACADEMIC IS OUR CORE VALUE' };
 const TERMS = ['1st Term', '2nd Term', '3rd Term'];
@@ -57,7 +59,8 @@ export function createReportingService({ now = () => new Date().toISOString(), s
     const term = filters.term ?? TERMS[0];
     const scopedStudents = students.filter((student) => scopeInfo.scope === DEFAULT_SCOPE || classMatchesScope(student.classId, scopeInfo.scope));
     const scopedIds = new Set(scopedStudents.map((student) => student.id));
-    const scopedMarks = marks.filter((mark) => scopedIds.has(mark.studentId) && (!filters.subjectId || mark.subjectId === filters.subjectId));
+    const matchesContext = (item) => (!academicYear || (!item.academicYearId && !item.academicYear) || item.academicYearId === academicYear || item.academicYear === academicYear) && (!term || (!item.termId && !item.term) || item.termId === term || item.term === term);
+    const scopedMarks = marks.filter((mark) => scopedIds.has(mark.studentId) && matchesContext(mark) && (!filters.subjectId || mark.subjectId === filters.subjectId));
     const studentTotals = new Map();
     const subjectTotals = new Map();
     for (const mark of scopedMarks) {
@@ -76,7 +79,7 @@ export function createReportingService({ now = () => new Date().toISOString(), s
     const studentPerformance = scopedStudents.map((student) => {
       const totals = studentTotals.get(student.id);
       const averageScore = totals?.count ? Math.round((totals.total / totals.count) * 100) / 100 : null;
-      return { studentId: student.id, studentName: [student.firstName, student.middleName, student.surname].filter(Boolean).join(' '), classId: student.classId ?? null, averageScore, assessmentCount: totals?.count ?? 0, grade: averageScore === null ? null : gradeFor(averageScore) };
+      return { studentId: student.id, permanentStudentId: student.permanentStudentId ?? student.studentIndexNumber ?? null, studentName: [student.firstName, student.middleName, student.surname].filter(Boolean).join(' '), gender: displayStudentGender(student.gender), classId: student.classId ?? null, averageScore, assessmentCount: totals?.count ?? 0, grade: averageScore === null ? null : gradeFor(averageScore) };
     }).sort((a, b) => (b.averageScore ?? -1) - (a.averageScore ?? -1));
     const classGroups = new Map();
     for (const student of scopedStudents) {
@@ -95,6 +98,9 @@ export function createReportingService({ now = () => new Date().toISOString(), s
     const attendanceSummary = Object.fromEntries(['PRESENT', 'ABSENT', 'LATE', 'EXCUSED_ABSENCE', 'UNEXCUSED_ABSENCE', 'EARLY_DEPARTURE', 'SICK_ABSENCE'].map((status) => [status, attendanceRows.filter((record) => record.status === status).length]));
     const assessedStudents = studentPerformance.filter((row) => row.assessmentCount > 0).length;
     const totalAverage = studentPerformance.filter((row) => row.averageScore !== null).reduce((sum, row) => sum + row.averageScore, 0);
+    const distributionClasses = scopeInfo.classIds.length ? scopeInfo.classIds : [...new Set(scopedStudents.map((student) => student.classId).filter(Boolean))];
+    const distribution = distributionClasses.reduce((total, classId) => { const next = classGenderDistribution({ students: feeds.students, schoolId, classId, academicYear, term }); return { totalBoys: total.totalBoys + next.totalBoys, totalGirls: total.totalGirls + next.totalGirls, totalStudents: total.totalStudents + next.totalStudents }; }, { totalBoys: 0, totalGirls: 0, totalStudents: 0 });
+    const classGenderDistributionByClass = Object.fromEntries(distributionClasses.map((classId) => [classId, classGenderDistribution({ students: feeds.students, schoolId, classId, academicYear, term })]));
     const report = {
       id: randomUUID(),
       reportType: 'ACADEMIC_PERFORMANCE',
@@ -116,9 +122,14 @@ export function createReportingService({ now = () => new Date().toISOString(), s
         overallAverage: assessedStudents ? Math.round((totalAverage / assessedStudents) * 100) / 100 : null,
         passRate: assessedStudents ? Math.round((studentPerformance.filter((row) => (row.averageScore ?? 0) >= 50).length / assessedStudents) * 10000) / 100 : 0,
         failRate: assessedStudents ? Math.round((studentPerformance.filter((row) => (row.averageScore ?? 0) < 50).length / assessedStudents) * 10000) / 100 : 0,
-        attendance: attendanceSummary
+        attendance: attendanceSummary,
+        totalBoys: distribution.totalBoys,
+        totalGirls: distribution.totalGirls,
+        totalStudents: distribution.totalStudents
       },
-      classPerformance: [...classGroups.values()].map((group) => ({ classId: group.classId, className: group.className, studentCount: group.studentCount, averageScore: group.count ? Math.round((group.total / group.count) * 100) / 100 : null })).sort((a, b) => (b.averageScore ?? -1) - (a.averageScore ?? -1)),
+      classPerformance: [...classGroups.values()].map((group) => ({ classId: group.classId, className: group.className, studentCount: group.studentCount, averageScore: group.count ? Math.round((group.total / group.count) * 100) / 100 : null, genderDistribution: classGenderDistributionByClass[group.classId] ?? { totalBoys: 0, totalGirls: 0, totalStudents: 0 } })).sort((a, b) => (b.averageScore ?? -1) - (a.averageScore ?? -1)),
+      genderDistribution: distribution,
+      genderDistributionByClass: classGenderDistributionByClass,
       subjectPerformance,
       studentPerformance,
       highestPerformers: studentPerformance.slice(0, 5),
