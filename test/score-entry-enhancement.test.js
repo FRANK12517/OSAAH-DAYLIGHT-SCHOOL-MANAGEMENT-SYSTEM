@@ -33,3 +33,10 @@ test('Score Entry exposes complete columns, immediate grade calculation, and deb
   for (const header of ['OSAAH STUDENT INDEX', 'STUDENT NAME', 'CA / 50', 'Exam / 50', 'TOTAL', 'GRADE', 'SAVE STATUS']) assert.match(html, new RegExp(header));
   assert.match(js, /setTimeout\(\(\) => save/); assert.match(js, /Saving/); assert.match(js, /Saved/); assert.match(js, /Error saving/); assert.match(js, /totalCell\.textContent/); assert.match(js, /gradeCell\.textContent/); assert.match(js, /min="0" max="50"/);
 });
+
+test('generated results include every active subject configured for the selected class', () => {
+  const students = createStudentService({ schoolId }); const student = students.createStudent({ firstName: 'Full', surname: 'Subject', classId: 'Primary 1', admissionYearId: '2026' }); const subjects = createSubjectService(); const configured = subjects.list({ classId: 'Primary 1' }, actor); const results = createAcademicResultsService({ schoolId, students, subjects, classes: ['Primary 1'] });
+  results.saveScore({ studentId: student.id, classId: 'Primary 1', subjectId: configured[0].id, academicYear: '2026/2027', term: 'First Term', caScore: 40, examScore: 40 }, actor);
+  const result = results.result({ studentId: student.id, classId: 'Primary 1', academicYear: '2026/2027', term: 'First Term' }, actor);
+  assert.deepEqual(result.subjects.map((row) => row.subjectId).sort(), configured.map((subject) => subject.id).sort());
+});
