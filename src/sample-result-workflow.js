@@ -23,8 +23,9 @@ export function createSampleResultWorkflow({ students, subjects, academicResults
     const target = input.studentId ? roster.find((student) => student.id === input.studentId || student.permanentStudentId === input.studentId) : roster[0]; if (!target) throw new Error('Existing sample student not found.');
     const availableSubjects = subjects.list({ classId }, actor).filter((subject) => subject.active); if (!availableSubjects.length) throw new Error('No active subjects are configured for this class.');
     const key = `${schoolId}:${target.permanentStudentId}:${academicYear}:${term}:${examinationType}`;
-    for (const subject of availableSubjects) {
-      academicResults.saveScore({ studentId: target.id, classId, subjectId: subject.id, academicYear, term, caScore: score(`${key}:${subject.id}:ca`, 24, 45), examScore: score(`${key}:${subject.id}:exam`, 24, 50), caMax: SCORE_MAX, examMax: SCORE_MAX }, actor);
+    for (const sampleStudent of roster) {
+      const studentKey = `${schoolId}:${sampleStudent.permanentStudentId}:${academicYear}:${term}:${examinationType}`;
+      for (const subject of availableSubjects) academicResults.saveScore({ studentId: sampleStudent.id, classId, subjectId: subject.id, academicYear, term, caScore: score(`${studentKey}:${subject.id}:ca`, 24, 45), examScore: score(`${studentKey}:${subject.id}:exam`, 24, 50), caMax: SCORE_MAX, examMax: SCORE_MAX }, actor);
     }
     const assessments = Object.fromEntries(ASSESSMENT_KEYS.map((assessmentKey) => { const category = assessmentCategory(assessmentKey); const side = hash(`${key}:${assessmentKey}:side`) % 2 ? 'positive' : 'negative'; const bank = GES_ASSESSMENT_LIBRARIES[category][side]; return [assessmentKey, bank[pick(`${key}:${assessmentKey}:statement`, bank.length)]]; }));
     const attendance = { timesPresent: fiftyFive(key, 'present'), timesAbsent: 60 - fiftyFive(key, 'present'), totalSchoolDays: 60, term, isSample: true };
