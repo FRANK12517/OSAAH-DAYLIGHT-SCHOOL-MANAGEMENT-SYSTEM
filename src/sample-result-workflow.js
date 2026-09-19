@@ -2,6 +2,7 @@ import { CORE_LEVELS } from './students.js';
 import { GES_ASSESSMENT_LIBRARIES } from './ges-assessment-libraries.js';
 
 const SAMPLE_CLASSES = Object.freeze([...CORE_LEVELS]);
+const SAMPLE_MOCK_CLASSES = Object.freeze(['JHS 1', 'JHS 2', 'JHS 3']);
 const ASSESSMENT_KEYS = Object.freeze(['conduct', 'attitude', 'interest', 'classTeacherRemarks', 'headteacherRemarks']);
 const SCORE_MAX = 50;
 function clone(value) { return JSON.parse(JSON.stringify(value)); }
@@ -9,7 +10,7 @@ function hash(input) { let h = 2166136261; for (const char of String(input)) { h
 function pick(input, size) { return size ? hash(input) % size : 0; }
 function score(input, min, max) { return min + (hash(input) % (max - min + 1)); }
 function assessmentCategory(key) { return key === 'classTeacherRemarks' ? 'ctRemarks' : key === 'headteacherRemarks' ? 'htRemarks' : key; }
-function assertActor(actor) { if (!actor?.schoolId || (!actor.permissions?.has?.('marks.write') && !actor.permissions?.has?.('results.generate') && actor.roleKey !== 'PROPRIETOR' && actor.roleKey !== 'HEADTEACHER' && actor.roleKey !== 'SCHOOL_ADMIN')) throw new Error('Sample result generation permission required.'); }
+function assertActor(actor, permission = 'marks.write') { if (!actor?.schoolId || (!actor.permissions?.has?.(permission) && !actor.permissions?.has?.('marks.write') && !actor.permissions?.has?.('results.generate') && actor.roleKey !== 'PROPRIETOR' && actor.roleKey !== 'HEADTEACHER' && actor.roleKey !== 'SCHOOL_ADMIN')) throw new Error('Sample result generation permission required.'); }
 
 export function createSampleResultWorkflow({ students, subjects, academicResults, schoolId = 'school-osaah-daylight', now = () => new Date().toISOString() } = {}) {
   if (!students || !subjects || !academicResults) throw new Error('Sample workflow dependencies are required.');
@@ -34,10 +35,27 @@ export function createSampleResultWorkflow({ students, subjects, academicResults
     const result = academicResults.result({ studentId: target.id, classId, academicYear, term, examinationType, sample: true }, actor);
     return { ...clone(result), ...clone(state), sampleLabel: 'SAMPLE DATA' };
   }
+  function generateMock(input, actor) {
+    assertActor(actor, 'mock.scores.write'); if (actor.schoolId !== schoolId) throw new Error('Forbidden.');
+    const academicYear = String(input?.academicYear ?? '').trim(); const term = String(input?.term ?? '').trim(); const mockLabel = String(input?.mockLabel ?? input?.mockType ?? '1st Mock').trim(); const classId = String(input?.classId ?? '').trim();
+    if (!academicYear || !term || !classId || !SAMPLE_MOCK_CLASSES.includes(classId)) throw new Error('Sample Mock data is available for JHS 1, JHS 2, and JHS 3 only.');
+    const roster = sampleStudents(classId); if (!roster.length) throw new Error('No existing sample student is available for this JHS class.');
+    const target = input.studentId ? roster.find((student) => student.id === input.studentId || student.permanentStudentId === input.studentId) : roster[0]; if (!target) throw new Error('Existing sample student not found.');
+    const availableSubjects = subjects.list({ classId }, actor).filter((subject) => subject.active); if (!availableSubjects.length) throw new Error('No active subjects are configured for this class.');
+    for (const sampleStudent of roster) { const studentKey = schoolId + ':' + sampleStudent.permanentStudentId + ':' + academicYear + ':' + term + ':MOCK:' + mockLabel; for (const subject of availableSubjects) academicResults.saveMockScore({ studentId: sampleStudent.id, classId, subjectId: subject.id, academicYear, term, mockLabel, totalScore: score(studentKey + ':' + subject.id + ':total', 55, 98) }, actor); }
+    const stateKey = schoolId + ':' + target.permanentStudentId + ':' + academicYear + ':' + term + ':MOCK:' + mockLabel;
+    const assessments = Object.fromEntries(ASSESSMENT_KEYS.map((assessmentKey) => { const category = assessmentCategory(assessmentKey); const side = hash(stateKey + ':' + assessmentKey + ':side') % 2 ? 'positive' : 'negative'; const bank = GES_ASSESSMENT_LIBRARIES[category][side]; return [assessmentKey, bank[pick(stateKey + ':' + assessmentKey + ':statement', bank.length)]]; }));
+    const attendance = { timesPresent: fiftyFive(stateKey, 'present'), timesAbsent: 60 - fiftyFive(stateKey, 'present'), totalSchoolDays: 60 };
+    academicResults.saveResult({ studentId: target.id, permanentStudentId: target.permanentStudentId, classId, academicYear, term, examination: 'MOCK', attendance, assessment: assessments }, actor);
+    const stateValue = { isSample: true, studentId: target.id, permanentStudentId: target.permanentStudentId, classId, academicYear, term, examinationType: 'MOCK', mockLabel, assessments, attendance, generatedAt: now() }; sampleState.set(stateKey, stateValue);
+    const result = academicResults.result({ studentId: target.id, classId, academicYear, term, mockLabel }, actor, { mock: true });
+    return { ...clone(result), assessment: { ...clone(assessments) }, attendance: clone(attendance), isSample: true, sampleLabel: 'SAMPLE DATA / DEMONSTRATION' };
+  }
+  function resetMock(input, actor) { assertActor(actor, 'mock.scores.write'); const target = sampleStudents().find((student) => student.permanentStudentId === input.permanentStudentId); if (!target?.isTestRecord) throw new Error('Only existing sample records can be reset.'); if (!SAMPLE_MOCK_CLASSES.includes(target.classId)) throw new Error('Only JHS sample Mock records can be reset.'); const removed = academicResults.resetMockScores({ studentId: target.id, classId: target.classId, academicYear: input.academicYear, term: input.term, mockLabel: input.mockLabel }, actor); for (const key of sampleState.keys()) if (key.includes(':' + target.permanentStudentId + ':' + input.academicYear + ':' + input.term + ':MOCK:')) sampleState.delete(key); return { ok: true, isSample: true, removed: removed.removed ?? 0, permanentStudentId: target.permanentStudentId }; }
   function state(input, actor) { assertActor(actor); const target = students.findByPermanentStudentId(input.permanentStudentId, { roleKey: actor.roleKey, requestedSchoolId: schoolId }); if (!target?.isTestRecord) return null; return clone(sampleState.get(`${schoolId}:${target.permanentStudentId}:${input.academicYear}:${input.term}:${input.examinationType ?? 'TERMINAL'}`) ?? null); }
   function reset(input, actor) { assertActor(actor); const target = students.findByPermanentStudentId(input.permanentStudentId, { roleKey: actor.roleKey, requestedSchoolId: schoolId }); if (!target?.isTestRecord) throw new Error('Only existing sample records can be reset.'); const prefix = `${schoolId}:${target.permanentStudentId}:${input.academicYear}:${input.term}:`; for (const key of sampleState.keys()) if (key.startsWith(prefix)) sampleState.delete(key); return { ok: true, isSample: true, permanentStudentId: target.permanentStudentId }; }
   function publish(input, actor) { assertActor(actor); const target = students.findByPermanentStudentId(input.permanentStudentId, { roleKey: actor.roleKey, requestedSchoolId: schoolId }); if (!target?.isTestRecord) throw new Error('Only existing sample records can be published through the sample workflow.'); return academicResults.publishResults({ ...input, studentId: target.id, isSample: true }, actor); }
-  return { classes: () => [...SAMPLE_CLASSES], students: sampleStudents, generate, state, publish, reset };
+  return { classes: () => [...SAMPLE_CLASSES], mockClasses: () => [...SAMPLE_MOCK_CLASSES], students: sampleStudents, generate, generateMock, state, publish, reset, resetMock };
 }
 function fiftyFive(key, field) { return 55 + (hash(`${key}:${field}`) % 6); }
 export { ASSESSMENT_KEYS };

@@ -1,0 +1,29 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { createStudentService } from '../src/students.js';
+import { createSubjectService } from '../src/subjects.js';
+import { createAcademicResultsService } from '../src/academic-results.js';
+import { createSampleResultWorkflow } from '../src/sample-result-workflow.js';
+import { GES_ASSESSMENT_LIBRARIES } from '../src/ges-assessment-libraries.js';
+
+const actor = { id: 'sample-qa', roleKey: 'TEACHER', schoolId: 'school-osaah-daylight', assignedClassIds: ['JHS 1', 'JHS 2', 'JHS 3'], permissions: new Set(['mock.scores.write', 'mock.scores.read', 'mock.results.read', 'results.write']) };
+const context = () => { const students = createStudentService(); const subjects = createSubjectService(); const academicResults = createAcademicResultsService({ students, subjects }); const workflow = createSampleResultWorkflow({ students, subjects, academicResults }); return { students, subjects, academicResults, workflow }; };
+
+for (const classId of ['JHS 1', 'JHS 2', 'JHS 3']) test(`sample Mock uses the production engine for ${classId}`, () => {
+  const { students, subjects, academicResults, workflow } = context(); const sample = students.seedSampleStudents().find((item) => item.classId === classId); const result = workflow.generateMock({ classId, studentId: sample.id, academicYear: '2026/2027', term: 'First Term', mockLabel: '1st Mock' }, actor);
+  const active = subjects.list({ classId }, actor).filter((item) => item.active); const scores = academicResults.listScores({ studentId: sample.id, classId, academicYear: '2026/2027', term: 'First Term', mockLabel: '1st Mock' }, actor, { mock: true });
+  assert.equal(result.resultType, 'MOCK'); assert.equal(result.isSample, true); assert.equal(result.sampleLabel, 'SAMPLE DATA / DEMONSTRATION'); assert.equal(scores.length, active.length); assert.equal(result.subjectsSat, active.length); assert.ok(result.subjects.every((row) => row.placeholder || (row.grade && row.remark && row.subjectPosition)));
+  assert.equal(result.totalScore, result.subjects.filter((row) => !row.placeholder).reduce((sum, row) => sum + row.totalScore, 0)); assert.ok(Number.isFinite(result.average)); assert.ok(result.aggregate); assert.ok(result.classPosition); assert.ok(Object.values(result.assessment).every(Boolean));
+  const banks = { conduct: GES_ASSESSMENT_LIBRARIES.conduct, attitude: GES_ASSESSMENT_LIBRARIES.attitude, interest: GES_ASSESSMENT_LIBRARIES.interest, classTeacherRemarks: GES_ASSESSMENT_LIBRARIES.ctRemarks, headteacherRemarks: GES_ASSESSMENT_LIBRARIES.htRemarks };
+  for (const [key, value] of Object.entries(result.assessment)) assert.ok([...banks[key].positive, ...banks[key].negative].includes(value));
+  const reloaded = academicResults.result({ studentId: sample.id, classId, academicYear: '2026/2027', term: 'First Term', mockLabel: '1st Mock' }, actor, { mock: true }); assert.deepEqual(reloaded.subjects.map((row) => row.totalScore), result.subjects.map((row) => row.totalScore)); assert.equal(reloaded.lifecycle.status, 'SAVED'); assert.deepEqual(reloaded.assessment, result.assessment);
+});
+
+test('sample and real Mock cohorts remain isolated and sample reset is safe', () => {
+  const { students, subjects, academicResults, workflow } = context(); const sample = students.seedSampleStudents().find((item) => item.classId === 'JHS 3'); const real = students.createStudent({ firstName: 'Real', surname: 'Student', classId: 'JHS 3', admissionYearId: '2026' }); const subject = subjects.list({ classId: 'JHS 3' }, actor)[0];
+  academicResults.saveMockScore({ studentId: real.id, classId: 'JHS 3', subjectId: subject.id, academicYear: '2026/2027', term: 'First Term', mockLabel: '1st Mock', totalScore: 50 }, actor); const result = workflow.generateMock({ classId: 'JHS 3', studentId: sample.id, academicYear: '2026/2027', term: 'First Term', mockLabel: '1st Mock' }, actor); assert.equal(result.classPosition, '1st'); assert.equal(academicResults.broadsheet({ classId: 'JHS 3', academicYear: '2026/2027', term: 'First Term', mockLabel: '1st Mock' }, actor, { mock: true })[0].isSample, false); assert.throws(() => workflow.resetMock({ permanentStudentId: real.permanentStudentId, academicYear: '2026/2027', term: 'First Term', mockLabel: '1st Mock' }, actor), /sample/); const reset = workflow.resetMock({ permanentStudentId: sample.permanentStudentId, academicYear: '2026/2027', term: 'First Term', mockLabel: '1st Mock' }, actor); assert.equal(reset.isSample, true); assert.ok(reset.removed > 0); assert.equal(academicResults.listScores({ studentId: real.id, classId: 'JHS 3', academicYear: '2026/2027', term: 'First Term', mockLabel: '1st Mock' }, actor, { mock: true }).length, 1);
+});
+
+test('sample Mock workflow rejects non-JHS and existing non-sample records', () => { const { students, subjects, academicResults, workflow } = context(); const sample = students.seedSampleStudents().find((item) => item.classId === 'Primary 1'); assert.throws(() => workflow.generateMock({ classId: 'Primary 1', studentId: sample.id, academicYear: '2026/2027', term: 'First Term', mockLabel: '1st Mock' }, actor), /JHS/); const real = students.createStudent({ firstName: 'Real', surname: 'Primary', classId: 'JHS 1', admissionYearId: '2026' }); assert.throws(() => workflow.resetMock({ permanentStudentId: real.permanentStudentId, academicYear: '2026/2027', term: 'First Term' }, actor), /sample/); });
+
+ test('sample workflow exposes deterministic Mock classes and does not use communication services', () => { const { workflow } = context(); assert.deepEqual(workflow.mockClasses(), ['JHS 1', 'JHS 2', 'JHS 3']); assert.equal(typeof workflow.generateMock, 'function'); assert.equal(typeof workflow.resetMock, 'function'); assert.equal(typeof workflow.publish, 'function'); });
