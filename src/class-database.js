@@ -1,6 +1,6 @@
 import { CORE_LEVELS } from './students.js';
 
-const STAFF_ROLES = new Set(['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'ADMISSIONS_OFFICER', 'ACADEMIC_COORDINATOR', 'TEACHER']);
+const STAFF_ROLES = new Set(['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'ASSISTANT_HEADTEACHER', 'ACCOUNTANT_BURSAR', 'ADMISSIONS_OFFICER', 'ACADEMIC_COORDINATOR', 'TEACHER']);
 
 function fail(message, status = 400) { throw Object.assign(new Error(message), { status }); }
 function text(value) { return String(value ?? '').trim(); }
