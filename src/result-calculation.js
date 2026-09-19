@@ -18,7 +18,7 @@ export function calculateAggregate(rows, { classId = '', examination = 'TERMINAL
   const electives = eligible.filter((row) => !coreNames.includes(nameOf(row)) && !(level === 'JHS' && JHS_EXCLUDED.has(nameOf(row))));
   if (electives.length < 2) return { aggregate: null, aggregateSubjects: core, qualifying: false };
   const best = [...electives].sort((a, b) => numericGrade(a, classId, examination) - numericGrade(b, classId, examination)).slice(0, 2);
-  const selected = [...core, ...best]; return { aggregate: selected.reduce((sum, row) => sum + numericGrade(row, classId, examination), 0), aggregateSubjects: selected, qualifying: true };
+  const selected = [...core, ...best]; return { aggregate: selected.reduce((sum, row) => sum + numericGrade(row, classId, examination), 0), aggregateSubjects: selected, aggregateTotal: selected.reduce((sum, row) => sum + Number(row.totalScore || 0), 0), aggregateCoreGradeSum: core.reduce((sum, row) => sum + numericGrade(row, classId, examination), 0), qualifying: true };
 }
 
 export function calculateStudentResult(rows = [], options = {}) {
