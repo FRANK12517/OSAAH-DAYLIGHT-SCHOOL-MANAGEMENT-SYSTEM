@@ -30,10 +30,10 @@ export function createClassDatabaseService({ students, classes = CORE_LEVELS, pa
     }).concat(family.filter((contact) => !links.some((link) => link.parentId && link.parentId === (contact.parentId ?? contact.id))).map((contact) => ({ fullName: contact.fullName ?? contact.name ?? null, telephone: contact.telephone ?? contact.phone ?? null, primary: Boolean(contact.primary ?? contact.isPrimary) })));
   }
 
-  function row(student, actor) {
+  function row(student, actor, completionYear = null) {
     const parents = parentCandidates(student, actor);
     const parent = parents.find((item) => item.primary) ?? parents[0] ?? {};
-    return { permanentStudentId: student.permanentStudentId, studentId: student.id, studentName: fullName(student), parentGuardianName: parent.fullName ?? 'Not Registered', registeredParentPhone: parent.telephone ?? 'Not Registered', classId: student.classId, academicYear: actor.academicYear ?? null, isTestRecord: Boolean(student.isTestRecord) };
+    return { permanentStudentId: student.permanentStudentId, studentId: student.id, studentName: fullName(student), parentGuardianName: parent.fullName ?? 'Not Registered', registeredParentPhone: parent.telephone ?? 'Not Registered', classId: student.classId, academicYear: actor.academicYear ?? null, ...(completionYear ?? student.completionYear ? { completionYear: completionYear ?? student.completionYear } : {}), isTestRecord: Boolean(student.isTestRecord) };
   }
 
   function list({ classId, academicYear, search = '', includeTestRecords = false } = {}, actor) {
@@ -45,5 +45,15 @@ export function createClassDatabaseService({ students, classes = CORE_LEVELS, pa
   }
 
   function options(actor) { authorize(actor); const allowedClasses = actor.roleKey === 'TEACHER' && actor.assignedClassIds?.length ? canonicalClasses.filter((classId) => actor.assignedClassIds.includes(classId)) : canonicalClasses; return { academicYears: [actor.academicYear ?? `${new Date().getFullYear()}/${new Date().getFullYear() + 1}`], classes: allowedClasses }; }
-  return Object.freeze({ list, options, classes: () => [...canonicalClasses] });
+
+  function completedOptions(actor) { authorize(actor); const years = students.completionYears?.({ requestedSchoolId: actor.schoolId }) ?? []; return { completionYears: years }; }
+
+  function listCompleted({ completionYear, search = '', includeTestRecords = false } = {}, actor) {
+    authorize(actor);
+    if (!students.listCompleted) return [];
+    const term = normalize(search);
+    return students.listCompleted({ requestedSchoolId: actor.schoolId, completionYear, includeTestRecords }).map((student) => row(student, actor, student.completionYear)).filter((item) => !term || [item.permanentStudentId, item.studentName, item.parentGuardianName].some((value) => normalize(value).includes(term)) || phoneSearchValues(item.registeredParentPhone).some((value) => value.includes(term.replace(/\D/g, '')))).sort((a, b) => a.studentName.localeCompare(b.studentName));
+  }
+
+  return Object.freeze({ list, options, listCompleted, completedOptions, classes: () => [...canonicalClasses] });
 }
