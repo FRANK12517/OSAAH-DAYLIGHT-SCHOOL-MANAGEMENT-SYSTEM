@@ -10,7 +10,9 @@ import { createAcademicResultsService, RESULT_HEADER_ASSET } from '../src/academ
 test('academic results persist terminal and mock scores with native Osaah IDs', async () => {
   const students = createStudentService({ now: () => '2026-09-02T00:00:00.000Z' });
   const subjects = createSubjectService({ now: () => '2026-09-02T00:00:00.000Z' });
-  const signatures = createSignatureService({ now: () => '2026-09-02T00:00:00.000Z' });
+  const staff = createStaffService();
+  staff.createProfile({ fullName: 'Headteacher One', phone: '0241234569', roleKey: 'HEADTEACHER' });
+  const signatures = createSignatureService({ now: () => '2026-09-02T00:00:00.000Z', staff });
   const results = createAcademicResultsService({ students, subjects, signatures, now: () => '2026-09-02T00:00:00.000Z' });
   const manager = { id: 'head-1', roleKey: 'HEADTEACHER', schoolId: 'school-osaah-daylight', permissions: new Set(['*']) };
   const teacher = { id: 'teacher-1', roleKey: 'TEACHER', schoolId: 'school-osaah-daylight', assignedClassIds: ['Primary 1'], assignedSubjectIds: [] , permissions: new Set(['marks.write', 'mock.scores.write', 'results.read', 'mock.results.read']) };
@@ -47,9 +49,9 @@ test('result signatures resolve by assigned class, academic context, and school 
   const signatures = createSignatureService({ staff, classes });
   const results = createAcademicResultsService({ students, subjects, signatures, classes });
   const manager = { id: 'head-1', roleKey: 'HEADTEACHER', schoolId: 'school-osaah-daylight', permissions: new Set(['*']) };
-  const teacherA = staff.createProfile({ fullName: 'Teacher A', roleKey: 'TEACHER' });
-  const teacherB = staff.createProfile({ fullName: 'Teacher B', roleKey: 'TEACHER' });
-  const head = staff.createProfile({ fullName: 'Headteacher One', roleKey: 'HEADTEACHER' });
+  const teacherA = staff.createProfile({ fullName: 'Teacher A', phone: '0241234567', roleKey: 'TEACHER' });
+  const teacherB = staff.createProfile({ fullName: 'Teacher B', phone: '0241234568', roleKey: 'TEACHER' });
+  const head = staff.createProfile({ fullName: 'Headteacher One', phone: '0241234569', roleKey: 'HEADTEACHER' });
   staff.assign(teacherA.id, { classId: 'Primary 1', academicYearId: '2026/2027', termId: 'First Term' });
   staff.assign(teacherB.id, { classId: 'Primary 2', academicYearId: '2026/2027', termId: 'First Term' });
   const studentA = students.createStudent({ firstName: 'Ama', surname: 'One', classId: 'Primary 1', admissionYearId: '2026' });
