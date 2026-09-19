@@ -1,4 +1,5 @@
 import { CORE_LEVELS } from './students.js';
+import { displayStudentGender } from './student-gender.js';
 
 const STAFF_ROLES = new Set(['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'ASSISTANT_HEADTEACHER', 'ACCOUNTANT_BURSAR', 'ADMISSIONS_OFFICER', 'ACADEMIC_COORDINATOR', 'TEACHER']);
 
@@ -33,7 +34,7 @@ export function createClassDatabaseService({ students, classes = CORE_LEVELS, pa
   function row(student, actor, completionYear = null) {
     const parents = parentCandidates(student, actor);
     const parent = parents.find((item) => item.primary) ?? parents[0] ?? {};
-    return { permanentStudentId: student.permanentStudentId, studentId: student.id, studentName: fullName(student), parentGuardianName: parent.fullName ?? 'Not Registered', registeredParentPhone: parent.telephone ?? 'Not Registered', classId: student.classId, academicYear: actor.academicYear ?? null, ...(completionYear ?? student.completionYear ? { completionYear: completionYear ?? student.completionYear } : {}), isTestRecord: Boolean(student.isTestRecord) };
+    return { permanentStudentId: student.permanentStudentId, studentId: student.id, studentName: fullName(student), gender: displayStudentGender(student.gender), parentGuardianName: parent.fullName ?? 'Not Registered', registeredParentPhone: parent.telephone ?? 'Not Registered', classId: student.classId, academicYear: actor.academicYear ?? null, ...(completionYear ?? student.completionYear ? { completionYear: completionYear ?? student.completionYear } : {}), isTestRecord: Boolean(student.isTestRecord) };
   }
 
   function list({ classId, academicYear, search = '', includeTestRecords = false } = {}, actor) {
