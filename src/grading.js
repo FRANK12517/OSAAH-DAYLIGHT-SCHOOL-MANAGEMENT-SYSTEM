@@ -6,7 +6,7 @@ export const JHS_TERMINAL_SCALE = Object.freeze([
 export function gradeForTotal(total, { classId = '', examination = 'TERMINAL' } = {}) {
   const score = Number(total);
   if (!Number.isFinite(score)) return [null, 'Not recorded'];
-  if (String(classId).toUpperCase().startsWith('JHS') && String(examination).toUpperCase() === 'TERMINAL') {
+  if (String(classId).toUpperCase().startsWith('JHS') && ['TERMINAL', 'MOCK'].includes(String(examination).toUpperCase())) {
     const match = JHS_TERMINAL_SCALE.find(([minimum]) => score >= minimum);
     return [match[1], match[2]];
   }
