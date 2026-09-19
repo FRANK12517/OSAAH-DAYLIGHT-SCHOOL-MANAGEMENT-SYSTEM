@@ -13,9 +13,9 @@ const manager = { id: 'head-1', roleKey: 'HEADTEACHER', schoolId: 'school-osaah-
 test('result signatures resolve to the assigned class teacher and school headteacher only', () => {
   const students = createStudentService();
   const staff = createStaffService();
-  const teacherA = staff.createProfile({ fullName: 'Teacher A', roleKey: 'TEACHER' });
-  const teacherB = staff.createProfile({ fullName: 'Teacher B', roleKey: 'TEACHER' });
-  const head = staff.createProfile({ fullName: 'Headteacher One', roleKey: 'HEADTEACHER' });
+  const teacherA = staff.createProfile({ fullName: 'Teacher A', phone: '0241234567', roleKey: 'TEACHER' });
+  const teacherB = staff.createProfile({ fullName: 'Teacher B', phone: '0241234568', roleKey: 'TEACHER' });
+  const head = staff.createProfile({ fullName: 'Headteacher One', phone: '0241234569', roleKey: 'HEADTEACHER' });
   staff.assign(teacherA.id, { classId: 'Primary 1', academicYearId: '2026/2027', termId: 'First Term' });
   staff.assign(teacherB.id, { classId: 'Primary 2', academicYearId: '2026/2027', termId: 'First Term' });
   const student = students.createStudent({ firstName: 'Ama', surname: 'One', classId: 'Primary 1', admissionYearId: '2026' });
