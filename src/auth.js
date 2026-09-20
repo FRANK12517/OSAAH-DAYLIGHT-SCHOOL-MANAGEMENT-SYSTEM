@@ -78,7 +78,8 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
         LEFT JOIN role_permissions rp ON rp.role_id=r.id
         LEFT JOIN permissions p ON p.id=rp.permission_id
         WHERE LOWER(u.username)=? OR LOWER(COALESCE(u.email,''))=?`, [key, key]);
-    } catch {
+    } catch (error) {
+      console.error('School database authentication query failed', { code: error?.code ?? 'UNKNOWN', errno: error?.errno ?? null, sqlState: error?.sqlState ?? null });
       securityEvent('LOGIN_DATABASE_ERROR', null);
       return { ok: false, status: 503, error: 'Authentication service unavailable.' };
     }
