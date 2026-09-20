@@ -46,6 +46,9 @@ async function main() {
       ? await pool.query('SELECT ur.user_id AS userId, u.email, u.status, r.role_key AS roleKey, r.role_name AS roleName, r.school_id AS roleSchoolId, u.school_id AS userSchoolId FROM user_roles ur JOIN users u ON u.id = ur.user_id JOIN roles r ON r.id = ur.role_id ORDER BY u.email, r.role_key')
       : [[]];
     const canonicalMappings = (roleMappings[0] ?? []).map((row) => ({ userId: row.userId, email: row.email, status: row.status, roleKey: row.roleKey, roleName: row.roleName, schoolRelationship: row.roleSchoolId == null || row.roleSchoolId === row.userSchoolId ? 'VALID' : 'INVALID' }));
+    const legacyUserRoleLinks = present.has('user_roles')
+      ? (await pool.query('SELECT user_id AS userId, role_id AS roleId, created_at AS createdAt FROM user_roles ORDER BY user_id, role_id'))[0].map((row) => ({ userId: row.userId, roleId: row.roleId, createdAt: row.createdAt }))
+      : [];
 
     let accountRows = [];
     if (present.has('users')) {
@@ -77,6 +80,7 @@ async function main() {
       indexes,
       foreignKeys,
       roleValueCounts,
+      legacyUserRoleLinks,
       canonicalUserRoleMappings: canonicalMappings,
       knownStaffAccounts: accountRows.map(({ id, email, status, schoolId, role, passwordHashPresent, locked, schoolRelationship, canonicalRoleMapping }) => ({ id, email, status, schoolId, legacyRole: role, passwordHashPresent, locked, schoolRelationship, canonicalRoleMapping: canonicalRoleMapping ?? [] })),
       rowCounts
