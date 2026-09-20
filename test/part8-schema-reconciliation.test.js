@@ -7,12 +7,15 @@ const inventory = await readFile(new URL('../scripts/production-schema-inventory
 const workflow = await readFile(new URL('../.github/workflows/production-schema-inventory.yml', import.meta.url), 'utf8');
 const foundation = await readFile(new URL('../schema/001_foundation.sql', import.meta.url), 'utf8');
 
- test('Part 8 identifies the exact authentication query and canonical table contract', () => {
+test('Part 8 identifies the exact authentication query and canonical table contract', () => {
   assert.match(auth, /FROM users u/);
   assert.match(auth, /LEFT JOIN user_roles ur ON ur\.user_id=u\.id/);
   assert.match(auth, /LEFT JOIN roles r ON r\.id=ur\.role_id/);
   assert.match(auth, /LEFT JOIN role_permissions rp ON rp\.role_id=r\.id/);
   assert.match(auth, /LEFT JOIN permissions p ON p\.id=rp\.permission_id/);
+  assert.match(auth, /Table \['`\]\(\[\^'`\]\+\)\['`\] doesn't exist/);
+  assert.match(auth, /table: tableName/);
+  assert.match(auth, /split\('\.'\)\.pop\(\)/);
   for (const column of ['id', 'school_id', 'username', 'email', 'password_hash', 'status']) assert.match(auth, new RegExp(`u\\.${column === 'school_id' ? 'school_id' : column}`));
 });
 
