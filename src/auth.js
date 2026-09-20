@@ -1,3 +1,4 @@
+import bcrypt from 'bcrypt';
 import { createHmac, randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 
 const SESSION_TTL_MS = 30 * 60 * 1000;
@@ -5,7 +6,7 @@ const RESET_TTL_MS = 15 * 60 * 1000;
 const MAX_ATTEMPTS = 5;
 const LOCKOUT_MS = 15 * 60 * 1000;
 const GENERIC_LOGIN_ERROR = 'Incorrect username or password.';
-export const SCHOOL_PORTAL_ROLE_ALIASES = Object.freeze({ SCHOOL_ADMINISTRATOR: 'SCHOOL_ADMIN', ACCOUNTANT: 'ACCOUNTANT_BURSAR', CLASSROOM_TEACHER: 'TEACHER', PROPRIETOR: 'PROPRIETOR', PROPRIETRESS: 'PROPRIETOR', SCHOOL_PROPRIETOR: 'PROPRIETOR', SCHOOL_PROPRIETRESS: 'PROPRIETOR' });
+export const SCHOOL_PORTAL_ROLE_ALIASES = Object.freeze({ ADMINISTRATOR: 'SCHOOL_ADMIN', SCHOOL_ADMINISTRATOR: 'SCHOOL_ADMIN', ACCOUNTANT: 'ACCOUNTANT_BURSAR', CLASSROOM_TEACHER: 'TEACHER', PROPRIETOR: 'PROPRIETOR', PROPRIETRESS: 'PROPRIETOR', SCHOOL_PROPRIETOR: 'PROPRIETOR', SCHOOL_PROPRIETRESS: 'PROPRIETOR' });
 export const SCHOOL_PORTAL_DASHBOARDS = Object.freeze({ PROPRIETOR: '/reports', SCHOOL_ADMIN: '/settings', HEADTEACHER: '/academics', ASSISTANT_HEADTEACHER: '/academics', ACCOUNTANT_BURSAR: '/fees', TEACHER: '/academics', DEVELOPER: '/developer/communication-setup' });
 const STAFF_ASSIGNABLE_ROLES = Object.freeze({ HEADTEACHER: 'HEADTEACHER', ASSISTANT_HEADTEACHER: 'ASSISTANT_HEADTEACHER', ACCOUNTANT: 'ACCOUNTANT_BURSAR', ACCOUNTANT_BURSAR: 'ACCOUNTANT_BURSAR', CLASSROOM_TEACHER: 'TEACHER', TEACHER: 'TEACHER' });
 const ROLE_PERMISSIONS = Object.freeze({ HEADTEACHER: ['students.read', 'academics.read', 'attendance.read', 'examinations.read', 'results.read', 'results.generate', 'results.print', 'admissions.read', 'admissions.review', 'admissions.accept', 'admissions.reject', 'admissions.analytics.read', 'admission.prospectus.manage', 'subjects.read', 'subjects.manage', 'signatures.manage', 'mock.scores.read', 'mock.scores.write', 'mock.results.read', 'mock.results.generate', 'fees.read', 'finance.read', 'staff.read', 'communication.read', 'reports.read', 'sporting_activities.view', 'sporting_activities.create', 'sporting_activities.update', 'sporting_activities.delete', 'sporting_activities.manage_fixtures', 'sporting_activities.record_results', 'sporting_activities.manage_participants', 'sporting_activities.generate_reports', 'subject_register.view', 'subject_register.manage', 'subject_register.assign_teacher', 'subject_register.activate', 'subject_register.deactivate', 'subject_register.copy_register', 'shep_activities.view', 'shep_activities.create', 'shep_activities.update', 'shep_activities.manage_participants', 'shep_activities.record_screening', 'shep_activities.create_referral', 'shep_activities.manage_followup', 'shep_activities.generate_reports'], ASSISTANT_HEADTEACHER: ['students.read', 'academics.read', 'attendance.read', 'examinations.read', 'results.read', 'results.generate', 'results.print', 'admissions.read', 'admissions.review', 'admissions.accept', 'admissions.reject', 'admissions.analytics.read', 'admission.prospectus.manage', 'subjects.read', 'subjects.manage', 'signatures.manage', 'mock.scores.read', 'mock.scores.write', 'mock.results.read', 'mock.results.generate', 'fees.read', 'finance.read', 'staff.read', 'communication.read', 'sporting_activities.view', 'sporting_activities.create', 'sporting_activities.update', 'sporting_activities.delete', 'sporting_activities.manage_fixtures', 'sporting_activities.record_results', 'sporting_activities.manage_participants', 'sporting_activities.generate_reports', 'subject_register.view', 'subject_register.manage', 'subject_register.assign_teacher', 'subject_register.activate', 'subject_register.deactivate', 'subject_register.copy_register'], ACCOUNTANT_BURSAR: ['students.read', 'fees.read', 'fees.write', 'finance.read', 'fees.configure', 'fees.collect'], TEACHER: ['students.read', 'academics.read', 'attendance.read', 'attendance.write', 'examinations.read', 'marks.write', 'results.read', 'results.generate', 'results.print', 'mock.scores.read', 'mock.scores.write', 'mock.results.read', 'mock.results.generate', 'leave.read', 'leave.write', 'staff.professional-development.view', 'communication.read', 'messages.read', 'messages.write', 'sporting_activities.view', 'sporting_activities.create', 'sporting_activities.update', 'sporting_activities.manage_fixtures', 'sporting_activities.record_results', 'sporting_activities.manage_participants', 'sporting_activities.generate_reports', 'subject_register.view', 'shep_activities.view', 'shep_activities.create', 'shep_activities.update', 'shep_activities.manage_participants', 'shep_activities.record_screening', 'shep_activities.create_referral', 'shep_activities.manage_followup', 'shep_activities.generate_reports'] });
@@ -35,7 +36,7 @@ export const DEMO_USERS = [
   { id: 'user-dpo-1', username: 'dpo@osaah.edu.gh', passwordHash: passwordHash('DataProtection123!', 'dpo-salt'), portal: 'school', roleKey: 'DATA_PROTECTION_OFFICER', schoolId: 'school-osaah-daylight', permissions: new Set(['privacy.read', 'privacy.write', 'documents.read']) }
 ];
 
-export function createAuthService({ users = DEMO_USERS, now = () => Date.now(), audit = () => {}, sessionSecret = process.env.OSAAH_SESSION_SECRET } = {}) {
+export function createAuthService({ users = DEMO_USERS, database = null, now = () => Date.now(), audit = () => {}, sessionSecret = process.env.OSAAH_SESSION_SECRET } = {}) {
   users = users.map((user) => ({ ...user, permissions: new Set(user.permissions), children: user.children?.map((child) => ({ ...child })) }));
   const sessions = new Map(); const attempts = new Map(); const resetTokens = new Map();
   const administratorAssignments = [];
@@ -63,6 +64,42 @@ export function createAuthService({ users = DEMO_USERS, now = () => Date.now(), 
     if (!user || typeof password !== 'string' || !passwordMatches(password, user.passwordHash) || !isActive(user)) { const next = throttle ?? { count: 0 }; next.count += 1; if (next.count >= MAX_ATTEMPTS) next.lockedUntil = now() + LOCKOUT_MS; attempts.set(key, next); securityEvent('LOGIN_FAILED', user); return { ok: false, status: 401, error: GENERIC_LOGIN_ERROR }; }
     attempts.delete(key); const sessionId = randomUUID(); const expiresAt = now() + SESSION_TTL_MS; const session = { userId: user.id, sessionId, expiresAt }; const token = signingKey ? signSession(session) : randomBytes(32).toString('hex'); sessions.set(token, session); securityEvent('LOGIN_SUCCESS', user, sessionId); return { ok: true, token, user: sanitize(user, sessionId), redirectTo: SCHOOL_PORTAL_DASHBOARDS[canonicalRoleKey(user.roleKey)] ?? '/', expiresAt };
   }
+  async function loginFromDatabase({ username, password, portal, role }) {
+    const key = String(username ?? '').trim().toLowerCase();
+    const throttle = attempts.get(key);
+    if (throttle?.lockedUntil > now()) return { ok: false, status: 429, error: 'Too many failed attempts. Try again later.' };
+    if (portal !== 'school' || !database?.query) return login({ username, password, portal, role });
+    let rows;
+    try {
+      rows = await database.query(`SELECT u.id,u.school_id AS schoolId,u.username,u.email,u.password_hash AS passwordHash,u.status,r.role_key AS roleKey,p.permission_key AS permissionKey
+        FROM users u
+        LEFT JOIN user_roles ur ON ur.user_id=u.id
+        LEFT JOIN roles r ON r.id=ur.role_id
+        LEFT JOIN role_permissions rp ON rp.role_id=r.id
+        LEFT JOIN permissions p ON p.id=rp.permission_id
+        WHERE LOWER(u.username)=? OR LOWER(COALESCE(u.email,''))=?`, [key, key]);
+    } catch {
+      securityEvent('LOGIN_DATABASE_ERROR', null);
+      return { ok: false, status: 503, error: 'Authentication service unavailable.' };
+    }
+    const row = rows?.[0];
+    const userRows = rows?.filter((candidate) => candidate.id === row?.id) ?? [];
+    const active = row && String(row.status ?? 'ACTIVE').toUpperCase() === 'ACTIVE';
+    let passwordValid = false;
+    if (row && typeof password === 'string' && typeof row.passwordHash === 'string') {
+      try {
+        passwordValid = row.passwordHash.includes(':') ? passwordMatches(password, row.passwordHash) : await bcrypt.compare(password, row.passwordHash);
+      } catch { passwordValid = false; }
+    }
+    const roleKey = canonicalRoleKey(row?.roleKey);
+    if (row && role && roleKey !== canonicalRoleKey(role)) return { ok: false, status: 401, error: 'The selected role does not match this account.' };
+    if (!row || !active || !passwordValid || !roleKey) {
+      const next = throttle ?? { count: 0 }; next.count += 1; if (next.count >= MAX_ATTEMPTS) next.lockedUntil = now() + LOCKOUT_MS; attempts.set(key, next); securityEvent('LOGIN_FAILED', row ? { ...row, roleKey } : null); return { ok: false, status: 401, error: GENERIC_LOGIN_ERROR };
+    }
+    const user = { id: row.id, username: row.username ?? row.email, email: row.email, portal: 'school', roleKey, schoolId: row.schoolId, accountStatus: 'ACTIVE', is_active: true, permissions: new Set(userRows.map((candidate) => candidate.permissionKey).filter(Boolean)) };
+    if (!user.permissions.size) for (const permission of ROLE_PERMISSIONS[roleKey] ?? []) user.permissions.add(permission);
+    attempts.delete(key); const sessionId = randomUUID(); const expiresAt = now() + SESSION_TTL_MS; const session = { userId: user.id, sessionId, expiresAt }; const token = signingKey ? signSession(session) : randomBytes(32).toString('hex'); sessions.set(token, session); users.push(user); securityEvent('LOGIN_SUCCESS', user, sessionId); return { ok: true, token, user: sanitize(user, sessionId), redirectTo: SCHOOL_PORTAL_DASHBOARDS[roleKey] ?? '/', expiresAt };
+  }
   function authenticate(token) { const session = verifiedSession(token); if (!session || session.expiresAt <= now()) { if (token) sessions.delete(token); return null; } const user = users.find((candidate) => candidate.id === session.userId); if (!user || !isActive(user)) { sessions.delete(token); if (user) securityEvent('SESSION_REVOKED', user, session.sessionId); return null; } return { ...sanitize(user, session.sessionId), permissions: user.permissions }; }
   function logout(token) { const session = verifiedSession(token); if (session) { const user = users.find((candidate) => candidate.id === session.userId); sessions.delete(token); if (user) securityEvent('SESSION_REVOKED', user, session.sessionId); } }
   function changeAccountState(userId, active, status = active ? 'ACTIVE' : 'DISABLED') { const user = users.find((candidate) => candidate.id === userId); if (!user) return false; user.is_active = active; user.accountStatus = status; if (!active) for (const [token, session] of sessions) if (session.userId === userId) { sessions.delete(token); securityEvent(status === 'REVOKED' ? 'SESSION_REVOKED' : 'ACCOUNT_DISABLED', user, session.sessionId); } for (const assignment of administratorAssignments) if (assignment.userId === userId && !active) { assignment.status = status; assignment.removedAt ??= new Date(now()).toISOString(); } return true; }
@@ -86,7 +123,7 @@ export function createAuthService({ users = DEMO_USERS, now = () => Date.now(), 
   function resetStaffCredentials(userId, schoolId) { const user = users.find((candidate) => candidate.id === userId && candidate.schoolId === schoolId && candidate.staffId); if (!user) return null; const temporaryPassword = randomBytes(18).toString('base64url'); user.passwordHash = passwordHash(temporaryPassword); user.must_change_password = true; for (const [token, session] of sessions) if (session.userId === userId) sessions.delete(token); return { username: user.username, temporaryPassword }; }
   function requestPasswordReset(username) { const user = users.find((candidate) => candidate.username.toLowerCase() === username.trim().toLowerCase()); if (!user) return { ok: true }; const token = randomUUID(); resetTokens.set(token, { userId: user.id, expiresAt: now() + RESET_TTL_MS }); return { ok: true, token }; }
   function completePasswordReset(token, newPassword) { const reset = resetTokens.get(token); if (!reset || reset.expiresAt <= now() || typeof newPassword !== 'string' || newPassword.length < 10) return { ok: false, error: 'Invalid or expired reset request.' }; const user = users.find((candidate) => candidate.id === reset.userId); if (!user) return { ok: false, error: 'Invalid or expired reset request.' }; user.passwordHash = passwordHash(newPassword); resetTokens.delete(token); for (const [sessionToken, session] of sessions) if (session.userId === user.id) sessions.delete(sessionToken); return { ok: true }; }
-  return { login, authenticate, logout, requestPasswordReset, completePasswordReset, setAccountStatus, revokeAccount, createAdministrator, listAdministrators, getAdministrator, updateAdministrator, resetAdministratorCredentials, registerStaff, listStaff, getStaff, updateStaff, changeStaffRole, assignStaff, resetStaffCredentials, sessionTtlMs: SESSION_TTL_MS, genericLoginError: GENERIC_LOGIN_ERROR };
+  return { login, loginFromDatabase, authenticate, logout, requestPasswordReset, completePasswordReset, setAccountStatus, revokeAccount, createAdministrator, listAdministrators, getAdministrator, updateAdministrator, resetAdministratorCredentials, registerStaff, listStaff, getStaff, updateStaff, changeStaffRole, assignStaff, resetStaffCredentials, sessionTtlMs: SESSION_TTL_MS, genericLoginError: GENERIC_LOGIN_ERROR };
 }
 
 export function canAccess(user, permission) { return Boolean(user && (user.permissions.has('*') || user.permissions.has(permission))); }
