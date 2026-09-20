@@ -1,0 +1,51 @@
+name: Production schema inventory
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Exact release commit to inspect
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-schema-inventory
+  cancel-in-progress: false
+
+jobs:
+  inventory:
+    name: Read-only production schema inventory
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - name: Check out requested release
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_ref }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Confirm protected database secret is available
+        shell: bash
+        run: |
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "Protected DATABASE_URL is unavailable."
+            exit 1
+          fi
+          echo "Protected DATABASE_URL is available."
+
+      - name: Run read-only schema inventory
+        run: node scripts/production-schema-inventory.mjs
