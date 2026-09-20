@@ -1,2 +1,69 @@
-﻿<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Fee Setup | OsaaH Daylight</title><link rel="stylesheet" href="/styles.css"></head><body><main class="form-page"><a class="text-button" href="/">← Dashboard</a><p class="eyebrow">FEE HUB</p><h1>Fee Setup</h1><p id="status" class="muted">Loading published fees…</p><form id="publish" class="card"><label>Academic year<input name="academicYearId" required></label><label>Term<input name="termId" required></label><label>Fee type<input name="feeStructureId" required></label><label>Amount (GH₵)<input name="amount" inputmode="decimal" required></label><label>Target<select name="scope"><option value="ALL_STUDENTS">All students</option><option value="SPECIFIC_CLASS">Specific class</option></select></label><label>Class (when specific)<select name="classId"><option value="">Loading classes…</option></select></label><button type="submit">Publish fee</button></form><section id="fees" class="report-grid"></section></main><script>
-const status=document.querySelector('#status');const minor=v=>{const m=String(v).trim().match(/^\d+(?:\.\d{1,2})?$/);if(!m)throw Error('Enter a valid amount');const [a,b='']=m[0].split('.');return Number(a)*100+Number((b+'00').slice(0,2))};async function loadClasses(){try{const r=await fetch("/api/classes");const j=await r.json();const select=document.querySelector("select[name=classId]");select.innerHTML=(j.classes||[]).map(c=>`<option value="${c.id}">${c.name}</option>`).join("")||"<option value=\"\">No classes available</option>";}catch(e){document.querySelector("select[name=classId]").innerHTML="<option value=\"\">Classes unavailable</option>"}} async function load(){try{const r=await fetch('/api/fees/obligations');const j=await r.json();if(!r.ok)throw Error(j.error||'Unable to load fees');document.querySelector('#fees').innerHTML=(j||[]).map(x=>`<article class="card">${x.fee_structure_id||x.feeStructureId||'Published fee'} · ${x.amount_minor??x.amountMinor??''}</article>`).join('')||'<p>No published fees.</p>';status.textContent='Ready';}catch(e){status.textContent=e.message}}document.querySelector('#publish').addEventListener('submit',async e=>{e.preventDefault();const f=new FormData(e.currentTarget);try{const body={scope:f.get('scope'),feeStructureId:f.get('feeStructureId'),academicYearId:f.get('academicYearId'),termId:f.get('termId'),amountMinor:minor(f.get('amount')),classId:f.get('classId')||undefined};const r=await fetch('/api/fees/obligations/publish',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const j=await r.json();if(!r.ok)throw Error(j.error||'Publication failed');status.textContent=`Published successfully · ${j.created_count??0} created`;await load();}catch(e){status.textContent=e.message}});loadClasses();load();</script></body></html>
+﻿<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Fee Setup | OsaaH Daylight</title><link rel="stylesheet" href="/styles.css"></head>
+<body>
+<main class="form-page">
+  <a class="text-button" href="/">← Dashboard</a>
+  <p class="eyebrow">FEE HUB</p>
+  <h1>Fee Setup</h1>
+  <p id="status" class="muted" role="status" aria-live="polite">Loading Fee Setup data…</p>
+  <form id="publish" class="card" novalidate>
+    <label>Academic year<select name="academicYearId" required><option value="">Loading academic years…</option></select></label>
+    <label>Term<select name="termId" required><option value="">Loading terms…</option></select></label>
+    <label>Fee type<select name="feeStructureId" required><option value="">Loading fee types…</option></select></label>
+    <label>Amount (GH₵)<input name="amount" inputmode="decimal" autocomplete="off" required aria-describedby="amount-help"><small id="amount-help">Enter a positive amount with up to two decimal places.</small></label>
+    <label>Target<select name="scope" required><option value="SPECIFIC_CLASS">Specific Class</option><option value="WHOLE_SCHOOL">Whole School</option></select></label>
+    <label id="class-field">Class<select name="classId" required><option value="">Loading classes…</option></select></label>
+    <button type="submit">Publish fee</button>
+  </form>
+  <section id="fees" class="report-grid" aria-live="polite"></section>
+</main>
+<script>
+(() => {
+  const form = document.querySelector('#publish');
+  const status = document.querySelector('#status');
+  const classField = document.querySelector('#class-field');
+  const classSelect = form.elements.classId;
+  const setStatus = (message, error = false) => { status.textContent = message; status.dataset.state = error ? 'error' : 'ready'; };
+  const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+  const amountMinor = (value) => { const match = String(value ?? '').trim().match(/^\d+(?:\.\d{1,2})?$/); if (!match || Number(match[0]) <= 0) throw new Error('Enter a valid positive amount.'); const [whole, fraction = ''] = match[0].split('.'); const amount = Number(whole) * 100 + Number((fraction + '00').slice(0, 2)); if (!Number.isSafeInteger(amount) || amount <= 0) throw new Error('Enter a valid positive amount.'); return amount; };
+  const fill = (select, items, placeholder, label = (item) => item.name) => { select.replaceChildren(new Option(placeholder, '')); items.forEach((item) => select.add(new Option(label(item), item.id))); };
+  const syncTarget = () => { const specific = form.elements.scope.value === 'SPECIFIC_CLASS'; classField.hidden = !specific; classSelect.required = specific; if (!specific) classSelect.value = ''; };
+  async function loadOptions() {
+    const response = await fetch('/api/fee-setup/options', { credentials: 'same-origin', cache: 'no-store' });
+    let data = {}; try { data = await response.json(); } catch {}
+    if (!response.ok) throw new Error(data.error || 'Unable to load Fee Setup data. Please try again.');
+    fill(form.elements.academicYearId, data.academicYears || [], 'Select academic year', (item) => item.name);
+    fill(form.elements.termId, data.terms || [], 'Select term', (item) => item.name);
+    fill(form.elements.feeStructureId, data.feeTypes || [], 'Select fee type', (item) => item.name || item.feeType);
+    fill(classSelect, data.classes || [], 'Select class', (item) => item.name);
+    if (!data.classes?.length) classSelect.add(new Option('No classes available', ''));
+    syncTarget();
+  }
+  async function loadPublishedFees() {
+    const response = await fetch('/api/fees/obligations', { credentials: 'same-origin', cache: 'no-store' });
+    let data = {}; try { data = await response.json(); } catch {}
+    if (!response.ok) throw new Error(data.error || 'Unable to load published fees. Please try again.');
+    const rows = Array.isArray(data) ? data : (data.rows || data.obligations || []);
+    document.querySelector('#fees').innerHTML = rows.map((item) => `<article class="card"><strong>${esc(item.fee_structure_id || item.feeStructureId || 'Published fee')}</strong><span>${esc(item.amount_minor ?? item.amountMinor ?? '')}</span></article>`).join('') || '<p>No published fees.</p>';
+  }
+  form.elements.scope.addEventListener('change', syncTarget);
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    try {
+      const data = new FormData(form);
+      const scope = data.get('scope');
+      const body = { scope, feeStructureId: data.get('feeStructureId'), academicYearId: data.get('academicYearId'), termId: data.get('termId'), amountMinor: amountMinor(data.get('amount')), ...(scope === 'SPECIFIC_CLASS' ? { classId: data.get('classId') } : {}) };
+      if (!body.feeStructureId || !body.academicYearId || !body.termId || (scope === 'SPECIFIC_CLASS' && !body.classId)) throw new Error('Complete all required Fee Setup fields.');
+      const response = await fetch('/api/fees/obligations/publish', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      let result = {}; try { result = await response.json(); } catch {}
+      if (!response.ok) throw new Error(result.error || 'Unable to publish this fee. Please try again.');
+      setStatus(`Published successfully · ${result.created_count ?? 0} student obligations created.`);
+      await loadPublishedFees();
+    } catch (error) { setStatus(error.message || 'Unable to publish this fee. Please try again.', true); }
+  });
+  Promise.all([loadOptions(), loadPublishedFees()]).then(() => setStatus('Ready')).catch((error) => setStatus(error.message || 'Unable to load Fee Setup data. Please try again.', true));
+})();
+</script>
+</body>
+</html>
