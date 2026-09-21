@@ -134,7 +134,8 @@ registerNavigationGroup('FINANCE', 'finance.read', ['PROPRIETOR', 'SCHOOL_ADMIN'
   ['income', 'Income', proprietorRoute('income'), '₵'],
   ['expenses', 'Expenses', proprietorRoute('expenses'), '−'],
   ['cashbook', 'Cashbook', proprietorRoute('cashbook'), '▤'],
-  ['budgets', 'Budgets', proprietorRoute('budgets'), '▦']
+  ['budgets', 'Budgets', proprietorRoute('budgets'), '▦'],
+  ['finance-receipts', 'Receipts', proprietorRoute('finance-receipts'), '▤']
 ]);
 registerNavigationGroup('STAFF MANAGEMENT', 'staff.read', ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'HR_OFFICER'], [
   ['qualifications-licences', 'Qualifications', proprietorRoute('qualifications-licences'), '▤'],

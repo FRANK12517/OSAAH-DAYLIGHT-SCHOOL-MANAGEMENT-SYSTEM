@@ -46,7 +46,7 @@ export const PROPRIETOR_SIDEBAR_ROUTES = Object.freeze([
     ['finance-reports', 'Finance Reports', '/finance/reports'], ['fee-structure', 'Fee Structure', '/fees/structure'],
     ['fee.scholarships', 'Scholarships', '/fees/scholarships'], ['admission-fee-management', 'Admission Fee Structures', '/fees/admission-structures'],
     ['student-fees', 'Student Fees', '/fees/students'], ['income', 'Income', '/finance/income'], ['payments', 'Payments', '/fees/payments'],
-    ['expenses', 'Expenses', '/finance/expenses'], ['receipts', 'Receipts', '/fees/receipts'], ['cashbook', 'Cashbook', '/finance/cashbook'],
+    ['expenses', 'Expenses', '/finance/expenses'], ['receipts', 'Receipts', '/fees/receipts'], ['finance-receipts', 'Receipts', '/finance/receipts'], ['cashbook', 'Cashbook', '/finance/cashbook'],
     ['arrears', 'Arrears', '/fees/arrears'], ['budgets', 'Budgets', '/finance/budgets'], ['discounts', 'Discounts', '/fees/discounts'],
     ['fee-statements', 'Fee Statements', '/fees/statements']
   ]).map((item) => ({ ...item, page: '/finance-canonical.html' })),
