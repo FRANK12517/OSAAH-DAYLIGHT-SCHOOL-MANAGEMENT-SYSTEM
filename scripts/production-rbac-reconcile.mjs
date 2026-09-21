@@ -21,6 +21,16 @@ async function countRows(connection) {
   }
   return counts;
 }
+async function postApplyVerification(connection, before) {
+  const tables = await tableSet(connection);
+  for (const table of ['roles', 'permissions', 'role_permissions']) if (!tables.has(table)) throw Object.assign(new Error(`Focused reconciliation did not materialize ${table}.`), { code: 'POST_APPLY_TABLE_MISSING' });
+  const afterCounts = await countRows(connection);
+  for (const table of baselineTables) if (before.baselineCounts[table] !== null && afterCounts[table] !== before.baselineCounts[table]) throw Object.assign(new Error(`Protected row count changed unexpectedly for ${table}.`), { code: 'PROTECTED_ROW_COUNT_CHANGED' });
+  const [[roleCount]] = await connection.query("SELECT COUNT(*) AS count FROM roles WHERE role_key IN ('PROPRIETOR','SCHOOL_ADMIN','HEADTEACHER','ASSISTANT_HEADTEACHER','ACCOUNTANT_BURSAR','TEACHER')");
+  const [[permissionCount]] = await connection.query('SELECT COUNT(*) AS count FROM permissions');
+  const [[mappingCount]] = await connection.query('SELECT COUNT(*) AS count FROM user_roles ur JOIN roles r ON r.id = ur.role_id');
+  return { ...before, afterCounts, canonicalRoleCount: Number(roleCount.count), permissionCount: Number(permissionCount.count), canonicalMappingCount: Number(mappingCount.count), postApplyTables: { roles: 'EXISTS', permissions: 'EXISTS', role_permissions: 'EXISTS' }, protectedRowCountsPreserved: true };
+}
 async function preflight(connection) {
   const [[databaseRow]] = await connection.query('SELECT DATABASE() AS database_name');
   const connectedDatabase = databaseRow?.database_name ?? null;
@@ -56,8 +66,7 @@ if (!process.env.DATABASE_URL) {
       await connection.beginTransaction();
       try {
         await connection.query(migration);
-        const after = await preflight(connection);
-        for (const table of baselineTables) if (plan.baselineCounts[table] !== null && after.baselineCounts[table] !== plan.baselineCounts[table]) throw Object.assign(new Error(`Protected row count changed unexpectedly for ${table}.`), { code: 'PROTECTED_ROW_COUNT_CHANGED' });
+        const after = await postApplyVerification(connection, plan);
         await connection.commit();
         process.stdout.write(`${JSON.stringify({ ok: true, mode: 'apply', before: plan, after, preservedRowCounts: true, migrationApplied: '032_production_rbac_reconciliation.sql' })}\n`);
       } catch (error) {
