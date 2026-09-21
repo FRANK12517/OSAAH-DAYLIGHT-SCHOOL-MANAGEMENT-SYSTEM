@@ -80,8 +80,8 @@ export function createApp({ auth = null, students = createStudentService(), atte
     const [academicYears, terms, feeTypes, classes] = await Promise.all([
       database.query('SELECT id,name,starts_on AS startsOn,ends_on AS endsOn,is_current AS isCurrent FROM academic_years WHERE school_id=? ORDER BY starts_on DESC, id',[actor.schoolId]),
       database.query('SELECT t.id,t.academic_year_id AS academicYearId,t.name,t.starts_on AS startsOn,t.ends_on AS endsOn,t.is_current AS isCurrent FROM terms t JOIN academic_years y ON y.id=t.academic_year_id WHERE y.school_id=? ORDER BY t.starts_on ASC,t.id',[actor.schoolId]),
-      database.query('SELECT id,fee_type AS name,fee_type AS feeType FROM fee_structures WHERE school_id=? ORDER BY fee_type,id',[actor.schoolId]),
-      database.query("SELECT c.id,c.name,c.display_order AS displayOrder,l.name AS levelName,l.display_order AS levelOrder FROM classes c JOIN levels l ON l.id=c.level_id WHERE l.school_id=? ORDER BY l.display_order,c.display_order,c.id",[actor.schoolId])
+      database.query('SELECT id,category_name AS name,category_name AS feeType FROM fee_structures WHERE school_id=? ORDER BY category_name,id',[actor.schoolId]),
+      database.query("SELECT c.id,c.name,0 AS displayOrder,c.level AS levelName,COALESCE(l.display_order,999) AS levelOrder FROM classes c LEFT JOIN levels l ON l.school_id=c.school_id AND l.name=c.level WHERE c.school_id=? ORDER BY COALESCE(l.display_order,999),c.name,c.id",[actor.schoolId])
     ]);
     return { academicYears, terms, feeTypes: feeTypes.filter((item, index, list) => index === list.findIndex((candidate) => candidate.id === item.id)), classes: classes.map((item) => ({ ...item, name: String(item.name).replace(/^Primary /, 'Basic ').replace(/^KG([12])$/, 'KG $1') })) };
   }
