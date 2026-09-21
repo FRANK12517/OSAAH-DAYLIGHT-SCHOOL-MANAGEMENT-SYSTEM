@@ -8,6 +8,9 @@ const foundation = await readFile(new URL('../schema/001_foundation.sql', import
 const reconcile = await readFile(new URL('../scripts/production-rbac-reconcile.mjs', import.meta.url), 'utf8');
 const reconcileWorkflow = await readFile(new URL('../.github/workflows/production-rbac-reconcile.yml', import.meta.url), 'utf8');
 const focusedMigration = await readFile(new URL('../schema/032_production_rbac_reconciliation.sql', import.meta.url), 'utf8');
+const classReconcile = await readFile(new URL('../scripts/production-class-catalog-reconcile.mjs', import.meta.url), 'utf8');
+const classWorkflow = await readFile(new URL('../.github/workflows/production-class-catalog-reconcile.yml', import.meta.url), 'utf8');
+const classMigration = await readFile(new URL('../schema/033_canonical_class_catalog_reconciliation.sql', import.meta.url), 'utf8');
 
 test('Part 9 inventory inspects the exact production RBAC contract', () => {
   for (const table of ['users', 'user_roles', 'roles', 'role_permissions', 'permissions']) assert.match(script, new RegExp(`['"]${table}['"]`));
@@ -47,4 +50,14 @@ test('Part 9 focused reconciliation never recreates or mutates users/user_roles'
   assert.match(focusedMigration, /INSERT IGNORE INTO user_roles/);
   assert.match(reconcileWorkflow, /APPLY_PART9_RBAC_RECONCILIATION/);
   assert.match(reconcileWorkflow, /production-rbac-reconcile\.mjs --apply/);
+});
+
+test('Part 9 class catalog reconciliation is exact, idempotent, and scoped', () => {
+  for (const name of ['Nursery 1', 'Nursery 2', 'KG 1', 'KG 2', 'Basic 2', 'Basic 3', 'Basic 4', 'Basic 5', 'Basic 6', 'JHS 1', 'JHS 2', 'JHS 3']) assert.match(classMigration, new RegExp(name));
+  assert.match(classMigration, /INSERT IGNORE INTO classes/);
+  assert.match(classMigration, /sch_default_01/);
+  assert.doesNotMatch(classMigration, /DROP TABLE|TRUNCATE|DELETE FROM|UPDATE users|UPDATE students|INSERT INTO fee_structures/i);
+  assert.match(classReconcile, /APPLY_PART9_CLASS_CATALOG_RECONCILIATION/);
+  assert.match(classReconcile, /CANONICAL_CLASSES_MISSING/);
+  assert.match(classWorkflow, /production-class-catalog-reconcile\.mjs --apply/);
 });

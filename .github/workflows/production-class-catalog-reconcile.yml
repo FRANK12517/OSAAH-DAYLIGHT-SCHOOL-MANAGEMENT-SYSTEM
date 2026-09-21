@@ -1,0 +1,53 @@
+name: Production canonical class catalog reconciliation
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Exact tested release commit to apply
+        required: true
+        type: string
+      confirm:
+        description: Type APPLY_PART9_CLASS_CATALOG_RECONCILIATION to authorize the data mutation
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-class-catalog-reconciliation
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    name: Preflight and canonical class catalog reconciliation
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      CONFIRM_PRODUCTION_CLASS_CATALOG_RECONCILIATION: ${{ inputs.confirm }}
+    steps:
+      - name: Check out requested release
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_ref }}
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Confirm protected database secret is available
+        shell: bash
+        run: |
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "Protected DATABASE_URL is unavailable."
+            exit 1
+          fi
+      - name: Read-only preflight plan
+        run: node scripts/production-class-catalog-reconcile.mjs
+      - name: Apply confirmed class catalog reconciliation
+        run: node scripts/production-class-catalog-reconcile.mjs --apply
