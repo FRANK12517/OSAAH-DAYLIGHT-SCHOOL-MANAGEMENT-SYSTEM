@@ -1,0 +1,3009 @@
+{
+  "generatedAt": "2026-09-22T15:49:16.355Z",
+  "part": 29,
+  "baseline": {
+    "source": "Part 28 release-gate report supplied with the implementation specification",
+    "historicalStatus": "BLOCKED",
+    "historicalRecords": 127,
+    "historicalComponentTargetBlockers": 31,
+    "historicalDuplicateRouteBlockers": 50
+  },
+  "current": {
+    "roles": [
+      "ACCOUNTANT_BURSAR",
+      "HEADTEACHER",
+      "ASSISTANT_HEADTEACHER",
+      "TEACHER"
+    ],
+    "roleDestinationRecords": 211,
+    "componentTargetPasses": 211,
+    "missingComponentTargetBlockers": 0,
+    "sharedRouteContracts": 0,
+    "duplicateRouteBlockers": 0,
+    "status": "PASS"
+  },
+  "classifications": {
+    "missingComponentTarget": [],
+    "sharedRoutes": []
+  },
+  "records": [
+    {
+      "navigationKey": "user-guide",
+      "role": "ACCOUNTANT_BURSAR",
+      "parent": null,
+      "child": "User Guide",
+      "oldRoute": "/user-guide",
+      "existingImplementationFound": true,
+      "newRoute": "/user-guide",
+      "exactView": "user-guide",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "official-documents",
+      "role": "ACCOUNTANT_BURSAR",
+      "parent": null,
+      "child": "Official Documents",
+      "oldRoute": "/official-documents",
+      "existingImplementationFound": true,
+      "newRoute": "/official-documents",
+      "exactView": "official-documents",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "class-database",
+      "role": "ACCOUNTANT_BURSAR",
+      "parent": null,
+      "child": "Class Database",
+      "oldRoute": "/class-database.html",
+      "existingImplementationFound": true,
+      "newRoute": "/class-database.html",
+      "exactView": "class-database",
+      "component": "/class-database.html",
+      "apiDependencies": [
+        "/api/class-database/options",
+        "/api/class-database"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "completed-class-database",
+      "role": "ACCOUNTANT_BURSAR",
+      "parent": null,
+      "child": "Completed Class Database / Archives",
+      "oldRoute": "/completed-class-database.html",
+      "existingImplementationFound": true,
+      "newRoute": "/completed-class-database.html",
+      "exactView": "completed-class-database",
+      "component": "/completed-class-database.html",
+      "apiDependencies": [
+        "/api/class-database/completed/options",
+        "/api/class-database/completed"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "fees",
+      "role": "ACCOUNTANT_BURSAR",
+      "parent": null,
+      "child": "Fees",
+      "oldRoute": "/fees",
+      "existingImplementationFound": true,
+      "newRoute": "/fees",
+      "exactView": "fees-overview",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [
+        "/api/fees/obligations",
+        "/api/reports/financial"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "extra-classes",
+      "role": "ACCOUNTANT_BURSAR",
+      "parent": "fees",
+      "child": "Extra Classes",
+      "oldRoute": "/fees/collections/extra-classes",
+      "existingImplementationFound": true,
+      "newRoute": "/fees/collections/extra-classes",
+      "exactView": "extra-classes",
+      "component": "/collections.html",
+      "apiDependencies": [
+        "/api/fees/obligations",
+        "/api/reports/financial"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "canteen",
+      "role": "ACCOUNTANT_BURSAR",
+      "parent": "fees",
+      "child": "Canteen",
+      "oldRoute": "/fees/collections/canteen",
+      "existingImplementationFound": true,
+      "newRoute": "/fees/collections/canteen",
+      "exactView": "canteen",
+      "component": "/canteen.html",
+      "apiDependencies": [
+        "/api/fees/obligations",
+        "/api/reports/financial"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "invoices",
+      "role": "ACCOUNTANT_BURSAR",
+      "parent": null,
+      "child": "Invoices & Receipts",
+      "oldRoute": "/fees/invoices",
+      "existingImplementationFound": true,
+      "newRoute": "/fees/invoices",
+      "exactView": "invoices-receipts",
+      "component": "/finance-canonical.html",
+      "apiDependencies": [
+        "/api/fees/obligations",
+        "/api/reports/financial"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "fee-structure",
+      "role": "ACCOUNTANT_BURSAR",
+      "parent": null,
+      "child": "Fee Structure",
+      "oldRoute": "/fees/structure",
+      "existingImplementationFound": true,
+      "newRoute": "/fees/structure",
+      "exactView": "fee-structure",
+      "component": "/finance-canonical.html",
+      "apiDependencies": [
+        "/api/fees/obligations",
+        "/api/reports/financial"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "fee.scholarships",
+      "role": "ACCOUNTANT_BURSAR",
+      "parent": "fee-structure",
+      "child": "Scholarships",
+      "oldRoute": "/fees/scholarships",
+      "existingImplementationFound": true,
+      "newRoute": "/fees/scholarships",
+      "exactView": "fee.scholarships",
+      "component": "/finance-canonical.html",
+      "apiDependencies": [
+        "/api/fees/obligations",
+        "/api/reports/financial"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "admission-fee-management",
+      "role": "ACCOUNTANT_BURSAR",
+      "parent": null,
+      "child": "Admission Fee Structures",
+      "oldRoute": "/fees/admission-structures",
+      "existingImplementationFound": true,
+      "newRoute": "/fees/admission-structures",
+      "exactView": "admission-fee-structures",
+      "component": "/finance-canonical.html",
+      "apiDependencies": [
+        "/api/fees/obligations",
+        "/api/reports/financial"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "fee-setup",
+      "role": "ACCOUNTANT_BURSAR",
+      "parent": null,
+      "child": "Fee Setup",
+      "oldRoute": "/fees/setup",
+      "existingImplementationFound": true,
+      "newRoute": "/fees/setup",
+      "exactView": "fee-setup",
+      "component": "/fee-setup.html",
+      "apiDependencies": [
+        "/api/fees/obligations",
+        "/api/reports/financial"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "collection-reports",
+      "role": "ACCOUNTANT_BURSAR",
+      "parent": null,
+      "child": "Collection Reports",
+      "oldRoute": "/fees/collections/reports",
+      "existingImplementationFound": true,
+      "newRoute": "/fees/collections/reports",
+      "exactView": "collection-reports",
+      "component": "/collection-reports.html",
+      "apiDependencies": [
+        "/api/fees/obligations",
+        "/api/reports/financial"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "student-fees",
+      "role": "ACCOUNTANT_BURSAR",
+      "parent": null,
+      "child": "Student Fees",
+      "oldRoute": "/fees/students",
+      "existingImplementationFound": true,
+      "newRoute": "/fees/students",
+      "exactView": "student-fees",
+      "component": "/finance-canonical.html",
+      "apiDependencies": [
+        "/api/fees/obligations",
+        "/api/reports/financial"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "payments",
+      "role": "ACCOUNTANT_BURSAR",
+      "parent": null,
+      "child": "Payments",
+      "oldRoute": "/fees/payments",
+      "existingImplementationFound": true,
+      "newRoute": "/fees/payments",
+      "exactView": "payments",
+      "component": "/finance-canonical.html",
+      "apiDependencies": [
+        "/api/fees/obligations",
+        "/api/reports/financial"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "receipts",
+      "role": "ACCOUNTANT_BURSAR",
+      "parent": null,
+      "child": "Receipts",
+      "oldRoute": "/fees/receipts",
+      "existingImplementationFound": true,
+      "newRoute": "/fees/receipts",
+      "exactView": "fee-receipts",
+      "component": "/finance-canonical.html",
+      "apiDependencies": [
+        "/api/fees/obligations",
+        "/api/reports/financial"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "arrears",
+      "role": "ACCOUNTANT_BURSAR",
+      "parent": null,
+      "child": "Arrears",
+      "oldRoute": "/fees/arrears",
+      "existingImplementationFound": true,
+      "newRoute": "/fees/arrears",
+      "exactView": "arrears",
+      "component": "/finance-canonical.html",
+      "apiDependencies": [
+        "/api/fees/obligations",
+        "/api/reports/financial"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "discounts",
+      "role": "ACCOUNTANT_BURSAR",
+      "parent": null,
+      "child": "Discounts",
+      "oldRoute": "/fees/discounts",
+      "existingImplementationFound": true,
+      "newRoute": "/fees/discounts",
+      "exactView": "discounts",
+      "component": "/finance-canonical.html",
+      "apiDependencies": [
+        "/api/fees/obligations",
+        "/api/reports/financial"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "fee-statements",
+      "role": "ACCOUNTANT_BURSAR",
+      "parent": null,
+      "child": "Fee Statements",
+      "oldRoute": "/fees/statements",
+      "existingImplementationFound": true,
+      "newRoute": "/fees/statements",
+      "exactView": "fee-statements",
+      "component": "/finance-canonical.html",
+      "apiDependencies": [
+        "/api/fees/obligations",
+        "/api/reports/financial"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "finance",
+      "role": "ACCOUNTANT_BURSAR",
+      "parent": null,
+      "child": "Finance",
+      "oldRoute": "/finance",
+      "existingImplementationFound": true,
+      "newRoute": "/finance",
+      "exactView": "finance-overview",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [
+        "/api/fees/obligations",
+        "/api/reports/financial"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "finance-reports",
+      "role": "ACCOUNTANT_BURSAR",
+      "parent": null,
+      "child": "Finance Reports",
+      "oldRoute": "/finance/reports",
+      "existingImplementationFound": true,
+      "newRoute": "/finance/reports",
+      "exactView": "finance-reports",
+      "component": "/finance-canonical.html",
+      "apiDependencies": [
+        "/api/fees/obligations",
+        "/api/reports/financial"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "income",
+      "role": "ACCOUNTANT_BURSAR",
+      "parent": null,
+      "child": "Income",
+      "oldRoute": "/finance/income",
+      "existingImplementationFound": true,
+      "newRoute": "/finance/income",
+      "exactView": "income",
+      "component": "/finance-canonical.html",
+      "apiDependencies": [
+        "/api/fees/obligations",
+        "/api/reports/financial"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "expenses",
+      "role": "ACCOUNTANT_BURSAR",
+      "parent": null,
+      "child": "Expenses",
+      "oldRoute": "/finance/expenses",
+      "existingImplementationFound": true,
+      "newRoute": "/finance/expenses",
+      "exactView": "expenses",
+      "component": "/finance-canonical.html",
+      "apiDependencies": [
+        "/api/fees/obligations",
+        "/api/reports/financial"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "cashbook",
+      "role": "ACCOUNTANT_BURSAR",
+      "parent": null,
+      "child": "Cashbook",
+      "oldRoute": "/finance/cashbook",
+      "existingImplementationFound": true,
+      "newRoute": "/finance/cashbook",
+      "exactView": "cashbook",
+      "component": "/finance-canonical.html",
+      "apiDependencies": [
+        "/api/fees/obligations",
+        "/api/reports/financial"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "budgets",
+      "role": "ACCOUNTANT_BURSAR",
+      "parent": null,
+      "child": "Budgets",
+      "oldRoute": "/finance/budgets",
+      "existingImplementationFound": true,
+      "newRoute": "/finance/budgets",
+      "exactView": "budgets",
+      "component": "/finance-canonical.html",
+      "apiDependencies": [
+        "/api/fees/obligations",
+        "/api/reports/financial"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "finance-receipts",
+      "role": "ACCOUNTANT_BURSAR",
+      "parent": null,
+      "child": "Receipts",
+      "oldRoute": "/finance/receipts",
+      "existingImplementationFound": true,
+      "newRoute": "/finance/receipts",
+      "exactView": "finance-receipts",
+      "component": "/finance-canonical.html",
+      "apiDependencies": [
+        "/api/fees/obligations",
+        "/api/reports/financial"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "reports",
+      "role": "ACCOUNTANT_BURSAR",
+      "parent": null,
+      "child": "Reports & Analytics",
+      "oldRoute": "/reports",
+      "existingImplementationFound": true,
+      "newRoute": "/reports",
+      "exactView": "reports-overview",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [
+        "/api/reports/academic"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "academic-reports",
+      "role": "ACCOUNTANT_BURSAR",
+      "parent": null,
+      "child": "Academic Reports",
+      "oldRoute": "/reports/academic",
+      "existingImplementationFound": true,
+      "newRoute": "/reports/academic",
+      "exactView": "academic-reports",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [
+        "/api/reports/academic"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "attendance-reports-management",
+      "role": "ACCOUNTANT_BURSAR",
+      "parent": null,
+      "child": "Attendance Reports",
+      "oldRoute": "/reports/attendance",
+      "existingImplementationFound": true,
+      "newRoute": "/reports/attendance",
+      "exactView": "attendance-reports",
+      "component": "/reports-academic.html",
+      "apiDependencies": [
+        "/api/reports/academic"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "financial-reports",
+      "role": "ACCOUNTANT_BURSAR",
+      "parent": null,
+      "child": "Financial Reports",
+      "oldRoute": "/reports/financial",
+      "existingImplementationFound": true,
+      "newRoute": "/reports/financial",
+      "exactView": "financial-reports",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [
+        "/api/reports/academic"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "enrollment-reports",
+      "role": "ACCOUNTANT_BURSAR",
+      "parent": null,
+      "child": "Enrollment Reports",
+      "oldRoute": "/reports/enrollment",
+      "existingImplementationFound": true,
+      "newRoute": "/reports/enrollment",
+      "exactView": "enrollment-reports",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [
+        "/api/reports/academic"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "staff-reports",
+      "role": "ACCOUNTANT_BURSAR",
+      "parent": null,
+      "child": "Staff Reports",
+      "oldRoute": "/reports/staff",
+      "existingImplementationFound": true,
+      "newRoute": "/reports/staff",
+      "exactView": "staff-reports",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [
+        "/api/reports/academic"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "operational-reports",
+      "role": "ACCOUNTANT_BURSAR",
+      "parent": null,
+      "child": "Operational Reports",
+      "oldRoute": "/reports/operations",
+      "existingImplementationFound": true,
+      "newRoute": "/reports/operations",
+      "exactView": "operational-reports",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [
+        "/api/reports/academic"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "management-dashboard",
+      "role": "ACCOUNTANT_BURSAR",
+      "parent": null,
+      "child": "Management Dashboard",
+      "oldRoute": "/reports/management",
+      "existingImplementationFound": true,
+      "newRoute": "/reports/management",
+      "exactView": "management-dashboard",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [
+        "/api/reports/academic"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "about-developer",
+      "role": "ACCOUNTANT_BURSAR",
+      "parent": null,
+      "child": "About the Developer",
+      "oldRoute": "/about-developer",
+      "existingImplementationFound": true,
+      "newRoute": "/about-developer",
+      "exactView": "about-developer",
+      "component": "/about-developer.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "copyright",
+      "role": "ACCOUNTANT_BURSAR",
+      "parent": null,
+      "child": "Copyright",
+      "oldRoute": "/copyright",
+      "existingImplementationFound": true,
+      "newRoute": "/copyright",
+      "exactView": "copyright",
+      "component": "/copyright.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "dashboard",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Dashboard Overview",
+      "oldRoute": "/",
+      "existingImplementationFound": true,
+      "newRoute": "/",
+      "exactView": "dashboard",
+      "component": "/index.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "user-guide",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "User Guide",
+      "oldRoute": "/user-guide",
+      "existingImplementationFound": true,
+      "newRoute": "/user-guide",
+      "exactView": "user-guide",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "official-documents",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Official Documents",
+      "oldRoute": "/official-documents",
+      "existingImplementationFound": true,
+      "newRoute": "/official-documents",
+      "exactView": "official-documents",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "signature-management",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Result Signatures",
+      "oldRoute": "/settings/result-signatures",
+      "existingImplementationFound": true,
+      "newRoute": "/settings/result-signatures",
+      "exactView": "signature-management",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "school-profile",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "School Profile",
+      "oldRoute": "/settings/profile",
+      "existingImplementationFound": true,
+      "newRoute": "/settings/profile",
+      "exactView": "school-profile",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "academic-calendar",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Academic Calendar",
+      "oldRoute": "/communication/calendar",
+      "existingImplementationFound": true,
+      "newRoute": "/communication/calendar",
+      "exactView": "academic-calendar",
+      "component": "/communication.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "student-profiles",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Student Profiles",
+      "oldRoute": "/students",
+      "existingImplementationFound": true,
+      "newRoute": "/students",
+      "exactView": "student-profiles",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [
+        "/api/students"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "class-database",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Class Database",
+      "oldRoute": "/class-database.html",
+      "existingImplementationFound": true,
+      "newRoute": "/class-database.html",
+      "exactView": "class-database",
+      "component": "/class-database.html",
+      "apiDependencies": [
+        "/api/class-database/options",
+        "/api/class-database"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "student-search",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Student Search",
+      "oldRoute": "/students/search",
+      "existingImplementationFound": true,
+      "newRoute": "/students/search",
+      "exactView": "student-search",
+      "component": "/student-canonical.html",
+      "apiDependencies": [
+        "/api/students"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "completed-class-database",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Completed Class Database / Archives",
+      "oldRoute": "/completed-class-database.html",
+      "existingImplementationFound": true,
+      "newRoute": "/completed-class-database.html",
+      "exactView": "completed-class-database",
+      "component": "/completed-class-database.html",
+      "apiDependencies": [
+        "/api/class-database/completed/options",
+        "/api/class-database/completed"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "student-directory",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Student Directory",
+      "oldRoute": "/students/directory",
+      "existingImplementationFound": true,
+      "newRoute": "/students/directory",
+      "exactView": "student-directory",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [
+        "/api/students"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "student-ids",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Student IDs",
+      "oldRoute": "/students/ids",
+      "existingImplementationFound": true,
+      "newRoute": "/students/ids",
+      "exactView": "student-ids",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [
+        "/api/students"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "student-transfers",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Transfers",
+      "oldRoute": "/students/transfers",
+      "existingImplementationFound": true,
+      "newRoute": "/students/transfers",
+      "exactView": "student-transfers",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [
+        "/api/students"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "student-alumni",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Alumni",
+      "oldRoute": "/students/alumni",
+      "existingImplementationFound": true,
+      "newRoute": "/students/alumni",
+      "exactView": "student-alumni",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [
+        "/api/students"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "admission-prospectus",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Admission Prospectus Management",
+      "oldRoute": "/admissions/prospectus",
+      "existingImplementationFound": true,
+      "newRoute": "/admissions/prospectus",
+      "exactView": "admission-prospectus",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "academics",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Academics",
+      "oldRoute": "/academics",
+      "existingImplementationFound": true,
+      "newRoute": "/academics",
+      "exactView": "academics-overview",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "sporting-activities",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Sporting Activities",
+      "oldRoute": "/sporting-activities",
+      "existingImplementationFound": true,
+      "newRoute": "/sporting-activities",
+      "exactView": "sporting-activities",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "subject-management",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Subject Management",
+      "oldRoute": "/academics/subjects",
+      "existingImplementationFound": true,
+      "newRoute": "/academics/subjects",
+      "exactView": "subject-management",
+      "component": "/subjects.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "subject-register",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Subject Register",
+      "oldRoute": "/academics/subject-register",
+      "existingImplementationFound": true,
+      "newRoute": "/academics/subject-register",
+      "exactView": "subject-register",
+      "component": "/subject-register.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "academic-years",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Academic Years",
+      "oldRoute": "/academics/years",
+      "existingImplementationFound": true,
+      "newRoute": "/academics/years",
+      "exactView": "academic-years",
+      "component": "/academic-modules.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "academic-terms",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Terms",
+      "oldRoute": "/academics/terms",
+      "existingImplementationFound": true,
+      "newRoute": "/academics/terms",
+      "exactView": "academic-terms",
+      "component": "/academic-modules.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "academic-classes",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Classes",
+      "oldRoute": "/academics/classes",
+      "existingImplementationFound": true,
+      "newRoute": "/academics/classes",
+      "exactView": "academic-classes",
+      "component": "/academic-modules.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "academic-subjects",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Subjects",
+      "oldRoute": "/academics/subjects/list",
+      "existingImplementationFound": true,
+      "newRoute": "/academics/subjects/list",
+      "exactView": "academic-subjects",
+      "component": "/subjects.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "teacher-assignments",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Teacher Assignments",
+      "oldRoute": "/academics/teacher-assignments",
+      "existingImplementationFound": true,
+      "newRoute": "/academics/teacher-assignments",
+      "exactView": "teacher-assignments",
+      "component": "/academic-modules.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "curriculum",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Curriculum",
+      "oldRoute": "/academics/curriculum",
+      "existingImplementationFound": true,
+      "newRoute": "/academics/curriculum",
+      "exactView": "curriculum",
+      "component": "/academic-modules.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "lesson-plans",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Lesson Plans",
+      "oldRoute": "/academics/lesson-plans",
+      "existingImplementationFound": true,
+      "newRoute": "/academics/lesson-plans",
+      "exactView": "lesson-plans",
+      "component": "/academic-modules.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "academic-assignments",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Assignments",
+      "oldRoute": "/academics/assignments",
+      "existingImplementationFound": true,
+      "newRoute": "/academics/assignments",
+      "exactView": "academic-assignments",
+      "component": "/academic-modules.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "timetable",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Timetable",
+      "oldRoute": "/academics/timetable",
+      "existingImplementationFound": true,
+      "newRoute": "/academics/timetable",
+      "exactView": "academic-timetable",
+      "component": "/academic-modules.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "attendance-dashboard",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Attendance Dashboard",
+      "oldRoute": "/attendance",
+      "existingImplementationFound": true,
+      "newRoute": "/attendance",
+      "exactView": "attendance-overview",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [
+        "/api/attendance/students"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "student-attendance",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Student Attendance",
+      "oldRoute": "/attendance/students",
+      "existingImplementationFound": true,
+      "newRoute": "/attendance/students",
+      "exactView": "student-attendance-register",
+      "component": "/attendance.html",
+      "apiDependencies": [
+        "/api/attendance/students"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "staff-attendance",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Staff Attendance",
+      "oldRoute": "/attendance/staff",
+      "existingImplementationFound": true,
+      "newRoute": "/attendance/staff",
+      "exactView": "staff-attendance-register",
+      "component": "/staff-attendance.html",
+      "apiDependencies": [
+        "/api/attendance/students"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "attendance-reports",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Attendance Reports",
+      "oldRoute": "/attendance/reports",
+      "existingImplementationFound": true,
+      "newRoute": "/attendance/reports",
+      "exactView": "attendance-reporting",
+      "component": "/reports-academic.html",
+      "apiDependencies": [
+        "/api/attendance/students"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "attendance-alerts",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Attendance Alerts",
+      "oldRoute": "/attendance/alerts",
+      "existingImplementationFound": true,
+      "newRoute": "/attendance/alerts",
+      "exactView": "attendance-alerts",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [
+        "/api/attendance/students"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "examinations",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Examinations",
+      "oldRoute": "/examinations",
+      "existingImplementationFound": true,
+      "newRoute": "/examinations",
+      "exactView": "examinations",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "results",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Results & Reports",
+      "oldRoute": "/results",
+      "existingImplementationFound": true,
+      "newRoute": "/results",
+      "exactView": "results",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "promotion",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Promotion",
+      "oldRoute": "/promotion",
+      "existingImplementationFound": true,
+      "newRoute": "/promotion",
+      "exactView": "promotion",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "mock-score-entry",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Mock Score Entry",
+      "oldRoute": "/examinations/mock",
+      "existingImplementationFound": true,
+      "newRoute": "/examinations/mock",
+      "exactView": "mock-score-entry",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "mock-results",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Mock Results",
+      "oldRoute": "/results/mock",
+      "existingImplementationFound": true,
+      "newRoute": "/results/mock",
+      "exactView": "mock-results",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "exam-timetable",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Exam Timetable",
+      "oldRoute": "/examinations/timetable",
+      "existingImplementationFound": true,
+      "newRoute": "/examinations/timetable",
+      "exactView": "exam-timetable",
+      "component": "/exam-timetable.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "broadsheets",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Broadsheets",
+      "oldRoute": "/results/broadsheets",
+      "existingImplementationFound": true,
+      "newRoute": "/results/broadsheets",
+      "exactView": "broadsheets",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "report-cards",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Report Cards",
+      "oldRoute": "/results/report-cards",
+      "existingImplementationFound": true,
+      "newRoute": "/results/report-cards",
+      "exactView": "report-cards",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "promotion-results",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Promotion Results",
+      "oldRoute": "/results/promotions",
+      "existingImplementationFound": true,
+      "newRoute": "/results/promotions",
+      "exactView": "promotion-results",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "fee-structure",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Fee Structure",
+      "oldRoute": "/fees/structure",
+      "existingImplementationFound": true,
+      "newRoute": "/fees/structure",
+      "exactView": "fee-structure",
+      "component": "/finance-canonical.html",
+      "apiDependencies": [
+        "/api/fees/obligations",
+        "/api/reports/financial"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "fee.scholarships",
+      "role": "HEADTEACHER",
+      "parent": "fee-structure",
+      "child": "Scholarships",
+      "oldRoute": "/fees/scholarships",
+      "existingImplementationFound": true,
+      "newRoute": "/fees/scholarships",
+      "exactView": "fee.scholarships",
+      "component": "/finance-canonical.html",
+      "apiDependencies": [
+        "/api/fees/obligations",
+        "/api/reports/financial"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "admission-fee-management",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Admission Fee Structures",
+      "oldRoute": "/fees/admission-structures",
+      "existingImplementationFound": true,
+      "newRoute": "/fees/admission-structures",
+      "exactView": "admission-fee-structures",
+      "component": "/finance-canonical.html",
+      "apiDependencies": [
+        "/api/fees/obligations",
+        "/api/reports/financial"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "collection-reports",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Collection Reports",
+      "oldRoute": "/fees/collections/reports",
+      "existingImplementationFound": true,
+      "newRoute": "/fees/collections/reports",
+      "exactView": "collection-reports",
+      "component": "/collection-reports.html",
+      "apiDependencies": [
+        "/api/fees/obligations",
+        "/api/reports/financial"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "student-fees",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Student Fees",
+      "oldRoute": "/fees/students",
+      "existingImplementationFound": true,
+      "newRoute": "/fees/students",
+      "exactView": "student-fees",
+      "component": "/finance-canonical.html",
+      "apiDependencies": [
+        "/api/fees/obligations",
+        "/api/reports/financial"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "payments",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Payments",
+      "oldRoute": "/fees/payments",
+      "existingImplementationFound": true,
+      "newRoute": "/fees/payments",
+      "exactView": "payments",
+      "component": "/finance-canonical.html",
+      "apiDependencies": [
+        "/api/fees/obligations",
+        "/api/reports/financial"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "receipts",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Receipts",
+      "oldRoute": "/fees/receipts",
+      "existingImplementationFound": true,
+      "newRoute": "/fees/receipts",
+      "exactView": "fee-receipts",
+      "component": "/finance-canonical.html",
+      "apiDependencies": [
+        "/api/fees/obligations",
+        "/api/reports/financial"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "arrears",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Arrears",
+      "oldRoute": "/fees/arrears",
+      "existingImplementationFound": true,
+      "newRoute": "/fees/arrears",
+      "exactView": "arrears",
+      "component": "/finance-canonical.html",
+      "apiDependencies": [
+        "/api/fees/obligations",
+        "/api/reports/financial"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "discounts",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Discounts",
+      "oldRoute": "/fees/discounts",
+      "existingImplementationFound": true,
+      "newRoute": "/fees/discounts",
+      "exactView": "discounts",
+      "component": "/finance-canonical.html",
+      "apiDependencies": [
+        "/api/fees/obligations",
+        "/api/reports/financial"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "fee-statements",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Fee Statements",
+      "oldRoute": "/fees/statements",
+      "existingImplementationFound": true,
+      "newRoute": "/fees/statements",
+      "exactView": "fee-statements",
+      "component": "/finance-canonical.html",
+      "apiDependencies": [
+        "/api/fees/obligations",
+        "/api/reports/financial"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "finance-reports",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Finance Reports",
+      "oldRoute": "/finance/reports",
+      "existingImplementationFound": true,
+      "newRoute": "/finance/reports",
+      "exactView": "finance-reports",
+      "component": "/finance-canonical.html",
+      "apiDependencies": [
+        "/api/fees/obligations",
+        "/api/reports/financial"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "income",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Income",
+      "oldRoute": "/finance/income",
+      "existingImplementationFound": true,
+      "newRoute": "/finance/income",
+      "exactView": "income",
+      "component": "/finance-canonical.html",
+      "apiDependencies": [
+        "/api/fees/obligations",
+        "/api/reports/financial"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "expenses",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Expenses",
+      "oldRoute": "/finance/expenses",
+      "existingImplementationFound": true,
+      "newRoute": "/finance/expenses",
+      "exactView": "expenses",
+      "component": "/finance-canonical.html",
+      "apiDependencies": [
+        "/api/fees/obligations",
+        "/api/reports/financial"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "cashbook",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Cashbook",
+      "oldRoute": "/finance/cashbook",
+      "existingImplementationFound": true,
+      "newRoute": "/finance/cashbook",
+      "exactView": "cashbook",
+      "component": "/finance-canonical.html",
+      "apiDependencies": [
+        "/api/fees/obligations",
+        "/api/reports/financial"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "budgets",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Budgets",
+      "oldRoute": "/finance/budgets",
+      "existingImplementationFound": true,
+      "newRoute": "/finance/budgets",
+      "exactView": "budgets",
+      "component": "/finance-canonical.html",
+      "apiDependencies": [
+        "/api/fees/obligations",
+        "/api/reports/financial"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "finance-receipts",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Receipts",
+      "oldRoute": "/finance/receipts",
+      "existingImplementationFound": true,
+      "newRoute": "/finance/receipts",
+      "exactView": "finance-receipts",
+      "component": "/finance-canonical.html",
+      "apiDependencies": [
+        "/api/fees/obligations",
+        "/api/reports/financial"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "staff-directory",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Staff Directory",
+      "oldRoute": "/staff",
+      "existingImplementationFound": true,
+      "newRoute": "/staff",
+      "exactView": "staff-directory",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [
+        "/api/attendance/staff"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "teachers",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Teachers",
+      "oldRoute": "/staff/teachers",
+      "existingImplementationFound": true,
+      "newRoute": "/staff/teachers",
+      "exactView": "teachers-register",
+      "component": "/staff-canonical.html",
+      "apiDependencies": [
+        "/api/attendance/staff"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "staff-attendance-hr",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Staff Attendance",
+      "oldRoute": "/staff/attendance",
+      "existingImplementationFound": true,
+      "newRoute": "/staff/attendance",
+      "exactView": "staff-attendance-register",
+      "component": "/staff-attendance.html",
+      "apiDependencies": [
+        "/api/attendance/students"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "performance",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Performance",
+      "oldRoute": "/staff/performance",
+      "existingImplementationFound": true,
+      "newRoute": "/staff/performance",
+      "exactView": "staff-performance",
+      "component": "/staff-canonical.html",
+      "apiDependencies": [
+        "/api/attendance/staff"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "staff.professional-development",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Professional Development",
+      "oldRoute": "/staff/professional-development",
+      "existingImplementationFound": true,
+      "newRoute": "/staff/professional-development",
+      "exactView": "professional-development",
+      "component": "/staff-canonical.html",
+      "apiDependencies": [
+        "/api/attendance/staff"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "qualifications-licences",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Qualifications",
+      "oldRoute": "/staff/qualifications",
+      "existingImplementationFound": true,
+      "newRoute": "/staff/qualifications",
+      "exactView": "qualifications",
+      "component": "/staff-canonical.html",
+      "apiDependencies": [
+        "/api/attendance/staff"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "ntc-records",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "NTC Records",
+      "oldRoute": "/staff/ntc-records",
+      "existingImplementationFound": true,
+      "newRoute": "/staff/ntc-records",
+      "exactView": "ntc-records",
+      "component": "/staff-canonical.html",
+      "apiDependencies": [
+        "/api/attendance/staff"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "appraisals",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Appraisal",
+      "oldRoute": "/staff/appraisal",
+      "existingImplementationFound": true,
+      "newRoute": "/staff/appraisal",
+      "exactView": "staff-appraisal",
+      "component": "/staff-canonical.html",
+      "apiDependencies": [
+        "/api/attendance/staff"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "hr-documents",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "HR Documents",
+      "oldRoute": "/staff/documents",
+      "existingImplementationFound": true,
+      "newRoute": "/staff/documents",
+      "exactView": "hr-documents",
+      "component": "/staff-canonical.html",
+      "apiDependencies": [
+        "/api/attendance/staff"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "announcements",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Announcements",
+      "oldRoute": "/communication",
+      "existingImplementationFound": true,
+      "newRoute": "/communication",
+      "exactView": "announcements",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "messages",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Messages",
+      "oldRoute": "/communication/messages",
+      "existingImplementationFound": true,
+      "newRoute": "/communication/messages",
+      "exactView": "messages",
+      "component": "/communication.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "calendar",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "School Calendar",
+      "oldRoute": "/communication/school-calendar",
+      "existingImplementationFound": true,
+      "newRoute": "/communication/school-calendar",
+      "exactView": "calendar",
+      "component": "/communication.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "sms",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "SMS",
+      "oldRoute": "/communication/sms",
+      "existingImplementationFound": true,
+      "newRoute": "/communication/sms",
+      "exactView": "sms",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "email",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Email",
+      "oldRoute": "/communication/email",
+      "existingImplementationFound": true,
+      "newRoute": "/communication/email",
+      "exactView": "email",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "notifications",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Notifications",
+      "oldRoute": "/communication/notifications",
+      "existingImplementationFound": true,
+      "newRoute": "/communication/notifications",
+      "exactView": "notifications",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "communication-history",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Communication History",
+      "oldRoute": "/communication/history",
+      "existingImplementationFound": true,
+      "newRoute": "/communication/history",
+      "exactView": "communication-history",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "discipline",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Discipline",
+      "oldRoute": "/welfare/discipline",
+      "existingImplementationFound": true,
+      "newRoute": "/welfare/discipline",
+      "exactView": "discipline",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "counselling",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Guidance & Counselling",
+      "oldRoute": "/welfare/counselling",
+      "existingImplementationFound": true,
+      "newRoute": "/welfare/counselling",
+      "exactView": "counselling",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "shep-activities",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "SHEP Activities",
+      "oldRoute": "/welfare/shep",
+      "existingImplementationFound": true,
+      "newRoute": "/welfare/shep",
+      "exactView": "shep-activities",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "assets",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Assets",
+      "oldRoute": "/assets",
+      "existingImplementationFound": true,
+      "newRoute": "/assets",
+      "exactView": "assets",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "property",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "School Property",
+      "oldRoute": "/property",
+      "existingImplementationFound": true,
+      "newRoute": "/property",
+      "exactView": "property",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "buildings",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Buildings",
+      "oldRoute": "/property/buildings",
+      "existingImplementationFound": true,
+      "newRoute": "/property/buildings",
+      "exactView": "buildings",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "furniture",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Furniture",
+      "oldRoute": "/property/furniture",
+      "existingImplementationFound": true,
+      "newRoute": "/property/furniture",
+      "exactView": "furniture",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "maintenance",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Maintenance",
+      "oldRoute": "/property/maintenance",
+      "existingImplementationFound": true,
+      "newRoute": "/property/maintenance",
+      "exactView": "maintenance",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "property-reports",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Property Reports",
+      "oldRoute": "/property/reports",
+      "existingImplementationFound": true,
+      "newRoute": "/property/reports",
+      "exactView": "property-reports",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "compliance",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Compliance & Regulatory",
+      "oldRoute": "/compliance",
+      "existingImplementationFound": true,
+      "newRoute": "/compliance",
+      "exactView": "compliance",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "nasia",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "NaSIA",
+      "oldRoute": "/compliance/nasia",
+      "existingImplementationFound": true,
+      "newRoute": "/compliance/nasia",
+      "exactView": "nasia",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "ntc",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "NTC",
+      "oldRoute": "/compliance/ntc",
+      "existingImplementationFound": true,
+      "newRoute": "/compliance/ntc",
+      "exactView": "ntc",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "fire-safety",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Fire Safety",
+      "oldRoute": "/compliance/fire-safety",
+      "existingImplementationFound": true,
+      "newRoute": "/compliance/fire-safety",
+      "exactView": "fire-safety",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "emis-census",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "EMIS / School Census",
+      "oldRoute": "/compliance/emis-census",
+      "existingImplementationFound": true,
+      "newRoute": "/compliance/emis-census",
+      "exactView": "emis-census",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "inspections",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Inspections",
+      "oldRoute": "/compliance/inspections",
+      "existingImplementationFound": true,
+      "newRoute": "/compliance/inspections",
+      "exactView": "inspections",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "compliance-calendar",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Compliance Calendar",
+      "oldRoute": "/compliance/calendar",
+      "existingImplementationFound": true,
+      "newRoute": "/compliance/calendar",
+      "exactView": "compliance-calendar",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "document-repository",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Document Repository",
+      "oldRoute": "/documents/repository",
+      "existingImplementationFound": true,
+      "newRoute": "/documents/repository",
+      "exactView": "document-repository",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "reports",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Reports & Analytics",
+      "oldRoute": "/reports",
+      "existingImplementationFound": true,
+      "newRoute": "/reports",
+      "exactView": "reports-overview",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [
+        "/api/reports/academic"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "admission-analytics",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Admission Analytics",
+      "oldRoute": "/reports/admissions",
+      "existingImplementationFound": true,
+      "newRoute": "/reports/admissions",
+      "exactView": "admission-analytics",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "academic-reports",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Academic Reports",
+      "oldRoute": "/reports/academic",
+      "existingImplementationFound": true,
+      "newRoute": "/reports/academic",
+      "exactView": "academic-reports",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [
+        "/api/reports/academic"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "attendance-reports-management",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Attendance Reports",
+      "oldRoute": "/reports/attendance",
+      "existingImplementationFound": true,
+      "newRoute": "/reports/attendance",
+      "exactView": "attendance-reports",
+      "component": "/reports-academic.html",
+      "apiDependencies": [
+        "/api/reports/academic"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "financial-reports",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Financial Reports",
+      "oldRoute": "/reports/financial",
+      "existingImplementationFound": true,
+      "newRoute": "/reports/financial",
+      "exactView": "financial-reports",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [
+        "/api/reports/academic"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "enrollment-reports",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Enrollment Reports",
+      "oldRoute": "/reports/enrollment",
+      "existingImplementationFound": true,
+      "newRoute": "/reports/enrollment",
+      "exactView": "enrollment-reports",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [
+        "/api/reports/academic"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "staff-reports",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Staff Reports",
+      "oldRoute": "/reports/staff",
+      "existingImplementationFound": true,
+      "newRoute": "/reports/staff",
+      "exactView": "staff-reports",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [
+        "/api/reports/academic"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "operational-reports",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Operational Reports",
+      "oldRoute": "/reports/operations",
+      "existingImplementationFound": true,
+      "newRoute": "/reports/operations",
+      "exactView": "operational-reports",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [
+        "/api/reports/academic"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "management-dashboard",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Management Dashboard",
+      "oldRoute": "/reports/management",
+      "existingImplementationFound": true,
+      "newRoute": "/reports/management",
+      "exactView": "management-dashboard",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [
+        "/api/reports/academic"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "about-developer",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "About the Developer",
+      "oldRoute": "/about-developer",
+      "existingImplementationFound": true,
+      "newRoute": "/about-developer",
+      "exactView": "about-developer",
+      "component": "/about-developer.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "copyright",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Copyright",
+      "oldRoute": "/copyright",
+      "existingImplementationFound": true,
+      "newRoute": "/copyright",
+      "exactView": "copyright",
+      "component": "/copyright.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "user-guide",
+      "role": "ASSISTANT_HEADTEACHER",
+      "parent": null,
+      "child": "User Guide",
+      "oldRoute": "/user-guide",
+      "existingImplementationFound": true,
+      "newRoute": "/user-guide",
+      "exactView": "user-guide",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "class-database",
+      "role": "ASSISTANT_HEADTEACHER",
+      "parent": null,
+      "child": "Class Database",
+      "oldRoute": "/class-database.html",
+      "existingImplementationFound": true,
+      "newRoute": "/class-database.html",
+      "exactView": "class-database",
+      "component": "/class-database.html",
+      "apiDependencies": [
+        "/api/class-database/options",
+        "/api/class-database"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "completed-class-database",
+      "role": "ASSISTANT_HEADTEACHER",
+      "parent": null,
+      "child": "Completed Class Database / Archives",
+      "oldRoute": "/completed-class-database.html",
+      "existingImplementationFound": true,
+      "newRoute": "/completed-class-database.html",
+      "exactView": "completed-class-database",
+      "component": "/completed-class-database.html",
+      "apiDependencies": [
+        "/api/class-database/completed/options",
+        "/api/class-database/completed"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "admission-prospectus",
+      "role": "ASSISTANT_HEADTEACHER",
+      "parent": null,
+      "child": "Admission Prospectus Management",
+      "oldRoute": "/admissions/prospectus",
+      "existingImplementationFound": true,
+      "newRoute": "/admissions/prospectus",
+      "exactView": "admission-prospectus",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "sporting-activities",
+      "role": "ASSISTANT_HEADTEACHER",
+      "parent": null,
+      "child": "Sporting Activities",
+      "oldRoute": "/sporting-activities",
+      "existingImplementationFound": true,
+      "newRoute": "/sporting-activities",
+      "exactView": "sporting-activities",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "subject-management",
+      "role": "ASSISTANT_HEADTEACHER",
+      "parent": null,
+      "child": "Subject Management",
+      "oldRoute": "/academics/subjects",
+      "existingImplementationFound": true,
+      "newRoute": "/academics/subjects",
+      "exactView": "subject-management",
+      "component": "/subjects.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "subject-register",
+      "role": "ASSISTANT_HEADTEACHER",
+      "parent": null,
+      "child": "Subject Register",
+      "oldRoute": "/academics/subject-register",
+      "existingImplementationFound": true,
+      "newRoute": "/academics/subject-register",
+      "exactView": "subject-register",
+      "component": "/subject-register.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "mock-score-entry",
+      "role": "ASSISTANT_HEADTEACHER",
+      "parent": null,
+      "child": "Mock Score Entry",
+      "oldRoute": "/examinations/mock",
+      "existingImplementationFound": true,
+      "newRoute": "/examinations/mock",
+      "exactView": "mock-score-entry",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "mock-results",
+      "role": "ASSISTANT_HEADTEACHER",
+      "parent": null,
+      "child": "Mock Results",
+      "oldRoute": "/results/mock",
+      "existingImplementationFound": true,
+      "newRoute": "/results/mock",
+      "exactView": "mock-results",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "exam-timetable",
+      "role": "ASSISTANT_HEADTEACHER",
+      "parent": null,
+      "child": "Exam Timetable",
+      "oldRoute": "/examinations/timetable",
+      "existingImplementationFound": true,
+      "newRoute": "/examinations/timetable",
+      "exactView": "exam-timetable",
+      "component": "/exam-timetable.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "admission-fee-management",
+      "role": "ASSISTANT_HEADTEACHER",
+      "parent": null,
+      "child": "Admission Fee Structures",
+      "oldRoute": "/fees/admission-structures",
+      "existingImplementationFound": true,
+      "newRoute": "/fees/admission-structures",
+      "exactView": "admission-fee-structures",
+      "component": "/finance-canonical.html",
+      "apiDependencies": [
+        "/api/fees/obligations",
+        "/api/reports/financial"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "shep-activities",
+      "role": "ASSISTANT_HEADTEACHER",
+      "parent": null,
+      "child": "SHEP Activities",
+      "oldRoute": "/welfare/shep",
+      "existingImplementationFound": true,
+      "newRoute": "/welfare/shep",
+      "exactView": "shep-activities",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "admission-analytics",
+      "role": "ASSISTANT_HEADTEACHER",
+      "parent": null,
+      "child": "Admission Analytics",
+      "oldRoute": "/reports/admissions",
+      "existingImplementationFound": true,
+      "newRoute": "/reports/admissions",
+      "exactView": "admission-analytics",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "about-developer",
+      "role": "ASSISTANT_HEADTEACHER",
+      "parent": null,
+      "child": "About the Developer",
+      "oldRoute": "/about-developer",
+      "existingImplementationFound": true,
+      "newRoute": "/about-developer",
+      "exactView": "about-developer",
+      "component": "/about-developer.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "copyright",
+      "role": "ASSISTANT_HEADTEACHER",
+      "parent": null,
+      "child": "Copyright",
+      "oldRoute": "/copyright",
+      "existingImplementationFound": true,
+      "newRoute": "/copyright",
+      "exactView": "copyright",
+      "component": "/copyright.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "dashboard",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Dashboard Overview",
+      "oldRoute": "/",
+      "existingImplementationFound": true,
+      "newRoute": "/",
+      "exactView": "dashboard",
+      "component": "/index.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "user-guide",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "User Guide",
+      "oldRoute": "/user-guide",
+      "existingImplementationFound": true,
+      "newRoute": "/user-guide",
+      "exactView": "user-guide",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "student-profiles",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Student Profiles",
+      "oldRoute": "/students",
+      "existingImplementationFound": true,
+      "newRoute": "/students",
+      "exactView": "student-profiles",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [
+        "/api/students"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "class-database",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Class Database",
+      "oldRoute": "/class-database.html",
+      "existingImplementationFound": true,
+      "newRoute": "/class-database.html",
+      "exactView": "class-database",
+      "component": "/class-database.html",
+      "apiDependencies": [
+        "/api/class-database/options",
+        "/api/class-database"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "student-search",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Student Search",
+      "oldRoute": "/students/search",
+      "existingImplementationFound": true,
+      "newRoute": "/students/search",
+      "exactView": "student-search",
+      "component": "/student-canonical.html",
+      "apiDependencies": [
+        "/api/students"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "completed-class-database",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Completed Class Database / Archives",
+      "oldRoute": "/completed-class-database.html",
+      "existingImplementationFound": true,
+      "newRoute": "/completed-class-database.html",
+      "exactView": "completed-class-database",
+      "component": "/completed-class-database.html",
+      "apiDependencies": [
+        "/api/class-database/completed/options",
+        "/api/class-database/completed"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "student-directory",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Student Directory",
+      "oldRoute": "/students/directory",
+      "existingImplementationFound": true,
+      "newRoute": "/students/directory",
+      "exactView": "student-directory",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [
+        "/api/students"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "student-ids",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Student IDs",
+      "oldRoute": "/students/ids",
+      "existingImplementationFound": true,
+      "newRoute": "/students/ids",
+      "exactView": "student-ids",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [
+        "/api/students"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "student-transfers",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Transfers",
+      "oldRoute": "/students/transfers",
+      "existingImplementationFound": true,
+      "newRoute": "/students/transfers",
+      "exactView": "student-transfers",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [
+        "/api/students"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "student-alumni",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Alumni",
+      "oldRoute": "/students/alumni",
+      "existingImplementationFound": true,
+      "newRoute": "/students/alumni",
+      "exactView": "student-alumni",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [
+        "/api/students"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "academics",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Academics",
+      "oldRoute": "/academics",
+      "existingImplementationFound": true,
+      "newRoute": "/academics",
+      "exactView": "academics-overview",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "sporting-activities",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Sporting Activities",
+      "oldRoute": "/sporting-activities",
+      "existingImplementationFound": true,
+      "newRoute": "/sporting-activities",
+      "exactView": "sporting-activities",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "subject-register",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Subject Register",
+      "oldRoute": "/academics/subject-register",
+      "existingImplementationFound": true,
+      "newRoute": "/academics/subject-register",
+      "exactView": "subject-register",
+      "component": "/subject-register.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "academic-years",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Academic Years",
+      "oldRoute": "/academics/years",
+      "existingImplementationFound": true,
+      "newRoute": "/academics/years",
+      "exactView": "academic-years",
+      "component": "/academic-modules.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "academic-terms",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Terms",
+      "oldRoute": "/academics/terms",
+      "existingImplementationFound": true,
+      "newRoute": "/academics/terms",
+      "exactView": "academic-terms",
+      "component": "/academic-modules.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "academic-classes",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Classes",
+      "oldRoute": "/academics/classes",
+      "existingImplementationFound": true,
+      "newRoute": "/academics/classes",
+      "exactView": "academic-classes",
+      "component": "/academic-modules.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "academic-subjects",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Subjects",
+      "oldRoute": "/academics/subjects/list",
+      "existingImplementationFound": true,
+      "newRoute": "/academics/subjects/list",
+      "exactView": "academic-subjects",
+      "component": "/subjects.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "teacher-assignments",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Teacher Assignments",
+      "oldRoute": "/academics/teacher-assignments",
+      "existingImplementationFound": true,
+      "newRoute": "/academics/teacher-assignments",
+      "exactView": "teacher-assignments",
+      "component": "/academic-modules.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "curriculum",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Curriculum",
+      "oldRoute": "/academics/curriculum",
+      "existingImplementationFound": true,
+      "newRoute": "/academics/curriculum",
+      "exactView": "curriculum",
+      "component": "/academic-modules.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "lesson-plans",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Lesson Plans",
+      "oldRoute": "/academics/lesson-plans",
+      "existingImplementationFound": true,
+      "newRoute": "/academics/lesson-plans",
+      "exactView": "lesson-plans",
+      "component": "/academic-modules.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "academic-assignments",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Assignments",
+      "oldRoute": "/academics/assignments",
+      "existingImplementationFound": true,
+      "newRoute": "/academics/assignments",
+      "exactView": "academic-assignments",
+      "component": "/academic-modules.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "timetable",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Timetable",
+      "oldRoute": "/academics/timetable",
+      "existingImplementationFound": true,
+      "newRoute": "/academics/timetable",
+      "exactView": "academic-timetable",
+      "component": "/academic-modules.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "attendance-dashboard",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Attendance Dashboard",
+      "oldRoute": "/attendance",
+      "existingImplementationFound": true,
+      "newRoute": "/attendance",
+      "exactView": "attendance-overview",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [
+        "/api/attendance/students"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "student-attendance",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Student Attendance",
+      "oldRoute": "/attendance/students",
+      "existingImplementationFound": true,
+      "newRoute": "/attendance/students",
+      "exactView": "student-attendance-register",
+      "component": "/attendance.html",
+      "apiDependencies": [
+        "/api/attendance/students"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "attendance-alerts",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Attendance Alerts",
+      "oldRoute": "/attendance/alerts",
+      "existingImplementationFound": true,
+      "newRoute": "/attendance/alerts",
+      "exactView": "attendance-alerts",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [
+        "/api/attendance/students"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "examinations",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Examinations",
+      "oldRoute": "/examinations",
+      "existingImplementationFound": true,
+      "newRoute": "/examinations",
+      "exactView": "examinations",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "marks-entry",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Marks Entry",
+      "oldRoute": "/examinations/marks",
+      "existingImplementationFound": true,
+      "newRoute": "/examinations/marks",
+      "exactView": "marks-entry",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "results",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Results & Reports",
+      "oldRoute": "/results",
+      "existingImplementationFound": true,
+      "newRoute": "/results",
+      "exactView": "results",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "mock-score-entry",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Mock Score Entry",
+      "oldRoute": "/examinations/mock",
+      "existingImplementationFound": true,
+      "newRoute": "/examinations/mock",
+      "exactView": "mock-score-entry",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "mock-results",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Mock Results",
+      "oldRoute": "/results/mock",
+      "existingImplementationFound": true,
+      "newRoute": "/results/mock",
+      "exactView": "mock-results",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "broadsheets",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Broadsheets",
+      "oldRoute": "/results/broadsheets",
+      "existingImplementationFound": true,
+      "newRoute": "/results/broadsheets",
+      "exactView": "broadsheets",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "report-cards",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Report Cards",
+      "oldRoute": "/results/report-cards",
+      "existingImplementationFound": true,
+      "newRoute": "/results/report-cards",
+      "exactView": "report-cards",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "promotion-results",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Promotion Results",
+      "oldRoute": "/results/promotions",
+      "existingImplementationFound": true,
+      "newRoute": "/results/promotions",
+      "exactView": "promotion-results",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "leave",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Leave",
+      "oldRoute": "/staff/leave",
+      "existingImplementationFound": true,
+      "newRoute": "/staff/leave",
+      "exactView": "leave-management",
+      "component": "/leave.html",
+      "apiDependencies": [
+        "/api/attendance/staff"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "staff.professional-development",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Professional Development",
+      "oldRoute": "/staff/professional-development",
+      "existingImplementationFound": true,
+      "newRoute": "/staff/professional-development",
+      "exactView": "professional-development",
+      "component": "/staff-canonical.html",
+      "apiDependencies": [
+        "/api/attendance/staff"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "announcements",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Announcements",
+      "oldRoute": "/communication",
+      "existingImplementationFound": true,
+      "newRoute": "/communication",
+      "exactView": "announcements",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "messages",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Messages",
+      "oldRoute": "/communication/messages",
+      "existingImplementationFound": true,
+      "newRoute": "/communication/messages",
+      "exactView": "messages",
+      "component": "/communication.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "calendar",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "School Calendar",
+      "oldRoute": "/communication/school-calendar",
+      "existingImplementationFound": true,
+      "newRoute": "/communication/school-calendar",
+      "exactView": "calendar",
+      "component": "/communication.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "sms",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "SMS",
+      "oldRoute": "/communication/sms",
+      "existingImplementationFound": true,
+      "newRoute": "/communication/sms",
+      "exactView": "sms",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "email",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Email",
+      "oldRoute": "/communication/email",
+      "existingImplementationFound": true,
+      "newRoute": "/communication/email",
+      "exactView": "email",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "notifications",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Notifications",
+      "oldRoute": "/communication/notifications",
+      "existingImplementationFound": true,
+      "newRoute": "/communication/notifications",
+      "exactView": "notifications",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "communication-history",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Communication History",
+      "oldRoute": "/communication/history",
+      "existingImplementationFound": true,
+      "newRoute": "/communication/history",
+      "exactView": "communication-history",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "discipline",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Discipline",
+      "oldRoute": "/welfare/discipline",
+      "existingImplementationFound": true,
+      "newRoute": "/welfare/discipline",
+      "exactView": "discipline",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "shep-activities",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "SHEP Activities",
+      "oldRoute": "/welfare/shep",
+      "existingImplementationFound": true,
+      "newRoute": "/welfare/shep",
+      "exactView": "shep-activities",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "inventory",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Inventory & Stores",
+      "oldRoute": "/inventory",
+      "existingImplementationFound": true,
+      "newRoute": "/inventory",
+      "exactView": "inventory",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "stock",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Stock",
+      "oldRoute": "/inventory/stock",
+      "existingImplementationFound": true,
+      "newRoute": "/inventory/stock",
+      "exactView": "stock",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "stock-in",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Stock In",
+      "oldRoute": "/inventory/stock-in",
+      "existingImplementationFound": true,
+      "newRoute": "/inventory/stock-in",
+      "exactView": "stock-in",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "stock-out",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Stock Out",
+      "oldRoute": "/inventory/stock-out",
+      "existingImplementationFound": true,
+      "newRoute": "/inventory/stock-out",
+      "exactView": "stock-out",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "suppliers",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Suppliers",
+      "oldRoute": "/inventory/suppliers",
+      "existingImplementationFound": true,
+      "newRoute": "/inventory/suppliers",
+      "exactView": "suppliers",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "inventory-reports",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Inventory Reports",
+      "oldRoute": "/inventory/reports",
+      "existingImplementationFound": true,
+      "newRoute": "/inventory/reports",
+      "exactView": "inventory-reports",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "property",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "School Property",
+      "oldRoute": "/property",
+      "existingImplementationFound": true,
+      "newRoute": "/property",
+      "exactView": "property",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "property-requests",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Property Requests",
+      "oldRoute": "/property/requests",
+      "existingImplementationFound": true,
+      "newRoute": "/property/requests",
+      "exactView": "property-requests",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "buildings",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Buildings",
+      "oldRoute": "/property/buildings",
+      "existingImplementationFound": true,
+      "newRoute": "/property/buildings",
+      "exactView": "buildings",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "furniture",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Furniture",
+      "oldRoute": "/property/furniture",
+      "existingImplementationFound": true,
+      "newRoute": "/property/furniture",
+      "exactView": "furniture",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "maintenance",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Maintenance",
+      "oldRoute": "/property/maintenance",
+      "existingImplementationFound": true,
+      "newRoute": "/property/maintenance",
+      "exactView": "maintenance",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "property-reports",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Property Reports",
+      "oldRoute": "/property/reports",
+      "existingImplementationFound": true,
+      "newRoute": "/property/reports",
+      "exactView": "property-reports",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "about-developer",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "About the Developer",
+      "oldRoute": "/about-developer",
+      "existingImplementationFound": true,
+      "newRoute": "/about-developer",
+      "exactView": "about-developer",
+      "component": "/about-developer.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "copyright",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Copyright",
+      "oldRoute": "/copyright",
+      "existingImplementationFound": true,
+      "newRoute": "/copyright",
+      "exactView": "copyright",
+      "component": "/copyright.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    }
+  ]
+}

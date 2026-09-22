@@ -62,6 +62,7 @@ import { createAIOrchestrator } from './ai/orchestrator.js';
 import { createAIConversationService } from './ai/conversation.js';
 import './module-registry.js';
 import { PROPRIETOR_PAGE_ALIASES, PROPRIETOR_SIDEBAR_ROUTES } from './proprietor-sidebar-routes.js';
+import { resolveRouteContract } from './sidebar-route-contract.js';
 
 const root = join(fileURLToPath(new URL('.', import.meta.url)), '..', 'public');
 const mime = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.svg': 'image/svg+xml' };
@@ -499,12 +500,14 @@ export function createApp({ auth = null, students = createStudentService(), atte
     const file = pathname === '/' || schoolShellNavigation ? '/index.html' : pathname === '/admissions/apply' ? '/admission-application.html' : pageAliases[pathname] ?? fallbackPage ?? pathname;
     try {
       let body = await readFile(join(root, file));
-      const selectedModule = PROPRIETOR_SIDEBAR_ROUTES.find((module) => module.route === pathname);
+      const requestedNavigationKey = new URL(request.url, 'http://localhost').searchParams.get('navigationKey');
+      const selectedModule = SIDEBAR_MODULES.find((module) => requestedNavigationKey && (module.navigationKey === requestedNavigationKey || module.moduleKey === requestedNavigationKey)) ?? PROPRIETOR_SIDEBAR_ROUTES.find((module) => module.route === pathname) ?? SIDEBAR_MODULES.find((module) => module.route === pathname);
       if (selectedModule && extname(file) === '.html') {
+        const contract = resolveRouteContract(selectedModule);
         const label = escapeHtmlText(selectedModule.moduleName);
         body = Buffer.from(body.toString('utf8')
           .replace(/<title>[^<]*<\/title>/i, `<title>${label} | OsaaH Daylight</title>`)
-          .replace(/<body([^>]*)>/i, `<body$1 data-current-module="${escapeHtmlText(selectedModule.moduleKey)}"><p class="route-context" aria-live="polite">${label}</p>`));
+          .replace(/<body([^>]*)>/i, `<body$1 data-current-module="${escapeHtmlText(selectedModule.moduleKey)}" data-navigation-key="${escapeHtmlText(contract.navigationKey)}" data-current-view="${escapeHtmlText(contract.exactView)}" data-current-component="${escapeHtmlText(contract.component)}"><p class="route-context" aria-live="polite">${label}</p>`));
       }
       const revalidate = ['.html', '.js', '.css', '.webmanifest'].includes(extname(file)); response.writeHead(200, { 'Content-Type': mime[extname(file)] ?? 'application/octet-stream', ...(revalidate ? { 'Cache-Control': 'no-cache, must-revalidate' } : {}), ...(publicAdmissionCookie ? { 'Set-Cookie': publicAdmissionCookie } : {}) }); response.end(body);
     } catch { response.writeHead(404); response.end('Not found'); }
