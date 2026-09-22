@@ -289,3 +289,19 @@ Automated browser takeover was unavailable during Parts 31 and 32. Final authent
 ## Final certification decision
 
 **BLOCKED — MANUAL PRODUCTION VERIFICATION INCOMPLETE.** The required administrator-confirmed results and the actual deployment tested were not supplied in the Part 33 material. The sidebar-routing incident and the original Accountant Copyright-routing defect must not be declared closed until the complete manual result set establishes that all mandatory checks passed on the identified production deployment.
+
+## Part 33 extended checklist received
+
+The follow-up Part 33 material provides a detailed human-browser worksheet, but all fields remain placeholders (`[ENTER DATE]`, `[ENTER PRODUCTION DOMAIN]`, `PASS / FAIL`, `YES / NO`, and `[WRITE WHAT HAPPENED]`). It therefore does not constitute completed manual evidence and is not represented as such.
+
+The following additional required checks are explicitly tracked as **NOT SUPPLIED — MANUAL VERIFICATION INCOMPLETE**:
+
+| Additional required check | Recorded result |
+|---|---|
+| Rapid navigation: Fees → Cashbook → Class Database → User Guide, with User Guide remaining final | **NOT SUPPLIED — MANUAL VERIFICATION INCOMPLETE** |
+| Logout: session ends and Login Page opens | **NOT SUPPLIED — MANUAL VERIFICATION INCOMPLETE** |
+| Back after logout: protected Accountant dashboard/data cannot be used | **NOT SUPPLIED — MANUAL VERIFICATION INCOMPLETE** |
+| Direct protected route after logout requires authentication | **NOT SUPPLIED — MANUAL VERIFICATION INCOMPLETE** |
+| Database/data integrity: no payment, receipt, student, attendance, result, settings, or other production data intentionally modified | **NOT SUPPLIED — MANUAL VERIFICATION INCOMPLETE** |
+
+The worksheet's expected Back/Forward sequence—Fees → Payments → Cashbook, followed by Back/Back/Forward/Forward—also has no supplied PASS/FAIL outcomes and remains incomplete. No browser takeover was attempted, and no application, routing, authentication, RBAC, database, or deployment changes were made for this worksheet.
