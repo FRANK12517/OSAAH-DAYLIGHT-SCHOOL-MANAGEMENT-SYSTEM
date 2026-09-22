@@ -1,0 +1,42 @@
+name: Foundation relational acceptance
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  foundation-relational-acceptance:
+    name: Foundation relational acceptance
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: osaah_ci_root
+          MYSQL_DATABASE: osaah_test
+          MYSQL_USER: osaah_ci
+          MYSQL_PASSWORD: osaah_ci_password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uosaah_ci -posaah_ci_password"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run migration:validate
+      - name: Run relational acceptance
+        env:
+          NODE_ENV: test
+          DATABASE_URL: mysql://osaah_ci:osaah_ci_password@127.0.0.1:3306/osaah_test
+          OSAAH_TEST_DATABASE_URL: mysql://osaah_ci:osaah_ci_password@127.0.0.1:3306/osaah_test
+        run: npm run test:relational
