@@ -55,7 +55,7 @@ test('administrative and academic oversight children use distinct canonical rout
 
 test('finance, staff, and student management children retain canonical route identity', () => {
   const expected = {
-    fees: '/fees', finance: '/finance', invoices: '/fees/invoices', 'finance-reports': '/finance/reports',
+    fees: '/fees', finance: '/finance', invoices: '/fees/invoices', 'finance-reports': '/finance/reports', 'finance-receipts': '/finance/receipts',
     'fee-structure': '/fees/structure', 'fee.scholarships': '/fees/scholarships', 'admission-fee-management': '/fees/admission-structures',
     'student-fees': '/fees/students', income: '/finance/income', payments: '/fees/payments', expenses: '/finance/expenses',
     receipts: '/fees/receipts', cashbook: '/finance/cashbook', arrears: '/fees/arrears', budgets: '/finance/budgets',
@@ -134,4 +134,32 @@ test('workspace navigation normalizes the route inside the renderer and terminat
   assert.match(renderBody, /url\.searchParams\.set\('route', normalizedRoute\)/);
   assert.match(renderBody, /frame\.onerror = \(error\) =>/);
   assert.match(renderBody, /Unable to open \$\{title\}/);
+});
+
+test('every configured role sidebar child has a stable identity and deterministic route', () => {
+  const roles = ['ACCOUNTANT_BURSAR', 'HEADTEACHER', 'ASSISTANT_HEADTEACHER', 'TEACHER'];
+  for (const roleKey of roles) {
+    const modules = visibleSidebar({ modules: SIDEBAR_MODULES, permissions: new Set(['*']), roleKey, portal: 'school' })
+      .flatMap((group) => group.modules.flatMap((module) => [module, ...(module.children ?? [])]))
+      .filter((module) => !['dashboard', 'logout'].includes(module.moduleKey));
+    assert.ok(modules.length > 0, `${roleKey} must expose configured navigation`);
+    assert.equal(new Set(modules.map((module) => module.navigationKey)).size, modules.length, `${roleKey} navigation keys must be unique`);
+    for (const module of modules) {
+      assert.equal(module.navigationKey, module.moduleKey, `${roleKey}:${module.moduleKey} must use its canonical identity`);
+      assert.match(module.route, /^\//, `${roleKey}:${module.moduleKey} route`);
+    }
+  }
+});
+
+test('duplicate visible labels remain isolated by navigation identity', async () => {
+  const modules = visibleSidebar({ modules: SIDEBAR_MODULES, permissions: new Set(['*']), roleKey: 'ACCOUNTANT_BURSAR', portal: 'school' })
+    .flatMap((group) => group.modules.flatMap((module) => [module, ...(module.children ?? [])]));
+  const receipts = modules.filter((module) => module.moduleName === 'Receipts');
+  assert.deepEqual(receipts.map((module) => module.moduleKey), ['receipts', 'finance-receipts']);
+  assert.deepEqual(receipts.map((module) => module.route), ['/fees/receipts', '/finance/receipts']);
+  assert.equal(new Set(modules.map((module) => module.navigationKey)).size, modules.length);
+  const app = await readFile(new URL('../public/app.js', import.meta.url), 'utf8');
+  assert.match(app, /data-navigation-key/);
+  assert.match(app, /link\.dataset\.navigationKey/);
+  assert.match(app, /resolvedComponent: navigationKey/);
 });
