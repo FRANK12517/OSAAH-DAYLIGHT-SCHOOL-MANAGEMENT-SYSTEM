@@ -86,8 +86,8 @@ The established GitHub `main` → Vercel production workflow deployed the merged
 
 | Item | Result |
 |---|---|
-| Vercel deployment ID | `dpl_HGyRejZKFDhyU1b6HfBomBbyVvkp` |
-| Deployed SHA | `c0206f9447d1a41e501134eecf2cc799ed708a27` |
+| Vercel deployment ID | `dpl_35cLUyMT1oAr8NCwmD92WHQTuA5s` |
+| Deployed SHA | `f7443d1be163624a0f60801441ce7c1fe9712e89` |
 | Target | production |
 | State | READY |
 | Custom production domain | [osaahdaylightschool.online](https://osaahdaylightschool.online/) |
@@ -171,6 +171,137 @@ The routing architecture and automated tests eliminate the known stale-label/nav
 
 **Production closeout: BLOCKED pending a retained authorized Accountant session and completion of Cashbook → Class Database → Fees → Copyright → User Guide plus logout/browser-back verification.**
 
+## Final live Accountant verification — Part 31
+
+The current production deployment was rechecked before testing and matched commit `f7443d1be163624a0f60801441ce7c1fe9712e89`, which contains the merged Part 29/30 routing fixes and documentation.
+
+A fresh authorized Accountant session could not be established. The live browser takeover/open operation failed before credentials were entered, so no password, token, cookie, or other secret was recorded. Per the Part 31 instruction, live testing stopped immediately and no routing refactor, authentication change, database change, or production-data action was attempted.
+
+| Required live check | Result |
+|---|---|
+| Accountant login and role identity | BLOCKED — unable to establish authorized Accountant production session |
+| Cashbook | NOT RUN — no fresh authenticated session |
+| Class Database | NOT RUN — no fresh authenticated session |
+| Fees | NOT RUN — no fresh authenticated session |
+| Copyright | NOT RUN — no fresh authenticated session |
+| User Guide | NOT RUN — no fresh authenticated session |
+| Original Copyright error assertion | NOT CLOSED — mandatory ordered sequence could not run |
+| Refresh tests | NOT RUN |
+| Duplicate Fee Hub Receipts vs Finance Receipts | NOT RUN |
+| Back/Forward | NOT RUN |
+| Rapid navigation | NOT RUN |
+| Console errors | NOT RUN in authenticated flow |
+| Network/API errors | NOT RUN in authenticated flow |
+| Logout | NOT RUN |
+| Back after logout | NOT RUN |
+| Direct protected route after logout | NOT RUN |
+
+The public production surface remains reachable, and Vercel runtime diagnostics previously showed no application runtime-error clusters. Those facts do not substitute for the required authenticated Accountant sequence.
+
+## Part 32 — browser recovery result
+
+The production custom domain and School Portal login page opened successfully in a fresh direct browser navigation. The page visibly rendered the role selector, email/username field, password field, and sign-in control. The failure occurred specifically when browser takeover was requested so the authorized Accountant credentials could be entered: takeover failed again before authentication.
+
+Classification: **browser takeover/automation infrastructure failure**, not a production application failure. No credentials were entered, recorded, logged, screenshotted, or committed. No source code, authentication, RBAC, database, schema, or production data was changed. Per the Part 32 instructions, testing stopped before the Accountant session and mandatory sequence.
+
 ## Final status
 
-**BLOCKED — exact reason: authorized live browser sessions were unavailable or expired before the required complete production certification sequence for Copyright, logout, Headteacher, Assistant Headteacher, Teacher, Proprietor, Administrator, and Parent Portal could be completed.**
+**BLOCKED — BROWSER INFRASTRUCTURE FAILURE**
+
+# PART 33 — MANUAL LIVE PRODUCTION CERTIFICATION
+
+## Verification method
+
+**MANUAL LIVE PRODUCTION VERIFICATION.** The required evidence for this closeout must be supplied by the human administrator who completed the authenticated production-browser sequence. The Part 33 instruction supplied for this report identifies the checks to record, but does not include the administrator's individual outcomes. Accordingly, this section records the evidence state without converting any unprovided result into a pass.
+
+## Production deployment tested
+
+The previously certified application deployment commit is **`f7443d1be163624a0f60801441ce7c1fe9712e89`**. The administrator's actual deployment identifier for the manual session was not supplied. This report therefore does not attribute the manual session to that SHA, and it does not claim that the tested deployment contained the Part 29 routing repairs.
+
+## Manual live production results
+
+| Required check | Administrator result supplied? | Recorded result |
+|---|---:|---|
+| Accountant login | No | **NOT SUPPLIED — MANUAL VERIFICATION INCOMPLETE** |
+| Finance → Cashbook | No | **NOT SUPPLIED — MANUAL VERIFICATION INCOMPLETE** |
+| Students Management → Class Database | No | **NOT SUPPLIED — MANUAL VERIFICATION INCOMPLETE** |
+| Fee Hub → Fees | No | **NOT SUPPLIED — MANUAL VERIFICATION INCOMPLETE** |
+| System & Security → Copyright | No | **NOT SUPPLIED — MANUAL VERIFICATION INCOMPLETE** |
+| Administrative → User Guide | No | **NOT SUPPLIED — MANUAL VERIFICATION INCOMPLETE** |
+| Cashbook refresh | No | **NOT SUPPLIED — MANUAL VERIFICATION INCOMPLETE** |
+| Class Database refresh | No | **NOT SUPPLIED — MANUAL VERIFICATION INCOMPLETE** |
+| Fees refresh | No | **NOT SUPPLIED — MANUAL VERIFICATION INCOMPLETE** |
+| User Guide refresh | No | **NOT SUPPLIED — MANUAL VERIFICATION INCOMPLETE** |
+| Fee Hub → Receipts | No | **NOT SUPPLIED — MANUAL VERIFICATION INCOMPLETE** |
+| Finance → Receipts | No | **NOT SUPPLIED — MANUAL VERIFICATION INCOMPLETE** |
+| Back/Forward navigation | No | **NOT SUPPLIED — MANUAL VERIFICATION INCOMPLETE** |
+| Logout → Login Page | No | **NOT SUPPLIED — MANUAL VERIFICATION INCOMPLETE** |
+| Browser Back after logout | No | **NOT SUPPLIED — MANUAL VERIFICATION INCOMPLETE** |
+
+No passwords, cookies, tokens, session IDs, or access codes are recorded here.
+
+## Original Copyright defect
+
+The original defect was:
+
+> Unable to open Copyright. Please retry or contact the system administrator.
+
+The defect may be closed in production only when the administrator confirms that this message did **not** appear while opening **Cashbook**, **Class Database**, **Fees**, or **User Guide**, and confirms that each destination rendered its correct component. Those manual confirmations were not included in the supplied Part 33 evidence. The original defect is therefore **not closed by this report**.
+
+## Copyright positive control
+
+The required positive control is **System & Security → Copyright → actual Copyright component**. The administrator's result for this control was not supplied, so Copyright's continued independent functionality is not certified here.
+
+## Refresh requirement
+
+The required manual refresh results for **Cashbook**, **Class Database**, **Fees**, and **User Guide** were not supplied. No refresh result is marked passed.
+
+## Duplicate receipts
+
+The required live distinction between **Fee Hub → Receipts** and **Finance → Receipts** was not supplied. No duplicate-receipts result is marked passed.
+
+## Back/Forward and logout
+
+The required Back/Forward result, logout-to-Login-Page result, and browser-Back-after-logout result were not supplied. Consequently, protected Accountant functionality is not certified as unavailable after logout by this Part 33 record.
+
+## Preserved automated baseline
+
+The previously verified automated baseline is retained exactly as supplied:
+
+| Baseline | Result |
+|---|---:|
+| Release-gate records | **211** |
+| Release-gate passes | **211** |
+| Release-gate blockers | **0** |
+| Focused tests | **30 passed, 0 failed, 0 skipped** |
+| Full suite | **654 passed, 0 failed, 0 skipped** |
+| Database migration | **NO** |
+| Schema changed | **NO** |
+| Production data modified | **NO** |
+| Production data deleted | **NO** |
+
+These automated results are retained as historical baseline evidence. They are not substituted for the missing manual production confirmations.
+
+## Browser automation limitation
+
+Automated browser takeover was unavailable during Parts 31 and 32. Final authenticated production verification was intended to be completed manually because the browser automation infrastructure could not establish the authenticated session. This historical limitation is preserved. The supplied Part 33 text does not, however, include the administrator's actual manual outcome record.
+
+## Final certification decision
+
+**BLOCKED — MANUAL PRODUCTION VERIFICATION INCOMPLETE.** The required administrator-confirmed results and the actual deployment tested were not supplied in the Part 33 material. The sidebar-routing incident and the original Accountant Copyright-routing defect must not be declared closed until the complete manual result set establishes that all mandatory checks passed on the identified production deployment.
+
+## Part 33 extended checklist received
+
+The follow-up Part 33 material provides a detailed human-browser worksheet, but all fields remain placeholders (`[ENTER DATE]`, `[ENTER PRODUCTION DOMAIN]`, `PASS / FAIL`, `YES / NO`, and `[WRITE WHAT HAPPENED]`). It therefore does not constitute completed manual evidence and is not represented as such.
+
+The following additional required checks are explicitly tracked as **NOT SUPPLIED — MANUAL VERIFICATION INCOMPLETE**:
+
+| Additional required check | Recorded result |
+|---|---|
+| Rapid navigation: Fees → Cashbook → Class Database → User Guide, with User Guide remaining final | **NOT SUPPLIED — MANUAL VERIFICATION INCOMPLETE** |
+| Logout: session ends and Login Page opens | **NOT SUPPLIED — MANUAL VERIFICATION INCOMPLETE** |
+| Back after logout: protected Accountant dashboard/data cannot be used | **NOT SUPPLIED — MANUAL VERIFICATION INCOMPLETE** |
+| Direct protected route after logout requires authentication | **NOT SUPPLIED — MANUAL VERIFICATION INCOMPLETE** |
+| Database/data integrity: no payment, receipt, student, attendance, result, settings, or other production data intentionally modified | **NOT SUPPLIED — MANUAL VERIFICATION INCOMPLETE** |
+
+The worksheet's expected Back/Forward sequence—Fees → Payments → Cashbook, followed by Back/Back/Forward/Forward—also has no supplied PASS/FAIL outcomes and remains incomplete. No browser takeover was attempted, and no application, routing, authentication, RBAC, database, or deployment changes were made for this worksheet.
