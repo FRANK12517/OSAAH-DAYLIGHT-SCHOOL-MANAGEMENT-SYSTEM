@@ -86,8 +86,8 @@ The established GitHub `main` → Vercel production workflow deployed the merged
 
 | Item | Result |
 |---|---|
-| Vercel deployment ID | `dpl_HGyRejZKFDhyU1b6HfBomBbyVvkp` |
-| Deployed SHA | `c0206f9447d1a41e501134eecf2cc799ed708a27` |
+| Vercel deployment ID | `dpl_35cLUyMT1oAr8NCwmD92WHQTuA5s` |
+| Deployed SHA | `f7443d1be163624a0f60801441ce7c1fe9712e89` |
 | Target | production |
 | State | READY |
 | Custom production domain | [osaahdaylightschool.online](https://osaahdaylightschool.online/) |
@@ -171,6 +171,33 @@ The routing architecture and automated tests eliminate the known stale-label/nav
 
 **Production closeout: BLOCKED pending a retained authorized Accountant session and completion of Cashbook → Class Database → Fees → Copyright → User Guide plus logout/browser-back verification.**
 
+## Final live Accountant verification — Part 31
+
+The current production deployment was rechecked before testing and matched commit `f7443d1be163624a0f60801441ce7c1fe9712e89`, which contains the merged Part 29/30 routing fixes and documentation.
+
+A fresh authorized Accountant session could not be established. The live browser takeover/open operation failed before credentials were entered, so no password, token, cookie, or other secret was recorded. Per the Part 31 instruction, live testing stopped immediately and no routing refactor, authentication change, database change, or production-data action was attempted.
+
+| Required live check | Result |
+|---|---|
+| Accountant login and role identity | BLOCKED — unable to establish authorized Accountant production session |
+| Cashbook | NOT RUN — no fresh authenticated session |
+| Class Database | NOT RUN — no fresh authenticated session |
+| Fees | NOT RUN — no fresh authenticated session |
+| Copyright | NOT RUN — no fresh authenticated session |
+| User Guide | NOT RUN — no fresh authenticated session |
+| Original Copyright error assertion | NOT CLOSED — mandatory ordered sequence could not run |
+| Refresh tests | NOT RUN |
+| Duplicate Fee Hub Receipts vs Finance Receipts | NOT RUN |
+| Back/Forward | NOT RUN |
+| Rapid navigation | NOT RUN |
+| Console errors | NOT RUN in authenticated flow |
+| Network/API errors | NOT RUN in authenticated flow |
+| Logout | NOT RUN |
+| Back after logout | NOT RUN |
+| Direct protected route after logout | NOT RUN |
+
+The public production surface remains reachable, and Vercel runtime diagnostics previously showed no application runtime-error clusters. Those facts do not substitute for the required authenticated Accountant sequence.
+
 ## Final status
 
-**BLOCKED — exact reason: authorized live browser sessions were unavailable or expired before the required complete production certification sequence for Copyright, logout, Headteacher, Assistant Headteacher, Teacher, Proprietor, Administrator, and Parent Portal could be completed.**
+**BLOCKED — unable to establish authorized Accountant production session.**
