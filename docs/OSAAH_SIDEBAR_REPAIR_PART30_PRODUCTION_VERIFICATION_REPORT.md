@@ -198,6 +198,12 @@ A fresh authorized Accountant session could not be established. The live browser
 
 The public production surface remains reachable, and Vercel runtime diagnostics previously showed no application runtime-error clusters. Those facts do not substitute for the required authenticated Accountant sequence.
 
+## Part 32 — browser recovery result
+
+The production custom domain and School Portal login page opened successfully in a fresh direct browser navigation. The page visibly rendered the role selector, email/username field, password field, and sign-in control. The failure occurred specifically when browser takeover was requested so the authorized Accountant credentials could be entered: takeover failed again before authentication.
+
+Classification: **browser takeover/automation infrastructure failure**, not a production application failure. No credentials were entered, recorded, logged, screenshotted, or committed. No source code, authentication, RBAC, database, schema, or production data was changed. Per the Part 32 instructions, testing stopped before the Accountant session and mandatory sequence.
+
 ## Final status
 
-**BLOCKED — unable to establish authorized Accountant production session.**
+**BLOCKED — BROWSER INFRASTRUCTURE FAILURE**
