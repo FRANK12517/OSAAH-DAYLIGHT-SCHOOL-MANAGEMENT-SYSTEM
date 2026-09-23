@@ -41,9 +41,9 @@ test('Part 2 prepares the canonical staff role identifiers without hard-coding u
   assert.doesNotMatch(sql, /password/i);
 });
 
-test('migration inventory remains uniquely versioned after student fee ledger reconciliation', async () => {
+test('migration inventory remains uniquely versioned after fee invoice reconciliation', async () => {
   const migrations = await discoverMigrations(new URL('../schema', import.meta.url));
-  assert.equal(migrations.length, 41);
+  assert.equal(migrations.length, 42);
   assert.equal(new Set(migrations.map((item) => item.version)).size, migrations.length);
-  assert.equal(migrations.at(-1).name, '042_student_fee_ledger.sql');
+  assert.equal(migrations.at(-1).name, '043_fee_invoices.sql');
 });
