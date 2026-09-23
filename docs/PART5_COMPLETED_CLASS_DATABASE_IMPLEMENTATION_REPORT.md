@@ -10,7 +10,7 @@ Focused Part 5 coverage passed **49 tests with 0 failures**. The full determinis
 
 ## Branch and commits
 
-The implementation branch is `feat/part5-completed-class-database`. The exact feature commit, merge commit, final main commit, and deployment evidence are recorded in this report after the GitHub and Vercel workflow completes.
+The implementation branch is `feat/part5-completed-class-database`. Feature commit: `93903b6`. Pull request [#105](https://github.com/FRANK12517/OSAAH-DAYLIGHT-SCHOOL-MANAGEMENT-SYSTEM/pull/105) merged into `main` at merge commit `f2a00d2`.
 
 ## Architecture discovered
 
