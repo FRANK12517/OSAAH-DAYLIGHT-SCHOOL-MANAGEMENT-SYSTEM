@@ -41,9 +41,9 @@ test('Part 2 prepares the canonical staff role identifiers without hard-coding u
   assert.doesNotMatch(sql, /password/i);
 });
 
-test('migration inventory remains uniquely versioned after financial audit reconciliation', async () => {
+test('migration inventory remains uniquely versioned after Fee Hub reporting views', async () => {
   const migrations = await discoverMigrations(new URL('../schema', import.meta.url));
-  assert.equal(migrations.length, 44);
+  assert.equal(migrations.length, 45);
   assert.equal(new Set(migrations.map((item) => item.version)).size, migrations.length);
-  assert.equal(migrations.at(-1).name, '045_financial_audit_history.sql');
+  assert.equal(migrations.at(-1).name, '046_fee_hub_reporting_views.sql');
 });
