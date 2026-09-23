@@ -41,9 +41,9 @@ test('Part 2 prepares the canonical staff role identifiers without hard-coding u
   assert.doesNotMatch(sql, /password/i);
 });
 
-test('migration inventory remains uniquely versioned after Class Database and Fee Hub reconciliation', async () => {
+test('migration inventory remains uniquely versioned after financial identity reconciliation', async () => {
   const migrations = await discoverMigrations(new URL('../schema', import.meta.url));
-  assert.equal(migrations.length, 37);
+  assert.equal(migrations.length, 38);
   assert.equal(new Set(migrations.map((item) => item.version)).size, migrations.length);
-  assert.equal(migrations.at(-1).name, '038_canonical_class_database_fee_hub.sql');
+  assert.equal(migrations.at(-1).name, '039_class_database_financial_identity.sql');
 });
