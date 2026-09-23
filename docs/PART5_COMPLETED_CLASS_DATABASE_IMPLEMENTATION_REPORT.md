@@ -130,7 +130,9 @@ Browser-level authenticated login, sidebar click-through, archive year filter, b
 
 ## Deployment evidence
 
-The final feature commit, merge commit, final main commit, Vercel deployment ID, deployed Git SHA, READY state, production URL, and production aliases are recorded here after deployment completes.
+Feature commit: `93903b6`. Merge commit: `f2a00d2`. Final main commit: `3b43b311f91c306d8e554db94668bbcc30119d28`.
+
+Vercel deployment ID: `dpl_EYwcZLsuCsfAvKpDXa7Hv9QU5hyJ`. Deployment state: **READY**. Deployed Git SHA: `3b43b311f91c306d8e554db94668bbcc30119d28`. Deployment URL: `https://osaah-daylight-school-management-system-2ef3t23we.vercel.app/`. Production aliases include `https://www.osaahdaylightschool.online` and `https://osaahdaylightschool.online`.
 
 ## Unresolved issues
 
