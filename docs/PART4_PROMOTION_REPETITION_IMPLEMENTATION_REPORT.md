@@ -10,7 +10,7 @@ The focused Part 4 suite passed **57 tests** with **0 failures**. The determinis
 
 ## Branch and commit scope
 
-The work is implemented on the feature branch `feat/part4-promotion-repetition`. The final commit and merge commit are recorded after the GitHub workflow completes.
+The work was implemented on the feature branch `feat/part4-promotion-repetition` in commit `0957d54`. Pull request [#103](https://github.com/FRANK12517/OSAAH-DAYLIGHT-SCHOOL-MANAGEMENT-SYSTEM/pull/103) merged it into `main` at commit `66ca18a88f11edb9ae3c85b1fd390fce8da3a8c3`.
 
 ## Promotion architecture discovered
 
