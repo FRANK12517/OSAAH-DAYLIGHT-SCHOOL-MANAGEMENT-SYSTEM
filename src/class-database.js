@@ -64,7 +64,7 @@ export function createClassDatabaseService({ students, classes = CORE_LEVELS, pa
     if (resolvedClassId && !canonicalClasses.includes(resolvedClassId)) fail('Invalid class.', 400);
     if (actor.roleKey === 'TEACHER' && resolvedClassId && !actor.assignedClassIds.map((value) => canonicalClassId(value) ?? value).includes(resolvedClassId)) fail('Forbidden.', 403);
     const term = normalize(search);
-    return students.listStudents({ requestedSchoolId: actor.schoolId, includeTestRecords }).flatMap((student) => {
+    return students.listStudents({ requestedSchoolId: actor.schoolId, includeTestRecords, includeCompleted: Boolean(academicYear) }).flatMap((student) => {
       const enrollment = enrollmentFor(student, academicYear, resolvedClassId);
       if (!enrollment || (actor.roleKey === 'TEACHER' && !actor.assignedClassIds.map((value) => canonicalClassId(value) ?? value).includes(enrollment.classId))) return [];
       const item = row(student, { ...actor, academicYear }, enrollment);
