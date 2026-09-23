@@ -10,10 +10,10 @@ const unique = (items) => [...new Set(items.filter(Boolean))];
 
 function parseEffects(name, sql) {
   const tables = unique([...sql.matchAll(/create\s+table\s+(?:if\s+not\s+exists\s+)?`?([a-z0-9_]+)`?/gi)].map((match) => normalize(match[1])));
-  const columns = unique([...sql.matchAll(/alter\s+table\s+`?([a-z0-9_]+)`?\s+add\s+(?:column\s+)?`?([a-z0-9_]+)`?/gi)].map((match) => `${normalize(match[1])}.${normalize(match[2])}`));
+  const columns = unique([...sql.matchAll(/alter\s+table\s+`?([a-z0-9_]+)`?\s+add\s+(?:column\s+)?(?:if\s+not\s+exists\s+)?`?([a-z0-9_]+)`?/gi)].map((match) => `${normalize(match[1])}.${normalize(match[2])}`));
   const indexes = unique([
     ...[...sql.matchAll(/create\s+(?:unique\s+)?index\s+`?([a-z0-9_]+)`?\s+on\s+`?([a-z0-9_]+)`?/gi)].map((match) => `${normalize(match[2])}.${normalize(match[1])}`),
-    ...[...sql.matchAll(/(?:key|index|unique\s+key)\s+`?([a-z0-9_]+)`?\s*\(/gi)].map((match) => normalize(match[1]))
+    ...[...sql.matchAll(/(?:key|index|unique\s+key)\s+(?!if\s+not\s+exists\b)`?([a-z0-9_]+)`?\s*\(/gi)].map((match) => normalize(match[1]))
   ]);
   const foreignKeys = unique([...sql.matchAll(/foreign\s+key\s*\(\s*`?([a-z0-9_]+)`?\s*\)\s+references\s+`?([a-z0-9_]+)`?\s*\(\s*`?([a-z0-9_]+)`?/gi)].map((match) => `${normalize(match[2])}.${normalize(match[1])}->${normalize(match[3])}`));
   const views = unique([...sql.matchAll(/create\s+(?:or\s+replace\s+)?view\s+`?([a-z0-9_]+)`?/gi)].map((match) => normalize(match[1])));
