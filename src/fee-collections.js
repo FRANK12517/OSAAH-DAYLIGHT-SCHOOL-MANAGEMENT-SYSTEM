@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { normalizeFeeType } from './fee-types.js';
 
 export const NORMAL_COLLECTION_TERMS = ['1st Term', '2nd Term', '3rd Term'];
 export const EXTRA_CLASSES_PERIODS = [...NORMAL_COLLECTION_TERMS, 'Vacation Classes'];
@@ -10,8 +11,8 @@ function collectionPeriodFromInput(collectionType, input) { const requested = in
 export function validateCollectionPeriod(collectionType, value) {
   const type = String(collectionType ?? '').trim().toUpperCase();
   const period = value == null || value === '' ? null : String(value).trim();
-  if (!['EXTRA_CLASS', 'CANTEEN'].includes(type)) throw new Error('Invalid collection type.');
-  if (period && !(type === 'EXTRA_CLASS' ? EXTRA_CLASSES_PERIODS : CANTEEN_PERIODS).includes(period)) throw new Error(type === 'CANTEEN' ? 'Canteen collections support only 1st Term, 2nd Term, and 3rd Term.' : 'Invalid Extra Classes collection period.');
+  if (!['EXTRA_CLASS', 'EXTRA_CLASSES', 'CANTEEN'].includes(type)) { normalizeFeeType({ code: type }); if (period && !NORMAL_COLLECTION_TERMS.includes(period)) throw new Error('Standard fee collections support only 1st Term, 2nd Term, and 3rd Term.'); return period; }
+  if (period && !((type === 'EXTRA_CLASS' || type === 'EXTRA_CLASSES') ? EXTRA_CLASSES_PERIODS : CANTEEN_PERIODS).includes(period)) throw new Error(type === 'CANTEEN' ? 'Canteen collections support only 1st Term, 2nd Term, and 3rd Term.' : 'Invalid Extra Classes collection period.');
   return period;
 }
 export function createFeeCollections({ schoolId = 'school-osaah-daylight', now = () => new Date().toISOString(), audit = () => {} } = {}) {
