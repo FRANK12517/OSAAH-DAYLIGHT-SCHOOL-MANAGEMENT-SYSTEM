@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import bcrypt from 'bcrypt';
 import { admissionYearFor } from './permanent-student-id.js';
 import { requireStudentGender } from './student-gender.js';
+import { canonicalClassId } from './student-classes.js';
 
 function fail(code, message, status = 400) { throw Object.assign(new Error(message), { code, status }); }
 function value(...items) { return items.find((item) => item !== undefined && item !== null && item !== '') ?? null; }
@@ -63,11 +64,12 @@ export function createAdmissionEnrollmentService({ database, clock = () => new D
 
         let applicant = application.applicant_data;
         if (typeof applicant === 'string') { try { applicant = JSON.parse(applicant); } catch { fail('APPLICANT_DATA_INVALID', 'Admission applicant data is invalid.', 409); } }
-        applicant ??= {};
+        applicant = { ...application, ...(applicant ?? {}) };
         const timestamp = clock();
         const studentId = await nextStudentId(tx);
         const permanentStudentId = await nextPermanentStudentId(tx, value(application.academic_year_id, applicant.academicYear, application.admission_date, timestamp), timestamp);
-        const classId = value(application.class_id, applicant.classAssigned, applicant.classId);
+        const requestedClassId = value(application.class_id, applicant.classAssigned, applicant.classId);
+        const classId = canonicalClassId(requestedClassId) ?? requestedClassId;
         const admissionNumber = value(application.admission_number, applicant.admissionNumber, application.application_number);
         const firstName = value(applicant.firstName, applicant.studentFirstName);
         const middleName = value(applicant.middleName, applicant.studentMiddleName);
