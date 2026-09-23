@@ -6,7 +6,7 @@
 
 ## 2. Commit
 
-The commit is created after this report and the verified source changes are staged. The merged commit hash will be recorded in the delivery summary.
+Implementation commit: `115a4ae` (`feat: complete class database filters and search`). Merged `main` commit: `1af3ce62202f542b064661612c63525e29ddf40f`.
 
 ## 3. Architecture inspected
 
