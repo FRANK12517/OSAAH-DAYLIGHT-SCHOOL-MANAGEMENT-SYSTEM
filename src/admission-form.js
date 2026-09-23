@@ -3,7 +3,7 @@ import { isValidGhanaPhone } from './ghana-phone.js';
 import { normalizeStudentGender, requireStudentGender } from './student-gender.js';
 
 export const ADMISSION_FORM_STATUSES = ['DRAFT', 'SUBMITTED', 'UNDER_REVIEW', 'ACCEPTED', 'REJECTED'];
-export const ADMISSION_CLASSES = ['Crèche', 'Nursery', 'KG 1', 'KG 2', 'Basic 1', 'Basic 2', 'Basic 3', 'Basic 4', 'Basic 5', 'Basic 6', 'JHS 1', 'JHS 2', 'JHS 3'];
+export const ADMISSION_CLASSES = ['Nursery 1', 'Nursery 2', 'KG 1', 'KG 2', 'Primary 1', 'Primary 2', 'Primary 3', 'Primary 4', 'Primary 5', 'Primary 6', 'JHS 1', 'JHS 2', 'JHS 3', 'Crèche', 'Nursery', 'Basic 1', 'Basic 2', 'Basic 3', 'Basic 4', 'Basic 5', 'Basic 6'];
 export const FEE_DIVISIONS = ['CRECHE_NURSERY', 'KINDERGARTEN', 'PRIMARY', 'JHS'];
 export const PAYMENT_TERMS = ['At least 60% of the termly fees must be paid on or before the first week of reopening.', 'Fee payments must be made through designated bank accounts or official Mobile Money merchant codes.', 'Cash payment at the administrative desk is prohibited.'];
 export const DEFAULT_ADMISSION_FEES = Object.freeze({
@@ -14,9 +14,10 @@ export const DEFAULT_ADMISSION_FEES = Object.freeze({
 });
 
 const CLASS_DIVISIONS = new Map([
-  ['crèche', 'CRECHE_NURSERY'], ['creche', 'CRECHE_NURSERY'], ['nursery', 'CRECHE_NURSERY'],
-  ['kg 1', 'KINDERGARTEN'], ['kg 2', 'KINDERGARTEN'],
-  ['basic 1', 'PRIMARY'], ['basic 2', 'PRIMARY'], ['basic 3', 'PRIMARY'], ['basic 4', 'PRIMARY'], ['basic 5', 'PRIMARY'], ['basic 6', 'PRIMARY'],
+  ['nursery 1', 'CRECHE_NURSERY'], ['nursery 2', 'CRECHE_NURSERY'], ['crèche', 'CRECHE_NURSERY'], ['creche', 'CRECHE_NURSERY'], ['nursery', 'CRECHE_NURSERY'],
+  ['kg 1', 'KINDERGARTEN'], ['kg 2', 'KINDERGARTEN'], ['kg1', 'KINDERGARTEN'], ['kg2', 'KINDERGARTEN'],
+  ...Array.from({ length: 6 }, (_, index) => [`primary ${index + 1}`, 'PRIMARY']),
+  ...Array.from({ length: 6 }, (_, index) => [`basic ${index + 1}`, 'PRIMARY']),
   ['jhs 1', 'JHS'], ['jhs 2', 'JHS'], ['jhs 3', 'JHS']
 ]);
 const REQUIRED_FIELDS = ['studentSurname', 'studentFirstName', 'dateOfBirth', 'gender', 'hometown', 'region', 'nationality', 'classAppliedFor', 'residentialAddress', 'digitalAddress', 'nearestLandmark'];
