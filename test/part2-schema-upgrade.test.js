@@ -41,9 +41,9 @@ test('Part 2 prepares the canonical staff role identifiers without hard-coding u
   assert.doesNotMatch(sql, /password/i);
 });
 
-test('migration inventory remains uniquely versioned after Part 2', async () => {
+test('migration inventory remains uniquely versioned after attendance scope enhancement', async () => {
   const migrations = await discoverMigrations(new URL('../schema', import.meta.url));
-  assert.equal(migrations.length, 32);
+  assert.equal(migrations.length, 33);
   assert.equal(new Set(migrations.map((item) => item.version)).size, migrations.length);
-  assert.equal(migrations.at(-1).name, '033_canonical_class_catalog_reconciliation.sql');
+  assert.equal(migrations.at(-1).name, '034_attendance_academic_scope.sql');
 });
