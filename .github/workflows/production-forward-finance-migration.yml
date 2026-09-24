@@ -1,0 +1,63 @@
+name: Production forward-only finance migration
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Exact tested release commit SHA to inspect or migrate
+        required: true
+        type: string
+      mode:
+        description: Dry-run is read-only; apply executes only 050 then 051
+        required: true
+        default: dry-run
+        type: choice
+        options:
+          - dry-run
+          - apply
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-forward-finance-migration
+  cancel-in-progress: false
+
+jobs:
+  forward-finance:
+    name: Forward-only 050 then 051
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      OUTPUT_DIR: part5fe2-artifacts
+    steps:
+      - name: Check out exact tested release commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_ref }}
+          fetch-depth: 1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Confirm protected database secret is available
+        run: test -n "${DATABASE_URL:-}"
+
+      - name: Run fixed forward-only preflight and selected mode
+        run: node scripts/production-forward-finance-migrate.mjs "${{ inputs.mode }}"
+
+      - name: Upload sanitized migration artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: part5fe2-forward-finance-${{ github.run_id }}
+          path: part5fe2-artifacts/
+          if-no-files-found: error
