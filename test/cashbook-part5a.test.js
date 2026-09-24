@@ -51,3 +51,14 @@ function request(port, path, { method='GET', token, body } = {}) { return new Pr
 test('Cashbook HTTP API enforces Accountant/Proprietor access, rejects unauthorized roles, and has no write endpoint', async () => {
   const fixture = createAuthenticatedFinanceFixture(); const server = fixture.app; const listener = server.listen ? server : null; const httpServer = listener ?? (await import('node:http')).createServer(server); await new Promise((resolve) => httpServer.listen(0, resolve)); try { const port = httpServer.address().port; const allowed = await request(port, '/api/finance/cashbook', { token:fixture.accountantToken }); assert.equal(allowed.status, 200); assert.equal(Array.isArray(allowed.body.entries), true); const teacher = await request(port, '/api/finance/cashbook', { token:fixture.teacherToken }); assert.equal(teacher.status, 403); const unauthenticated = await request(port, '/api/finance/cashbook'); assert.equal(unauthenticated.status, 401); const write = await request(port, '/api/finance/cashbook', { method:'POST', token:fixture.accountantToken, body:{} }); assert.equal(write.status, 405); } finally { await new Promise((resolve) => httpServer.close(resolve)); }
 });
+
+test('Cashbook reads the deployed fee_payments shape without requiring a status column', async () => {
+  const queries = [];
+  const adapter = { async query(sql, params = []) { queries.push(sql); if (sql.includes('FROM fee_payments')) return [{ id:'fee-production', school_id:params[0], student_id:'student-1', term_id:'term-1', amount_paid:'125.50', payment_date:'2026-09-24T08:00:00', payment_method:'BANK', reference_number:'PAY-001', received_by:'accountant-a', created_at:'2026-09-24T08:00:00' }]; if (sql.includes('general_income')) return []; if (sql.includes('general_expenses')) return []; return []; } };
+  const result = await createCashbookService({ adapter }).getCashbookEntries({}, accountant);
+  assert.equal(result.total, 1);
+  assert.equal(result.entries[0].moneyIn, 125.5);
+  assert.equal(result.entries[0].reference, 'PAY-001');
+  assert.ok(queries.some((sql) => sql === 'SELECT * FROM fee_payments WHERE school_id=?'));
+  assert.ok(queries.every((sql) => !sql.includes('status IN')));
+});
