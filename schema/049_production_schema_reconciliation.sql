@@ -34,7 +34,7 @@ CREATE INDEX IF NOT EXISTS idx_staff_attendance_scope ON staff_attendance(school
 CREATE INDEX IF NOT EXISTS idx_staff_leave_scope_state ON staff_leave(school_id, academic_year, term, state, starts_on, ends_on);
 CREATE INDEX IF NOT EXISTS idx_staff_attendance_staff_date ON staff_attendance(school_id, academic_year, term, staff_id, attendance_date);
 CREATE INDEX IF NOT EXISTS idx_staff_attendance_leave_link ON staff_attendance(school_id, leave_request_id(191), attendance_date);
-CREATE UNIQUE INDEX IF NOT EXISTS uq_student_attendance_scope_identity ON student_attendance(school_id, academic_year, term, date, class_id, student_id, subject_key);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_student_attendance_scope_identity ON student_attendance(school_id(64), academic_year(64), term(32), date, class_id(64), student_id(64), subject_key(128));
 CREATE UNIQUE INDEX IF NOT EXISTS uq_staff_attendance_scope_identity ON staff_attendance(school_id, academic_year, term, attendance_date, staff_id, attendance_type);
 
 CREATE TABLE IF NOT EXISTS attendance_audit_history (
