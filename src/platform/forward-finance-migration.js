@@ -5,7 +5,10 @@ export const FORWARD_FINANCE_MIGRATIONS = Object.freeze([
   Object.freeze({ version: 51, name: '051_income_expense_management.sql' })
 ]);
 export const EXPECTED_PRODUCTION_DATABASE = 'osaahdaylightschool';
-export const REQUIRED_PRE_050_TABLES = Object.freeze(['schools', 'users', 'academic_years', 'terms', 'financial_audit_history']);
+// The authoritative Part 5F-E1 diagnostic classifies financial_audit_history
+// as a separate historical/runtime difference, not a blocking prerequisite
+// for migration 050 or the post-050 contract for migration 051.
+export const REQUIRED_PRE_050_TABLES = Object.freeze(['schools', 'users', 'academic_years', 'terms']);
 export const REQUIRED_POST_050_TABLES = Object.freeze(['budgets', 'budget_items']);
 export const REQUIRED_POST_051_TABLES = Object.freeze(['general_income', 'general_expenses']);
 
