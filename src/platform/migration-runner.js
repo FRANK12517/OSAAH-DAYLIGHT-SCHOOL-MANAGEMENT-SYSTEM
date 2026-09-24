@@ -26,8 +26,9 @@ export function createInMemoryMigrationAdapter(storage = {}) {
     async listBaselines() { return structuredClone(storage.baselines); },
     async acquireLock() { if (storage.locked) return false; storage.locked = true; return true; },
     async releaseLock() { storage.locked = false; },
-    async transaction(work) { const applied = structuredClone(storage.applied), statements = [...storage.statements]; try { return await work(); } catch (cause) { storage.applied = applied; storage.statements = statements; throw cause; } },
+    async transaction(work) { const applied = structuredClone(storage.applied), statements = [...storage.statements]; try { return await work(this); } catch (cause) { storage.applied = applied; storage.statements = statements; throw cause; } },
     async execute(sql) { storage.statements.push(sql); },
+    async executeMigrationSql(sql) { return this.execute(sql); },
     async recordApplied(record) { storage.applied.push(structuredClone(record)); },
     storage
   });
@@ -63,8 +64,18 @@ export function createMigrationRunner({ adapter, directory, clock = () => new Da
     if (before.baseline && before.historicalUntracked.length && baselineRequired === false) throw error('HISTORICAL_BASELINE_REQUIRED', 'Untracked historical migrations require explicit baseline-aware execution.');
     if (dryRun) return Object.freeze({ dryRun: true, baseline: before.baseline, historicalUntracked: before.historicalUntracked, pending: before.pending.map(({ version, name, checksum }) => ({ version, name, checksum })) });
     if (!await adapter.acquireLock()) throw error('MIGRATION_LOCKED', 'Another migration execution is already active.');
-    try { const result = await inspect({ createMetadata: false }), applied = []; for (const migration of result.pending) await adapter.transaction(async () => { await adapter.execute(migration.sql); const record = { version: migration.version, name: migration.name, checksum: migration.checksum, appliedAt: clock() }; await adapter.recordApplied(record); applied.push(record); }); return Object.freeze({ dryRun: false, baseline: result.baseline, historicalUntracked: result.historicalUntracked, applied }); }
-    catch (cause) { if (cause.code) throw cause; throw error('MIGRATION_FAILED', 'Migration execution failed safely.'); }
+    try {
+      const result = await inspect({ createMetadata: false }), applied = [];
+      for (const migration of result.pending) await adapter.transaction(async (transaction) => {
+        const executor = transaction?.executeMigrationSql ?? adapter.executeMigrationSql;
+        if (typeof executor !== 'function') throw error('DATABASE_ADAPTER_INVALID', 'Database adapter is missing executeMigrationSql().');
+        await executor.call(transaction ?? adapter, migration.sql, { migrationName: migration.name, version: migration.version });
+        const record = { version: migration.version, name: migration.name, checksum: migration.checksum, appliedAt: clock() };
+        if (typeof transaction?.recordApplied === 'function') await transaction.recordApplied(record); else await adapter.recordApplied(record);
+        applied.push(record);
+      });
+      return Object.freeze({ dryRun: false, baseline: result.baseline, historicalUntracked: result.historicalUntracked, applied });
+    } catch (cause) { if (cause.code) throw cause; throw error('MIGRATION_FAILED', 'Migration execution failed safely.'); }
     finally { await adapter.releaseLock(); }
   }
   return Object.freeze({ status, validate, apply });

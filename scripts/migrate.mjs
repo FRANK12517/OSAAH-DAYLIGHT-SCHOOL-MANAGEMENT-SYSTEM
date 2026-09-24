@@ -11,4 +11,4 @@ async function main() {
   const loaded = await import(pathToFileURL(resolve(modulePath))); const adapter = await loaded.createDatabaseAdapter?.({ environment: process.env });
   const runner = createMigrationRunner({ adapter, directory, baselineRequired: Boolean(process.env.DATABASE_URL) }); return command === 'apply' ? runner.apply() : command === 'validate' ? runner.validate() : runner.status();
 }
-try { process.stdout.write(`${JSON.stringify(await main())}\n`); } catch (cause) { process.stderr.write(`${JSON.stringify({ error: cause.code ?? 'MIGRATION_COMMAND_FAILED', message: cause.code ? cause.message : 'Migration command failed safely.' })}\n`); process.exitCode = 1; }
+try { process.stdout.write(`${JSON.stringify(await main())}\n`); } catch (cause) { const payload = { error: cause.code ?? 'MIGRATION_COMMAND_FAILED', message: cause.code ? cause.message : 'Migration command failed safely.' }; if (cause.details) payload.details = cause.details; process.stderr.write(`${JSON.stringify(payload)}\n`); process.exitCode = 1; }
