@@ -16,7 +16,7 @@ export function createCashbookService({ adapter, fees = null, students = null } 
   async function sourceRows(actor) {
     authorizeFinancial(actor, 'READ', 'cashbook');
     const [feeRows, incomeRows, expenseRows] = await Promise.all([
-      adapter.query("SELECT * FROM student_fee_payments WHERE school_id=? AND status IN ('COMPLETED','POSTED','VALID','PAID')", [actor.schoolId]),
+      adapter.query("SELECT * FROM fee_payments WHERE school_id=? AND status IN ('COMPLETED','POSTED','VALID','PAID')", [actor.schoolId]),
       adapter.query('SELECT * FROM general_income WHERE school_id=?', [actor.schoolId]),
       adapter.query('SELECT * FROM general_expenses WHERE school_id=?', [actor.schoolId])
     ]);
