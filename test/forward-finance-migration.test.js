@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -110,4 +110,11 @@ test('missing migration file fails closed', async () => {
   const adapter = adapterFactory();
   const directory = await migrationDirectory({ '050_budget_management.sql': sql050 });
   await assert.rejects(() => createForwardOnlyFinanceRunner({ adapter, directory }), (error) => error.code === 'FORWARD_MIGRATION_FILE_MISSING');
+});
+
+test('migration 051 uses bounded types for keys and indexed columns', async () => {
+  const sql = await readFile(new URL('../schema/051_income_expense_management.sql', import.meta.url), 'utf8');
+  assert.doesNotMatch(sql, /\b(?:id|school_id|transaction_date|academic_year|term|budget_id|budget_item_id|created_by|updated_by|voided_by|created_at|updated_at|voided_at)\s+TEXT\b/);
+  assert.match(sql, /id VARCHAR\(191\) PRIMARY KEY/);
+  assert.match(sql, /budget_id VARCHAR\(64\).*REFERENCES budgets\(id\)/);
 });
