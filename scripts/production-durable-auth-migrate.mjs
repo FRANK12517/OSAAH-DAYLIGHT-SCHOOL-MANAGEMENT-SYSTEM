@@ -30,7 +30,12 @@ if (!process.env.DATABASE_URL) {
       sqlState: error.details.sqlState ?? null,
       databaseMessage: error.details.databaseMessage ?? null
     } : undefined;
-    process.stderr.write(JSON.stringify({ error: error.code ?? 'DURABLE_AUTH_MIGRATION_FAILED', message: error.code ? error.message : 'Durable auth migration failed safely.', ...(details ? { details } : {}) }) + '\n');
+    let schema = undefined;
+    try {
+      const columns = await adapter.query('SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN (?, ?) ORDER BY TABLE_NAME, ORDINAL_POSITION', ['student_attendance', 'staff_attendance']);
+      schema = { attendanceColumns: columns };
+    } catch { /* preserve the original migration error if diagnostics are unavailable */ }
+    process.stderr.write(JSON.stringify({ error: error.code ?? 'DURABLE_AUTH_MIGRATION_FAILED', message: error.code ? error.message : 'Durable auth migration failed safely.', ...(details ? { details } : {}), ...(schema ?? {}) }) + '\n');
     process.exitCode = 1;
   } finally { await adapter.close(); }
 }
