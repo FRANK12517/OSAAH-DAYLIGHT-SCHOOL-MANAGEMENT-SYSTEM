@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS attendance_audit_history (
   previous_reason TEXT,
   new_reason TEXT,
   changed_by VARCHAR(191) NOT NULL,
-  changed_at TEXT NOT NULL,
+  changed_at VARCHAR(50) NOT NULL,
   source VARCHAR(32) NOT NULL,
   action VARCHAR(16) NOT NULL
 );
@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS staff_attendance_reconciliation_audit (
   school_id VARCHAR(191) NOT NULL,
   leave_request_id VARCHAR(191) NOT NULL,
   staff_attendance_id VARCHAR(191),
-  attendance_date TEXT NOT NULL,
+  attendance_date VARCHAR(50) NOT NULL,
   action TEXT NOT NULL,
   previous_status VARCHAR(32),
   next_status VARCHAR(32),
