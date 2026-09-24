@@ -38,16 +38,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_student_attendance_scope_identity ON studen
 CREATE UNIQUE INDEX IF NOT EXISTS uq_staff_attendance_scope_identity ON staff_attendance(school_id, academic_year, term, attendance_date, staff_id, attendance_type);
 
 CREATE TABLE IF NOT EXISTS attendance_audit_history (
-  id TEXT PRIMARY KEY,
-  school_id TEXT NOT NULL,
-  attendance_record_id TEXT NOT NULL,
-  person_id TEXT NOT NULL,
+  id VARCHAR(191) PRIMARY KEY,
+  school_id VARCHAR(191) NOT NULL,
+  attendance_record_id VARCHAR(191) NOT NULL,
+  person_id VARCHAR(191) NOT NULL,
   person_type VARCHAR(16) NOT NULL,
   previous_status VARCHAR(32),
   new_status VARCHAR(32) NOT NULL,
   previous_reason TEXT,
   new_reason TEXT,
-  changed_by TEXT NOT NULL,
+  changed_by VARCHAR(191) NOT NULL,
   changed_at TEXT NOT NULL,
   source VARCHAR(32) NOT NULL,
   action VARCHAR(16) NOT NULL
@@ -56,16 +56,16 @@ CREATE INDEX IF NOT EXISTS idx_attendance_audit_scope ON attendance_audit_histor
 CREATE INDEX IF NOT EXISTS idx_attendance_audit_person ON attendance_audit_history(school_id, person_id, changed_at);
 
 CREATE TABLE IF NOT EXISTS staff_attendance_reconciliation_audit (
-  id TEXT PRIMARY KEY,
-  school_id TEXT NOT NULL,
-  leave_request_id TEXT NOT NULL,
-  staff_attendance_id TEXT,
+  id VARCHAR(191) PRIMARY KEY,
+  school_id VARCHAR(191) NOT NULL,
+  leave_request_id VARCHAR(191) NOT NULL,
+  staff_attendance_id VARCHAR(191),
   attendance_date TEXT NOT NULL,
   action TEXT NOT NULL,
   previous_status VARCHAR(32),
   next_status VARCHAR(32),
   details TEXT NOT NULL,
-  actor_id TEXT,
+  actor_id VARCHAR(191),
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_staff_attendance_reconciliation_audit_leave ON staff_attendance_reconciliation_audit(school_id, leave_request_id, attendance_date);
