@@ -52,8 +52,8 @@ CREATE TABLE IF NOT EXISTS attendance_audit_history (
   source VARCHAR(32) NOT NULL,
   action VARCHAR(16) NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_attendance_audit_scope ON attendance_audit_history(school_id, attendance_record_id, changed_at);
-CREATE INDEX IF NOT EXISTS idx_attendance_audit_person ON attendance_audit_history(school_id, person_id, changed_at);
+CREATE INDEX IF NOT EXISTS idx_attendance_audit_scope ON attendance_audit_history(school_id, attendance_record_id, changed_at(50));
+CREATE INDEX IF NOT EXISTS idx_attendance_audit_person ON attendance_audit_history(school_id, person_id, changed_at(50));
 
 CREATE TABLE IF NOT EXISTS staff_attendance_reconciliation_audit (
   id VARCHAR(191) PRIMARY KEY,
@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS staff_attendance_reconciliation_audit (
   actor_id VARCHAR(191),
   created_at TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_staff_attendance_reconciliation_audit_leave ON staff_attendance_reconciliation_audit(school_id, leave_request_id, attendance_date);
+CREATE INDEX IF NOT EXISTS idx_staff_attendance_reconciliation_audit_leave ON staff_attendance_reconciliation_audit(school_id, leave_request_id, attendance_date(50));
 
 -- Collection and correction support. Vacation Classes remains a collection period,
 -- not a canonical academic term.
