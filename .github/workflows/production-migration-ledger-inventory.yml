@@ -1,0 +1,49 @@
+name: Production migration ledger inventory
+on:
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Exact release commit to associate with the read-only inspection
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: production-migration-ledger-inventory
+  cancel-in-progress: false
+jobs:
+  inventory:
+    name: Read-only production migration ledger inventory
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - name: Check out diagnostic branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 2
+      - name: Verify requested release commit exists
+        shell: bash
+        env:
+          RELEASE_REF: ${{ inputs.release_ref }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$RELEASE_REF"
+          test "$(git rev-parse FETCH_HEAD)" = "$RELEASE_REF"
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Confirm protected database secret is available
+        run: test -n "${DATABASE_URL:-}"
+      - name: Prove inventory source is read-only
+        shell: bash
+        run: |
+          ! grep -Eiq '\\b(INSERT|UPDATE|DELETE|ALTER|CREATE|DROP|TRUNCATE|REPLACE|CALL|SET)\\b[[:space:]]' scripts/production-migration-ledger-inventory.mjs
+      - name: Run read-only production migration ledger inventory
+        run: node scripts/production-migration-ledger-inventory.mjs
