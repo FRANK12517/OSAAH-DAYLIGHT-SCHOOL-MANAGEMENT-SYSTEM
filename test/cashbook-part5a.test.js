@@ -21,7 +21,7 @@ function memoryCashbookAdapter() {
       { id:'expense-void', school_id:'school-test-a', transaction_date:'2026-01-03T10:00:00', academic_year:'2026', term:'TERM1', expense_category:'Utilities', description:'Voided expense', reference_number:'EXP-VOID', amount:'600.00', payment_method:'BANK', payee:'Supplier', status:'VOIDED', created_by:'accountant-a', created_at:'2026-01-03T10:00:00' }
     ]
   };
-  return { tables, async query(sql, params = []) { if (sql.includes('student_fee_payments')) return tables.payments.filter((row) => row.school_id === params[0] && ['COMPLETED','POSTED','VALID','PAID'].includes(row.status)); if (sql.includes('general_income')) return tables.income.filter((row) => row.school_id === params[0]); if (sql.includes('general_expenses')) return tables.expenses.filter((row) => row.school_id === params[0]); return []; } };
+  return { tables, async query(sql, params = []) { if (sql.includes('FROM fee_payments WHERE')) return tables.payments.filter((row) => row.school_id === params[0] && ['COMPLETED','POSTED','VALID','PAID'].includes(row.status)); if (sql.includes('general_income')) return tables.income.filter((row) => row.school_id === params[0]); if (sql.includes('general_expenses')) return tables.expenses.filter((row) => row.school_id === params[0]); return []; } };
 }
 const accountant = { id:'accountant-a', roleKey:'ACCOUNTANT_BURSAR', schoolId:'school-test-a' };
 const proprietor = { id:'proprietor-a', roleKey:'PROPRIETOR', schoolId:'school-test-a' };
