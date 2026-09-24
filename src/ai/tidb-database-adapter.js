@@ -23,7 +23,71 @@ const schemaBaselineDdl = `CREATE TABLE IF NOT EXISTS schema_baselines (
   historical_migrations_executed TINYINT NOT NULL DEFAULT 0,
   created_at DATETIME NOT NULL
 )`;
-const adapterError = (code, message) => Object.assign(new Error(message), { code });
+const adapterError = (code, message, details) => Object.assign(new Error(message), { code, details });
+
+function splitMigrationSql(sql) {
+  if (typeof sql !== 'string') throw new TypeError('Migration SQL must be a string.');
+  const statements = [];
+  let current = '', state = 'normal';
+  for (let index = 0; index < sql.length; index += 1) {
+    const character = sql[index], next = sql[index + 1];
+    if (state === 'lineComment') {
+      current += character;
+      if (character === '\n') state = 'normal';
+      continue;
+    }
+    if (state === 'blockComment') {
+      current += character;
+      if (character === '*' && next === '/') { current += next; index += 1; state = 'normal'; }
+      continue;
+    }
+    if (state === 'single' || state === 'double' || state === 'backtick') {
+      current += character;
+      if (character === '\\' && next) { current += next; index += 1; continue; }
+      if ((state === 'single' && character === "'") || (state === 'double' && character === '"') || (state === 'backtick' && character === '`')) {
+        if (next === character) { current += next; index += 1; } else state = 'normal';
+      }
+      continue;
+    }
+    if (character === '-' && next === '-' && /\s/.test(sql[index + 2] ?? '')) { current += character + next; index += 1; state = 'lineComment'; continue; }
+    if (character === '#') { current += character; state = 'lineComment'; continue; }
+    if (character === '/' && next === '*') { current += character + next; index += 1; state = 'blockComment'; continue; }
+    if (character === "'") { current += character; state = 'single'; continue; }
+    if (character === '"') { current += character; state = 'double'; continue; }
+    if (character === '`') { current += character; state = 'backtick'; continue; }
+    if (character === ';') { if (current.trim()) statements.push(current.trim()); current = ''; continue; }
+    current += character;
+  }
+  if (state !== 'normal') throw new Error('Unterminated SQL quote or comment in migration.');
+  if (current.trim()) statements.push(current.trim());
+  return statements;
+}
+
+function sanitizedMessage(error) {
+  return String(error?.message ?? 'Database rejected migration statement.')
+    .replace(/(?:mysql|mariadb):\/\/[^\s]+/gi, '[redacted-database-url]')
+    .replace(/(password|passwd|secret|token|key)=([^\s&]+)/gi, '$1=[redacted]');
+}
+
+function operationOf(statement) { const withoutLeadingComments = statement.replace(/^\s*(?:(?:--|#)[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/\s*)*/g, ''); return withoutLeadingComments.match(/^(\w+)/)?.[1]?.toUpperCase() ?? 'UNKNOWN'; }
+
+async function executeMigrationSqlOn(connection, sql, context = {}) {
+  const statements = splitMigrationSql(sql);
+  for (const [offset, statement] of statements.entries()) {
+    try { await connection.execute(statement); }
+    catch (cause) {
+      throw adapterError('MIGRATION_STATEMENT_FAILED', 'Migration statement failed.', {
+        migration: context.migrationName ?? null,
+        version: context.version ?? null,
+        statementIndex: offset + 1,
+        operation: operationOf(statement),
+        databaseCode: cause?.code ?? null,
+        sqlState: cause?.sqlState ?? null,
+        databaseMessage: sanitizedMessage(cause)
+      });
+    }
+  }
+}
 
 export function createDatabaseAdapter({ environment, poolFactory = mysql.createPool } = {}) {
   const connectionString = environment?.DATABASE_URL || process.env.DATABASE_URL;
@@ -45,7 +109,9 @@ export function createDatabaseAdapter({ environment, poolFactory = mysql.createP
       try {
         const transactionalAdapter = {
           async query(sql, params = []) { const [rows] = await connection.query(sql, params); return rows; },
-          async execute(sql, params = []) { const [result] = await connection.execute(sql, params); return { insertId: result.insertId, affectedRows: result.affectedRows }; }
+          async execute(sql, params = []) { const [result] = await connection.execute(sql, params); return { insertId: result.insertId, affectedRows: result.affectedRows }; },
+          async executeMigrationSql(sql, context) { return executeMigrationSqlOn(connection, sql, context); },
+          async recordApplied(record) { await this.execute('INSERT INTO schema_migrations (version, name, checksum, applied_at) VALUES (?, ?, ?, ?)', [Number(record.version), record.name, record.checksum, record.appliedAt]); }
         };
         const result = await callback(transactionalAdapter); await connection.commit(); return result;
       } catch (error) { await connection.rollback(); throw error; } finally { connection.release(); }
@@ -81,5 +147,5 @@ export function createDatabaseAdapter({ environment, poolFactory = mysql.createP
   };
 }
 
-export { schemaMigrationDdl, schemaMigrationLockDdl, schemaBaselineDdl };
+export { schemaMigrationDdl, schemaMigrationLockDdl, schemaBaselineDdl, splitMigrationSql, executeMigrationSqlOn };
 export default createDatabaseAdapter;

@@ -65,3 +65,40 @@ test('production persistence auto-loads the bundled adapter when DATABASE_URL is
   assert.equal(persistence.auditSink.durable, true);
   assert.equal(persistence.actionStore.durable, true);
 });
+
+function migrationPool({ failOn } = {}) {
+  const statements = [];
+  const connection = {
+    async beginTransaction() {},
+    async execute(sql) { statements.push(sql); if (failOn && sql.includes(failOn)) throw Object.assign(new Error('private database detail'), { code: 'ER_TEST', sqlState: '42000' }); return [{ affectedRows: 1 }, []]; },
+    async query() { return [[], []]; },
+    async commit() {},
+    async rollback() {},
+    release() {}
+  };
+  return { statements, pool: { async query() { return [[], []]; }, async execute() { return [{ affectedRows: 1 }, []]; }, async getConnection() { return connection; }, async end() {} } };
+}
+
+test('migration execution runs statements individually without enabling normal multi-statements', async () => {
+  const { pool, statements } = migrationPool();
+  let poolOptions;
+  const adapter = createDatabaseAdapter({ environment: { DATABASE_URL: 'mysql://user:password@example.test:4000/osaah' }, poolFactory: (options) => { poolOptions = options; return pool; } });
+  try {
+    await adapter.transaction(async (transaction) => transaction.executeMigrationSql("-- comment;\nCREATE TABLE one (value TEXT DEFAULT 'a;b'); CREATE TABLE two (id TEXT);", { migrationName: '049_production_schema_reconciliation.sql', version: 49 }));
+    assert.deepEqual(statements, ["-- comment;\nCREATE TABLE one (value TEXT DEFAULT 'a;b')", 'CREATE TABLE two (id TEXT)']);
+    assert.equal(poolOptions.multipleStatements, undefined);
+  } finally { await adapter.close(); }
+});
+
+test('migration execution reports statement diagnostics without private database details', async () => {
+  const { pool, statements } = migrationPool({ failOn: 'BROKEN' });
+  const adapter = createDatabaseAdapter({ environment: { DATABASE_URL: 'mysql://user:password@example.test:4000/osaah' }, poolFactory: () => pool });
+  try {
+    await assert.rejects(() => adapter.transaction((transaction) => transaction.executeMigrationSql('CREATE TABLE ok (id TEXT); BROKEN;', { migrationName: '049_production_schema_reconciliation.sql', version: 49 })), (error) => {
+      assert.equal(error.code, 'MIGRATION_STATEMENT_FAILED');
+      assert.deepEqual(error.details, { migration: '049_production_schema_reconciliation.sql', version: 49, statementIndex: 2, operation: 'BROKEN', databaseCode: 'ER_TEST', sqlState: '42000', databaseMessage: 'private database detail' });
+      return true;
+    });
+    assert.equal(statements.length, 2);
+  } finally { await adapter.close(); }
+});
