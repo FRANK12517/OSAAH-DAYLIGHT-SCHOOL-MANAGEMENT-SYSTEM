@@ -43,7 +43,7 @@ test('Part 2 prepares the canonical staff role identifiers without hard-coding u
 
 test('migration inventory remains uniquely versioned after fee type registry', async () => {
   const migrations = await discoverMigrations(new URL('../schema', import.meta.url));
-  assert.equal(migrations.length, 48);
+  assert.equal(migrations.length, 50);
   assert.equal(new Set(migrations.map((item) => item.version)).size, migrations.length);
-  assert.equal(migrations.at(-1).name, '049_production_schema_reconciliation.sql');
+  assert.equal(migrations.at(-1).name, '051_income_expense_management.sql');
 });

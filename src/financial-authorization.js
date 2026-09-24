@@ -1,4 +1,4 @@
-const RESOURCE_KEYS = Object.freeze(['fees', 'feeStructures', 'studentFees', 'payments', 'invoices', 'receipts']);
+const RESOURCE_KEYS = Object.freeze(['fees', 'feeStructures', 'studentFees', 'payments', 'invoices', 'receipts', 'budgets', 'income', 'expenses', 'cashbook']);
 const ACTIONS = Object.freeze(['READ', 'CREATE', 'UPDATE', 'DELETE', 'PUBLISH', 'VOID_REVERSE', 'PRINT_EXPORT']);
 
 // Deliberately least-privilege: role names are normalized by auth.js, while
