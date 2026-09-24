@@ -10,7 +10,9 @@
     "test": "node --test",
     "migration:status": "node scripts/migrate.mjs status",
     "migration:apply": "node scripts/migrate.mjs apply",
-    "migration:validate": "node scripts/migrate.mjs validate"
+    "migration:validate": "node scripts/migrate.mjs validate",
+    "reconciliation:preflight": "node scripts/production-reconciliation-preflight.mjs",
+    "migration:baseline": "node scripts/record-production-baseline.mjs"
   },
   "engines": {
     "node": ">=20"

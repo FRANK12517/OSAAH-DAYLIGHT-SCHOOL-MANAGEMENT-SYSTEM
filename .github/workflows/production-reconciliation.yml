@@ -1,0 +1,85 @@
+name: Production current-state reconciliation
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Exact reviewed release commit SHA
+        required: true
+        type: string
+      execute_reconciliation:
+        description: Type APPLY_049 only after review of the read-only preflight
+        required: true
+        default: DRY_RUN_ONLY
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-current-state-reconciliation
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Read-only reconciliation preflight
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - name: Check out reviewed release
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_ref }}
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Confirm protected database secret is available
+        run: test -n "${DATABASE_URL:-}"
+      - name: Run read-only preflight
+        run: npm run reconciliation:preflight
+      - name: Enforce zero destructive operations
+        run: |
+          test "${{ inputs.execute_reconciliation }}" = "DRY_RUN_ONLY" || test "${{ inputs.execute_reconciliation }}" = "APPLY_049"
+  apply:
+    name: Apply reviewed 049 reconciliation
+    needs: preflight
+    if: ${{ inputs.execute_reconciliation == 'APPLY_049' }}
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - name: Check out reviewed release
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_ref }}
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Confirm explicit execution token
+        run: test "${{ inputs.execute_reconciliation }}" = "APPLY_049"
+      - name: Record current-state baseline provenance
+        env:
+          OSAAH_BASELINE_CONFIRM: RECORD_CURRENT_BASELINE
+          GITHUB_SHA: ${{ inputs.release_ref }}
+        run: npm run migration:baseline
+      - name: Apply canonical migration runner
+        run: npm run migration:apply
+      - name: Verify migration status and validation
+        run: |
+          npm run migration:status
+          npm run migration:validate
+      - name: Run complete repository test suite
+        run: npm test

@@ -7,8 +7,8 @@ test('TiDB database adapter requires DATABASE_URL', () => {
   const original = process.env.DATABASE_URL;
   try {
     delete process.env.DATABASE_URL;
-    assert.throws(() => createDatabaseAdapter({ environment: {} }), {
-      message: 'DATABASE_URL is required for the TiDB AI persistence adapter.'
+      assert.throws(() => createDatabaseAdapter({ environment: {} }), {
+      message: 'DATABASE_URL is required for the TiDB database adapter.'
     });
   } finally {
     if (original === undefined) delete process.env.DATABASE_URL;
@@ -18,11 +18,14 @@ test('TiDB database adapter requires DATABASE_URL', () => {
 
 test('TiDB database adapter exposes the durable persistence contract', async () => {
   const adapter = createDatabaseAdapter({ environment: { DATABASE_URL: 'mysql://user:password@example.test:4000/osaah' } });
-  assert.deepEqual(Object.keys(adapter).sort(), ['execute', 'healthCheck', 'query', 'transaction']);
+  assert.deepEqual(Object.keys(adapter).sort(), ['acquireLock', 'close', 'ensureMetadata', 'execute', 'healthCheck', 'listApplied', 'listBaselines', 'query', 'recordApplied', 'recordBaseline', 'releaseLock', 'transaction']);
   assert.equal(typeof adapter.query, 'function');
   assert.equal(typeof adapter.execute, 'function');
   assert.equal(typeof adapter.transaction, 'function');
   assert.equal(typeof adapter.healthCheck, 'function');
+  assert.equal(typeof adapter.ensureMetadata, 'function');
+  assert.equal(typeof adapter.listApplied, 'function');
+  assert.equal(typeof adapter.recordBaseline, 'function');
 });
 
 test('production persistence auto-loads the bundled adapter when DATABASE_URL is configured', async () => {
