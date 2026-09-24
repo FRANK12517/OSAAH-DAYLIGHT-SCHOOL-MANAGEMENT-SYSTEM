@@ -29,12 +29,12 @@ ALTER TABLE staff_leave ADD COLUMN IF NOT EXISTS term VARCHAR(32) DEFAULT NULL;
 ALTER TABLE staff_leave ADD COLUMN IF NOT EXISTS cancellation_reason TEXT DEFAULT NULL;
 ALTER TABLE staff_leave ADD COLUMN IF NOT EXISTS updated_at TEXT DEFAULT NULL;
 
-CREATE INDEX IF NOT EXISTS idx_student_attendance_scope ON student_attendance(school_id, academic_year, term, class_id, attendance_date);
+CREATE INDEX IF NOT EXISTS idx_student_attendance_scope ON student_attendance(school_id, academic_year, term, class_id, date);
 CREATE INDEX IF NOT EXISTS idx_staff_attendance_scope ON staff_attendance(school_id, academic_year, term, attendance_date, staff_id);
 CREATE INDEX IF NOT EXISTS idx_staff_leave_scope_state ON staff_leave(school_id, academic_year, term, state, starts_on, ends_on);
 CREATE INDEX IF NOT EXISTS idx_staff_attendance_staff_date ON staff_attendance(school_id, academic_year, term, staff_id, attendance_date);
 CREATE INDEX IF NOT EXISTS idx_staff_attendance_leave_link ON staff_attendance(school_id, leave_request_id, attendance_date);
-CREATE UNIQUE INDEX IF NOT EXISTS uq_student_attendance_scope_identity ON student_attendance(school_id, academic_year, term, attendance_date, class_id, student_id, subject_key);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_student_attendance_scope_identity ON student_attendance(school_id, academic_year, term, date, class_id, student_id, subject_key);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_staff_attendance_scope_identity ON staff_attendance(school_id, academic_year, term, attendance_date, staff_id, attendance_type);
 
 CREATE TABLE IF NOT EXISTS attendance_audit_history (
@@ -203,7 +203,7 @@ CREATE TABLE IF NOT EXISTS fee_types (
 ALTER TABLE fee_structures ADD COLUMN IF NOT EXISTS fee_type_id TEXT DEFAULT NULL;
 ALTER TABLE fee_structures ADD COLUMN IF NOT EXISTS custom_fee_type_name TEXT DEFAULT NULL;
 CREATE INDEX IF NOT EXISTS idx_fee_types_scope ON fee_types(school_id, is_active, code);
-CREATE INDEX IF NOT EXISTS idx_fee_structure_fee_type ON fee_structures(school_id, fee_type_id, academic_year_id, term_id);
+CREATE INDEX IF NOT EXISTS idx_fee_structure_fee_type ON fee_structures(school_id, fee_type_id, academic_year, term);
 
 -- Reporting views are additive projections over the current financial source of truth.
 CREATE OR REPLACE VIEW vw_student_fee_balances AS
@@ -217,7 +217,7 @@ GROUP BY a.id, a.school_id, a.student_id, a.permanent_student_id, a.academic_yea
 CREATE OR REPLACE VIEW vw_fee_overview AS SELECT school_id, academic_year_id, term_id, COUNT(*) AS student_accounts, SUM(total_charged) AS expected_fees, SUM(total_discount) AS discounts, SUM(total_paid) AS collected, SUM(balance) AS outstanding FROM vw_student_fee_balances GROUP BY school_id, academic_year_id, term_id;
 CREATE OR REPLACE VIEW vw_fee_arrears AS SELECT * FROM vw_student_fee_balances WHERE balance > 0;
 CREATE OR REPLACE VIEW vw_published_fee_structures AS
-SELECT id, school_id, academic_year_id, term_id, class_id, fee_type, amount, status
+SELECT id, school_id, academic_year AS academic_year_id, term AS term_id, class_id, fee_type, amount, status
 FROM fee_structures WHERE status = 'PUBLISHED';
 CREATE OR REPLACE VIEW vw_invoice_receipt_register AS
 SELECT p.school_id, p.permanent_student_id, p.academic_year_id, p.term_id, p.class_id,

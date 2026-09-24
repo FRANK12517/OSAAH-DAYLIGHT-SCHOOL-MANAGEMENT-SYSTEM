@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import mysql from 'mysql2/promise';
+import { splitMigrationSql } from '../src/ai/tidb-database-adapter.js';
 
 const expectedDatabase = 'osaahdaylightschool';
 const migrationName = '049_production_schema_reconciliation.sql';
@@ -24,6 +25,13 @@ const logicalRelationshipsToCheck = [
 ];
 const constraintsToCreate = ['uq_fee_obligation_scope', 'uq_student_fee_account_scope', 'uq_fee_invoice_number', 'uq_student_fee_payment_reference', 'uq_student_fee_receipt_number', 'uq_student_fee_receipt_payment', 'fee_types.school_id_code'];
 const safeError = (error) => ({ ok: false, error: { code: error?.code ?? 'RECONCILIATION_PREFLIGHT_FAILED', errno: error?.errno ?? null, sqlState: error?.sqlState ?? null } });
+function indexDependencies(sql) {
+  return splitMigrationSql(sql).flatMap((statement, offset) => {
+    const match = statement.match(/create\s+(?:unique\s+)?index\s+(?:if\s+not\s+exists\s+)?`?([a-z0-9_]+)`?\s+on\s+`?([a-z0-9_]+)`?\s*\(([^)]+)\)/i);
+    if (!match) return [];
+    return [{ statementIndex: offset + 1, object: match[1], table: normalize(match[2]), columns: match[3].split(',').map((column) => normalize(column.trim().split(/\s+/)[0])) }];
+  });
+}
 
 if (!process.env.DATABASE_URL) { process.stdout.write(`${JSON.stringify({ ok: false, error: { code: 'DATABASE_URL_MISSING' } })}\n`); process.exitCode = 1; }
 else {
@@ -37,11 +45,21 @@ else {
     const tables = new Set(tableRows.map((row) => normalize(row.TABLE_NAME)));
     const columns = new Set(columnRows.map((row) => `${normalize(row.TABLE_NAME)}.${normalize(row.COLUMN_NAME)}`));
     const indexes = new Set(indexRows.map((row) => `${normalize(row.TABLE_NAME)}.${normalize(row.INDEX_NAME)}`));
+    const dependencyIssues = [];
+    const knownColumns = new Set(columns);
+    for (const [offset, statement] of splitMigrationSql(migration).entries()) {
+      const alter = statement.match(/alter\s+table\s+`?([a-z0-9_]+)`?\s+add\s+(?:column\s+)?(?:if\s+not\s+exists\s+)?`?([a-z0-9_]+)`?/i);
+      if (alter) knownColumns.add(`${normalize(alter[1])}.${normalize(alter[2])}`);
+      const createTable = statement.match(/create\s+table\s+(?:if\s+not\s+exists\s+)?`?([a-z0-9_]+)`?\s*\(([\s\S]*)\)/i);
+      if (createTable) for (const column of createTable[2].matchAll(/(?:^|,)\s*`?([a-z0-9_]+)`?\s+(?!(?:primary|unique|key|constraint|foreign|check)\b)/gim)) knownColumns.add(`${normalize(createTable[1])}.${normalize(column[1])}`);
+      const index = indexDependencies(statement)[0];
+      if (index) for (const column of index.columns) if (!knownColumns.has(`${index.table}.${column}`)) dependencyIssues.push({ statementIndex: offset + 1, object: index.object, table: index.table, referencedColumn: column, productionExists: columns.has(`${index.table}.${column}`), createdEarlierBy049: false, compatible: false, actionRequired: 'Correct migration dependency before apply.' });
+    }
     const duplicates = {};
     const orphanCounts = {};
     const aggregate = async (key, sql) => { const [rows] = await pool.query(sql); duplicates[key] = Number(rows[0]?.duplicate_groups ?? 0); };
     const orphan = async (key, sql) => { const [rows] = await pool.query(sql); orphanCounts[key] = Number(rows[0]?.orphan_count ?? 0); };
-    if (['student_attendance.school_id','student_attendance.academic_year','student_attendance.term','student_attendance.attendance_date','student_attendance.class_id','student_attendance.student_id','student_attendance.subject_key'].every((item) => columns.has(item))) await aggregate('student_attendance_scope_identity', 'SELECT COUNT(*) AS duplicate_groups FROM (SELECT school_id, academic_year, term, attendance_date, class_id, student_id, subject_key FROM student_attendance GROUP BY school_id, academic_year, term, attendance_date, class_id, student_id, subject_key HAVING COUNT(*) > 1) d');
+    if (['student_attendance.school_id','student_attendance.academic_year','student_attendance.term','student_attendance.date','student_attendance.class_id','student_attendance.student_id','student_attendance.subject_key'].every((item) => columns.has(item))) await aggregate('student_attendance_scope_identity', 'SELECT COUNT(*) AS duplicate_groups FROM (SELECT school_id, academic_year, term, date, class_id, student_id, subject_key FROM student_attendance GROUP BY school_id, academic_year, term, date, class_id, student_id, subject_key HAVING COUNT(*) > 1) d');
     if (['staff_attendance.school_id','staff_attendance.academic_year','staff_attendance.term','staff_attendance.attendance_date','staff_attendance.staff_id','staff_attendance.attendance_type'].every((item) => columns.has(item))) await aggregate('staff_attendance_scope_identity', 'SELECT COUNT(*) AS duplicate_groups FROM (SELECT school_id, academic_year, term, attendance_date, staff_id, attendance_type FROM staff_attendance GROUP BY school_id, academic_year, term, attendance_date, staff_id, attendance_type HAVING COUNT(*) > 1) d');
     if (['student_fee_accounts.school_id','student_fee_accounts.permanent_student_id','student_fee_accounts.academic_year_id','student_fee_accounts.term_id'].every((item) => columns.has(item))) await aggregate('student_fee_account_scope', 'SELECT COUNT(*) AS duplicate_groups FROM (SELECT school_id, permanent_student_id, academic_year_id, term_id FROM student_fee_accounts GROUP BY school_id, permanent_student_id, academic_year_id, term_id HAVING COUNT(*) > 1) d');
     if (tables.has('fee_collection_corrections') && tables.has('fee_collection_records')) await orphan('fee_collection_corrections.collection_id', 'SELECT COUNT(*) AS orphan_count FROM fee_collection_corrections c LEFT JOIN fee_collection_records r ON r.id = c.collection_id WHERE r.id IS NULL');
@@ -68,12 +86,13 @@ else {
       duplicateGroups: duplicates,
       orphanCounts,
       potentiallyUnsafeOperations,
+      dependencyIssues,
       destructiveOperations: destructive,
       existingTablesAltered: unique(columnsInMigration.filter((item) => columns.has(item)).map((item) => item.split('.')[0]))
     };
     const result = { ok: true, mode: 'READ_ONLY_PREFLIGHT', connectedDatabase: db.database_name, migration: migrationName, plan, destructiveOperationCount: destructive.length, dropTableCount: destructive.filter((item) => item.startsWith('DROP TABLE')).length, truncateCount: destructive.filter((item) => item === 'TRUNCATE').length, deleteCount: destructive.filter((item) => item.startsWith('DELETE')).length, sensitiveRowsRead: false };
     process.stdout.write(`${JSON.stringify(result)}\n`);
-    if (destructive.length || potentiallyUnsafeOperations.length) process.exitCode = 2;
+    if (destructive.length || potentiallyUnsafeOperations.length || dependencyIssues.length) process.exitCode = 2;
   } catch (error) { process.stdout.write(`${JSON.stringify(safeError(error))}\n`); process.exitCode = 1; }
   finally { await pool.end(); }
 }
