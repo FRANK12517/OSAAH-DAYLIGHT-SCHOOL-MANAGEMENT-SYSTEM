@@ -112,14 +112,6 @@ ALTER TABLE student_fee_accounts ADD COLUMN IF NOT EXISTS academic_year_id TEXT 
 ALTER TABLE student_fee_accounts ADD COLUMN IF NOT EXISTS term_id TEXT NULL;
 ALTER TABLE student_fee_accounts ADD COLUMN IF NOT EXISTS created_by TEXT NULL;
 ALTER TABLE student_fee_accounts ADD COLUMN IF NOT EXISTS updated_by TEXT NULL;
-ALTER TABLE fee_invoices ADD COLUMN IF NOT EXISTS academic_year_id TEXT NULL;
-ALTER TABLE fee_invoices ADD COLUMN IF NOT EXISTS term_id TEXT NULL;
-ALTER TABLE fee_invoices ADD COLUMN IF NOT EXISTS class_id TEXT NULL;
-ALTER TABLE fee_invoices ADD COLUMN IF NOT EXISTS issued_by TEXT NULL;
-ALTER TABLE fee_invoices ADD COLUMN IF NOT EXISTS issued_at TEXT NULL;
-ALTER TABLE fee_invoices ADD COLUMN IF NOT EXISTS updated_by TEXT NULL;
-ALTER TABLE fee_invoice_items ADD COLUMN IF NOT EXISTS fee_structure_id TEXT NULL;
-ALTER TABLE fee_invoice_items ADD COLUMN IF NOT EXISTS amount DECIMAL(15,2) NULL;
 ALTER TABLE fee_structures ADD COLUMN IF NOT EXISTS status VARCHAR(32) NOT NULL DEFAULT 'DRAFT';
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_student_fee_account_scope ON student_fee_accounts(school_id, permanent_student_id, academic_year_id, term_id);
