@@ -21,7 +21,16 @@ if (!process.env.DATABASE_URL) {
     const after = await runner.status();
     process.stdout.write(JSON.stringify({ ok: true, applied: result.applied.map(({ version, name, checksum }) => ({ version, name, checksum })), authSessions: { present: columns.length > 0, columns, indexes }, pendingAfter: after.pending.map(({ version, name }) => ({ version, name })) }) + '\n');
   } catch (error) {
-    process.stderr.write(JSON.stringify({ error: error.code ?? 'DURABLE_AUTH_MIGRATION_FAILED', message: error.code ? error.message : 'Durable auth migration failed safely.' }) + '\n');
+    const details = error?.details && typeof error.details === 'object' ? {
+      migration: error.details.migration ?? null,
+      version: error.details.version ?? null,
+      statementIndex: error.details.statementIndex ?? null,
+      operation: error.details.operation ?? null,
+      databaseCode: error.details.databaseCode ?? null,
+      sqlState: error.details.sqlState ?? null,
+      databaseMessage: error.details.databaseMessage ?? null
+    } : undefined;
+    process.stderr.write(JSON.stringify({ error: error.code ?? 'DURABLE_AUTH_MIGRATION_FAILED', message: error.code ? error.message : 'Durable auth migration failed safely.', ...(details ? { details } : {}) }) + '\n');
     process.exitCode = 1;
   } finally { await adapter.close(); }
 }
