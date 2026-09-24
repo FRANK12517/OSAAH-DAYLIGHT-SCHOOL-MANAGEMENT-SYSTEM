@@ -11,6 +11,9 @@ test('049 reconciliation is forward-only and contains no destructive data operat
   assert.doesNotMatch(sql, /\bDELETE\s+FROM\b/i);
   assert.doesNotMatch(sql, /\bUPDATE\b/i);
   assert.doesNotMatch(sql, /\bINSERT\s+INTO\b/i);
+  assert.doesNotMatch(sql, /DEFAULT\s+'PRESENT'/i);
+  assert.doesNotMatch(sql, /DEFAULT\s+'MANUAL'/i);
+  assert.match(sql, /DEFAULT\s+'LEGACY_UNSPECIFIED'/i);
   assert.match(sql, /CREATE TABLE IF NOT EXISTS fee_obligations/);
   assert.match(sql, /CREATE TABLE IF NOT EXISTS fee_collection_records/);
   assert.match(sql, /CREATE TABLE IF NOT EXISTS attendance_audit_history/);
