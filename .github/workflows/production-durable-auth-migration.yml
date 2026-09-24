@@ -1,0 +1,40 @@
+name: Production durable auth migration
+on:
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Exact tested release commit SHA to migrate
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: production-durable-auth-migration
+  cancel-in-progress: false
+jobs:
+  migrate:
+    name: Apply and verify durable auth sessions
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - name: Check out dispatched release commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_ref }}
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Confirm protected database secret is available
+        shell: bash
+        run: test -n "${DATABASE_URL:-}"
+      - name: Apply and verify durable auth migration
+        run: node scripts/production-durable-auth-migrate.mjs
+      - name: Run complete repository test suite
+        run: npm test

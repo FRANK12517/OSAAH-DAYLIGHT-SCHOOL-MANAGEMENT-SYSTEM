@@ -1,5 +1,5 @@
 import bcrypt from 'bcrypt';
-import { createHmac, randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 
 const SESSION_TTL_MS = 30 * 60 * 1000;
 const RESET_TTL_MS = 15 * 60 * 1000;
@@ -41,6 +41,17 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
   const sessions = new Map(); const attempts = new Map(); const resetTokens = new Map();
   const administratorAssignments = [];
   const signingKey = typeof sessionSecret === 'string' && sessionSecret.length >= 32 ? sessionSecret : null;
+  const durableSessionStore = Boolean(database?.supportsDurableAuthSessions && database?.query && database?.execute);
+  const tokenHash = (token) => createHash('sha256').update(String(token)).digest('hex');
+  const nowIso = () => new Date(now()).toISOString();
+  async function persistDurableSession(user, session, token) {
+    if (!durableSessionStore) return;
+    await database.execute('INSERT INTO auth_sessions (id, user_id, school_id, token_hash, created_at, expires_at, revoked_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?, NULL, ?)', [session.sessionId, user.id, user.schoolId, tokenHash(token), nowIso(), new Date(session.expiresAt).toISOString(), nowIso()]);
+  }
+  async function revokeDurableSessionsForUser(userId) {
+    if (!durableSessionStore) return;
+    await database.execute('UPDATE auth_sessions SET revoked_at=? WHERE user_id=? AND revoked_at IS NULL', [nowIso(), userId]);
+  }
   function signSession(session) { const payload = Buffer.from(JSON.stringify(session)).toString('base64url'); const signature = createHmac('sha256', signingKey).update(payload).digest('base64url'); return `v1.${payload}.${signature}`; }
   function verifiedSession(token) {
     if (!signingKey || typeof token !== 'string' || !token.startsWith('v1.')) return sessions.get(token);
@@ -101,11 +112,28 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     }
     const user = { id: row.id, username: row.username ?? row.email, email: row.email, portal: 'school', roleKey, schoolId: row.schoolId, accountStatus: 'ACTIVE', is_active: true, permissions: new Set(userRows.map((candidate) => candidate.permissionKey).filter(Boolean)) };
     if (!user.permissions.size) for (const permission of ROLE_PERMISSIONS[roleKey] ?? []) user.permissions.add(permission);
-    attempts.delete(key); const sessionId = randomUUID(); const expiresAt = now() + SESSION_TTL_MS; const session = { userId: user.id, sessionId, expiresAt }; const token = signingKey ? signSession(session) : randomBytes(32).toString('hex'); sessions.set(token, session); users.push(user); securityEvent('LOGIN_SUCCESS', user, sessionId); return { ok: true, token, user: sanitize(user, sessionId), redirectTo: SCHOOL_PORTAL_DASHBOARDS[roleKey] ?? '/', expiresAt };
+    attempts.delete(key); const sessionId = randomUUID(); const expiresAt = now() + SESSION_TTL_MS; const session = { userId: user.id, sessionId, expiresAt }; const token = randomBytes(32).toString('hex'); sessions.set(token, session); users.push(user); await persistDurableSession(user, session, token); securityEvent('LOGIN_SUCCESS', user, sessionId); return { ok: true, token, user: sanitize(user, sessionId), redirectTo: SCHOOL_PORTAL_DASHBOARDS[roleKey] ?? '/', expiresAt };
   }
   function authenticate(token) { const session = verifiedSession(token); if (!session || session.expiresAt <= now()) { if (token) sessions.delete(token); return null; } const user = users.find((candidate) => candidate.id === session.userId); if (!user || !isActive(user)) { sessions.delete(token); if (user) securityEvent('SESSION_REVOKED', user, session.sessionId); return null; } return { ...sanitize(user, session.sessionId), permissions: user.permissions }; }
-  function logout(token) { const session = verifiedSession(token); if (session) { const user = users.find((candidate) => candidate.id === session.userId); sessions.delete(token); if (user) securityEvent('SESSION_REVOKED', user, session.sessionId); } }
-  function changeAccountState(userId, active, status = active ? 'ACTIVE' : 'DISABLED') { const user = users.find((candidate) => candidate.id === userId); if (!user) return false; user.is_active = active; user.accountStatus = status; if (!active) for (const [token, session] of sessions) if (session.userId === userId) { sessions.delete(token); securityEvent(status === 'REVOKED' ? 'SESSION_REVOKED' : 'ACCOUNT_DISABLED', user, session.sessionId); } for (const assignment of administratorAssignments) if (assignment.userId === userId && !active) { assignment.status = status; assignment.removedAt ??= new Date(now()).toISOString(); } return true; }
+  async function authenticateAsync(token) {
+    const local = authenticate(token);
+    if (local || !durableSessionStore || typeof token !== 'string' || !token) return local;
+    const rows = await database.query(`SELECT s.id AS sessionId,s.user_id AS userId,s.school_id AS schoolId,s.expires_at AS expiresAt,u.email AS username,u.email,u.status,r.role_key AS roleKey,p.permission_key AS permissionKey FROM auth_sessions s JOIN users u ON u.id=s.user_id LEFT JOIN user_roles ur ON ur.user_id=u.id LEFT JOIN roles r ON r.id=ur.role_id LEFT JOIN role_permissions rp ON rp.role_id=r.id LEFT JOIN permissions p ON p.id=rp.permission_id WHERE s.token_hash=? AND s.revoked_at IS NULL AND s.expires_at>? AND u.status='ACTIVE'`, [tokenHash(token), nowIso()]);
+    const row = rows?.[0];
+    if (!row) return null;
+    const userRows = rows.filter((candidate) => candidate.userId === row.userId);
+    const user = { id: row.userId, username: row.username, email: row.email, portal: 'school', roleKey: canonicalRoleKey(row.roleKey), schoolId: row.schoolId, accountStatus: 'ACTIVE', is_active: true, permissions: new Set(userRows.map((candidate) => candidate.permissionKey).filter(Boolean)) };
+    if (!user.permissions.size) for (const permission of ROLE_PERMISSIONS[user.roleKey] ?? []) user.permissions.add(permission);
+    await database.execute('UPDATE auth_sessions SET last_used_at=? WHERE id=? AND revoked_at IS NULL', [nowIso(), row.sessionId]);
+    return { ...sanitize(user, row.sessionId), permissions: user.permissions };
+  }
+  async function logoutSession(token) {
+    const local = authenticate(token);
+    if (token && durableSessionStore) await database.execute('UPDATE auth_sessions SET revoked_at=? WHERE token_hash=? AND revoked_at IS NULL', [nowIso(), tokenHash(token)]);
+    if (local) { const session = verifiedSession(token); const user = users.find((candidate) => candidate.id === session?.userId); sessions.delete(token); if (user) securityEvent('SESSION_REVOKED', user, session.sessionId); }
+  }
+  function logout(token) { void logoutSession(token); }
+  function changeAccountState(userId, active, status = active ? 'ACTIVE' : 'DISABLED') { const user = users.find((candidate) => candidate.id === userId); if (!user) return false; user.is_active = active; user.accountStatus = status; if (!active) for (const [token, session] of sessions) if (session.userId === userId) { sessions.delete(token); securityEvent(status === 'REVOKED' ? 'SESSION_REVOKED' : 'ACCOUNT_DISABLED', user, session.sessionId); } void revokeDurableSessionsForUser(userId); for (const assignment of administratorAssignments) if (assignment.userId === userId && !active) { assignment.status = status; assignment.removedAt ??= new Date(now()).toISOString(); } return true; }
   function setAccountStatus(userId, status) { return changeAccountState(userId, status === true); }
   function revokeAccount(userId) { return changeAccountState(userId, false, 'REVOKED'); }
   function administratorUsername(fullName) { const base = String(fullName ?? 'administrator').toLowerCase().replace(/[^a-z0-9]+/g, '.').replace(/^\.|\.$/g, '') || 'administrator'; let username = `${base}@osaah.edu.gh`; let suffix = 2; while (users.some((user) => user.username.toLowerCase() === username.toLowerCase())) username = `${base}${suffix++}@osaah.edu.gh`; return username; }
@@ -126,7 +154,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
   function resetStaffCredentials(userId, schoolId) { const user = users.find((candidate) => candidate.id === userId && candidate.schoolId === schoolId && candidate.staffId); if (!user) return null; const temporaryPassword = randomBytes(18).toString('base64url'); user.passwordHash = passwordHash(temporaryPassword); user.must_change_password = true; for (const [token, session] of sessions) if (session.userId === userId) sessions.delete(token); return { username: user.username, temporaryPassword }; }
   function requestPasswordReset(username) { const user = users.find((candidate) => candidate.username.toLowerCase() === username.trim().toLowerCase()); if (!user) return { ok: true }; const token = randomUUID(); resetTokens.set(token, { userId: user.id, expiresAt: now() + RESET_TTL_MS }); return { ok: true, token }; }
   function completePasswordReset(token, newPassword) { const reset = resetTokens.get(token); if (!reset || reset.expiresAt <= now() || typeof newPassword !== 'string' || newPassword.length < 10) return { ok: false, error: 'Invalid or expired reset request.' }; const user = users.find((candidate) => candidate.id === reset.userId); if (!user) return { ok: false, error: 'Invalid or expired reset request.' }; user.passwordHash = passwordHash(newPassword); resetTokens.delete(token); for (const [sessionToken, session] of sessions) if (session.userId === user.id) sessions.delete(sessionToken); return { ok: true }; }
-  return { login, loginFromDatabase, authenticate, logout, requestPasswordReset, completePasswordReset, setAccountStatus, revokeAccount, createAdministrator, listAdministrators, getAdministrator, updateAdministrator, resetAdministratorCredentials, registerStaff, listStaff, getStaff, updateStaff, changeStaffRole, assignStaff, resetStaffCredentials, sessionTtlMs: SESSION_TTL_MS, genericLoginError: GENERIC_LOGIN_ERROR };
+  return { login, loginFromDatabase, authenticate, authenticateAsync, logout, logoutSession, requestPasswordReset, completePasswordReset, setAccountStatus, revokeAccount, createAdministrator, listAdministrators, getAdministrator, updateAdministrator, resetAdministratorCredentials, registerStaff, listStaff, getStaff, updateStaff, changeStaffRole, assignStaff, resetStaffCredentials, sessionTtlMs: SESSION_TTL_MS, genericLoginError: GENERIC_LOGIN_ERROR };
 }
 
 export function canAccess(user, permission) { return Boolean(user && (user.permissions.has('*') || user.permissions.has(permission))); }
