@@ -12,11 +12,11 @@ const REQUIRED_TABLES = [
   'general_income', 'general_expenses'
 ];
 const PRE_050 = ['schools', 'users', 'academic_years', 'terms', 'financial_audit_history'];
-const POST_050_EXTERNAL = ['schools', 'users', 'academic_years', 'terms', 'financial_audit_history'];
+const POST_050_EXTERNAL = ['schools', 'users', 'academic_years', 'terms'];
 const FINANCE_RUNTIME = ['schools', 'users', 'students', 'student_fee_accounts', 'fee_structures', 'fee_obligations', 'fee_invoices', 'fee_invoice_items', 'student_fee_payments', 'student_fee_receipts', 'financial_audit_history'];
 const CONTRACTS = {
   schools: { columns: { id: { type: null, nullable: 'NO' } }, primaryKey: ['id'] },
-  users: { columns: { id: { type: null, nullable: 'NO' }, school_id: { type: null, nullable: 'NO' } }, primaryKey: ['id'] },
+  users: { columns: { id: { type: null, nullable: 'NO' } }, primaryKey: ['id'] },
   academic_years: { columns: { id: { type: null, nullable: 'NO' }, school_id: { type: null, nullable: 'NO' } }, primaryKey: ['id'] },
   terms: { columns: { id: { type: null, nullable: 'NO' }, academic_year_id: { type: null, nullable: 'NO' } }, primaryKey: ['id'] },
   financial_audit_history: { columns: { id: { type: null, nullable: 'NO' }, school_id: { type: null, nullable: 'NO' }, changed_by: { type: null, nullable: 'NO' }, changed_at: { type: null, nullable: 'NO' } }, primaryKey: ['id'] }
@@ -68,14 +68,17 @@ async function main() {
     }));
     const tableContract = (tables, label) => tables.map((table) => ({ requirement: table, expected: { table: 'present', columns: expectedColumns[table] ?? 'runtime-required canonical table' }, actual: actualByTable[table], ...statusForTable(table, expectedColumns[table] ?? [], actualByTable[table]), blocking: !actualByTable[table].exists, evidence: 'information_schema.TABLES/COLUMNS/STATISTICS/KEY_COLUMN_USAGE' , group: label }));
     const ledger = { database: databaseRow.database_name, schemaMigrations: { exists: presentTables.has('schema_migrations'), rowCount: Number(migrationCount.row_count ?? 0), rows: migrationRows }, schemaBaselines: { exists: presentTables.has('schema_baselines'), rowCount: baselineRows.length, rows: baselineRows }, schemaMigrationLock: { exists: presentTables.has('schema_migration_lock'), rows: lockRows }, migration050Present: presentTables.has('budgets') && presentTables.has('budget_items'), migration051Present: presentTables.has('general_income') && presentTables.has('general_expenses'), baselineInterpretation: { selectedBaseline: baseline, runnerUses: 'first baseline returned by adapter ordering; no MAX/latest logic in runner itself', baselineMigration: baselineMigration?.name ?? null, historicalUntracked, pending } };
-    const matrix050 = { title: 'MIGRATION 050 PRODUCTION CONTRACT MATRIX', prerequisites: [...tableContract(PRE_050, 'pre-existing'), { requirement: 'budgets', expected: 'created by migration 050 with exact migration definition', actual: actualByTable.budgets, status: actualByTable.budgets.exists ? 'PRESENT_REQUIRES_DEFINITION_COMPARISON' : 'NOT_PRESENT_WILL_BE_CREATED', blocking: false, evidence: 'information_schema.TABLES/COLUMNS/STATISTICS' }, { requirement: 'budget_items', expected: 'created by migration 050 with exact migration definition', actual: actualByTable.budget_items, status: actualByTable.budget_items.exists ? 'PRESENT_REQUIRES_DEFINITION_COMPARISON' : 'NOT_PRESENT_WILL_BE_CREATED', blocking: false, evidence: 'information_schema.TABLES/COLUMNS/STATISTICS' }, ...contractRows.filter((row) => PRE_050.some((table) => row.requirement.startsWith(`${table}.`)))], result: PRE_050.every((table) => actualByTable[table].exists) ? '050 CONTRACT SATISFIED' : '050 CONTRACT NOT SATISFIED' };
+    const migration050External = ['schools', 'users', 'academic_years', 'terms'];
+    const matrix050 = { title: 'MIGRATION 050 PRODUCTION CONTRACT MATRIX', prerequisites: [...tableContract(migration050External, 'pre-existing-migration-contract'), { requirement: 'budgets', expected: 'created by migration 050 with exact migration definition', actual: actualByTable.budgets, status: actualByTable.budgets.exists ? 'PRESENT_REQUIRES_DEFINITION_COMPARISON' : 'NOT_PRESENT_WILL_BE_CREATED', blocking: false, evidence: 'information_schema.TABLES/COLUMNS/STATISTICS' }, { requirement: 'budget_items', expected: 'created by migration 050 with exact migration definition', actual: actualByTable.budget_items, status: actualByTable.budget_items.exists ? 'PRESENT_REQUIRES_DEFINITION_COMPARISON' : 'NOT_PRESENT_WILL_BE_CREATED', blocking: false, evidence: 'information_schema.TABLES/COLUMNS/STATISTICS' }, ...contractRows.filter((row) => migration050External.some((table) => row.requirement.startsWith(`${table}.`)))], currentFinanceRuntimeDependencies: tableContract(['financial_audit_history'], 'current-finance-runtime-only'), result: migration050External.every((table) => actualByTable[table].exists) ? '050 CONTRACT SATISFIED' : '050 CONTRACT NOT SATISFIED' };
     const matrix051 = { title: 'MIGRATION 051 POST-050 CONTRACT MATRIX', prerequisites: [...tableContract(POST_050_EXTERNAL, 'existing-production'), { requirement: 'budgets and budget_items', providedBy: 'successful migration 050', expected: 'compatible IDs and school-scoped runtime links', actualProjected: 'defined by schema/050_budget_management.sql', status: 'PROJECTED_IF_050_SUCCEEDS', blocking: false, evidence: 'repository migration contract' }, ...contractRows.filter((row) => POST_050_EXTERNAL.some((table) => row.requirement.startsWith(`${table}.`)))], result: POST_050_EXTERNAL.every((table) => actualByTable[table].exists) ? '051 CONTRACT SATISFIED AFTER 050' : '051 CONTRACT NOT SATISFIED AFTER 050' };
     const repairClassification = { repairs: [], migration049RelevantGaps: [{ object: 'financial_audit_history', classification: actualByTable.financial_audit_history.exists ? 'NON-BLOCKING_HISTORICAL_DIFFERENCE' : 'BLOCKS_CURRENT_FINANCE_RUNTIME', action: 'No repair in E1.' }, { object: 'attendance and unrelated fee postconditions', classification: 'UNRELATED_OR_HISTORICAL_ONLY', action: 'No repair in E1.' }] };
-    const result = { ok: true, mode: 'READ_ONLY_PRE_050_CONTRACT_INVENTORY', commit: process.env.GITHUB_SHA ?? null, connectedDatabase: databaseRow.database_name, tableInventory: tableRows, contracts: { migration050: matrix050, migration051: matrix051, financeRuntime: tableContract(FINANCE_RUNTIME, 'current-finance-runtime') }, definitions: actualByTable, ledger, repairClassification, productionWrites: 'NO PRODUCTION DATABASE WRITES PERFORMED', finalStatus: 'DIAGNOSTIC_COMPLETE' };
+    const unsafeHistoricalReplay = pending.some((item) => item.version < 50);
+    const finalStatus = unsafeHistoricalReplay ? 'BLOCKED — UNSAFE HISTORICAL REPLAY RISK' : matrix050.result === '050 CONTRACT SATISFIED' && matrix051.result === '051 CONTRACT SATISFIED AFTER 050' && repairClassification.repairs.length === 0 ? 'READY FOR PART 5F-E2 — APPLY 050/051' : 'BLOCKED — CURRENT PRODUCTION CONTRACT INCOMPATIBLE';
+    const result = { ok: true, mode: 'READ_ONLY_PRE_050_CONTRACT_INVENTORY', commit: process.env.GITHUB_SHA ?? null, connectedDatabase: databaseRow.database_name, tableInventory: tableRows, contracts: { migration050: matrix050, migration051: matrix051, financeRuntime: tableContract(FINANCE_RUNTIME, 'current-finance-runtime') }, definitions: actualByTable, ledger, repairClassification, productionWrites: 'NO PRODUCTION DATABASE WRITES PERFORMED', finalStatus };
     const outputDir = process.env.OUTPUT_DIR ? resolve(process.env.OUTPUT_DIR) : null;
     if (outputDir) {
       await mkdir(outputDir, { recursive: true });
-      const report = `# Part 5F-E1 — Production Schema Contract Verification
+    const report = `# Part 5F-E1 — Production Schema Contract Verification
 
 **Mode:** read-only production diagnostic
 **Database:** ${databaseRow.database_name}
@@ -114,7 +117,9 @@ Only current Finance dependencies are considered. Unrelated attendance, fee-type
 
 ## Final status
 
-**DIAGNOSTIC_COMPLETE — NO MIGRATION 050 OR 051 APPLIED**
+**${finalStatus}**
+
+No migration 050 or 051 was applied.
 `;
       await Promise.all([
         writeFile(resolve(outputDir, 'PART-5FE1-PRODUCTION-CONTRACT-REPORT.md'), report),
