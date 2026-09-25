@@ -58,7 +58,7 @@ if (!databaseUrl || !password) {
     if (!currentHash) throw Object.assign(new Error('Existing Proprietor account has no password hash.'), { code: 'CURRENT_PASSWORD_HASH_MISSING' });
     const nextHash = hashWithCurrentFormat(password, currentHash);
     if (nextHash === currentHash) throw Object.assign(new Error('Generated password hash did not change.'), { code: 'PASSWORD_HASH_UNCHANGED' });
-    const [update] = await connection.query('UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND email = ?', [nextHash, user.id, TARGET_EMAIL]);
+    const [update] = await connection.query('UPDATE users SET password_hash = ? WHERE id = ? AND email = ?', [nextHash, user.id, TARGET_EMAIL]);
     if (Number(update.affectedRows) !== 1) throw Object.assign(new Error('Exactly one existing Proprietor password row must be updated.'), { code: 'TARGET_UPDATE_CARDINALITY_MISMATCH' });
     const [revocation] = await connection.query('UPDATE auth_sessions SET revoked_at = CURRENT_TIMESTAMP WHERE user_id = ? AND revoked_at IS NULL', [user.id]);
     const [[verification]] = await connection.query('SELECT id, school_id AS schoolId, email, password_hash AS passwordHash, status FROM users WHERE id = ? AND email = ?', [user.id, TARGET_EMAIL]);
