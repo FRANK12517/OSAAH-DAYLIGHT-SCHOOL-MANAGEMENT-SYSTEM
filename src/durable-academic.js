@@ -19,12 +19,30 @@ export function createDurableAcademicService({ database, schoolId, idFactory = r
 
   async function options(actor) {
     assertActor(actor);
+    if (!['academics.read', 'results.read', 'examinations.read'].some((permission) => authorized(actor, permission))) fail('Forbidden.', 403);
     const [academicYears, terms, classes] = await Promise.all([
       database.query('SELECT id,name,starts_on AS startsOn,ends_on AS endsOn,is_current AS isCurrent FROM academic_years WHERE school_id=? ORDER BY starts_on DESC,id', [schoolId]),
       database.query('SELECT t.id,t.academic_year_id AS academicYearId,t.name,t.starts_on AS startsOn,t.ends_on AS endsOn,t.is_current AS isCurrent FROM terms t JOIN academic_years y ON y.id=t.academic_year_id WHERE y.school_id=? ORDER BY t.starts_on ASC,t.id', [schoolId]),
-      database.query('SELECT c.id,c.name,COALESCE(c.sort_order,c.display_order,0) AS displayOrder,l.name AS levelName FROM classes c JOIN levels l ON l.id=c.level_id WHERE l.school_id=? AND COALESCE(c.status,"ACTIVE")="ACTIVE" ORDER BY displayOrder,c.id', [schoolId])
+      optionClasses(actor)
     ]);
     return { academicYears: rows(academicYears), terms: rows(terms), classes: rows(classes) };
+  }
+
+  async function optionClasses(actor) {
+    let records;
+    try {
+      // Production owns classes directly; level/order/status columns are optional.
+      records = await database.query('SELECT c.* FROM classes c WHERE c.school_id=? ORDER BY c.name,c.id', [schoolId]);
+    } catch (error) {
+      // Only the known legacy ownership contract warrants a fallback. Never hide
+      // connection, permission, or missing-table failures as an empty catalogue.
+      if (error.code !== 'ER_BAD_FIELD_ERROR' || !/c\.school_id/.test(error.message)) throw error;
+      records = await database.query('SELECT c.*,l.name AS levelName FROM classes c JOIN levels l ON l.id=c.level_id WHERE l.school_id=? ORDER BY l.display_order,c.display_order,c.id', [schoolId]);
+    }
+    return rows(records)
+      .filter((item) => (item.school_id == null || item.school_id === schoolId) && (item.status == null || item.status === 'ACTIVE'))
+      .filter((item) => actor.roleKey !== 'TEACHER' || !actor.assignedClassIds?.length || actor.assignedClassIds.includes(item.id))
+      .map((item) => ({ id: item.id, name: item.name, displayOrder: item.sort_order ?? item.display_order ?? 0, levelName: item.levelName ?? item.level ?? null }));
   }
 
   async function listSubjects(filters = {}, actor) {

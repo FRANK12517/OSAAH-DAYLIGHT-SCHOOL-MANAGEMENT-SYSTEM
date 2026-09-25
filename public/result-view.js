@@ -2,8 +2,72 @@ const form = document.querySelector('#result-context'); const status = document.
 const esc = (v) => String(v ?? '').replace(/[&<>'"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 const ordinal = (n) => { n = Number(n); if (!Number.isFinite(n) || n < 1) return '—'; const s = n % 100 >= 11 && n % 100 <= 13 ? 'th' : ({1:'st',2:'nd',3:'rd'}[n % 10] || 'th'); return `${n}${s}`; };
 async function api(url, init = {}) { const r = await fetch(url, init); const b = await r.json().catch(() => ({error:'Request failed.'})); if (!r.ok) throw Error(b.error || 'Request failed.'); return b; }
-async function load() { options = await api('/api/academic/options'); form.elements.classId.innerHTML = options.classes.map((c) => `<option>${esc(c)}</option>`).join(''); syncStudents(); }
-function syncStudents() { const list = options.students.filter((s) => s.classId === form.elements.classId.value); form.elements.studentId.innerHTML = list.map((s) => `<option value="${esc(s.id)}">${esc(s.indexNumber)} · ${esc(s.name)}</option>`).join(''); }
+const classOrder = ['Nursery', 'KG 1', 'KG 2', 'Basic 1', 'Basic 2', 'Basic 3', 'Basic 4', 'Basic 5', 'Basic 6', 'JHS 1', 'JHS 2', 'JHS 3'];
+const classLabel = (name) => String(name ?? '').trim().replace(/^Nursery 1$/i, 'Nursery').replace(/^KG\s*([12])$/i, 'KG $1').replace(/^Primary ([1-6])$/i, 'Basic $1');
+const generateButton = form.querySelector('button[type="submit"]');
+const retryButton = document.querySelector('#retry-options');
+function syncTerms() {
+  if (!Array.isArray(options.terms) || !Array.isArray(options.academicYears)) return;
+  const year = options.academicYears.find((item) => item.name === form.elements.academicYear.value || item.id === form.elements.academicYear.value);
+  const terms = options.terms.filter((item) => item.academicYearId === year?.id);
+  const previous = form.elements.term.value;
+  form.elements.term.innerHTML = terms.map((item) => `<option value="${esc(item.name)}">${esc(item.name)}</option>`).join('') || '<option value="">No terms configured for this year</option>';
+  form.elements.term.disabled = terms.length === 0;
+  if (terms.some((item) => item.name === previous)) form.elements.term.value = previous;
+  else if (terms.some((item) => Number(item.isCurrent) === 1)) form.elements.term.value = terms.find((item) => Number(item.isCurrent) === 1).name;
+  syncStudents();
+}
+async function load() {
+  const select = form.elements.classId;
+  select.disabled = true;
+  select.innerHTML = '<option value="">Loading classes…</option>';
+  form.elements.studentId.disabled = true;
+  generateButton.disabled = true;
+  retryButton.hidden = true;
+  status.textContent = 'Loading academic options…';
+  const controller = new AbortController();
+  let timer;
+  try {
+    options = await Promise.race([
+      api('/api/academic/options', { signal: controller.signal }),
+      new Promise((_, reject) => { timer = setTimeout(() => { reject(Error('Academic options timed out. Please retry.')); controller.abort(); }, 15000); })
+    ]);
+    if (!Array.isArray(options.classes)) throw Error('Invalid academic options response. Please retry.');
+    const classes = options.classes.map((item) => typeof item === 'string' ? { id: item, name: item } : item)
+      .filter((item) => item?.id && classOrder.includes(classLabel(item.name)))
+      .sort((a, b) => classOrder.indexOf(classLabel(a.name)) - classOrder.indexOf(classLabel(b.name)));
+    // IDs always come from the response, never from the presentation labels.
+    select.innerHTML = '<option value="">Select Class</option>' + classes.map((item) => `<option value="${esc(item.id)}">${esc(classLabel(item.name))}</option>`).join('');
+    select.disabled = classes.length === 0;
+    if (!classes.length) select.innerHTML = '<option value="">No classes configured</option>';
+    const hasStudents = Array.isArray(options.students);
+    options.students = hasStudents ? options.students : [];
+    if (Array.isArray(options.academicYears)) {
+      document.querySelector('#result-academic-years').innerHTML = options.academicYears.map((item) => `<option value="${esc(item.name)}"></option>`).join('');
+      const current = options.academicYears.find((item) => Number(item.isCurrent) === 1);
+      if (current) form.elements.academicYear.value = current.name;
+      syncTerms();
+    }
+    syncStudents();
+    status.textContent = !classes.length ? 'No classes configured for your school or assignment.' : !hasStudents ? 'Academic options loaded. Student options are unavailable; result generation requires a student.' : '';
+  } catch (error) {
+    options = { students: [] };
+    select.innerHTML = '<option value="">Classes unavailable — retry</option>';
+    select.disabled = true;
+    syncStudents();
+    status.textContent = error.message;
+    retryButton.hidden = false;
+  } finally { clearTimeout(timer); }
+}
+function syncStudents() {
+  const list = (options.students || []).filter((s) => s.classId === form.elements.classId.value);
+  form.elements.studentId.innerHTML = list.map((s) => `<option value="${esc(s.id)}">${esc(s.indexNumber)} · ${esc(s.name)}</option>`).join('') || '<option value="">No students available for this class</option>';
+  form.elements.studentId.disabled = list.length === 0;
+  generateButton.disabled = list.length === 0 || !form.elements.term.value || !form.elements.academicYear.value;
+}
+retryButton.addEventListener('click', load);
+form.elements.academicYear.addEventListener('change', syncTerms);
+form.elements.term.addEventListener('change', syncStudents);
 function storageKey(x) { return ['osaah-assessment', x.schoolId || '', x.studentId || '', x.academicYear || '', x.term || '', x.classId || '', 'TERMINAL'].join(':'); }
 function savedAssessment(x) { try { return JSON.parse(localStorage.getItem(storageKey(x)) || '{}'); } catch { return {}; } }
 function assessmentField(label, key, saved) { const library = (window.OSAAH_GES_ASSESSMENT_LIBRARIES || {})[key] || { positive: [], negative: [] }; const selected = saved[key] || ''; const options = (sentiment) => ['<option value="">Not recorded</option>'].concat((library[sentiment] || []).map((text) => `<option value="${esc(text)}"${text === selected ? ' selected' : ''}>${esc(text)}</option>`)).join(''); return `<div class="assessment-card"><label>${label}</label><div class="no-print" style="display:flex;gap:.35rem;margin-bottom:.35rem"><button type="button" class="assessment-sentiment" data-assessment-sentiment="positive" data-assessment-key="${key}">Positive</button><button type="button" class="assessment-sentiment" data-assessment-sentiment="negative" data-assessment-key="${key}">Negative</button></div><select id="assessment-${key}" data-assessment="${key}" data-assessment-sentiment="positive"><option value="">Choose a statement</option></select><div class="static-value" data-static="${key}">${esc(selected || 'Not recorded')}</div><select class="no-print" hidden data-assessment-source="positive">${options('positive')}</select><select class="no-print" hidden data-assessment-source="negative">${options('negative')}</select></div>`; }
