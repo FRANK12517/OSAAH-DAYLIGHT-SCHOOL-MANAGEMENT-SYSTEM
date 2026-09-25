@@ -32,7 +32,7 @@ if (!process.env.DATABASE_URL) {
     } else result.countsBySchool.student_enrollments = null;
     if (present.has('class_subjects')) result.countsBySchool.class_subjects = await countBySchool('class_subjects');
     if (present.has('subject_class_assignments')) result.countsBySchool.subject_class_assignments = await countBySchool('subject_class_assignments');
-    for (const table of ['class_subjects', 'assessment_scores', 'exam_scores']) {
+    for (const table of ['schools', 'class_subjects', 'assessment_scores', 'exam_scores']) {
       if (!present.has(table)) continue;
       const [[row]] = await pool.query(`SELECT COUNT(*) AS count FROM ${table}`);
       result.totalCounts[table] = asCount(row);
