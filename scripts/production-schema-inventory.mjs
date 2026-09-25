@@ -80,3 +80,5 @@ if (!process.env.DATABASE_URL) {
     await pool.end();
   }
 }
+
+await import('./production-score-entry-audit.mjs');
