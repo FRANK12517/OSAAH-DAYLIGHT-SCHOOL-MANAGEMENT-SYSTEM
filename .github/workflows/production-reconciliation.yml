@@ -53,7 +53,7 @@ jobs:
     if: ${{ inputs.execute_reconciliation == 'APPLY_049' }}
     runs-on: ubuntu-latest
     environment: production
-    timeout-minutes: 20
+    timeout-minutes: 60
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
     steps:
