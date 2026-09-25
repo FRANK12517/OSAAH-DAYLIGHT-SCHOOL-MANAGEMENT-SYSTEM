@@ -76,11 +76,11 @@ function element(initialValue = '') {
   return { value: initialValue, disabled: false, hidden: false, textContent: '', handlers: {}, _html: '', addEventListener(name, fn) { this.handlers[name] = fn; }, set innerHTML(html) { this._html = html; this.value = /<option value="([^"]*)"/.exec(html)?.[1] ?? ''; }, get innerHTML() { return this._html; } };
 }
 async function browser(payload, mode = 'ok') {
-  const fields = { classId: element(), studentId: element(), academicYear: element('2026/2027'), term: element('First Term'), sampleMode: { checked: false } };
-  const button = element(), status = element(), retry = element(), years = element(), host = element();
+  const fields = { classId: element(), studentId: element(), permanentStudentId: element(), academicYear: element('2026/2027'), term: element('First Term'), sampleMode: { checked: false } };
+  const button = element(), status = element(), retry = element(), retryStudents = element(), years = element(), host = element();
   const form = { ...element(), elements: fields, querySelector: () => button };
   const requests = [];
-  const context = vm.createContext({ document: { querySelector: selector => ({ '#result-context': form, '#status': status, '#result': host, '#retry-options': retry, '#result-academic-years': years })[selector] }, AbortController, clearTimeout, setTimeout: mode === 'timeout' ? (fn) => setTimeout(fn, 1) : setTimeout, URLSearchParams, FormData: class { constructor() { return Object.entries(fields).filter(([key]) => key !== 'sampleMode').map(([key, field]) => [key, field.value]); } }, fetch: async (url, init) => { requests.push({ url, init }); if (mode === 'timeout') return new Promise(() => {}); return { ok: mode !== 'failure', json: async () => mode === 'failure' ? { error: 'Unable to load academic options. Please try again.' } : url.includes('/options') ? payload : { result: {} } }; } });
+  const context = vm.createContext({ document: { querySelector: selector => ({ '#result-context': form, '#status': status, '#result': host, '#retry-options': retry, '#retry-students': retryStudents, '#result-academic-years': years })[selector] }, AbortController, clearTimeout, setTimeout: mode === 'timeout' ? (fn) => setTimeout(fn, 1) : setTimeout, URLSearchParams, FormData: class { constructor() { return Object.entries(fields).filter(([key]) => key !== 'sampleMode').map(([key, field]) => [key, field.value]); } }, fetch: async (url, init) => { requests.push({ url, init }); if (mode === 'timeout') return new Promise(() => {}); return { ok: mode !== 'failure', json: async () => mode === 'failure' ? { error: 'Unable to load academic options. Please try again.' } : url.includes('/options') ? structuredClone(payload) : url.includes('/result-students?') ? { students: payload.students ?? [] } : { result: {} } }; } });
   vm.runInContext(readFileSync(new URL('../public/result-view.js', import.meta.url), 'utf8'), context);
   await new Promise(resolve => setTimeout(resolve, 20));
   return { context, fields, button, status, retry, form, requests };
@@ -88,13 +88,15 @@ async function browser(payload, mode = 'ok') {
 
 test('Result Slip shows all 12 labels with canonical values, is single select and submits the selected ID', async () => {
   const classes = names.map((name, i) => ({ id: `canonical-${i}`, name }));
-  const view = await browser({ classes, students: [{ id: 'student-a', name: 'Test student', indexNumber: 'TEST', classId: 'canonical-4' }] });
+  const view = await browser({ classes, students: [{ id: 'student-a', name: 'Test student', permanentStudentId: 'OSAAH/2026/0001', classId: 'canonical-4' }] });
   assert.deepEqual([...view.fields.classId.innerHTML.matchAll(/<option value="canonical-\d+">([^<]+)<\/option>/g)].map(m => m[1]), names);
   const html = readFileSync(new URL('../public/results.html', import.meta.url), 'utf8');
   assert.match(html, /<select name="classId" required disabled>/);
   assert.doesNotMatch(html, /<select name="classId"[^>]*multiple/);
   view.fields.classId.value = 'canonical-4';
-  view.fields.classId.handlers.change();
+  await view.fields.classId.handlers.change();
+  view.fields.studentId.value = 'student-a';
+  view.fields.studentId.handlers.change();
   assert.equal(view.fields.studentId.value, 'student-a');
   assert.equal(view.button.disabled, false);
   vm.runInContext('render = () => {}', view.context);
@@ -107,7 +109,7 @@ test('missing optional students leaves classes and periods usable without a pars
   assert.equal(view.fields.classId.disabled, false);
   assert.equal(view.fields.term.value, 'First Term');
   assert.equal(view.button.disabled, true);
-  assert.match(view.status.textContent, /Student options are unavailable/);
+  assert.match(view.status.textContent, /Choose a class to load students/);
 });
 
 test('legacy string options retain backend IDs and requested display labels', async () => {

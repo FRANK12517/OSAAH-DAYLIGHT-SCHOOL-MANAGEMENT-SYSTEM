@@ -59,6 +59,43 @@ export function createDurableAcademicService({ database, schoolId, idFactory = r
     return rows(result);
   }
 
+  async function resultStudents(input = {}, actor) {
+    assertActor(actor);
+    if (!['academics.read', 'results.read', 'examinations.read'].some((permission) => authorized(actor, permission))) fail('Forbidden.', 403);
+    const classId = text(input.classId);
+    if (!classId) fail('Class is required.');
+    // Reuse Part 1's canonical ownership and teacher assignment checks, including
+    // its legacy class schema compatibility. Client school IDs are never used.
+    if (!(await optionClasses(actor)).some((item) => item.id === classId)) fail('Forbidden.', 403);
+    const period = await resolvePeriod(input);
+    // Production enrollments have only id/student_id/class_id/academic_year_id.
+    // Read optional legacy membership fields without naming absent SQL columns.
+    const memberships = rows(await database.query(`SELECT e.*,s.id AS canonicalStudentId,
+      s.permanent_student_id AS permanentStudentId,s.first_name AS firstName,
+      s.middle_name AS middleName,s.last_name AS lastName,s.is_test_record AS isTestRecord
+      FROM student_enrollments e JOIN students s ON s.id=e.student_id
+      JOIN academic_years y ON y.id=e.academic_year_id AND y.school_id=s.school_id
+      WHERE s.school_id=? AND e.class_id=? AND e.academic_year_id=?
+      ORDER BY s.last_name,s.first_name,s.id`, [schoolId, classId, period.yearId]));
+    const seen = new Set();
+    return memberships.filter((item) => {
+      if (item.school_id != null && item.school_id !== schoolId) return false;
+      // Legacy term-specific rows coexist with year-wide rows. Do not impose a
+      // term or current-year filter on the production year-based membership.
+      if (item.term_id != null && item.term_id !== period.termId) return false;
+      if (seen.has(item.canonicalStudentId)) return false;
+      seen.add(item.canonicalStudentId);
+      return true;
+    }).map((item) => ({
+      id: item.canonicalStudentId,
+      permanentStudentId: item.permanentStudentId,
+      name: [item.firstName, item.middleName, item.lastName].filter(Boolean).join(' '),
+      classId,
+      academicYearId: period.yearId,
+      isTestRecord: Boolean(Number(item.isTestRecord))
+    }));
+  }
+
   async function listAssignments(subjectId, actor) {
     assertActor(actor);
     const result = await database.query(`SELECT a.id,a.subject_id AS subjectId,a.class_id AS classId,a.academic_year_id AS academicYearId,a.active,c.name AS className,l.name AS levelName
@@ -141,7 +178,7 @@ export function createDurableAcademicService({ database, schoolId, idFactory = r
     return { id: scoreId, schoolId, studentId, permanentStudentId: enrolled.permanent_student_id, classId, subjectId, academicYear: period.yearName, term: period.termName, caScore, examScore, totalScore, grade, remark, saved: true };
   }
 
-  return Object.freeze({ options, listSubjects, listAssignments, assignSubject, roster, saveScore, resolvePeriod });
+  return Object.freeze({ options, resultStudents, listSubjects, listAssignments, assignSubject, roster, saveScore, resolvePeriod });
 }
 
 export default createDurableAcademicService;
