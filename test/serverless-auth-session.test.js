@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { scryptSync } from 'node:crypto';
 import { createServer, request as httpRequest } from 'node:http';
 import { createAuthService } from '../src/auth.js';
 import { createApp } from '../src/server.mjs';
@@ -42,6 +43,20 @@ test('signed proprietor session survives a different serverless instance', async
     assert.equal(JSON.parse(session.body).user.roleKey, 'PROPRIETOR');
     assert.equal(JSON.parse(session.body).user.schoolId, 'school-osaah-daylight');
   } finally { await new Promise((resolve) => server.close(resolve)); }
+});
+
+test('database-authenticated finance session resolves on a different serverless instance', async () => {
+  const databaseUser = { id: 'db-accountant-1', schoolId: 'school-osaah-daylight', email: 'db-accountant@osaah.edu.gh', roleKey: 'ACCOUNTANT_BURSAR', status: 'ACTIVE', passwordHash: `db-auth-salt:${scryptSync('DbAccountant123!', 'db-auth-salt', 32).toString('hex')}` };
+  const database = { async query() { return [{ ...databaseUser, permissionKey: 'finance.read' }]; } };
+  const loginInstance = createAuthService({ database, users: [], sessionSecret: SESSION_SECRET });
+  const navigationInstance = createAuthService({ database, users: [], sessionSecret: SESSION_SECRET });
+  const login = await loginInstance.loginFromDatabase({ username: databaseUser.email, password: 'DbAccountant123!', portal: 'school', role: 'ACCOUNTANT_BURSAR' });
+  assert.equal(login.ok, true);
+  assert.match(login.token, /^v1\./);
+  const resolved = navigationInstance.authenticate(login.token);
+  assert.equal(resolved.roleKey, 'ACCOUNTANT_BURSAR');
+  assert.equal(resolved.schoolId, databaseUser.schoolId);
+  assert.equal(resolved.permissions.has('finance.read'), true);
 });
 
 test('logout returns every school role to the public home and keeps protected routes guarded', async () => {
