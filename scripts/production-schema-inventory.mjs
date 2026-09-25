@@ -4,7 +4,7 @@ const expectedDatabase = 'osaahdaylightschool';
 const expectedTables = [
   'schools', 'users', 'staff', 'roles', 'permissions', 'user_roles', 'role_permissions',
   'sessions', 'classes', 'levels', 'students', 'student_enrollments', 'academic_years',
-  'terms', 'fee_structures', 'fee_obligations', 'fee_collection_records', 'fee_payments'
+  'terms', 'fee_structures', 'fee_obligations', 'fee_collection_records', 'fee_payments', 'auth_sessions'
 ];
 
 function safeFailure(error) {
@@ -47,6 +47,12 @@ if (!process.env.DATABASE_URL) {
        ORDER BY TABLE_NAME, ORDINAL_POSITION`,
       [expectedTables]
     );
+    const [authSessionIndexes] = await pool.query(
+      `SELECT INDEX_NAME, NON_UNIQUE, COLUMN_NAME, SEQ_IN_INDEX
+       FROM information_schema.STATISTICS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'auth_sessions'
+       ORDER BY INDEX_NAME, SEQ_IN_INDEX`
+    );
     const columns = {};
     for (const row of columnRows) {
       (columns[row.TABLE_NAME] ??= []).push({
@@ -66,6 +72,7 @@ if (!process.env.DATABASE_URL) {
       missingExpectedTables: expectedTables.filter((table) => !present.has(table)),
       migrationTableCandidates: migrationCandidates.map((row) => row.TABLE_NAME),
       expectedTableColumns: columns,
+      authSessionIndexes,
       authenticationExpectation: {
         missingTableFromRuntime: 'users',
         querySource: 'src/auth.js:createAuthService().loginFromDatabase',
