@@ -160,6 +160,7 @@ CREATE TABLE IF NOT EXISTS student_fee_payments (
   created_at VARCHAR(32) NOT NULL, reversed_by VARCHAR(64) DEFAULT NULL, reversed_at VARCHAR(32) DEFAULT NULL, reversal_reason TEXT DEFAULT NULL
 );
 ALTER TABLE student_fee_payments ADD COLUMN IF NOT EXISTS school_id VARCHAR(64) DEFAULT 'LEGACY_UNSPECIFIED';
+ALTER TABLE student_fee_payments ADD COLUMN IF NOT EXISTS account_id VARCHAR(64) DEFAULT NULL;
 ALTER TABLE student_fee_payments ADD COLUMN IF NOT EXISTS payment_reference VARCHAR(128) DEFAULT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_student_fee_payment_reference ON student_fee_payments(school_id, payment_reference);
 CREATE INDEX IF NOT EXISTS idx_student_fee_payment_account ON student_fee_payments(school_id, account_id, payment_date);
