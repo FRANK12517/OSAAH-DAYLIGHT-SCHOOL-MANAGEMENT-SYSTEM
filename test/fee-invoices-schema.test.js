@@ -15,3 +15,17 @@ test('fee invoice migration preserves canonical account and item relationships',
   assert.match(sql, /idx_fee_invoice_items_invoice/);
   assert.doesNotMatch(sql, /\bDROP\s+(TABLE|COLUMN|DATABASE)\b/i);
 });
+
+test('production reconciliation creates fee invoice tables before using their columns', async () => {
+  const sql = await readFile(new URL('../schema/049_production_schema_reconciliation.sql', import.meta.url), 'utf8');
+  const invoiceCreate = sql.indexOf('CREATE TABLE IF NOT EXISTS fee_invoices');
+  const itemCreate = sql.indexOf('CREATE TABLE IF NOT EXISTS fee_invoice_items');
+  assert.ok(invoiceCreate >= 0);
+  assert.ok(itemCreate > invoiceCreate);
+  assert.doesNotMatch(sql, /ALTER TABLE fee_invoices\s+ADD COLUMN/i);
+  assert.doesNotMatch(sql, /ALTER TABLE fee_invoice_items\s+ADD COLUMN/i);
+  assert.match(sql.slice(invoiceCreate, itemCreate), /academic_year_id TEXT NULL/);
+  assert.match(sql.slice(invoiceCreate, itemCreate), /issued_by TEXT DEFAULT NULL/);
+  assert.match(sql.slice(itemCreate), /fee_structure_id TEXT DEFAULT NULL/);
+  assert.match(sql.slice(itemCreate), /amount DECIMAL\(15,2\) NOT NULL/);
+});
