@@ -79,7 +79,8 @@ const branding = { schoolName: 'OSAAH DAYLIGHT SCH. COM.', location: 'BOGOSO', m
 
 export function createApp({ auth = null, students = createStudentService(), attendance = createAttendanceService({ requireReasons: true }), attendanceRepository = null, examinations = createExaminationService({ students, classes: CORE_LEVELS }), fees = createFeeService(), feeTypes = createFeeTypeRegistry(), staff = createStaffService(), communication = createCommunicationService(), communicationEngine = null, operations = createOperationsService(), resources = createResourceService(), compliance = createComplianceService(), reporting = createReportingService(), generalFinance = null, cashbook = null, admissionForms = createAdmissionFormService(), admissionProspectus = createAdmissionProspectusService(), subjects = createSubjectService(), signatures = null, classDatabase = null, database = null, academicResults = null, transcripts = null, receiptBranding = null, prospectusPdf = createAdmissionProspectusPdfService(), resultPdf = createResultSlipPdfService(), sportingActivities = null, subjectRegister = null, shepActivities = null, aiGateway = null, aiConversation = null, capabilityRegistry = null, toolRegistry = null, providerRegistry = null, providerId = process.env.OSAAH_AI_PROVIDER_ID ?? 'openai', modelId = process.env.OSAAH_AI_MODEL_ID ?? 'unconfigured', financialIntelligence = null, academicAttendanceIntelligence = null, admissionsWorkforceIntelligence = null, operationalIntelligence = null, schoolKnowledgeIntelligence = null, executiveIntelligence = null, humanControlledActions = null, aiPersistence = null, aiEnabled = null, audit = () => {} } = {}) {
   auth ??= createAuthService({ database });
-  signatures ??= createSignatureService({ staff, schoolId: process.env.OSAAH_SCHOOL_ID ?? (database ? 'sch_default_01' : 'school-osaah-daylight') });
+  const serviceSchoolId = process.env.OSAAH_SCHOOL_ID ?? (database ? 'sch_default_01' : 'school-osaah-daylight');
+  signatures ??= createSignatureService({ staff, schoolId: serviceSchoolId });
   if (process.env.OSAAH_ENABLE_SAMPLE_FIXTURES !== 'false' && students.listStudents({ requestedSchoolId: 'school-osaah-daylight', includeTestRecords: true }).length === 0) students.seedSampleStudents?.();
   const feeCollections = database?.query && database?.execute && database?.transaction ? createFeeCollectionsRepository({ adapter: database, audit, strictValidation: true }) : null;
   const budgets = database?.query && database?.execute && database?.transaction ? createBudgetService({ adapter: database, audit }) : null;
@@ -109,7 +110,7 @@ export function createApp({ auth = null, students = createStudentService(), atte
   classDatabase ??= createClassDatabaseService({ students, classes: CORE_LEVELS });
   const sampleResults = createSampleResultWorkflow({ students, subjects, academicResults });
   transcripts ??= createTranscriptService({ students, academicResults, signatures, schoolProfile: branding });
-  communicationEngine ??= createCommunicationEngine({ audit });
+  communicationEngine ??= createCommunicationEngine({ audit, schoolId: serviceSchoolId });
   shepActivities ??= createShepActivitiesService({ students, staff });
   receiptBranding ??= createReceiptBrandingService({ fees, students });
   financialIntelligence ??= createFinancialIntelligenceService({ fees });
