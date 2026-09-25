@@ -38,17 +38,17 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_student_attendance_scope_identity ON studen
 CREATE UNIQUE INDEX IF NOT EXISTS uq_staff_attendance_scope_identity ON staff_attendance(school_id, academic_year, term, attendance_date, staff_id, attendance_type);
 
 CREATE TABLE IF NOT EXISTS attendance_audit_history (
-  id TEXT PRIMARY KEY,
-  school_id TEXT NOT NULL,
-  attendance_record_id TEXT NOT NULL,
-  person_id TEXT NOT NULL,
+  id VARCHAR(64) PRIMARY KEY,
+  school_id VARCHAR(64) NOT NULL,
+  attendance_record_id VARCHAR(64) NOT NULL,
+  person_id VARCHAR(64) NOT NULL,
   person_type VARCHAR(16) NOT NULL,
   previous_status VARCHAR(32),
   new_status VARCHAR(32) NOT NULL,
   previous_reason TEXT,
   new_reason TEXT,
   changed_by TEXT NOT NULL,
-  changed_at TEXT NOT NULL,
+  changed_at VARCHAR(32) NOT NULL,
   source VARCHAR(32) NOT NULL,
   action VARCHAR(16) NOT NULL
 );
@@ -56,17 +56,17 @@ CREATE INDEX IF NOT EXISTS idx_attendance_audit_scope ON attendance_audit_histor
 CREATE INDEX IF NOT EXISTS idx_attendance_audit_person ON attendance_audit_history(school_id, person_id, changed_at);
 
 CREATE TABLE IF NOT EXISTS staff_attendance_reconciliation_audit (
-  id TEXT PRIMARY KEY,
-  school_id TEXT NOT NULL,
-  leave_request_id TEXT NOT NULL,
-  staff_attendance_id TEXT,
-  attendance_date TEXT NOT NULL,
+  id VARCHAR(64) PRIMARY KEY,
+  school_id VARCHAR(64) NOT NULL,
+  leave_request_id VARCHAR(64) NOT NULL,
+  staff_attendance_id VARCHAR(64),
+  attendance_date VARCHAR(32) NOT NULL,
   action TEXT NOT NULL,
   previous_status VARCHAR(32),
   next_status VARCHAR(32),
   details TEXT NOT NULL,
   actor_id TEXT,
-  created_at TEXT NOT NULL
+  created_at VARCHAR(32) NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_staff_attendance_reconciliation_audit_leave ON staff_attendance_reconciliation_audit(school_id, leave_request_id, attendance_date);
 
@@ -100,10 +100,10 @@ CREATE TABLE IF NOT EXISTS fee_collection_corrections (
 
 -- Current Fee Hub account, ledger, invoice, payment, receipt, audit, and fee-type support.
 CREATE TABLE IF NOT EXISTS student_fee_accounts (
-  id TEXT PRIMARY KEY, school_id TEXT NOT NULL, student_id TEXT NOT NULL,
-  permanent_student_id VARCHAR(128) NOT NULL, academic_year_id TEXT NULL, term_id TEXT NULL,
-  class_id TEXT NOT NULL, account_status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE', created_by TEXT NULL,
-  created_at TEXT NOT NULL, updated_by TEXT NULL, updated_at TEXT NULL
+  id VARCHAR(64) PRIMARY KEY, school_id VARCHAR(64) NOT NULL, student_id VARCHAR(64) NOT NULL,
+  permanent_student_id VARCHAR(128) NOT NULL, academic_year_id VARCHAR(64) NULL, term_id VARCHAR(64) NULL,
+  class_id VARCHAR(64) NOT NULL, account_status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE', created_by VARCHAR(64) NULL,
+  created_at VARCHAR(32) NOT NULL, updated_by VARCHAR(64) NULL, updated_at VARCHAR(32) NULL
 );
 ALTER TABLE fee_collection_records ADD COLUMN IF NOT EXISTS collection_period VARCHAR(32) DEFAULT NULL;
 ALTER TABLE fee_collection_records ADD COLUMN IF NOT EXISTS fee_type_id VARCHAR(64) DEFAULT NULL;
@@ -119,12 +119,12 @@ CREATE INDEX IF NOT EXISTS idx_student_fee_account_class ON student_fee_accounts
 CREATE INDEX IF NOT EXISTS idx_student_fee_account_student ON student_fee_accounts(school_id, permanent_student_id);
 
 CREATE TABLE IF NOT EXISTS student_fee_ledger (
-  id TEXT PRIMARY KEY, school_id TEXT NOT NULL, account_id TEXT NOT NULL,
-  permanent_student_id VARCHAR(128) NOT NULL, academic_year_id TEXT NOT NULL, term_id TEXT NOT NULL, class_id TEXT NOT NULL,
+  id VARCHAR(64) PRIMARY KEY, school_id VARCHAR(64) NOT NULL, account_id VARCHAR(64) NOT NULL,
+  permanent_student_id VARCHAR(128) NOT NULL, academic_year_id VARCHAR(64) NOT NULL, term_id VARCHAR(64) NOT NULL, class_id VARCHAR(64) NOT NULL,
   transaction_type VARCHAR(32) NOT NULL, fee_type VARCHAR(128) DEFAULT NULL, amount DECIMAL(15,2) NOT NULL,
-  reference_type VARCHAR(64) DEFAULT NULL, reference_id TEXT DEFAULT NULL, description TEXT DEFAULT NULL,
-  transaction_date TEXT NOT NULL, source VARCHAR(32) NOT NULL DEFAULT 'LEGACY_UNSPECIFIED', recorded_by TEXT NOT NULL,
-  recorded_at TEXT NOT NULL, reversed_by TEXT DEFAULT NULL, reversed_at TEXT DEFAULT NULL,
+  reference_type VARCHAR(64) DEFAULT NULL, reference_id VARCHAR(128) DEFAULT NULL, description TEXT DEFAULT NULL,
+  transaction_date VARCHAR(32) NOT NULL, source VARCHAR(32) NOT NULL DEFAULT 'LEGACY_UNSPECIFIED', recorded_by VARCHAR(64) NOT NULL,
+  recorded_at VARCHAR(32) NOT NULL, reversed_by VARCHAR(64) DEFAULT NULL, reversed_at VARCHAR(32) DEFAULT NULL,
   reversal_reason TEXT DEFAULT NULL, status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE'
 );
 CREATE INDEX IF NOT EXISTS idx_fee_ledger_account ON student_fee_ledger(school_id, account_id, transaction_date);
@@ -133,52 +133,52 @@ CREATE INDEX IF NOT EXISTS idx_fee_ledger_type ON student_fee_ledger(school_id, 
 CREATE INDEX IF NOT EXISTS idx_fee_ledger_reference ON student_fee_ledger(school_id, reference_type, reference_id);
 
 CREATE TABLE IF NOT EXISTS fee_invoices (
-  id TEXT PRIMARY KEY, school_id TEXT NOT NULL, account_id TEXT NOT NULL,
-  permanent_student_id VARCHAR(128) NOT NULL, academic_year_id TEXT NULL, term_id TEXT NULL, class_id TEXT NULL,
+  id VARCHAR(64) PRIMARY KEY, school_id VARCHAR(64) NOT NULL, account_id VARCHAR(64) NOT NULL,
+  permanent_student_id VARCHAR(128) NOT NULL, academic_year_id VARCHAR(64) NULL, term_id VARCHAR(64) NULL, class_id VARCHAR(64) NULL,
   invoice_number VARCHAR(128) NOT NULL, invoice_date TEXT NOT NULL, due_date TEXT DEFAULT NULL,
   subtotal DECIMAL(15,2) NOT NULL DEFAULT 0.00, discount_amount DECIMAL(15,2) NOT NULL DEFAULT 0.00,
   total_amount DECIMAL(15,2) NOT NULL DEFAULT 0.00, status VARCHAR(32) NOT NULL DEFAULT 'DRAFT',
-  issued_by TEXT DEFAULT NULL, issued_at TEXT DEFAULT NULL, created_by TEXT NOT NULL,
-  created_at TEXT NOT NULL, updated_by TEXT DEFAULT NULL, updated_at TEXT DEFAULT NULL
+  issued_by VARCHAR(64) DEFAULT NULL, issued_at VARCHAR(32) DEFAULT NULL, created_by VARCHAR(64) NOT NULL,
+  created_at VARCHAR(32) NOT NULL, updated_by VARCHAR(64) DEFAULT NULL, updated_at VARCHAR(32) DEFAULT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS uq_fee_invoice_number ON fee_invoices(school_id, invoice_number);
 CREATE INDEX IF NOT EXISTS idx_fee_invoice_student ON fee_invoices(school_id, permanent_student_id, academic_year_id, term_id);
 CREATE INDEX IF NOT EXISTS idx_fee_invoice_account ON fee_invoices(school_id, account_id);
 CREATE TABLE IF NOT EXISTS fee_invoice_items (
-  id TEXT PRIMARY KEY, school_id TEXT NOT NULL, invoice_id TEXT NOT NULL,
+  id VARCHAR(64) PRIMARY KEY, school_id VARCHAR(64) NOT NULL, invoice_id VARCHAR(64) NOT NULL,
   fee_structure_id TEXT DEFAULT NULL, fee_type VARCHAR(128) NOT NULL, description TEXT DEFAULT NULL,
-  amount DECIMAL(15,2) NOT NULL, created_at TEXT NOT NULL
+  amount DECIMAL(15,2) NOT NULL, created_at VARCHAR(32) NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_fee_invoice_items_invoice ON fee_invoice_items(school_id, invoice_id);
 
 CREATE TABLE IF NOT EXISTS student_fee_payments (
-  id TEXT PRIMARY KEY, school_id TEXT NOT NULL, account_id TEXT NOT NULL,
-  invoice_id TEXT DEFAULT NULL, permanent_student_id VARCHAR(128) NOT NULL,
-  academic_year_id TEXT NOT NULL, term_id TEXT NOT NULL, class_id TEXT NOT NULL, payment_reference VARCHAR(128) NOT NULL,
+  id VARCHAR(64) PRIMARY KEY, school_id VARCHAR(64) NOT NULL, account_id VARCHAR(64) NOT NULL,
+  invoice_id VARCHAR(64) DEFAULT NULL, permanent_student_id VARCHAR(128) NOT NULL,
+  academic_year_id VARCHAR(64) NOT NULL, term_id VARCHAR(64) NOT NULL, class_id VARCHAR(64) NOT NULL, payment_reference VARCHAR(128) NOT NULL,
   amount DECIMAL(15,2) NOT NULL, payment_method VARCHAR(32) NOT NULL, provider_reference VARCHAR(255) DEFAULT NULL,
-  payment_date TEXT NOT NULL, status VARCHAR(32) NOT NULL DEFAULT 'COMPLETED', received_by TEXT NOT NULL,
-  created_at TEXT NOT NULL, reversed_by TEXT DEFAULT NULL, reversed_at TEXT DEFAULT NULL, reversal_reason TEXT DEFAULT NULL
+  payment_date VARCHAR(32) NOT NULL, status VARCHAR(32) NOT NULL DEFAULT 'COMPLETED', received_by VARCHAR(64) NOT NULL,
+  created_at VARCHAR(32) NOT NULL, reversed_by VARCHAR(64) DEFAULT NULL, reversed_at VARCHAR(32) DEFAULT NULL, reversal_reason TEXT DEFAULT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS uq_student_fee_payment_reference ON student_fee_payments(school_id, payment_reference);
 CREATE INDEX IF NOT EXISTS idx_student_fee_payment_account ON student_fee_payments(school_id, account_id, payment_date);
 CREATE INDEX IF NOT EXISTS idx_student_fee_payment_student ON student_fee_payments(school_id, permanent_student_id, academic_year_id, term_id);
 
 CREATE TABLE IF NOT EXISTS student_fee_receipts (
-  id TEXT PRIMARY KEY, school_id TEXT NOT NULL, payment_id TEXT NOT NULL,
-  account_id TEXT NOT NULL, permanent_student_id VARCHAR(128) NOT NULL,
+  id VARCHAR(64) PRIMARY KEY, school_id VARCHAR(64) NOT NULL, payment_id VARCHAR(64) NOT NULL,
+  account_id VARCHAR(64) NOT NULL, permanent_student_id VARCHAR(128) NOT NULL,
   receipt_number VARCHAR(128) NOT NULL, amount_paid DECIMAL(15,2) NOT NULL, previous_balance DECIMAL(15,2) NOT NULL,
-  new_balance DECIMAL(15,2) NOT NULL, issued_by TEXT NOT NULL, issued_at TEXT NOT NULL,
-  status VARCHAR(32) NOT NULL DEFAULT 'VALID', voided_by TEXT DEFAULT NULL, voided_at TEXT DEFAULT NULL, void_reason TEXT DEFAULT NULL
+  new_balance DECIMAL(15,2) NOT NULL, issued_by VARCHAR(64) NOT NULL, issued_at VARCHAR(32) NOT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'VALID', voided_by VARCHAR(64) DEFAULT NULL, voided_at VARCHAR(32) DEFAULT NULL, void_reason TEXT DEFAULT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS uq_student_fee_receipt_number ON student_fee_receipts(school_id, receipt_number);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_student_fee_receipt_payment ON student_fee_receipts(payment_id);
 CREATE INDEX IF NOT EXISTS idx_student_fee_receipt_student ON student_fee_receipts(school_id, permanent_student_id, issued_at);
 
 CREATE TABLE IF NOT EXISTS financial_audit_history (
-  id TEXT PRIMARY KEY, school_id TEXT NOT NULL, entity_type VARCHAR(64) NOT NULL,
-  entity_id TEXT NOT NULL, permanent_student_id VARCHAR(128) DEFAULT NULL, action VARCHAR(32) NOT NULL,
+  id VARCHAR(64) PRIMARY KEY, school_id VARCHAR(64) NOT NULL, entity_type VARCHAR(64) NOT NULL,
+  entity_id VARCHAR(64) NOT NULL, permanent_student_id VARCHAR(128) DEFAULT NULL, action VARCHAR(32) NOT NULL,
   previous_values JSON DEFAULT NULL, new_values JSON DEFAULT NULL, reason TEXT DEFAULT NULL,
-  changed_by TEXT NOT NULL, changed_at TEXT NOT NULL, source VARCHAR(32) NOT NULL DEFAULT 'LEGACY_UNSPECIFIED',
+  changed_by VARCHAR(64) NOT NULL, changed_at VARCHAR(32) NOT NULL, source VARCHAR(32) NOT NULL DEFAULT 'LEGACY_UNSPECIFIED',
   transaction_reference VARCHAR(128) DEFAULT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_financial_audit_entity ON financial_audit_history(school_id, entity_type, entity_id, changed_at);
@@ -187,12 +187,12 @@ CREATE INDEX IF NOT EXISTS idx_financial_audit_actor ON financial_audit_history(
 CREATE INDEX IF NOT EXISTS idx_financial_audit_transaction ON financial_audit_history(school_id, transaction_reference, changed_at);
 
 CREATE TABLE IF NOT EXISTS fee_types (
-  id TEXT PRIMARY KEY, school_id TEXT NOT NULL, code VARCHAR(64) NOT NULL,
+  id VARCHAR(64) PRIMARY KEY, school_id VARCHAR(64) NOT NULL, code VARCHAR(64) NOT NULL,
   name VARCHAR(128) NOT NULL, category VARCHAR(64) NOT NULL, description TEXT DEFAULT NULL,
   is_active BOOLEAN NOT NULL DEFAULT TRUE, is_system BOOLEAN NOT NULL DEFAULT FALSE,
-  created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE (school_id, code)
+  created_at VARCHAR(32) NOT NULL, updated_at VARCHAR(32) NOT NULL, UNIQUE (school_id, code)
 );
-ALTER TABLE fee_structures ADD COLUMN IF NOT EXISTS fee_type_id TEXT DEFAULT NULL;
+ALTER TABLE fee_structures ADD COLUMN IF NOT EXISTS fee_type_id VARCHAR(64) DEFAULT NULL;
 ALTER TABLE fee_structures ADD COLUMN IF NOT EXISTS custom_fee_type_name TEXT DEFAULT NULL;
 CREATE INDEX IF NOT EXISTS idx_fee_types_scope ON fee_types(school_id, is_active, code);
 CREATE INDEX IF NOT EXISTS idx_fee_structure_fee_type ON fee_structures(school_id, fee_type_id, academic_year_id, term_id);
