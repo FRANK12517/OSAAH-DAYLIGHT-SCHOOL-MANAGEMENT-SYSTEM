@@ -200,6 +200,7 @@ CREATE TABLE IF NOT EXISTS financial_audit_history (
   changed_by VARCHAR(64) NOT NULL, changed_at VARCHAR(32) NOT NULL, source VARCHAR(32) NOT NULL DEFAULT 'LEGACY_UNSPECIFIED',
   transaction_reference VARCHAR(128) DEFAULT NULL
 );
+ALTER TABLE financial_audit_history ADD COLUMN IF NOT EXISTS transaction_reference VARCHAR(128) DEFAULT NULL;
 CREATE INDEX IF NOT EXISTS idx_financial_audit_entity ON financial_audit_history(school_id, entity_type, entity_id, changed_at);
 CREATE INDEX IF NOT EXISTS idx_financial_audit_student ON financial_audit_history(school_id, permanent_student_id, changed_at);
 CREATE INDEX IF NOT EXISTS idx_financial_audit_actor ON financial_audit_history(school_id, changed_by, changed_at);
