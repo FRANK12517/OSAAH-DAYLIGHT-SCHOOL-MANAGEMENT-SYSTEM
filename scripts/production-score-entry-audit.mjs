@@ -19,7 +19,7 @@ if (!process.env.DATABASE_URL) {
     const [columnRows] = await pool.query('SELECT TABLE_NAME,COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN (?)', [tables]);
     const columns = new Map();
     for (const row of columnRows) (columns.get(row.TABLE_NAME) ?? columns.set(row.TABLE_NAME, new Set()).get(row.TABLE_NAME)).add(row.COLUMN_NAME);
-    const result = { ok: true, mode: 'READ_ONLY_SCORE_ENTRY_AUDIT', connectedDatabase: database.database_name, tablePresence: Object.fromEntries(tables.map((table) => [table, present.has(table)])), columns: Object.fromEntries([...columns].map(([table, names]) => [table, [...names]])), countsBySchool: {}, relationships: {}, productionWrites: 'NONE' };
+    const result = { ok: true, mode: 'READ_ONLY_SCORE_ENTRY_AUDIT', connectedDatabase: database.database_name, tablePresence: Object.fromEntries(tables.map((table) => [table, present.has(table)])), columns: Object.fromEntries([...columns].map(([table, names]) => [table, [...names]])), countsBySchool: {}, totalCounts: {}, relationships: {}, productionWrites: 'NONE' };
     const countBySchool = async (table, schoolColumn = 'school_id') => {
       if (!present.has(table) || !has(columns.get(table) ?? new Set(), schoolColumn)) return null;
       const [rows] = await pool.query(`SELECT ${schoolColumn} AS schoolId, COUNT(*) AS count FROM ${table} GROUP BY ${schoolColumn} ORDER BY ${schoolColumn}`);
@@ -32,6 +32,11 @@ if (!process.env.DATABASE_URL) {
     } else result.countsBySchool.student_enrollments = null;
     if (present.has('class_subjects')) result.countsBySchool.class_subjects = await countBySchool('class_subjects');
     if (present.has('subject_class_assignments')) result.countsBySchool.subject_class_assignments = await countBySchool('subject_class_assignments');
+    for (const table of ['class_subjects', 'assessment_scores', 'exam_scores']) {
+      if (!present.has(table)) continue;
+      const [[row]] = await pool.query(`SELECT COUNT(*) AS count FROM ${table}`);
+      result.totalCounts[table] = asCount(row);
+    }
 
     if (present.has('classes') && has(columns.get('classes') ?? new Set(), 'school_id')) {
       const [rows] = await pool.query('SELECT school_id AS schoolId, id AS classId, name, level FROM classes WHERE school_id IS NOT NULL ORDER BY school_id, name, id');
@@ -44,6 +49,10 @@ if (!process.env.DATABASE_URL) {
       const [rows] = await pool.query(`SELECT s.school_id AS schoolId, ${yearColumn} AS academicYear, ${classColumn} AS classRef, COUNT(*) AS count FROM student_enrollments e JOIN students s ON s.id=e.student_id GROUP BY s.school_id, ${yearColumn}, ${classColumn} ORDER BY s.school_id, academicYear, classRef`);
       result.relationships.enrollmentsBySchoolYearClass = rows.map((row) => ({ schoolId: row.schoolId, academicYear: row.academicYear, classRef: row.classRef, count: asCount(row) }));
     }
+    if (present.has('student_profiles') && present.has('students') && has(columns.get('student_profiles') ?? new Set(), 'student_master_id')) {
+      const [[row]] = await pool.query('SELECT COUNT(*) AS count FROM student_profiles p LEFT JOIN students s ON s.id=p.student_master_id WHERE s.id IS NULL');
+      result.relationships.orphanStudentProfiles = asCount(row);
+    }
     const mappingTable = present.has('class_subjects') ? 'class_subjects' : present.has('subject_class_assignments') ? 'subject_class_assignments' : null;
     if (mappingTable && present.has('classes') && present.has('subjects')) {
       const mappingColumns = columns.get(mappingTable) ?? new Set();
@@ -51,6 +60,10 @@ if (!process.env.DATABASE_URL) {
       const activePredicate = mappingColumns.has('active') ? 'AND m.active=1' : '';
       const [rows] = await pool.query(`SELECT c.school_id AS schoolId, c.name AS className, c.level AS classLevel, s.id AS subjectId, s.name AS subjectName, COUNT(*) AS count FROM ${mappingTable} m JOIN classes c ON c.id=m.class_id JOIN subjects s ON s.id=m.subject_id AND s.school_id=c.school_id WHERE ${schoolPredicate} ${activePredicate} GROUP BY c.school_id, c.name, c.level, s.id, s.name ORDER BY c.school_id, c.name, s.name`);
       result.relationships.subjectsByClass = rows.map((row) => ({ schoolId: row.schoolId, className: row.className, classLevel: row.classLevel, subjectId: row.subjectId, subjectName: row.subjectName, count: asCount(row) }));
+    }
+    if (present.has('class_subjects') && present.has('classes') && present.has('subjects')) {
+      const [rows] = await pool.query('SELECT c.school_id AS schoolId, c.id AS classId, s.id AS subjectId FROM class_subjects m JOIN classes c ON c.id=m.class_id JOIN subjects s ON s.id=m.subject_id AND s.school_id=c.school_id ORDER BY c.school_id, c.id, s.id');
+      result.relationships.classSubjectRows = rows.map((row) => ({ schoolId: row.schoolId, classId: row.classId, subjectId: row.subjectId }));
     }
     process.stdout.write(`${JSON.stringify(result)}\n`);
   } catch (error) {
