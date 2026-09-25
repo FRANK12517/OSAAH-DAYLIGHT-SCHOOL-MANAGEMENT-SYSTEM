@@ -161,7 +161,16 @@ CREATE TABLE IF NOT EXISTS student_fee_payments (
 );
 ALTER TABLE student_fee_payments ADD COLUMN IF NOT EXISTS school_id VARCHAR(64) DEFAULT 'LEGACY_UNSPECIFIED';
 ALTER TABLE student_fee_payments ADD COLUMN IF NOT EXISTS account_id VARCHAR(64) DEFAULT NULL;
+ALTER TABLE student_fee_payments ADD COLUMN IF NOT EXISTS permanent_student_id VARCHAR(128) DEFAULT NULL;
+ALTER TABLE student_fee_payments ADD COLUMN IF NOT EXISTS academic_year_id VARCHAR(64) DEFAULT NULL;
+ALTER TABLE student_fee_payments ADD COLUMN IF NOT EXISTS term_id VARCHAR(64) DEFAULT NULL;
+ALTER TABLE student_fee_payments ADD COLUMN IF NOT EXISTS class_id VARCHAR(64) DEFAULT NULL;
 ALTER TABLE student_fee_payments ADD COLUMN IF NOT EXISTS payment_reference VARCHAR(128) DEFAULT NULL;
+ALTER TABLE student_fee_payments ADD COLUMN IF NOT EXISTS invoice_id VARCHAR(64) DEFAULT NULL;
+ALTER TABLE student_fee_payments ADD COLUMN IF NOT EXISTS payment_method VARCHAR(32) DEFAULT NULL;
+ALTER TABLE student_fee_payments ADD COLUMN IF NOT EXISTS payment_date VARCHAR(32) DEFAULT NULL;
+ALTER TABLE student_fee_payments ADD COLUMN IF NOT EXISTS status VARCHAR(32) DEFAULT NULL;
+ALTER TABLE student_fee_payments ADD COLUMN IF NOT EXISTS received_by VARCHAR(64) DEFAULT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_student_fee_payment_reference ON student_fee_payments(school_id, payment_reference);
 CREATE INDEX IF NOT EXISTS idx_student_fee_payment_account ON student_fee_payments(school_id, account_id, payment_date);
 CREATE INDEX IF NOT EXISTS idx_student_fee_payment_student ON student_fee_payments(school_id, permanent_student_id, academic_year_id, term_id);
@@ -174,6 +183,12 @@ CREATE TABLE IF NOT EXISTS student_fee_receipts (
   status VARCHAR(32) NOT NULL DEFAULT 'VALID', voided_by VARCHAR(64) DEFAULT NULL, voided_at VARCHAR(32) DEFAULT NULL, void_reason TEXT DEFAULT NULL
 );
 ALTER TABLE student_fee_receipts ADD COLUMN IF NOT EXISTS school_id VARCHAR(64) DEFAULT 'LEGACY_UNSPECIFIED';
+ALTER TABLE student_fee_receipts ADD COLUMN IF NOT EXISTS payment_id VARCHAR(64) DEFAULT NULL;
+ALTER TABLE student_fee_receipts ADD COLUMN IF NOT EXISTS account_id VARCHAR(64) DEFAULT NULL;
+ALTER TABLE student_fee_receipts ADD COLUMN IF NOT EXISTS permanent_student_id VARCHAR(128) DEFAULT NULL;
+ALTER TABLE student_fee_receipts ADD COLUMN IF NOT EXISTS receipt_number VARCHAR(128) DEFAULT NULL;
+ALTER TABLE student_fee_receipts ADD COLUMN IF NOT EXISTS issued_at VARCHAR(32) DEFAULT NULL;
+ALTER TABLE student_fee_receipts ADD COLUMN IF NOT EXISTS status VARCHAR(32) DEFAULT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_student_fee_receipt_number ON student_fee_receipts(school_id, receipt_number);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_student_fee_receipt_payment ON student_fee_receipts(payment_id);
 CREATE INDEX IF NOT EXISTS idx_student_fee_receipt_student ON student_fee_receipts(school_id, permanent_student_id, issued_at);
