@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { createApp } from '../src/server.mjs';
 import { createAuthService, DEMO_USERS } from '../src/auth.js';
+import { createCommunicationEngine } from '../src/communication-engine.js';
 
 process.env.OSAAH_SCHOOL_ID = 'sch_default_01';
 const auth = createAuthService({ users: [{ ...DEMO_USERS.find((user) => user.roleKey === 'PROPRIETOR'), id: 'proprietor-tenant-test', schoolId: 'sch_default_01' }] });
@@ -20,6 +21,7 @@ try {
   const communicationBody = await communicationResponse.json();
   assert.equal(communicationResponse.status, 200);
   assert.deepEqual(communicationBody.providers, []);
+  assert.deepEqual(createCommunicationEngine({ schoolId: 'sch_default_01' }).listProviders({ roleKey: 'SCHOOL_PROPRIETOR', schoolId: 'sch_default_01' }), []);
   console.log('Result Signatures and Communication Setup tenant regression checks passed.');
 } finally {
   await new Promise((resolve) => server.close(resolve));
