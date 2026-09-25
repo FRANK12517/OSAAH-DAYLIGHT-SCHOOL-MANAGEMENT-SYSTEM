@@ -1,0 +1,47 @@
+name: Production Score Entry data audit
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Exact release commit to inspect
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-score-entry-data-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    name: Read-only Score Entry data-contract audit
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - name: Check out requested release
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_ref }}
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Confirm protected production secret is available
+        run: test -n "${DATABASE_URL:-}"
+      - name: Run read-only Score Entry audit
+        run: node scripts/production-score-entry-audit.mjs | tee score-entry-production-audit.json
+      - name: Upload redacted audit result
+        uses: actions/upload-artifact@v4
+        with:
+          name: score-entry-production-audit
+          path: score-entry-production-audit.json
+          if-no-files-found: error
