@@ -9,4 +9,6 @@ test('production reconciliation uses bounded types for TiDB key columns', async 
   assert.match(sql, /id VARCHAR\(64\) PRIMARY KEY/);
   assert.match(sql, /academic_year_id VARCHAR\(64\) NULL, term_id VARCHAR\(64\) NULL/);
   assert.match(sql, /reference_id VARCHAR\(128\) DEFAULT NULL/);
+  assert.match(sql, /ALTER TABLE student_fee_payments ADD COLUMN IF NOT EXISTS school_id VARCHAR\(64\)/);
+  assert.match(sql, /ALTER TABLE student_fee_receipts ADD COLUMN IF NOT EXISTS school_id VARCHAR\(64\)/);
 });
