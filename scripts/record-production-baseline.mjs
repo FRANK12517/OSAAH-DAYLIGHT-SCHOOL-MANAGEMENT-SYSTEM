@@ -34,8 +34,21 @@ export async function recordProductionBaseline({ adapter, repositoryCommit, work
   const timestamp = now.toISOString().replace('T', ' ').replace('Z', '');
   const baseline = createProductionBaseline({ canonicalDatabase: expectedDatabaseName, baselineAt: timestamp, repositoryCommit, schemaFingerprint: fingerprint, reconciliationMigration: '049_production_schema_reconciliation.sql', workflowProvenance });
   await adapter.ensureMetadata({ create: true });
+  if (typeof adapter.listBaselines === 'function') {
+    const existing = requireRows(await adapter.listBaselines(), 'existing baselines').find((record) => record.id === baseline.id);
+    if (existing) {
+      const compatible = existing.canonicalDatabase === baseline.canonicalDatabase
+        && existing.repositoryCommit === baseline.repositoryCommit
+        && existing.schemaFingerprint === baseline.schemaFingerprint
+        && existing.reconciliationMigration === baseline.reconciliationMigration
+        && existing.baselineType === 'HISTORICAL_BASELINE'
+        && (existing.historicalMigrationsExecuted === false || existing.historicalMigrationsExecuted === 0);
+      if (!compatible) throw new Error(`Existing baseline ${baseline.id} conflicts with the reviewed release or schema fingerprint.`);
+      return { baseline: existing, historicalMigrationsRecorded: false, reused: true };
+    }
+  }
   await adapter.recordBaseline(baseline);
-  return { baseline, historicalMigrationsRecorded: false };
+  return { baseline, historicalMigrationsRecorded: false, reused: false };
 }
 
 async function main() {

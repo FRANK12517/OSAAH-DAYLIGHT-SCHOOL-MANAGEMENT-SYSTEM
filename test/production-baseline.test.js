@@ -12,7 +12,7 @@ const queries = {
   foreignKeys: 'SELECT TABLE_NAME, CONSTRAINT_NAME, REFERENCED_TABLE_NAME FROM information_schema.KEY_COLUMN_USAGE'
 };
 
-function baselineAdapter({ databaseResult = [{ database_name: 'osaahdaylightschool' }], malformedQuery = null } = {}) {
+function baselineAdapter({ databaseResult = [{ database_name: 'osaahdaylightschool' }], malformedQuery = null, existingBaselines = [] } = {}) {
   const calls = [];
   return {
     calls,
@@ -26,6 +26,7 @@ function baselineAdapter({ databaseResult = [{ database_name: 'osaahdaylightscho
       return [];
     },
     async ensureMetadata() { calls.push('ensureMetadata'); },
+    async listBaselines() { calls.push('listBaselines'); return existingBaselines; },
     async recordBaseline(record) { this.recorded = record; }
   };
 }
@@ -37,7 +38,8 @@ test('baseline recorder consumes the canonical rows-only adapter contract', asyn
   assert.equal(result.baseline.repositoryCommit, commit);
   assert.equal(result.historicalMigrationsRecorded, false);
   assert.equal(adapter.calls[0], queries.database);
-  assert.equal(adapter.calls.at(-1), 'ensureMetadata');
+  assert.equal(adapter.calls.at(-2), 'ensureMetadata');
+  assert.equal(adapter.calls.at(-1), 'listBaselines');
   assert.equal(adapter.recorded.baselineType, 'HISTORICAL_BASELINE');
 });
 
@@ -55,4 +57,19 @@ test('baseline recorder fails closed for a malformed database result', async () 
 
 test('baseline recorder fails closed when a later schema query violates the rows-only contract', async () => {
   await assert.rejects(() => recordProductionBaseline({ adapter: baselineAdapter({ malformedQuery: 'COLUMNS' }), repositoryCommit: commit, workflowProvenance: provenance }), /columns must return an array of rows/);
+});
+
+test('baseline recorder reuses a compatible existing baseline on retry', async () => {
+  const first = baselineAdapter();
+  const created = await recordProductionBaseline({ adapter: first, repositoryCommit: commit, workflowProvenance: provenance, now: new Date('2026-09-24T00:00:00.000Z') });
+  const second = baselineAdapter({ existingBaselines: [created.baseline] });
+  const result = await recordProductionBaseline({ adapter: second, repositoryCommit: commit, workflowProvenance: 'retry/049', now: new Date('2026-09-25T00:00:00.000Z') });
+  assert.equal(result.reused, true);
+  assert.deepEqual(result.baseline, created.baseline);
+  assert.equal(second.recorded, undefined);
+});
+
+test('baseline recorder rejects a conflicting existing baseline', async () => {
+  const existing = { id: `baseline-${commit.slice(0, 12)}`, canonicalDatabase: 'osaahdaylightschool', repositoryCommit: commit, schemaFingerprint: '0'.repeat(64), reconciliationMigration: '049_production_schema_reconciliation.sql', baselineType: 'HISTORICAL_BASELINE', historicalMigrationsExecuted: false };
+  await assert.rejects(() => recordProductionBaseline({ adapter: baselineAdapter({ existingBaselines: [existing] }), repositoryCommit: commit, workflowProvenance: provenance }), /conflicts/);
 });
