@@ -24,8 +24,8 @@ test('production reconciliation creates fee invoice tables before using their co
   assert.ok(itemCreate > invoiceCreate);
   assert.doesNotMatch(sql, /ALTER TABLE fee_invoices\s+ADD COLUMN/i);
   assert.doesNotMatch(sql, /ALTER TABLE fee_invoice_items\s+ADD COLUMN/i);
-  assert.match(sql.slice(invoiceCreate, itemCreate), /academic_year_id TEXT NULL/);
-  assert.match(sql.slice(invoiceCreate, itemCreate), /issued_by TEXT DEFAULT NULL/);
+  assert.match(sql.slice(invoiceCreate, itemCreate), /academic_year_id VARCHAR\(64\) NULL/);
+  assert.match(sql.slice(invoiceCreate, itemCreate), /issued_by VARCHAR\(64\) DEFAULT NULL/);
   assert.match(sql.slice(itemCreate), /fee_structure_id TEXT DEFAULT NULL/);
   assert.match(sql.slice(itemCreate), /amount DECIMAL\(15,2\) NOT NULL/);
 });
