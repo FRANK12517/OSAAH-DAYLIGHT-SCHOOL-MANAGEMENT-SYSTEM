@@ -1,0 +1,58 @@
+name: Production forward-only reconciliation
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Exact tested release commit SHA to inspect or migrate
+        required: true
+        type: string
+      mode:
+        description: Dry-run is read-only; apply executes only migration 053
+        required: true
+        default: dry-run
+        type: choice
+        options:
+          - dry-run
+          - apply
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-forward-reconciliation
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    name: Forward-only 053 production reconciliation
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      OUTPUT_DIR: part5fe6-artifacts
+    steps:
+      - name: Check out exact tested release commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_ref }}
+          fetch-depth: 1
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Confirm protected database secret is available
+        run: test -n "${DATABASE_URL:-}"
+      - name: Run explicit forward-only reconciliation
+        run: npm run migration:forward-reconciliation -- ${{ inputs.mode }}
+      - name: Upload sanitized reconciliation artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: part5fe6-forward-reconciliation-${{ github.run_id }}
+          path: part5fe6-artifacts/
+          if-no-files-found: error
