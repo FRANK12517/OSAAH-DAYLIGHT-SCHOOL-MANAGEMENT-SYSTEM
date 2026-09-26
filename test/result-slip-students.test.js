@@ -151,7 +151,7 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
 function element(value = '') {
   return { value, disabled: false, hidden: false, textContent: '', handlers: {}, _html: '', addEventListener(name, fn) { this.handlers[name] = fn; }, set innerHTML(html) { this._html = html; this.value = /<option value="([^"]*)"/.exec(html)?.[1] ?? ''; }, get innerHTML() { return this._html; } };
 }
-async function browser(lookup = async url => response(url.searchParams.get('classId') === 'class-a' ? [studentA] : url.searchParams.get('classId') === 'class-b' ? [studentB] : [])) {
+async function browser(lookup = async url => response(url.searchParams.get('classId') === 'class-a' ? [studentA] : url.searchParams.get('classId') === 'class-b' ? [studentB] : []), options = optionPayload) {
   const fields = { academicYear: element('2026/2027'), term: element('First Term'), classId: element(), studentId: element(), permanentStudentId: element(), sampleMode: { ...element(), checked: false } };
   const button = element(), status = element(), host = element(), retry = element(), retryStudents = element(), years = element();
   host.querySelectorAll = () => [];
@@ -159,7 +159,7 @@ async function browser(lookup = async url => response(url.searchParams.get('clas
   const requests = [];
   const ctx = vm.createContext({ document: { querySelector: selector => ({ '#result-context': form, '#status': status, '#result': host, '#retry-options': retry, '#retry-students': retryStudents, '#result-academic-years': years })[selector] }, URLSearchParams, AbortController, setTimeout, clearTimeout, FormData: class { constructor() { return Object.entries(fields).filter(([name]) => name !== 'sampleMode').map(([name, el]) => [name, el.value]); } }, fetch: async (url, init) => {
     requests.push({ url, init });
-    if (url === '/api/academic/options') return { ok: true, json: async () => structuredClone(optionPayload) };
+    if (url === '/api/academic/options') return { ok: true, json: async () => structuredClone(options) };
     if (url.startsWith('/api/academic/result-students?')) return lookup(new URL(url, 'http://local'), init);
     return { ok: true, json: async () => ({ result: {} }) };
   } });
@@ -238,6 +238,43 @@ test('late previous-class success cannot overwrite the current class response', 
   a.resolve(response([studentA])); await first;
   assert.match(page.fields.studentId.innerHTML, /Kojo Boateng/);
   assert.doesNotMatch(page.fields.studentId.innerHTML, /Ama/);
+});
+
+test('rapid Basic 1 → Basic 2 → JHS 1 → Basic 1 navigation renders only the final student context', async () => {
+  const classOptions = [
+    { id: 'rapid-basic-1', name: 'Basic 1' },
+    { id: 'rapid-basic-2', name: 'Basic 2' },
+    { id: 'rapid-jhs-1', name: 'JHS 1' }
+  ];
+  const pending = new Map(classOptions.map(({ id }) => [id, []]));
+  const page = await browser((url, init) => {
+    const queue = pending.get(url.searchParams.get('classId'));
+    const request = deferred();
+    queue.push({ ...request, signal: init.signal });
+    return request.promise;
+  }, { ...optionPayload, classes: classOptions, students: [] });
+
+  const first = page.chooseClass('rapid-basic-1');
+  const second = page.chooseClass('rapid-basic-2');
+  const third = page.chooseClass('rapid-jhs-1');
+  const last = page.chooseClass('rapid-basic-1');
+  assert.equal(pending.get('rapid-basic-1')[0].signal.aborted, true);
+  assert.equal(pending.get('rapid-basic-2')[0].signal.aborted, true);
+  assert.equal(pending.get('rapid-jhs-1')[0].signal.aborted, true);
+
+  pending.get('rapid-basic-1')[1].resolve(response([{ ...studentA, classId: 'rapid-basic-1' }]));
+  await last;
+  pending.get('rapid-jhs-1')[0].resolve(response([{ ...studentB, id: 'stale-jhs', classId: 'rapid-jhs-1' }]));
+  pending.get('rapid-basic-2')[0].resolve(response([{ ...studentB, classId: 'rapid-basic-2' }]));
+  pending.get('rapid-basic-1')[0].resolve(response([{ ...studentA, id: 'stale-basic', classId: 'rapid-basic-1' }]));
+  await Promise.all([first, second, third]);
+
+  assert.match(page.fields.studentId.innerHTML, /value="durable-a">Ama Akua Mensah/);
+  assert.doesNotMatch(page.fields.studentId.innerHTML, /stale-basic|stale-jhs|Kojo/);
+  assert.equal(page.fields.classId.value, 'rapid-basic-1');
+  assert.equal(page.fields.studentId.value, '');
+  assert.equal(page.fields.permanentStudentId.value, '');
+  assert.equal(page.host.hidden, true);
 });
 
 test('late failure cannot replace a newer success with an error or retry control', async () => {

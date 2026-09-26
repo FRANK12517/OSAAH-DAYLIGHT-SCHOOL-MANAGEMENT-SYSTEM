@@ -260,7 +260,7 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
       s.middle_name AS middleName,s.last_name AS lastName,s.is_test_record AS isTestRecord
       FROM student_enrollments e JOIN students s ON s.id=e.student_id
       JOIN academic_years y ON y.id=e.academic_year_id AND y.school_id=s.school_id
-      WHERE s.school_id=? AND e.class_id=? AND e.academic_year_id=?
+      WHERE s.school_id=? AND e.class_id=? AND e.academic_year_id=? AND COALESCE(s.is_test_record,0)=0
       ORDER BY s.last_name,s.first_name,s.id`, [schoolId, classId, period.yearId]));
     const seen = new Set();
     return memberships.filter((item) => {
