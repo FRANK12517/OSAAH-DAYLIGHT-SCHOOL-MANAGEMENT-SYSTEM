@@ -34,7 +34,10 @@ async function fixture() {
     INSERT INTO students VALUES('student-a','${schoolId}','OSAAH/2026/0001','Ama','Akua','Mensah','Female',0,'class-b'),('student-b','${schoolId}','OSAAH/2026/0002','Kojo',NULL,'Boateng','Male',0,'class-a'),('foreign-student','school-b','OSAAH/2026/9001','Foreign',NULL,'Student','Male',0,'foreign-class'),('sample-student','${schoolId}','TEST-OSAAH-0001','Sample',NULL,'Learner','Female',1,'class-a');
     INSERT INTO student_enrollments VALUES('enroll-a','student-a','class-a','year-a'),('enroll-b','student-b','class-a','year-a'),('enroll-old','student-a','class-b','year-b'),('enroll-x','foreign-student','foreign-class','year-x'),('enroll-sample','sample-student','class-a','year-a');`);
   for (const id of ['students','student_enrollments','class_subjects','classes','academic_years','terms','subjects']) db.exec(`CREATE TABLE IF NOT EXISTS ${id}_preserved (id TEXT PRIMARY KEY); INSERT INTO ${id}_preserved VALUES ('keep-${id}');`);
-  const migration = await readFile(new URL('../schema/055_canonical_academic_scores.sql', import.meta.url), 'utf8');
+  const migration = [
+    await readFile(new URL('../schema/055_canonical_academic_scores.sql', import.meta.url), 'utf8'),
+    await readFile(new URL('../schema/056_canonical_ges_assessments.sql', import.meta.url), 'utf8')
+  ].join('\n');
   const database = {
     async query(sql, params = []) {
       try { return db.prepare(sql).all(...params); }
