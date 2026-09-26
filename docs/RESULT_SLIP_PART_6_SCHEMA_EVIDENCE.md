@@ -6,7 +6,7 @@
 
 The existing protected workflow is `.github/workflows/production-schema-inventory.yml`. It verifies that `DATABASE_URL` exists without printing its value, then invokes `scripts/production-schema-inventory.mjs`. Its configured expected database is `osaahdaylightschool`. The inventory script now guards the database name before any table metadata read and emits full catalog-only columns, PK/unique constraints, indexes, and FK rules for the required tables plus tables directly related through declared FKs. Focused tests cover metadata-only query behavior and the fail-closed database guard. The updated protected workflow has not yet run.
 
-No workflow dispatch has been made from this task. The branch currently tracks the GitHub `origin` at the Part 6A documentation commit; the metadata tooling changes must be committed and published before they can be selected as the workflow `release_ref`. No database connection or application-table query was attempted; no production application data or live schema metadata was read, and no production mutation occurred.
+No workflow dispatch has been made from this task. The tooling change is committed locally as `a8f4f9e8029932917c8b67b22f9ac1ede1a596dd`, but the normal push failed because the environment could not connect to `github.com:443`. The remote-tracking ref still points to `00071b787260d9cc40276709d2218858f5dce6a5`; the new tooling commit is not published and cannot yet be selected by GitHub Actions. No database connection or application-table query was attempted; no production application data or live schema metadata was read, and no production mutation occurred.
 
 ## Captured production results
 
@@ -35,4 +35,4 @@ None from the updated tooling. Every required field below remains **NOT VERIFIED
 
 ## Next required action
 
-Publish the metadata-tooling commit, then dispatch the existing protected metadata-only workflow against that commit. Verify the connected database name, retain only sanitized catalog metadata, and paste the actual relevant result into this file. Do not use production application rows to fill schema gaps.
+After connectivity allows it, publish commit `a8f4f9e8029932917c8b67b22f9ac1ede1a596dd`, then dispatch the existing protected metadata-only workflow against that commit. Verify the connected database name, retain only sanitized catalog metadata, and paste the actual relevant result into this file. Do not use production application rows to fill schema gaps.

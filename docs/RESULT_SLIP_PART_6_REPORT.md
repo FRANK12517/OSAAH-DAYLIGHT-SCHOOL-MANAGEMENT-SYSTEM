@@ -84,9 +84,9 @@ No Part 6 implementation commit exists. The working branch remains `fix/result-s
 
 **Status: BLOCKED.** The existing protected workflow is `.github/workflows/production-schema-inventory.yml`; it dispatches `scripts/production-schema-inventory.mjs` with the protected `DATABASE_URL` secret and does not echo the connection string. The local GitHub CLI is installed, but `gh auth status` reports that the saved `FRANK12517` token is invalid. The CLI cannot reach `api.github.com` in this environment. No workflow run was dispatched, no production connection was attempted, and no database metadata was returned. `docs/RESULT_SLIP_PART_6_SCHEMA_EVIDENCE.md` records the discovery attempt and its limits. The requested exact result must not be inferred from the previous report’s abbreviated summary.
 
-The metadata inventory tooling has now been extended to capture full columns, primary/unique constraint columns, indexes, FK targets and referential rules for the required tables and their directly FK-related tables. It fails closed before collection if the connected database is not `osaahdaylightschool`. Two focused tests validate metadata-only behavior and the mismatch guard. The tooling has not yet been dispatched against production, so no schema contract decision can be drawn from it until its sanitized output is captured.
+The metadata inventory tooling has now been extended to capture full columns, primary/unique constraint columns, indexes, FK targets and referential rules for the required tables and their directly FK-related tables. It fails closed before collection if the connected database is not `osaahdaylightschool`. Two focused tests validate metadata-only behavior and the mismatch guard. The tooling is committed locally as `a8f4f9e8029932917c8b67b22f9ac1ede1a596dd`, but the normal push failed because this environment could not connect to `github.com:443`. The commit is not on the remote tracking ref, so no workflow dispatch was made and no production contract decision can be drawn until the sanitized output is captured.
 
-- Protected workflow run ID: **NONE — UPDATED TOOLING NOT YET DISPATCHED**.
+- Protected workflow run ID: **NONE — TOOLING COMMIT NOT PUBLISHED; DISPATCH NOT AVAILABLE**.
 - Database identity verification: **NOT RUN** (expected name is `osaahdaylightschool`).
 - Attendance columns, keys, indexes, foreign keys and date resolution: **NOT VERIFIED** beyond the previous report’s `date` versus `attendance_date` summary.
 - Daily versus subject attendance and total school days: **NOT VERIFIED**.
@@ -96,3 +96,4 @@ The metadata inventory tooling has now been extended to capture full columns, pr
 - Migration 057: **UNDETERMINED**.
 - Production application data read: **NONE**; no query was dispatched.
 - Production data mutations: **NONE**.
+- Push error: `Failed to connect to github.com port 443 after 108 ms: Could not connect to server`.
