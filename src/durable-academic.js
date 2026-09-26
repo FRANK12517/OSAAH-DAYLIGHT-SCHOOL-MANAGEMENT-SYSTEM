@@ -134,12 +134,14 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
         AND EXISTS (SELECT 1 FROM student_enrollments e JOIN academic_years y ON y.id=e.academic_year_id AND y.school_id=s.school_id
           WHERE e.student_id=s.id AND e.class_id=g.class_id AND e.academic_year_id=g.academic_year_id)
       LIMIT 1`, [schoolId, studentId, classId, resolved.yearId, resolved.termId]))[0];
-    return record ?? { conduct: null, attitude: null, interest: null, classTeacherRemarks: null, headteacherRemarks: null };
+    return { conduct: record?.conduct ?? null, attitude: record?.attitude ?? null, interest: record?.interest ?? null,
+      classTeacherRemarks: record?.classTeacherRemarks ?? null, headteacherRemarks: record?.headteacherRemarks ?? null };
   }
 
   async function saveGesAssessment(input = {}, actor) {
     assertActor(actor);
     if (!authorized(actor, 'marks.write') && !authorized(actor, 'results.write')) fail('Forbidden.', 403);
+    if (input.isSample || input.isPreview || input.isTestRecord || input.sample === true || input.sample === 'true' || input.sampleMode === true || input.sampleMode === 'true' || input.provenance === 'TEST' || [input.studentId, input.permanentStudentId, input.studentIndexNumber].some((value) => String(value ?? '').startsWith('TEST-OSAAH-'))) fail('Sample data cannot modify production GES assessments.', 403, 'SAMPLE_GES_WRITE_DENIED');
     const studentId = text(input.studentId), classId = text(input.classId);
     if (!studentId || !classId) fail('Student and class are required.');
     const allowedClasses = await optionClasses(actor);
@@ -172,7 +174,7 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     };
     try { if (database.transaction) await database.transaction(persist); else await persist(database); }
     catch (error) {
-      if (!['ER_DUP_ENTRY', 'SQLITE_CONSTRAINT_UNIQUE'].includes(error.code)) throw error;
+      if (!['ER_DUP_ENTRY', 'SQLITE_CONSTRAINT_UNIQUE'].includes(error.code) && ![1555, 2067].includes(error.errcode) && !/UNIQUE constraint failed: canonical_ges_assessments\./i.test(error.message ?? '')) throw error;
       const raced = rows(await database.query(`SELECT id FROM canonical_ges_assessments WHERE school_id=? AND student_id=? AND class_id=? AND academic_year_id=? AND term_id=? LIMIT 1`, [schoolId, studentId, classId, period.yearId, period.termId]))[0];
       if (!raced) throw error;
       await database.execute(`UPDATE canonical_ges_assessments SET conduct=?,attitude=?,interest=?,class_teacher_remarks=?,headteacher_remarks=?,updated_at=? WHERE id=? AND school_id=?`,
