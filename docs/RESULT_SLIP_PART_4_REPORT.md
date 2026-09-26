@@ -190,3 +190,59 @@ Lower Primary A–I grade mapping remains centralized in `src/result-calculation
 - Protected production schema inventory `36208849852` succeeded against the expected production database and returned metadata only; no score/result data rows were read.
 - `node --test test/result-calculation.test.js`: 9 passed, 0 failed.\n- Focused Result Slip, Score Entry, academic workflow, identity, admission and class database regression suite: 120 passed, 0 failed, 0 skipped.\n- `node --check src/result-calculation.js`, `node --check scripts/production-schema-inventory.mjs`, and `git diff --check`: passed.
 - NOT MERGED. NOT DEPLOYED.
+
+## Part 4C — Canonical Durable Score Contract
+
+### A. Why additive storage is required
+
+Part 4B combined the protected production metadata inventory (`36208849852`) with repository history. The active CA+Exam Score Entry endpoint had no deployed durable writer table: its old repository target was absent in production, while `student_assessments`, `assessment_scores`, `exam_scores`, and `examination_marks` had no writer provenance for that endpoint and failed one or more required scope/identity/score-shape checks. **ADDITIVE DURABLE SCORE STORAGE REQUIRED.** No legacy score rows are backfilled.
+
+The new production contract is named `canonical_academic_scores`. The older SQLite development migration `017` already defines a different `academic_score_records` shape tied to `student_profiles`; changing that historical migration or pretending its identity is the Part 2 master student ID would break existing databases. The new table is the sole repository used by production Score Entry, real Result Slip, PDF and the added real broadsheet route. The old table and all candidate legacy tables remain untouched and are not fallback sources.
+
+### B–I. Canonical contract and scope
+
+| Concern | Implemented contract |
+|---|---|
+| Table / columns | `canonical_academic_scores`: `id`, `school_id`, `student_id`, `class_id`, `academic_year_id`, `term_id`, `subject_id`, `class_score`, `exam_score`, `total_score`, `created_at`, `updated_at`. IDs are `VARCHAR(191)`, timestamps `VARCHAR(32)`, scores `DECIMAL(6,2)`. |
+| Student identity | `student_id` references canonical `students.id`. The Result Slip separately selects and renders the unchanged `students.permanent_student_id`; it is never used as the relational FK. |
+| School | Authenticated `actor.schoolId` is authoritative. Writes validate the student, class, year, term and subject in that school. Reads join score school to both student and subject school. |
+| Class and history | Class FK references `classes.id`; enrollment validation uses production `student_enrollments(student_id,class_id,academic_year_id)` and does not substitute `students.current_class_id`. Historical class membership is retained in each score scope. |
+| Academic year | FK to `academic_years.id`; year is resolved within the actor's school. |
+| Term | Uses `term_id` FK to `terms.id`, resolved under the selected school and year. This matches production metadata (`terms.id`, `terms.academic_year_id`) and the application convention already used by examinations, fees and other academic tables. No parallel term string is stored. |
+| Subject | FK to `subjects.id`; Score Entry confirms the selected subject is configured for the class through the verified `class_subjects` mapping and that the subject belongs to the school. |
+| Duplicate scope | A unique constraint covers `(school_id, student_id, class_id, academic_year_id, term_id, subject_id)`. Repeated saves update the same row; changing term creates a distinct row. |
+
+### J–M. Runtime and calculation
+
+`POST /api/academic/scores` now writes the canonical record after RBAC, teacher class/subject assignment, school, non-sample student, historical enrollment, class-subject, academic-year and term validation. CA and Exam retain the existing 0–50 limits, and Total is calculated as their sum. The Score Entry roster reloads these same canonical values. Race-time duplicate insertion is protected by the unique scope and retried as an update.
+
+`GET /api/academic/result` and `/api/academic/result/pdf` use the same canonical rows in database mode. They return the normal no-result response when no score exists; they do not fall back to memory, legacy score tables, or sample records. Positions, grade, aggregate and totals use existing calculation services, including the approved Lower Primary A=1 through I=9 mapping. `/api/academic/broadsheet` also reads the same store for its class/year/term scope. No Generate Result read saves or publishes a result, and it sends no SMS or notification. The PDF retains the existing bordered layout and now includes Class and Exam components alongside Total.
+
+Sample/Test Mode remains on its isolated sample workflow. The real Result Slip route rejects a sample flag, score writes reject sample flags/reserved identities, and canonical reads exclude test records. No sample path writes the canonical table.
+
+### N–Q. Existing result-slip components and remaining gaps
+
+| Component | Part 4C status |
+|---|---|
+| GES Assessment | Not claimed durable. Production `student_assessments` does not carry class/year scope, and no active writer was established. The canonical Result Slip returns no fabricated assessment; the UI/PDF display “Not recorded”. Connect the verified five-category source in a later authorized result-slip part. |
+| Attendance | Not claimed connected. Production attendance columns differ from the repository's attendance service expectations, and a verified historical student/class/year/term aggregate is not established. Result attendance remains `null`/“Not recorded”; no current enrollment is used to infer historical attendance. |
+| Signatures | Existing `signatures.resolveForStudent` is passed through and the Result Slip/PDF continue displaying its resolved name, phone and signature where available. The current resolver is Map-based; a durable production signature writer/context reconciliation is not implemented here. |
+| PDF | Existing PDF route now obtains the canonical real result and preserves student ID, class/year/term, CA, Exam, total, grade, aggregate, attendance/assessment sections and signature section. The existing PDF regression passes; sample PDF dispatch remains isolated. |
+
+### R. Migration and production data
+
+Migration [055_canonical_academic_scores.sql](../schema/055_canonical_academic_scores.sql) is additive, uses `CREATE TABLE IF NOT EXISTS`, declares FKs to `schools`, `students`, `classes`, `academic_years`, `terms` and `subjects`, and has no data backfill or destructive statement. Tests apply it twice against a production-shaped relational schema and confirm existing records/tables remain. **MIGRATION PREPARED — NOT YET APPLIED.** Production data mutations: **NONE**. The migration was not applied to production or the user's local database.
+
+### S. Tests and validation
+
+- New Part 4C migration/repository/HTTP regression tests: 5 passed, 0 failed, 0 skipped.
+- Focused Result Slip, Score Entry, sample, academic workflow, identity, admission, class database, grading/ranking and PDF suite: 138 passed, 0 failed, 0 skipped in the last focused run.
+- Lower Primary calculation tests: 9 passed, 0 failed, 0 skipped. `npm run migration:validate`: passed with 54 versioned migrations. JavaScript syntax checks and `git diff --check`: passed.
+- Full `npm test`: **873 passed, 1 failed, 0 skipped**. The only failure is `test/part29-sidebar-release-gate.test.js`: the existing `scripts/part28-release-gate.mjs` builds a Windows path as `C:\\C:\\...` and fails before writing its generated report. The migration-count assertion was updated for migration 055 and passes. I left the unrelated release-gate path implementation unchanged.
+
+### T. Git and release state
+
+- Part 4B report recovery commit: `ead9637846d89b27e2ecf72f83f33ad7e22592d9`.
+- Part 4C canonical repository/migration commit: `f714975d0b4a3e0de4dc126a6b523d36ab7efdab`; integration/report commit: recorded in the final task response.
+- Worktree permission issue was resolved without deleting lock files or changing ACLs: this work continues in a standalone local clone; no Git process or `index.lock` existed in the original linked worktree.
+- NOT MERGED. NOT DEPLOYED. Part 5 has not started.
