@@ -9,7 +9,27 @@ const NON_SCORING = new Set(['physical education', 'pe']);
 const nameOf = (row) => String(row.subjectName ?? row.name ?? row.subjectId ?? '').trim().toLowerCase();
 const levelOf = (classId) => { const value = String(classId ?? '').toUpperCase(); if (value.startsWith('JHS')) return 'JHS'; if (value.startsWith('KG')) return 'KG'; if (/^(PRIMARY|BASIC)\s*[1-3]$/.test(value)) return 'LOWER_PRIMARY'; return value.startsWith('PRIMARY') || value.startsWith('BASIC') ? 'UPPER_PRIMARY' : 'OTHER'; };
 const scoring = (rows) => validSubjectRows(rows).filter((row) => !NON_SCORING.has(nameOf(row)));
-const numericGrade = (row, classId, examination) => { const value = Number(row.grade); return Number.isFinite(value) ? value : Number(gradeForTotal(row.totalScore, { classId, examination })[0]); };
+const LOWER_PRIMARY_GRADE_POINTS = Object.freeze({ A: 1, B: 2, C: 3, D: 4, E: 5, F: 6, G: 7, H: 8, I: 9 });
+export function lowerPrimaryGradePoint(grade) {
+  const value = String(grade ?? '').trim().toUpperCase();
+  if (Object.hasOwn(LOWER_PRIMARY_GRADE_POINTS, value)) return LOWER_PRIMARY_GRADE_POINTS[value];
+  throw new TypeError('Invalid Lower Primary letter grade for aggregate calculation.');
+}
+const numericGrade = (row, classId, examination) => {
+  const value = row.grade;
+  if (levelOf(classId) === 'LOWER_PRIMARY') {
+    if (typeof value === 'string' && /^[A-I]$/i.test(value.trim())) return lowerPrimaryGradePoint(value);
+    if (value != null && String(value).trim() !== '') {
+      const numeric = Number(value);
+      if (Number.isFinite(numeric)) return numeric;
+      throw new TypeError('Invalid Lower Primary grade for aggregate calculation.');
+    }
+    const derived = gradeForTotal(row.totalScore, { classId, examination })[0];
+    return lowerPrimaryGradePoint(derived);
+  }
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : Number(gradeForTotal(row.totalScore, { classId, examination })[0]);
+};
 
 export function calculateAggregate(rows, { classId = '', examination = 'TERMINAL' } = {}) {
   const level = levelOf(classId); if (level === 'KG' || level === 'OTHER' || level === 'UPPER_PRIMARY') return { aggregate: null, aggregateSubjects: [], qualifying: false };

@@ -1,11 +1,19 @@
+import fs from 'node:fs';
 import mysql from 'mysql2/promise';
 
 const expectedDatabase = 'osaahdaylightschool';
 const expectedTables = [
   'schools', 'users', 'staff', 'roles', 'permissions', 'user_roles', 'role_permissions',
-  'sessions', 'classes', 'levels', 'students', 'student_enrollments', 'academic_years',
-  'terms', 'fee_structures', 'fee_obligations', 'fee_collection_records', 'fee_payments', 'auth_sessions'
+  'sessions', 'classes', 'levels', 'students', 'student_enrollments', 'student_profiles', 'academic_years',
+  'terms', 'subjects', 'class_subjects', 'subject_class_assignments', 'academic_score_records',
+  'assessment_scores', 'assessments', 'exam_scores', 'exams', 'examination_marks',
+  'examinations', 'examination_subjects', 'report_cards', 'student_assessments',
+  'result_publications', 'result_blocks', 'student_attendance', 'attendance_sessions',
+  'result_signatures', 'staff_assignments', 'teacher_classes', 'grading_scales', 'grading_systems',
+  'fee_structures', 'fee_obligations', 'fee_collection_records', 'fee_payments', 'auth_sessions'
 ];
+const schemaSql = fs.readFileSync(new URL('../docs/RESULT_SLIP_PART_4_SCHEMA_READONLY.sql', import.meta.url), 'utf8');
+const schemaStatements = schemaSql.split(';').map((statement) => statement.trim()).filter(Boolean);
 
 function safeFailure(error) {
   return {
@@ -30,8 +38,13 @@ if (!process.env.DATABASE_URL) {
     connectTimeout: 15000
   });
   try {
-    const [[databaseRow]] = await pool.query('SELECT DATABASE() AS database_name');
-    const database = databaseRow?.database_name ?? null;
+    const metadata = [];
+    for (const statement of schemaStatements) {
+      if (/\b(INSERT|UPDATE|DELETE|REPLACE|ALTER|DROP|TRUNCATE|CREATE|RENAME)\b/i.test(statement)) throw new Error('Read-only schema query contains a mutation statement.');
+      const [rows] = await pool.query(statement);
+      metadata.push(rows);
+    }
+    const database = metadata[0]?.[0]?.inspected_database ?? null;
     const [tableRows] = await pool.query(
       'SELECT TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() ORDER BY TABLE_NAME'
     );
@@ -40,28 +53,19 @@ if (!process.env.DATABASE_URL) {
     const [migrationCandidates] = await pool.query(
       "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND LOWER(TABLE_NAME) LIKE '%migration%' ORDER BY TABLE_NAME"
     );
-    const [columnRows] = await pool.query(
-      `SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_KEY
-       FROM information_schema.COLUMNS
-       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN (?)
-       ORDER BY TABLE_NAME, ORDINAL_POSITION`,
-      [expectedTables]
-    );
-    const [authSessionIndexes] = await pool.query(
-      `SELECT INDEX_NAME, NON_UNIQUE, COLUMN_NAME, SEQ_IN_INDEX
-       FROM information_schema.STATISTICS
-       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'auth_sessions'
-       ORDER BY INDEX_NAME, SEQ_IN_INDEX`
-    );
     const columns = {};
-    for (const row of columnRows) {
+    for (const row of metadata[1] ?? []) {
       (columns[row.TABLE_NAME] ??= []).push({
         name: row.COLUMN_NAME,
         type: row.COLUMN_TYPE,
         nullable: row.IS_NULLABLE,
-        key: row.COLUMN_KEY
+        default: row.COLUMN_DEFAULT,
+        key: row.COLUMN_KEY,
+        extra: row.EXTRA
       });
     }
+    const indexes = metadata[2] ?? [];
+    const foreignKeys = metadata[3] ?? [];
     const result = {
       ok: true,
       connectedDatabase: database,
@@ -72,7 +76,8 @@ if (!process.env.DATABASE_URL) {
       missingExpectedTables: expectedTables.filter((table) => !present.has(table)),
       migrationTableCandidates: migrationCandidates.map((row) => row.TABLE_NAME),
       expectedTableColumns: columns,
-      authSessionIndexes,
+      expectedTableIndexes: indexes,
+      expectedTableForeignKeys: foreignKeys,
       authenticationExpectation: {
         missingTableFromRuntime: 'users',
         querySource: 'src/auth.js:createAuthService().loginFromDatabase',

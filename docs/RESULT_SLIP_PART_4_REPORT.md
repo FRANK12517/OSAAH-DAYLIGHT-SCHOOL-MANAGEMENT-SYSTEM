@@ -1,8 +1,8 @@
 # Result Slip repair — Part 4 investigation
 
-Status on 2026-09-26: **BLOCKED ON VERIFIED SCORE SCHEMA. Part 4 is not implemented or complete.**
+Status on 2026-09-26: **Lower Primary aggregate defect fixed under Part 4A; durable real-result integration remains blocked on verified production score schema. Part 4 is not complete.**
 
-The Part 4 instruction to stop before speculative schema changes applies. No runtime code, SQL writer, grading rule or migration has been changed. Parts 1–3 remain intact. NOT MERGED. NOT DEPLOYED.
+The Part 4 instruction to stop before speculative schema changes still applies to durable result retrieval. The Part 4A Lower Primary calculation fix changes runtime calculation only. No SQL writer or migration has been changed. Parts 1–3 remain intact. NOT MERGED. NOT DEPLOYED.
 
 ## A. Verified previous architecture
 
@@ -37,7 +37,9 @@ Consequently, claiming to have identified the actual production Score Entry sour
 
 ## C. Work performed and required next step
 
-Only this report and `docs/RESULT_SLIP_PART_4_SCHEMA_READONLY.sql` were added. The SQL file reads column and key metadata from information_schema; it contains no schema/data mutation and selects no student or score records. It has **not** been executed against production.
+Part 4A updated the Lower Primary calculator/tests and extended `scripts/production-schema-inventory.mjs` to execute the SQL in `docs/RESULT_SLIP_PART_4_SCHEMA_READONLY.sql` through the existing protected, read-only schema inventory workflow. The SQL reads database name, column names/types/nullability/defaults/keys, index metadata and foreign-key metadata from information_schema only. It contains no schema/data mutation and selects no student or score records.
+
+The expanded workflow is prepared but has **not yet been dispatched** against production. Dispatch requires publishing the updated script to a remote branch so the protected GitHub Actions runner can check out the exact commit. No production schema values have been retrieved by this query.
 
 Required next evidence: run that metadata query through an authorized read-only database connection, or supply an equivalent export. Inspect the actual production Score Entry writer if it differs from this repository. Resolve student/profile identity, CA/examination source, year/term/class/school ownership and saved/publication state before implementing a shared durable read path.
 
@@ -53,15 +55,15 @@ The verified source remains `students.permanent_student_id`. Part 2 returns its 
 | --- | --- |
 | Nursery | Existing OTHER classification; no Best Six aggregate |
 | KG | Raw total and no aggregate |
-| Lower Primary | English Language, Mathematics, Science and History plus best two; letter-grade numeric-conversion defect remains |
+| Lower Primary | English Language, Mathematics, Science and History plus best two; approved A–I point mapping now sums the selected six |
 | Upper Primary | No aggregate in current calculator |
 | JHS | Existing numeric 1–9 scale, core four plus eligible best two, current tie-breakers retained |
 
 ## F. Lower Primary NaN investigation
 
-`src/result-calculation.js:numericGrade` applies `Number(row.grade)` and, on failure, applies `Number(gradeForTotal(...)[0])`. For Lower Primary both values are letters (`A`, `B`, `C`, `D`, `F`). For example, six valid 85-point subjects produce six A grades, qualify for aggregation, then produce NaN; JSON serializes the aggregate as null. This was reproduced directly in Node during this investigation.
+`src/result-calculation.js:numericGrade` previously applied `Number(row.grade)` and, on failure, `Number(gradeForTotal(...)[0])`. For Lower Primary both values are letters. Six valid 85-point subjects therefore produced six A grades, qualified for aggregation, then produced NaN, serialized as null. This pre-fix behavior was reproduced directly in Node.
 
-This is a missing grade-to-aggregate-point conversion, not malformed marks. The existing thresholds are A >= 80, B >= 70, C >= 60, D >= 50, otherwise F. Repository searches did not establish an approved numeric point mapping for those letters. Production has `grading_scales` and `grading_systems`, but their columns/configuration have not been inspected. Inventing A=1 through F=5 or substituting JHS points would introduce an unverified rule. No such change, zero fallback or threshold change was made. A documented existing mapping is needed before a correct numeric-aggregate fix can be proven.
+This was a missing grade-to-aggregate-point conversion, not malformed marks. Part 4A now provides the user-approved centralized conversion A=1, B=2, C=3, D=4, E=5, F=6, G=7, H=8, I=9. Lower Primary best-subject sorting and aggregate summation use those points. Unknown non-empty grades throw an explicit error; absent grades use the existing score-to-grade service before conversion. Score thresholds are unchanged. KG and JHS do not use the Lower Primary map. Regression tests prove six A grades aggregate to 6 and A,B,B,C,C,D aggregate to 15, with numeric non-null JSON output.
 
 ## G. Supporting component status
 
@@ -82,10 +84,13 @@ Existing route authentication, RBAC checks, teacher scope and Part 3 sample guar
 
 ## I. Executed validation
 
-No new Part 4 regression tests were added: implementation is blocked. New Part 4 count: **0**. Baseline rerun: **116 passed, 0 failed, 0 skipped, 0 cancelled** on Node v25.6.1.
+No durable-result Part 4 tests were added because its implementation is blocked. Four new Lower Primary regression tests were added; the focused result-calculation suite has **9 passed, 0 failed, 0 skipped**. The combined Part 1–3 plus relevant sample/calculation suite has **120 passed, 0 failed, 0 skipped, 0 cancelled** on Node v25.6.1. Runtime schema workflow has not been executed.
 
 ```powershell
+node --check scripts/production-schema-inventory.mjs
+node --test test/result-calculation.test.js
 node --test test/result-slip-sample-context.test.js test/result-slip-students.test.js test/result-slip-options.test.js test/durable-academic.test.js test/score-entry-regression.test.js test/academic-results.test.js test/academic-workflow-regression.test.js test/admission-enrollment.test.js test/class-database.test.js test/class-database-part2.test.js test/class-database-financial-identity.test.js test/permanent-student-id.test.js test/student-identity.test.js test/sample-result-workflow.test.js test/result-calculation.test.js
+git diff --check
 ```
 
 Direct defect reproduction command:
@@ -94,14 +99,14 @@ Direct defect reproduction command:
 node --input-type=module -e 'import { calculateAggregate } from "./src/result-calculation.js"; import { gradeForTotal } from "./src/grading.js"; const rows=["English Language","Mathematics","Science","History","RME","Creative Arts"].map(subjectName=>({subjectId:subjectName,subjectName,totalScore:85,grade:gradeForTotal(85,{classId:"Primary1"})[0]}));const r=calculateAggregate(rows,{classId:"Primary1"}); console.log(JSON.stringify({grades:rows.map(x=>x.grade),qualifying:r.qualifying,isNaN:Number.isNaN(r.aggregate),serialized:JSON.stringify({aggregate:r.aggregate})}));'
 ```
 
-Result: six A grades, qualifying=true, isNaN=true, serialized aggregate=null. This reproduces a failure; it is not a passing repair test.
+This command records the pre-fix reproduction: six A grades, qualifying=true, isNaN=true, serialized aggregate=null. The post-fix values are checked by the automated Lower Primary regression tests above.
 
-Documentation whitespace is checked with `git diff --check`. Runtime syntax/build validation is not needed for these documentation-only changes. No production result, database metadata query file, new SQL-backed Part 4 fixture or live browser result was executed.
+The schema SQL was also inspected: all four statements start with SELECT and read `DATABASE()` or `information_schema`; the workflow script rejects mutation keywords before executing them. `node --check scripts/production-schema-inventory.mjs` and `git diff --check` passed. No production result, metadata query, SQL-backed durable result fixture or live browser result has been executed.
 
 ## J. Database
 
 - Migration required: **NOT DETERMINED**; no speculative migration proposed or applied.
-- Schema changes: none.
+- Schema changes: none. The inventory script uses metadata SELECT statements only.
 - Production data mutations: none.
 - Existing table/column evidence must be completed before deciding a durable score mapping.
 
@@ -111,9 +116,9 @@ Documentation whitespace is checked with `git diff --check`. Runtime syntax/buil
 - Part 1 preserved: `5f5e661`.
 - Part 2 preserved: `cfbf0ceb69ce57bf16abb9495998af01772edee7`.
 - Part 3 preserved: `06cf1d1664d784222df26b954242551d00f7a2ea`.
-- Part 4 implementation SHA: **none; implementation blocked**.
-- Any commit containing this report is investigation documentation only, not a completed Part 4 repair. Exact documentation SHA and working-tree status are recorded in the accompanying response.
-- NOT MERGED. NOT DEPLOYED. No push or history rewrite.
+- Part 4 durable result implementation SHA: **none; implementation remains blocked**.
+- Part 4A progress commit SHA and working-tree status are recorded in the accompanying response; that commit contains the approved Lower Primary calculation repair and schema-discovery tooling, not the blocked durable-result integration.
+- NOT MERGED. NOT DEPLOYED. No history rewrite.
 
 ## L. Remaining GES gaps for Part 5
 
