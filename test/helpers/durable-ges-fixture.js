@@ -17,6 +17,14 @@ export async function durableGesFixture() {
     CREATE TABLE class_subjects(id VARCHAR(191) PRIMARY KEY,class_id VARCHAR(191),subject_id VARCHAR(191),teacher_id VARCHAR(191));
     CREATE TABLE students(id VARCHAR(191) PRIMARY KEY,school_id VARCHAR(191),permanent_student_id VARCHAR(191),first_name TEXT,middle_name TEXT,last_name TEXT,gender TEXT,is_test_record INTEGER,current_class_id VARCHAR(191));
     CREATE TABLE student_enrollments(id VARCHAR(191) PRIMARY KEY,student_id VARCHAR(191),class_id VARCHAR(191),academic_year_id VARCHAR(191));
+    CREATE TABLE student_profiles(id VARCHAR(191) PRIMARY KEY,student_master_id VARCHAR(191),student_id VARCHAR(191),school_id VARCHAR(191));
+    CREATE TABLE student_attendance(id VARCHAR(191) PRIMARY KEY,school_id VARCHAR(191),student_id VARCHAR(191),class_id VARCHAR(191),term_id VARCHAR(191),date TEXT,status TEXT,permanent_student_id VARCHAR(191),academic_year TEXT,term TEXT,subject_key TEXT);
+    CREATE TABLE staff_profiles(id VARCHAR(191) PRIMARY KEY,school_id VARCHAR(191),user_id VARCHAR(191));
+    CREATE TABLE users(id VARCHAR(191) PRIMARY KEY,school_id VARCHAR(191),full_name TEXT,phone TEXT,status TEXT);
+    CREATE TABLE roles(id VARCHAR(191) PRIMARY KEY,school_id VARCHAR(191),role_key TEXT);
+    CREATE TABLE user_roles(id VARCHAR(191) PRIMARY KEY,user_id VARCHAR(191),role_id VARCHAR(191));
+    CREATE TABLE staff_assignments(id VARCHAR(191) PRIMARY KEY,staff_id VARCHAR(191),class_id VARCHAR(191),academic_year_id VARCHAR(191),term_id VARCHAR(191),subject_id VARCHAR(191));
+    CREATE TABLE result_signatures(id VARCHAR(191) PRIMARY KEY,school_id VARCHAR(191),staff_id VARCHAR(191),signature_type TEXT,class_id VARCHAR(191),academic_year TEXT,signature_url TEXT,is_active INTEGER,created_at TEXT);
     CREATE TABLE academic_score_records(id VARCHAR(191) PRIMARY KEY,student_id VARCHAR(191),score DECIMAL(6,2));
     INSERT INTO academic_score_records VALUES('legacy-score','legacy-profile',72);
     INSERT INTO schools VALUES('${schoolId}'),('school-b');
@@ -27,6 +35,7 @@ export async function durableGesFixture() {
     INSERT INTO subjects VALUES('subject-a','${schoolId}','English Language'),('subject-b','school-b','English Language');
     INSERT INTO class_subjects VALUES('mapping-a','class-a','subject-a','teacher-a');
     INSERT INTO students VALUES('student-a','${schoolId}','OSAAH/2026/0001','Ama','Akua','Mensah','Female',0,'class-next'),('student-b','${schoolId}','OSAAH/2026/0002','Kojo',NULL,'Boateng','Male',0,'class-a'),('foreign-student','school-b','OSAAH/2026/9001','Foreign',NULL,'Student','Male',0,'foreign-class'),('TEST-OSAAH-0001','${schoolId}','TEST-OSAAH-0001','Sample',NULL,'Learner','Female',1,'class-a');
+    INSERT INTO student_profiles VALUES('profile-a','student-a','OSAAH/2026/0001','${schoolId}'),('profile-b','student-b','OSAAH/2026/0002','${schoolId}');
     INSERT INTO student_enrollments VALUES('enroll-a','student-a','class-a','year-a'),('enroll-old','student-a','class-a','year-old'),('enroll-next','student-a','class-next','year-a'),('enroll-b','student-b','class-a','year-a'),('enroll-foreign','foreign-student','foreign-class','year-b'),('enroll-test','TEST-OSAAH-0001','class-a','year-a');`);
   const migration055 = await readFile(new URL('../../schema/055_canonical_academic_scores.sql', import.meta.url), 'utf8');
   const migration056 = await readFile(new URL('../../schema/056_canonical_ges_assessments.sql', import.meta.url), 'utf8');

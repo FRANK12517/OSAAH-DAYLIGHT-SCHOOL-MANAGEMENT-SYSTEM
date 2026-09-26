@@ -75,6 +75,15 @@ for (const [index,c] of classes.entries()) sqlTest(`${c.name}: canonical class s
   } finally { f.db.close(); }
 });
 
+sqlTest('sample Result Slip does not query real attendance or durable signature records', async () => {
+  const f = fixture();
+  try {
+    const result = await f.workflow.generateForContext(input(), actor);
+    assert.equal(result.isSample, true);
+    assert.equal(f.calls.some(({ sql }) => /student_attendance|result_signatures|staff_assignments/.test(sql)), false);
+  } finally { f.db.close(); }
+});
+
 sqlTest('legacy subject mapping discovers columns and excludes foreign/inactive/year/term configuration', async () => {
   const f = fixture(true);
   try {

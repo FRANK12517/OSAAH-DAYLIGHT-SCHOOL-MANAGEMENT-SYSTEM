@@ -10,6 +10,45 @@ const rows = (value) => Array.isArray(value) ? value : [];
 const text = (value) => String(value ?? '').trim();
 const fail = (message, status = 400, code = 'ACADEMIC_DATA_ERROR') => { throw Object.assign(new Error(message), { status, code }); };
 
+const PRESENT_STATUSES = new Set(['PRESENT', 'LATE']);
+const ABSENT_STATUSES = new Set(['ABSENT', 'EXCUSED_ABSENCE', 'UNEXCUSED_ABSENCE', 'SICK_ABSENCE']);
+const KNOWN_STATUSES = new Set([...PRESENT_STATUSES, ...ABSENT_STATUSES, 'EARLY_DEPARTURE']);
+
+export function summarizeDurableAttendance(records = []) {
+  const byDate = new Map();
+  for (const record of rows(records)) {
+    const date = text(record.date);
+    const status = text(record.status).toUpperCase();
+    if (!date || !status) continue;
+    if (!byDate.has(date)) byDate.set(date, []);
+    byDate.get(date).push({ ...record, status, subjectKey: text(record.subject_key ?? record.subjectKey) });
+  }
+  let timesPresent = 0, timesAbsent = 0, conflictingDays = 0;
+  const otherStatusCounts = {};
+  for (const dayRows of byDate.values()) {
+    // `daily` is the canonical whole-day key emitted by the attendance writer.
+    // Otherwise only accept a day when all subject rows agree.
+    const daily = dayRows.filter((item) => item.subjectKey === 'daily');
+    const statuses = new Set((daily.length ? daily : dayRows).map((item) => item.status));
+    if (statuses.size !== 1) { conflictingDays += 1; continue; }
+    const status = [...statuses][0];
+    if (PRESENT_STATUSES.has(status)) timesPresent += 1;
+    else if (ABSENT_STATUSES.has(status)) timesAbsent += 1;
+    else {
+      const label = KNOWN_STATUSES.has(status) ? status : `UNSUPPORTED:${status}`;
+      otherStatusCounts[label] = (otherStatusCounts[label] ?? 0) + 1;
+    }
+  }
+  const recordedDays = byDate.size > 0;
+  return {
+    timesPresent: recordedDays ? timesPresent : null,
+    timesAbsent: recordedDays ? timesAbsent : null,
+    totalSchoolDays: null,
+    conflictingDays,
+    otherStatusCounts
+  };
+}
+
 function authorized(actor, permission) {
   return actor?.permissions?.has?.('*') || actor?.permissions?.has?.(permission) || actor?.roleKey === 'PROPRIETOR';
 }
@@ -301,6 +340,60 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     return rows(result).filter((item) => { if (seen.has(item.studentId)) return false; seen.add(item.studentId); return true; }).map((item) => ({ studentId: item.studentId, permanentStudentId: item.permanentStudentId, studentName: [item.firstName, item.middleName, item.surname].filter(Boolean).join(' '), classId: item.classId, caScore: item.caScore == null ? null : Number(item.caScore), examScore: item.examScore == null ? null : Number(item.examScore), totalScore: item.totalScore == null ? null : Number(item.totalScore), saved: Boolean(item.scoreId) }));
   }
 
+  async function resultAttendance(studentId, classId, period) {
+    const records = rows(await database.query(`SELECT a.date,a.status,a.subject_key AS subjectKey
+      FROM student_attendance a
+      JOIN students s ON s.id=? AND s.school_id=a.school_id
+      JOIN student_profiles sp ON sp.student_master_id=s.id AND sp.school_id=s.school_id
+        AND sp.student_id=s.permanent_student_id
+      WHERE a.school_id=? AND s.school_id=? AND sp.school_id=?
+        AND sp.student_master_id=? AND a.student_id=sp.id AND a.class_id=? AND a.academic_year=? AND a.term=?
+        AND a.term_id=?
+      ORDER BY a.date,a.subject_key,a.id`,
+    [studentId, schoolId, schoolId, schoolId, studentId, classId, period.yearName, period.termName, period.termId]));
+    return summarizeDurableAttendance(records);
+  }
+
+  async function activeSignature({ staffId, type, classId = null, academicYear = null }) {
+    const classScope = type === 'CLASS_TEACHER' ? ' AND class_id=? AND academic_year=?' : '';
+    const params = [schoolId, staffId, type];
+    if (type === 'CLASS_TEACHER') params.push(classId, academicYear);
+    const matches = rows(await database.query(`SELECT id,signature_url AS signatureUrl
+      FROM result_signatures WHERE school_id=? AND staff_id=? AND signature_type=? AND is_active=1${classScope}
+      ORDER BY created_at,id`, params));
+    return matches.length === 1 ? { id: matches[0].id, signatureUrl: matches[0].signatureUrl ?? null } : null;
+  }
+
+  async function durableSignatories(classId, period) {
+    const assigned = rows(await database.query(`SELECT DISTINCT sp.id AS staffId,u.id AS userId,u.full_name AS name,u.phone
+      FROM staff_assignments a
+      JOIN staff_profiles sp ON sp.id=a.staff_id AND sp.school_id=?
+      JOIN users u ON u.id=sp.user_id AND u.school_id=sp.school_id AND u.status='ACTIVE'
+      JOIN user_roles ur ON ur.user_id=u.id
+      JOIN roles r ON r.id=ur.role_id AND r.school_id=u.school_id AND r.role_key='TEACHER'
+      WHERE a.class_id=? AND a.academic_year_id=? AND a.term_id=? AND a.subject_id IS NULL`,
+    [schoolId, classId, period.yearId, period.termId]));
+    let classTeacher = null;
+    if (assigned.length === 1) {
+      const person = assigned[0];
+      classTeacher = { name: person.name ?? null, phone: person.phone ?? null,
+        signature: await activeSignature({ staffId: person.staffId, type: 'CLASS_TEACHER', classId, academicYear: period.yearName }) };
+    }
+    const heads = rows(await database.query(`SELECT DISTINCT sp.id AS staffId,u.id AS userId,u.full_name AS name,u.phone
+      FROM staff_profiles sp JOIN users u ON u.id=sp.user_id AND u.school_id=sp.school_id AND u.status='ACTIVE'
+      JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id AND r.school_id=u.school_id
+      WHERE sp.school_id=? AND r.role_key='HEADTEACHER'`, [schoolId]));
+    let headteacher = null;
+    // The verified schema provides no historical headteacher assignment. The
+    // product policy uses the current official active role holder by design.
+    if (heads.length === 1) {
+      const person = heads[0];
+      headteacher = { name: person.name ?? null, phone: person.phone ?? null,
+        signature: await activeSignature({ staffId: person.staffId, type: 'HEADTEACHER' }) };
+    }
+    return { classTeacher, headteacher };
+  }
+
   async function saveScore(input = {}, actor) {
     assertActor(actor, 'marks.write');
     const classId = text(input.classId), subjectId = text(input.subjectId), studentId = text(input.studentId);
@@ -388,14 +481,16 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
       JOIN students s ON s.id=e.student_id JOIN academic_years y ON y.id=e.academic_year_id AND y.school_id=s.school_id
       WHERE s.school_id=? AND e.class_id=? AND e.academic_year_id=? AND COALESCE(s.is_test_record,0)=0`, [schoolId, text(filters.classId), period.yearId]));
     const genderCounts = membershipRows.reduce((counts, item) => { const gender = normalizeStudentGender(item.gender); if (gender === 'Male') counts.totalBoys += 1; if (gender === 'Female') counts.totalGirls += 1; return counts; }, { totalBoys: 0, totalGirls: 0 });
-    const subjectStudentRecord = { id: subjectStudent.studentId, schoolId, classId: text(filters.classId), permanentStudentId: subjectStudent.permanentStudentId, firstName: subjectStudent.firstName, middleName: subjectStudent.middleName, surname: subjectStudent.surname, gender: subjectStudent.gender };
-    const resolved = signatures?.resolveForStudent?.(subjectStudentRecord, { academicYear: period.yearName, term: period.termName });
+    const [attendance, resolved] = await Promise.all([
+      resultAttendance(subjectStudent.studentId, text(filters.classId), period),
+      durableSignatories(text(filters.classId), period)
+    ]);
     const totalScore = calculated.totalScore;
     const average = calculated.average ?? 0;
     const summaryGrade = gradeForTotal(average, { classId: classRecord.name, examination: 'TERMINAL' });
     return {
       headerAsset: '/assets/osaah-result-header.png', lifecycle: { status: 'UNSAVED/INCOMPLETE', dirty: true, version: 0, savedAt: null },
-      attendance: null, assessment, gesAssessmentDurable: true, resultType: 'TERMINAL', isSample: false, sampleLabel: null,
+      attendance, assessment, gesAssessmentDurable: true, resultType: 'TERMINAL', isSample: false, sampleLabel: null,
       studentId: subjectStudent.studentId, studentIndexNumber: subjectStudent.permanentStudentId,
       studentName: [subjectStudent.firstName, subjectStudent.middleName, subjectStudent.surname].filter(Boolean).join(' '),
       gender: normalizeStudentGender(subjectStudent.gender), classGenderDistribution: { ...genderCounts, totalStudents: membershipRows.length },
@@ -404,7 +499,10 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
       subjectsSat: calculated.subjectsSat, grade: summaryGrade[0], remark: summaryGrade[1], aggregate: calculated.aggregate,
       aggregateSubjects: calculated.aggregateSubjects.map((item) => item.subjectId), classPosition: positions.get(text(filters.studentId)) ?? '—',
       position: positions.get(text(filters.studentId)) ?? '—',
-      signatures: [{ signatoryRole: 'CLASS_TEACHER', name: resolved?.classTeacher?.name, ...(resolved?.classTeacher?.signature ?? {}) }, { signatoryRole: 'HEADTEACHER', name: resolved?.headteacher?.name, ...(resolved?.headteacher?.signature ?? {}) }].filter((item) => item.id)
+      signatures: [
+        { signatoryRole: 'CLASS_TEACHER', name: resolved.classTeacher?.name ?? null, phone: resolved.classTeacher?.phone ?? null, ...(resolved.classTeacher?.signature ?? {}) },
+        { signatoryRole: 'HEADTEACHER', name: resolved.headteacher?.name ?? null, phone: resolved.headteacher?.phone ?? null, ...(resolved.headteacher?.signature ?? {}) }
+      ]
     };
   }
 

@@ -1,6 +1,6 @@
 import PDFDocument from 'pdfkit';
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const publicRoot = join(fileURLToPath(new URL('.', import.meta.url)), '..', 'public');
@@ -8,6 +8,12 @@ const HEADER = join(publicRoot, 'assets/osaah-result-header.png');
 const WATERMARK = join(publicRoot, 'assets/branding-osaah-watermark.png');
 const safe = (value, fallback = 'Result') => String(value ?? fallback).replace(/[^a-z0-9._-]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 90) || fallback;
 const text = (value, fallback = '—') => String(value ?? fallback);
+function localSignaturePath(signatureUrl) {
+  const value = String(signatureUrl ?? '').trim().replace(/^\//, '');
+  if (!/^signatures\/[A-Za-z0-9._/-]+$/.test(value) || value.includes('..') || value.includes('\\')) return null;
+  const path = resolve(publicRoot, value);
+  return path.startsWith(`${resolve(publicRoot, 'signatures')}${sep}`) ? path : null;
+}
 
 export function resultPdfFilename(result) {
   const type = result.resultType === 'MOCK' ? safe(result.mockLabel, 'Mock') : 'End-of-Term';
@@ -17,6 +23,13 @@ export function resultPdfFilename(result) {
 export function createResultSlipPdfService() {
   async function pdf(result) {
     const [header, watermark] = await Promise.all([readFile(HEADER), readFile(WATERMARK)]);
+    const signatureImages = new Map();
+    for (const signature of result.signatures ?? []) {
+      const path = localSignaturePath(signature.signatureUrl);
+      if (path && /\.(png|jpe?g)$/i.test(path)) {
+        try { signatureImages.set(signature, await readFile(path)); } catch { /* Missing assets are rendered as unavailable. */ }
+      }
+    }
     return new Promise((resolve, reject) => {
       const document = new PDFDocument({ size: 'A4', margins: { top: 42, right: 42, bottom: 42, left: 42 }, bufferPages: true });
       const chunks = [];
@@ -42,8 +55,16 @@ export function createResultSlipPdfService() {
       const assessment = result.assessment ?? {}; line('Conduct', assessment.conduct ?? 'Not recorded'); line('Attitude', assessment.attitude ?? 'Not recorded'); line('Interest', assessment.interest ?? 'Not recorded'); line('Class Teacher Remarks', assessment.classTeacherRemarks ?? 'Not recorded'); line('Headteacher Remarks', assessment.headteacherRemarks ?? 'Not recorded');
       section('ATTENDANCE');
       const attendance = result.attendance ?? {}; line('Times Present', attendance.timesPresent ?? 'Not recorded'); line('Times Absent', attendance.timesAbsent ?? 'Not recorded'); line('Total School Days', attendance.totalSchoolDays ?? 'Not recorded');
+      line('Conflicting attendance days', attendance.conflictingDays ?? 0);
+      for (const [status, count] of Object.entries(attendance.otherStatusCounts ?? {})) line(`Other status — ${status}`, count);
       section('SIGNATURES');
-      for (const signature of result.signatures ?? []) { line(signature.signatoryRole === 'CLASS_TEACHER' ? 'Class Teacher' : 'Headteacher', signature.name ?? 'Name not configured'); if (signature.phone) line('Phone', signature.phone); }
+      for (const signature of result.signatures ?? []) {
+        const role = signature.signatoryRole === 'CLASS_TEACHER' ? 'Class Teacher' : 'Headteacher';
+        line(role, signature.name ?? 'Name not configured');
+        if (signature.phone) line('Phone', signature.phone);
+        const image = signatureImages.get(signature);
+        if (image) { ensure(58); document.image(image, 55, document.y, { fit: [130, 46] }); document.y += 50; }
+      }
       document.fontSize(7).fillColor('#486581').text('Generated from the authorized Osaah Daylight School Complex result record.', 55, 770, { align: 'center', width: 485 });
       document.end();
     });
