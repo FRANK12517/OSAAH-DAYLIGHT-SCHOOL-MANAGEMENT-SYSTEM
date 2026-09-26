@@ -51,10 +51,13 @@ test('Lower Primary qualifying aggregate rejects an unknown letter instead of as
   const rows = ['English Language', 'Mathematics', 'Science', 'History', 'RME', 'Creative Arts']
     .map((subjectName, index) => ({ subjectId: subjectName, subjectName, totalScore: 90 - index, grade: index === 4 ? 'Z' : 'A' }));
   assert.throws(() => calculateAggregate(rows, { classId: 'Primary 1' }), /Invalid Lower Primary/);
+  assert.throws(() => lowerPrimaryGradePoint(5), /Invalid Lower Primary letter grade/);
 });
 
 test('approved Lower Primary aggregate conversion does not alter KG or JHS calculation', () => {
+  assert.equal(calculateAggregate([{ subjectId: 'Language', subjectName: 'Language', totalScore: 90, grade: 'A' }], { classId: 'Nursery1' }).aggregate, null);
   assert.equal(calculateAggregate([{ subjectName: 'Language', totalScore: 90, grade: 'A' }], { classId: 'KG1' }).aggregate, null);
+  assert.equal(calculateAggregate([{ subjectId: 'Language', subjectName: 'Language', totalScore: 90, grade: 'A' }], { classId: 'Primary 4' }).aggregate, null);
   const jhsRows = [['English Language', 1], ['Mathematics', 2], ['Science', 1], ['Social Studies', 3], ['RME', 1], ['Fantse', 2]]
     .map(([subjectName, grade]) => ({ subjectId: subjectName, subjectName, grade, totalScore: 90 }));
   assert.equal(calculateAggregate(jhsRows, { classId: 'JHS 1' }).aggregate, 10);

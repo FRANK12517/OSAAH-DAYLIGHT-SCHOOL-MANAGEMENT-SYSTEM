@@ -19,11 +19,7 @@ const numericGrade = (row, classId, examination) => {
   const value = row.grade;
   if (levelOf(classId) === 'LOWER_PRIMARY') {
     if (typeof value === 'string' && /^[A-I]$/i.test(value.trim())) return lowerPrimaryGradePoint(value);
-    if (value != null && String(value).trim() !== '') {
-      const numeric = Number(value);
-      if (Number.isFinite(numeric)) return numeric;
-      throw new TypeError('Invalid Lower Primary grade for aggregate calculation.');
-    }
+    if (value != null && String(value).trim() !== '') throw new TypeError('Invalid Lower Primary grade for aggregate calculation.');
     const derived = gradeForTotal(row.totalScore, { classId, examination })[0];
     return lowerPrimaryGradePoint(derived);
   }
