@@ -84,9 +84,9 @@ No Part 6 implementation commit exists. The working branch remains `fix/result-s
 
 **Status: BLOCKED.** The existing protected workflow is `.github/workflows/production-schema-inventory.yml`; it dispatches `scripts/production-schema-inventory.mjs` with the protected `DATABASE_URL` secret and does not echo the connection string. The local GitHub CLI is installed, but `gh auth status` reports that the saved `FRANK12517` token is invalid. The CLI cannot reach `api.github.com` in this environment. No workflow run was dispatched, no production connection was attempted, and no database metadata was returned. `docs/RESULT_SLIP_PART_6_SCHEMA_EVIDENCE.md` records the discovery attempt and its limits. The requested exact result must not be inferred from the previous report’s abbreviated summary.
 
-No inventory tool or workflow code was changed, because the existing workflow cannot be dispatched from this environment and Part 6A requires the actual returned metadata to be preserved. The GitHub plugin installation request is awaiting user confirmation. Once GitHub access is restored, extend the metadata query to capture the requested full column, primary-key, index, FK and referential-rule evidence; dispatch it with the intended commit and save the sanitized output before deciding the runtime contracts or migration 057.
+The metadata inventory tooling has now been extended to capture full columns, primary/unique constraint columns, indexes, FK targets and referential rules for the required tables and their directly FK-related tables. It fails closed before collection if the connected database is not `osaahdaylightschool`. Two focused tests validate metadata-only behavior and the mismatch guard. The tooling has not yet been dispatched against production, so no schema contract decision can be drawn from it until its sanitized output is captured.
 
-- Protected workflow run ID: **NONE — NOT DISPATCHED**.
+- Protected workflow run ID: **NONE — UPDATED TOOLING NOT YET DISPATCHED**.
 - Database identity verification: **NOT RUN** (expected name is `osaahdaylightschool`).
 - Attendance columns, keys, indexes, foreign keys and date resolution: **NOT VERIFIED** beyond the previous report’s `date` versus `attendance_date` summary.
 - Daily versus subject attendance and total school days: **NOT VERIFIED**.
