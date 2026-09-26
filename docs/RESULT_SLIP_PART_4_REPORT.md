@@ -156,3 +156,37 @@ The schema SQL was inspected: after comments are stripped, all four statements s
 ## L. Remaining GES gaps for Part 5
 
 Determine the durable source for Conduct, Attitude, Interest, Class Teacher Remarks and Headteacher Remarks; map its school/student/class/year/term keys; connect saved values and reload behavior without browser-local state overriding authoritative values; preserve save validation and sample isolation. No GES values have been fabricated and Part 5 has not begun.
+
+## Part 4B — Canonical Score Source Provenance
+
+### Verified active Score Entry path
+
+The active `public/score-entry.js` renders one row per roster student with editable CA and Exam inputs (each 0–50). On edit it sends `POST /api/academic/scores` with `studentId`, canonical `classId`, `subjectId`, `academicYear`, `term`, `caScore`, and `examScore`. `src/server.mjs` enforces `marks.write`, invokes `readProductionAcademicInput`, and routes to `durableAcademic.saveScore` when the production database adapter is configured; only without that adapter does it call the in-memory `academicResults.saveScore`. The durable roster/save path is `src/durable-academic.js`.
+
+### Provenance matrix
+
+| Store | Provenance / writer evidence | Scope and identity evidence | Decision for Result Slip |
+|---|---|---|---|
+| `academic_score_records` | Introduced in `schema/017_academic_results_migration.sql`; the durable writer/reader was added in commit `430fcd2` (`src/durable-academic.js`). The current database branch uses it; production inventory says the table is absent. | Intended row key is school, record type, year ID, term ID, class ID, profile ID, subject ID, and mock label; production cannot use this contract because its table is absent. | Intended current durable Score Entry contract, but not deployed in inspected production schema. No safe real-result query until that mismatch is resolved through the governed schema/release process. |
+| `assessment_scores` / `assessments` | Present in production metadata; no active UI/service writer or reader was found in searched repository history. | Score student FK is `students.id`; assessment parent contributes class, subject and year; no term or school scope on that parent. | Not canonical evidence for the active terminal Score Entry flow. |
+| `exam_scores` / `exams` | Present in production metadata; no active UI/service writer or reader was found in searched repository history. | Student FK is `student_profiles.id`; `exams` provides school, string year/term, class and subject. | Separate exam-shaped candidate, but no provenance tying it to the active CA+Exam UI. |
+| `examination_marks` / `examinations` | Defined by `schema/007_examinations_results.sql`; repository history shows the examinations/results workflow, but not an active writer/read path for the current Score Entry endpoint. | Marks are weighted examination values; examination supplies school and optional year/term; student FK is profile ID. | Different examination workflow and score semantics; do not substitute. |
+| `student_assessments` | Present in production metadata; no active writer or reader was found in searched history. | Combined score columns exist; no class/year columns, no declared term FK, and no unique score-scope index. | Plausible by column names only; insufficient provenance and scope. Do not substitute. |
+| `report_cards` | Present in production metadata; no active Score Entry writer/reader was found in searched history. | Published/aggregate snapshot fields, with year and term strings and a unique school/student/year/term key. | Downstream result snapshot, not the demonstrated score-entry source. |
+
+### Finding and implementation decision
+
+**Verified root cause for durable score persistence:** the active database-backed Score Entry writer targets `academic_score_records`, but the production inventory for run `36208849852` reports that table absent. Other candidate tables differ in ownership, score semantics, student identity, or academic scope, and repository history does not tie them to the active Score Entry route. The Result Slip GET route still calls the in-memory `academicResults.result`; no durable reader for an existing production score table is established. Therefore the canonical production score source and a safe durable read contract remain **NOT VERIFIED**. No result-runtime query or schema change is made in Part 4B.
+
+This is a deployment/schema contract mismatch, not evidence that `student_assessments`, `exam_scores`, or `examination_marks` should be repurposed. The proper follow-up is to reconcile the authorized deployed Score Entry writer and the schema release contract, then verify row identity and historical class/year/term scope before connecting the Result Slip. Part 5 has not started.
+
+### Preserved Part 4A calculation
+
+Lower Primary A–I grade mapping remains centralized in `src/result-calculation.js` (A=1 through I=9); malformed or unknown grade input is rejected rather than coerced to zero. No production score rows were read or modified in either part.
+
+### Part 4B verification
+
+- Repository history searched across available local and origin refs for the academic score table names and active Score Entry files; current durable writer provenance is commit `430fcd2`.
+- Protected production schema inventory `36208849852` succeeded against the expected production database and returned metadata only; no score/result data rows were read.
+- `node --test test/result-calculation.test.js`: 9 passed, 0 failed.\n- Focused Result Slip, Score Entry, academic workflow, identity, admission and class database regression suite: 120 passed, 0 failed, 0 skipped.\n- `node --check src/result-calculation.js`, `node --check scripts/production-schema-inventory.mjs`, and `git diff --check`: passed.
+- NOT MERGED. NOT DEPLOYED.
