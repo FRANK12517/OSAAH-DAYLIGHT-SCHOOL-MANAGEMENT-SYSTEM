@@ -84,7 +84,9 @@ if (!process.env.DATABASE_URL) {
         queryTables: ['users', 'user_roles', 'roles', 'role_permissions', 'permissions']
       }
     };
-    process.stdout.write(`${JSON.stringify(result)}\n`);
+    // Pretty-print so GitHub Actions retains each metadata value as a separate
+    // log line instead of truncating one oversized line for larger schemas.
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
   } catch (error) {
     process.stdout.write(`${JSON.stringify(safeFailure(error))}\n`);
     process.exitCode = 1;
