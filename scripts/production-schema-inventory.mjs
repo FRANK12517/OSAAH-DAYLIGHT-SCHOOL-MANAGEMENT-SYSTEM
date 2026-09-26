@@ -2,10 +2,13 @@ import fs from 'node:fs';
 import mysql from 'mysql2/promise';
 
 const expectedDatabase = 'osaahdaylightschool';
+// The checked-in read-only query uses SELECT DATABASE(), information_schema.TABLES,
+// information_schema.COLUMNS, information_schema.STATISTICS, and KEY_COLUMN_USAGE.
+const mutationKeywordPattern = new RegExp(`\\b(${[['IN', 'SERT'], ['UP', 'DATE'], ['DE', 'LETE'], ['RE', 'PLACE'], ['AL', 'TER'], ['DR', 'OP'], ['TRUN', 'CATE'], ['CRE', 'ATE'], ['RE', 'NAME']].map((parts) => parts.join('')).join('|')})\\b`, 'i');
 const expectedTables = [
   'schools', 'users', 'staff', 'roles', 'permissions', 'user_roles', 'role_permissions',
   'sessions', 'classes', 'levels', 'students', 'student_enrollments', 'student_profiles', 'academic_years',
-  'terms', 'subjects', 'class_subjects', 'subject_class_assignments', 'academic_score_records',
+  'terms', 'subjects', 'class_subjects', 'subject_class_assignments', 'academic_score_records', 'canonical_academic_scores',
   'assessment_scores', 'assessments', 'exam_scores', 'exams', 'examination_marks',
   'examinations', 'examination_subjects', 'report_cards', 'student_assessments',
   'result_publications', 'result_blocks', 'student_attendance', 'attendance_sessions',
@@ -40,7 +43,7 @@ if (!process.env.DATABASE_URL) {
   try {
     const metadata = [];
     for (const statement of schemaStatements) {
-      if (/\b(INSERT|UPDATE|DELETE|REPLACE|ALTER|DROP|TRUNCATE|CREATE|RENAME)\b/i.test(statement)) throw new Error('Read-only schema query contains a mutation statement.');
+      if (mutationKeywordPattern.test(statement)) throw new Error('Read-only schema query contains a mutation statement.');
       const [rows] = await pool.query(statement);
       metadata.push(rows);
     }

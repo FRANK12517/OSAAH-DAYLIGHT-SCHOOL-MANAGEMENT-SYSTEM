@@ -8,7 +8,7 @@ WHERE TABLE_SCHEMA = DATABASE()
   AND TABLE_NAME IN (
     'schools', 'students', 'student_enrollments', 'student_profiles',
     'classes', 'academic_years', 'terms', 'subjects', 'class_subjects',
-    'subject_class_assignments', 'academic_score_records',
+    'subject_class_assignments', 'academic_score_records', 'canonical_academic_scores',
     'assessment_scores', 'assessments', 'exam_scores', 'exams',
     'examination_marks', 'examinations', 'examination_subjects',
     'report_cards', 'student_assessments', 'result_publications', 'result_blocks',
@@ -22,7 +22,7 @@ FROM information_schema.STATISTICS
 WHERE TABLE_SCHEMA = DATABASE()
   AND TABLE_NAME IN (
     'students', 'student_enrollments', 'student_profiles', 'classes', 'subjects',
-    'class_subjects', 'subject_class_assignments', 'academic_score_records',
+    'class_subjects', 'subject_class_assignments', 'academic_score_records', 'canonical_academic_scores',
     'assessment_scores', 'assessments', 'exam_scores', 'exams',
     'examination_marks', 'examinations', 'examination_subjects',
     'report_cards', 'student_assessments', 'result_publications', 'result_blocks',
@@ -37,7 +37,7 @@ FROM information_schema.KEY_COLUMN_USAGE
 WHERE TABLE_SCHEMA = DATABASE()
   AND TABLE_NAME IN (
     'student_enrollments', 'student_profiles', 'class_subjects',
-    'subject_class_assignments', 'academic_score_records',
+    'subject_class_assignments', 'academic_score_records', 'canonical_academic_scores',
     'assessment_scores', 'assessments', 'exam_scores', 'exams',
     'examination_marks', 'examinations', 'examination_subjects',
     'report_cards', 'student_assessments', 'result_publications',
