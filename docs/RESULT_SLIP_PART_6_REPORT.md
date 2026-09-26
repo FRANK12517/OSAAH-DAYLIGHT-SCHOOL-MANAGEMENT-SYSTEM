@@ -79,3 +79,20 @@ No Part 6 integration tests were added because there is no verified production q
 ## R. Git and remaining work
 
 No Part 6 implementation commit exists. The working branch remains `fix/result-slip-options-part1`; this report is the only Part 6 file. It remains unmerged and undeployed. To resume safely, capture and retain the actual metadata-only production inventory result for the attendance, signature, staff, assignment, and session tables; then verify active production writers and identity semantics before implementing scoped queries or deciding on migration 057.
+
+## Part 6A — Production contract discovery
+
+**Status: BLOCKED.** The existing protected workflow is `.github/workflows/production-schema-inventory.yml`; it dispatches `scripts/production-schema-inventory.mjs` with the protected `DATABASE_URL` secret and does not echo the connection string. The local GitHub CLI is installed, but `gh auth status` reports that the saved `FRANK12517` token is invalid. The CLI cannot reach `api.github.com` in this environment. No workflow run was dispatched, no production connection was attempted, and no database metadata was returned. `docs/RESULT_SLIP_PART_6_SCHEMA_EVIDENCE.md` records the discovery attempt and its limits. The requested exact result must not be inferred from the previous report’s abbreviated summary.
+
+No inventory tool or workflow code was changed, because the existing workflow cannot be dispatched from this environment and Part 6A requires the actual returned metadata to be preserved. The GitHub plugin installation request is awaiting user confirmation. Once GitHub access is restored, extend the metadata query to capture the requested full column, primary-key, index, FK and referential-rule evidence; dispatch it with the intended commit and save the sanitized output before deciding the runtime contracts or migration 057.
+
+- Protected workflow run ID: **NONE — NOT DISPATCHED**.
+- Database identity verification: **NOT RUN** (expected name is `osaahdaylightschool`).
+- Attendance columns, keys, indexes, foreign keys and date resolution: **NOT VERIFIED** beyond the previous report’s `date` versus `attendance_date` summary.
+- Daily versus subject attendance and total school days: **NOT VERIFIED**.
+- Production `result_signatures` columns, keys, indexes, foreign keys and storage: **NOT VERIFIED**.
+- Staff/user identity bridge and class/headteacher assignment paths: **NOT VERIFIED**.
+- Historical assignment safety: **BLOCKED**.
+- Migration 057: **UNDETERMINED**.
+- Production application data read: **NONE**; no query was dispatched.
+- Production data mutations: **NONE**.
