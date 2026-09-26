@@ -30,3 +30,25 @@ Part 6B adds coverage for production date/query scope, the student-profile ident
 - Production changes, deployment, and merge: none.
 - Commit: local Part 6B commit on `fix/result-slip-options-part1`.
 - Push: failed; normal Git could not connect to `github.com:443` (`Failed to connect to server`). No alternate or forced push was attempted.
+
+## Part 6C — durable signature management writer
+
+### Before repair
+
+`GET /api/result-signatures` listed an in-memory Map, `POST /api/result-signatures` validated a metadata-only secure reference and added the record to that Map, and `DELETE /api/result-signatures/:id` deactivated only the Map item. There was no separate PATCH/update route. Replacing a profile was another POST. The app initialized `createSignatureService` without its database adapter, so signature changes disappeared on process restart and could not be read by the Part 6B database-backed Result Slip.
+
+The existing form does not transfer signature bytes. It accepts a caller-supplied `signatures/...` reference plus MIME and declared size. No binary file upload or durable asset-storage provider/path is implemented in this repository. Part 6C preserves that existing reference mechanism: validates safe path syntax, allowed MIME, matching extension, and declared size; then writes the reference to `signature_url`. It does not store image bytes or treat client input as a filesystem path. The referenced image must already exist in the deployment's secure signature asset store for the browser/PDF renderer to display it.
+
+### After repair
+
+Database-backed signature management now lists and writes the verified `result_signatures` table. Uploads persist the canonical type (`CLASS_TEACHER` or `HEADTEACHER`), staff profile ID, tenant, applicable class/year, signature URL, active state, uploader, and timestamps. Names and phones come from `staff_profiles -> users`, not from client values or duplicate signature columns.
+
+Class teacher uploads require a school-owned class, matching academic year and term, active TEACHER user-role, and the class-wide historical assignment consumed by Part 6B. Since the production signature table has no term column, the persisted/replacement signature scope is class plus academic-year and staff identity; the submitted term is validated against the assignment. Headteacher uploads resolve only the unique current active official Headteacher in the school, matching Part 6B's current-by-design policy.
+
+POST replacement keeps the prior record and marks it inactive with `deactivated_by` and `deactivated_at`, then inserts the new active row inside a database transaction. TiDB transactions lock the stable school row to serialize concurrent signature writes. Repeating an active upload with the same secure reference is idempotent; if legacy active duplicates exist in that scope, retries deactivate extras. DELETE deactivates a record in the actor's school; it never physically deletes history. Existing `signatures.manage` route authorization remains required. The authenticated server school is used throughout; client `school_id`, name, and phone are ignored.
+
+When a database adapter is configured, management GET/POST/DELETE and the Part 6B real Result Slip/PDF use durable rows. The process-local signature Map is restricted to the non-database deterministic/sample service path; database-backed sample resolution does not read it or the production table. Tests upload both roles, recreate the app service, regenerate the real result and PDF, replace/deactivate records, and assert the table-backed signature is returned after restart.
+
+### Part 6C verification and release state
+
+Focused verification passed: 18 tests covering durable signature management, signature profiles, Result Slip/PDF resolution, and the TiDB adapter contract. The complete `npm test` suite passed: 897 tests, 0 failures. `npm run migration:validate` passed with 55 migrations validated; this only validates and does not apply migrations. Syntax checks and `git diff --check` passed. Part 6C was committed locally on `fix/result-slip-options-part1` (`fix(results): persist signature management durably`). One normal `git push origin fix/result-slip-options-part1` was attempted and failed: `fatal: unable to access 'https://github.com/FRANK12517/OSAAH-DAYLIGHT-SCHOOL-MANAGEMENT-SYSTEM.git/': Failed to connect to github.com port 443 after 101 ms: Could not connect to server`. No retry or alternate authentication path was used; nothing was merged or deployed.

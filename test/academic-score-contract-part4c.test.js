@@ -29,7 +29,7 @@ async function fixture() {
     CREATE TABLE roles(id VARCHAR(191) PRIMARY KEY,school_id VARCHAR(191),role_key TEXT);
     CREATE TABLE user_roles(id VARCHAR(191) PRIMARY KEY,user_id VARCHAR(191),role_id VARCHAR(191));
     CREATE TABLE staff_assignments(id VARCHAR(191) PRIMARY KEY,staff_id VARCHAR(191),class_id VARCHAR(191),academic_year_id VARCHAR(191),term_id VARCHAR(191),subject_id VARCHAR(191));
-    CREATE TABLE result_signatures(id VARCHAR(191) PRIMARY KEY,school_id VARCHAR(191),staff_id VARCHAR(191),signature_type TEXT,class_id VARCHAR(191),academic_year TEXT,signature_url TEXT,is_active INTEGER,created_at TEXT);
+    CREATE TABLE result_signatures(id VARCHAR(191) PRIMARY KEY,school_id VARCHAR(191),staff_id VARCHAR(191),signature_type TEXT,class_id VARCHAR(191),academic_year TEXT,signature_url TEXT,is_active INTEGER,uploaded_by VARCHAR(191),uploaded_at TEXT,deactivated_by VARCHAR(191),deactivated_at TEXT,created_at TEXT,updated_at TEXT);
     CREATE TABLE academic_score_records(id VARCHAR(191) PRIMARY KEY,student_id VARCHAR(191),score DECIMAL(6,2));
     INSERT INTO academic_score_records VALUES('legacy-score','profile-a',72);
     INSERT INTO schools VALUES('${schoolId}'),('school-b');
