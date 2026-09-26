@@ -2,15 +2,15 @@
 
 ## Collection status
 
-**BLOCKED — no production inventory was dispatched and no live metadata was retrieved.** This file deliberately contains no guessed or reconstructed production columns.
+**BLOCKED — the expanded metadata inventory is prepared and tested, but no new protected production run has been dispatched and no new live metadata has been retrieved.** This file deliberately contains no guessed or reconstructed production columns.
 
-The existing protected workflow is `.github/workflows/production-schema-inventory.yml`. It verifies that `DATABASE_URL` exists without printing its value, then invokes `scripts/production-schema-inventory.mjs`. Its configured expected database is `osaahdaylightschool`. This mechanism was inspected but not run for Part 6A.
+The existing protected workflow is `.github/workflows/production-schema-inventory.yml`. It verifies that `DATABASE_URL` exists without printing its value, then invokes `scripts/production-schema-inventory.mjs`. Its configured expected database is `osaahdaylightschool`. The inventory script now guards the database name before any table metadata read and emits full catalog-only columns, PK/unique constraints, indexes, and FK rules for the required tables plus tables directly related through declared FKs. Focused tests cover metadata-only query behavior and the fail-closed database guard. The updated protected workflow has not yet run.
 
-The local `gh` executable reports that its configured `FRANK12517` GitHub token is invalid. Its request to GitHub’s API was also blocked by the environment’s network policy. The checkout’s `origin` points to a local worktree mirror. Thus no dispatch or workflow run ID exists. No database connection or application-table query was attempted; no application data or metadata was read, and no production mutation occurred.
+No workflow dispatch has been made from this task. The metadata-only tooling and status-document updates are being published to the existing branch through the authenticated GitHub connector because normal `git push` cannot connect to `github.com:443` and the local GitHub CLI token is invalid. The connector exposes Git operations but no workflow-dispatch action. No database connection or application-table query was attempted; no production application data or live schema metadata was read, and no production mutation occurred.
 
 ## Captured production results
 
-None. Every required field below remains **NOT VERIFIED** until an authorized protected workflow run returns sanitized `information_schema` results and those results are copied here.
+None from the updated tooling. Every required field below remains **NOT VERIFIED** until an authorized protected workflow run returns sanitized `information_schema` results and those results are copied here. The previous inventory run `36208849852` predates the expanded output and its available report summary is insufficient to fill these fields.
 
 | Required evidence | Status |
 | --- | --- |
@@ -35,4 +35,4 @@ None. Every required field below remains **NOT VERIFIED** until an authorized pr
 
 ## Next required action
 
-Restore authorized GitHub access (or confirm the pending GitHub plugin installation) and dispatch the existing protected metadata-only workflow against the intended commit. Expand the checked-in query first if needed to emit full column metadata, PK/index membership, FK targets and referential rules for attendance, signatures, staff, role and period tables. Verify the connected database name, retain only sanitized catalog metadata, and paste the actual relevant result into this file. Do not use production application rows to fill schema gaps.
+Dispatch the existing protected metadata-only workflow against `fix/result-slip-options-part1` once workflow-dispatch access is available. Verify the connected database name, retain only sanitized catalog metadata, and paste the actual relevant result into this file. Do not use production application rows to fill schema gaps.
