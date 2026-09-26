@@ -8,7 +8,7 @@ const mutationKeywordPattern = new RegExp(`\\b(${[['IN', 'SERT'], ['UP', 'DATE']
 const expectedTables = [
   'schools', 'users', 'staff', 'roles', 'permissions', 'user_roles', 'role_permissions',
   'sessions', 'classes', 'levels', 'students', 'student_enrollments', 'student_profiles', 'academic_years',
-  'terms', 'subjects', 'class_subjects', 'subject_class_assignments', 'academic_score_records', 'canonical_academic_scores',
+  'terms', 'subjects', 'class_subjects', 'subject_class_assignments', 'academic_score_records', 'canonical_academic_scores', 'canonical_ges_assessments',
   'assessment_scores', 'assessments', 'exam_scores', 'exams', 'examination_marks',
   'examinations', 'examination_subjects', 'report_cards', 'student_assessments',
   'result_publications', 'result_blocks', 'student_attendance', 'attendance_sessions',

@@ -4,6 +4,7 @@ import { canonicalClassId } from './student-classes.js';
 import { calculateStudentResult, calculateClassPositions } from './result-calculation.js';
 import { subjectPositions } from './result-slip.js';
 import { normalizeStudentGender } from './student-gender.js';
+import { GES_ASSESSMENT_LIBRARIES } from './ges-assessment-libraries.js';
 
 const rows = (value) => Array.isArray(value) ? value : [];
 const text = (value) => String(value ?? '').trim();
@@ -92,6 +93,93 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
       result = await database.query(`SELECT DISTINCT s.id,s.name,a.class_id AS classId FROM class_subjects a JOIN subjects s ON s.id=a.subject_id WHERE ${clauses.join(' AND ')} ORDER BY s.name,s.id`, values);
     }
     return rows(result);
+  }
+
+  const gesFields = Object.freeze({
+    conduct: { column: 'conduct', libraryKey: 'conduct' },
+    attitude: { column: 'attitude', libraryKey: 'attitude' },
+    interest: { column: 'interest', libraryKey: 'interest' },
+    classTeacherRemarks: { column: 'class_teacher_remarks', libraryKey: 'ctRemarks' },
+    headteacherRemarks: { column: 'headteacher_remarks', libraryKey: 'htRemarks' }
+  });
+
+  function normalizeGesFields(input, { partial = false } = {}) {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) fail('GES Assessment values are required.');
+    const values = {};
+    for (const [key, field] of Object.entries(gesFields)) {
+      if (partial && !Object.hasOwn(input, key)) continue;
+      const value = input[key] == null ? '' : text(input[key]);
+      if (!value) { values[field.column] = null; continue; }
+      const library = GES_ASSESSMENT_LIBRARIES[field.libraryKey];
+      if (![...library.positive, ...library.negative].includes(value)) fail(`Select an approved ${key} comment.`);
+      values[field.column] = value;
+    }
+    if (!Object.keys(values).length) fail('At least one GES Assessment value is required.');
+    return values;
+  }
+
+  async function assessmentFor(filters = {}, actor, period = null) {
+    assertActor(actor);
+    if (!authorized(actor, 'results.read') && !authorized(actor, 'results.generate')) fail('Forbidden.', 403);
+    const classId = text(filters.classId), studentId = text(filters.studentId);
+    if (!classId || !studentId) fail('Student and class are required.');
+    if (!(await optionClasses(actor)).some((item) => item.id === classId)) fail('Forbidden.', 403);
+    if (actor.roleKey === 'TEACHER' && actor.assignedClassIds?.length && !actor.assignedClassIds.includes(classId)) fail('Forbidden.', 403);
+    const resolved = period ?? await resolvePeriod(filters);
+    const record = rows(await database.query(`SELECT g.conduct,g.attitude,g.interest,
+      g.class_teacher_remarks AS classTeacherRemarks,g.headteacher_remarks AS headteacherRemarks
+      FROM canonical_ges_assessments g JOIN students s ON s.id=g.student_id AND s.school_id=g.school_id
+      WHERE g.school_id=? AND g.student_id=? AND g.class_id=? AND g.academic_year_id=? AND g.term_id=?
+        AND COALESCE(s.is_test_record,0)=0
+        AND EXISTS (SELECT 1 FROM student_enrollments e JOIN academic_years y ON y.id=e.academic_year_id AND y.school_id=s.school_id
+          WHERE e.student_id=s.id AND e.class_id=g.class_id AND e.academic_year_id=g.academic_year_id)
+      LIMIT 1`, [schoolId, studentId, classId, resolved.yearId, resolved.termId]))[0];
+    return record ?? { conduct: null, attitude: null, interest: null, classTeacherRemarks: null, headteacherRemarks: null };
+  }
+
+  async function saveGesAssessment(input = {}, actor) {
+    assertActor(actor);
+    if (!authorized(actor, 'marks.write') && !authorized(actor, 'results.write')) fail('Forbidden.', 403);
+    const studentId = text(input.studentId), classId = text(input.classId);
+    if (!studentId || !classId) fail('Student and class are required.');
+    const allowedClasses = await optionClasses(actor);
+    if (!allowedClasses.some((item) => item.id === classId)) fail('Class not found.', 404);
+    if (actor.roleKey === 'TEACHER' && actor.assignedClassIds?.length && !actor.assignedClassIds.includes(classId)) fail('Forbidden.', 403);
+    const period = await resolvePeriod(input);
+    const student = rows(await database.query(`SELECT s.id,s.permanent_student_id AS permanentStudentId
+      FROM students s JOIN student_enrollments e ON e.student_id=s.id
+      JOIN academic_years y ON y.id=e.academic_year_id AND y.school_id=s.school_id
+      WHERE s.school_id=? AND s.id=? AND e.class_id=? AND e.academic_year_id=?
+        AND COALESCE(s.is_test_record,0)=0 LIMIT 1`, [schoolId, studentId, classId, period.yearId]))[0];
+    if (!student || studentId.startsWith('TEST-OSAAH-')) fail('Student is not enrolled in the selected class and academic year.', 400);
+    const values = normalizeGesFields(input.assessment ?? input, { partial: true });
+    const existing = rows(await database.query(`SELECT id,conduct,attitude,interest,class_teacher_remarks AS classTeacherRemarks,
+      headteacher_remarks AS headteacherRemarks FROM canonical_ges_assessments
+      WHERE school_id=? AND student_id=? AND class_id=? AND academic_year_id=? AND term_id=? LIMIT 1`,
+    [schoolId, studentId, classId, period.yearId, period.termId]))[0];
+    const id = existing?.id ?? idFactory(), now = clock();
+    const merged = {
+      conduct: existing?.conduct ?? null, attitude: existing?.attitude ?? null, interest: existing?.interest ?? null,
+      class_teacher_remarks: existing?.classTeacherRemarks ?? null, headteacher_remarks: existing?.headteacherRemarks ?? null,
+      ...values
+    };
+    const persist = async (tx) => {
+      if (existing) await tx.execute(`UPDATE canonical_ges_assessments SET conduct=?,attitude=?,interest=?,class_teacher_remarks=?,headteacher_remarks=?,updated_at=?
+        WHERE id=? AND school_id=?`, [merged.conduct, merged.attitude, merged.interest, merged.class_teacher_remarks, merged.headteacher_remarks, now, id, schoolId]);
+      else await tx.execute(`INSERT INTO canonical_ges_assessments
+        (id,school_id,student_id,class_id,academic_year_id,term_id,conduct,attitude,interest,class_teacher_remarks,headteacher_remarks,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`, [id, schoolId, studentId, classId, period.yearId, period.termId, merged.conduct, merged.attitude, merged.interest, merged.class_teacher_remarks, merged.headteacher_remarks, now, now]);
+    };
+    try { if (database.transaction) await database.transaction(persist); else await persist(database); }
+    catch (error) {
+      if (!['ER_DUP_ENTRY', 'SQLITE_CONSTRAINT_UNIQUE'].includes(error.code)) throw error;
+      const raced = rows(await database.query(`SELECT id FROM canonical_ges_assessments WHERE school_id=? AND student_id=? AND class_id=? AND academic_year_id=? AND term_id=? LIMIT 1`, [schoolId, studentId, classId, period.yearId, period.termId]))[0];
+      if (!raced) throw error;
+      await database.execute(`UPDATE canonical_ges_assessments SET conduct=?,attitude=?,interest=?,class_teacher_remarks=?,headteacher_remarks=?,updated_at=? WHERE id=? AND school_id=?`,
+        [merged.conduct, merged.attitude, merged.interest, merged.class_teacher_remarks, merged.headteacher_remarks, now, raced.id, schoolId]);
+    }
+    return { id, schoolId, studentId, permanentStudentId: student.permanentStudentId, classId, academicYear: period.yearName, term: period.termName,
+      assessment: { conduct: merged.conduct, attitude: merged.attitude, interest: merged.interest, classTeacherRemarks: merged.class_teacher_remarks, headteacherRemarks: merged.headteacher_remarks }, saved: true };
   }
 
   async function assertClassSubject(classId, subjectId, actor) {
@@ -281,6 +369,7 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     const { rows: scores, period, classRecord } = await listCanonicalScores(filters, actor);
     if (!scores.length) fail('No result scores are recorded for the selected student and academic context.', 404, 'ACADEMIC_RESULT_NOT_FOUND');
     const subjectStudent = scores[0];
+    const assessment = await assessmentFor(filters, actor, period);
     const classRows = rows(await database.query(`SELECT r.student_id AS studentId,r.subject_id AS subjectId,sub.name AS subjectName,
       r.class_score AS caScore,r.exam_score AS examScore,r.total_score AS totalScore
       FROM canonical_academic_scores r JOIN students s ON s.id=r.student_id AND s.school_id=r.school_id
@@ -304,7 +393,7 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     const summaryGrade = gradeForTotal(average, { classId: classRecord.name, examination: 'TERMINAL' });
     return {
       headerAsset: '/assets/osaah-result-header.png', lifecycle: { status: 'UNSAVED/INCOMPLETE', dirty: true, version: 0, savedAt: null },
-      attendance: null, assessment: null, resultType: 'TERMINAL', isSample: false, sampleLabel: null,
+      attendance: null, assessment, gesAssessmentDurable: true, resultType: 'TERMINAL', isSample: false, sampleLabel: null,
       studentId: subjectStudent.studentId, studentIndexNumber: subjectStudent.permanentStudentId,
       studentName: [subjectStudent.firstName, subjectStudent.middleName, subjectStudent.surname].filter(Boolean).join(' '),
       gender: normalizeStudentGender(subjectStudent.gender), classGenderDistribution: { ...genderCounts, totalStudents: membershipRows.length },
@@ -349,7 +438,7 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     }));
   }
 
-  return Object.freeze({ options, resultStudents, sampleContext, listSubjects, listAssignments, assignSubject, roster, saveScore, resolvePeriod, listCanonicalScores, result, broadsheet });
+  return Object.freeze({ options, resultStudents, sampleContext, listSubjects, listAssignments, assignSubject, roster, saveScore, saveGesAssessment, assessmentFor, resolvePeriod, listCanonicalScores, result, broadsheet });
 }
 
 export default createDurableAcademicService;
