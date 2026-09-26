@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { gradeForTotal } from './grading.js';
+import { canonicalClassId } from './student-classes.js';
 
 const rows = (value) => Array.isArray(value) ? value : [];
 const text = (value) => String(value ?? '').trim();
@@ -45,7 +46,7 @@ export function createDurableAcademicService({ database, schoolId, idFactory = r
       .map((item) => ({ id: item.id, name: item.name, displayOrder: item.sort_order ?? item.display_order ?? 0, levelName: item.levelName ?? item.level ?? null }));
   }
 
-  async function listSubjects(filters = {}, actor) {
+  async function listSubjects(filters = {}, actor, { allowLegacyMapping = false } = {}) {
     assertActor(actor);
     const classId = text(filters.classId);
     if (!classId) return [];
@@ -53,10 +54,43 @@ export function createDurableAcademicService({ database, schoolId, idFactory = r
     const params = [schoolId, classId];
     let yearClause = '';
     if (academicYearId) { yearClause = ' AND (a.academic_year_id IS NULL OR a.academic_year_id=?)'; params.push(academicYearId); }
-    const result = await database.query(`SELECT s.id,s.code,s.name,s.department_id AS departmentId,a.class_id AS classId,a.academic_year_id AS academicYearId
+    let result;
+    try { result = await database.query(`SELECT s.id,s.code,s.name,s.department_id AS departmentId,a.class_id AS classId,a.academic_year_id AS academicYearId
       FROM subject_class_assignments a JOIN subjects s ON s.id=a.subject_id AND s.school_id=a.school_id
-      WHERE a.school_id=? AND a.class_id=? AND a.active=1${yearClause} ORDER BY s.name,s.id`, params);
+      WHERE a.school_id=? AND a.class_id=? AND a.active=1${yearClause} ORDER BY s.name,s.id`, params); }
+    catch (error) {
+      if (!allowLegacyMapping || !['ER_NO_SUCH_TABLE', 'ER_BAD_FIELD_ERROR'].includes(error.code)) throw error;
+      // The recorded production inventory has class_subjects. Inspect its real
+      // columns before adapting the legacy mapping; never guess optional fields.
+      const columns = rows(await database.query('SHOW COLUMNS FROM class_subjects')).map((item) => item.Field);
+      if (!['class_id', 'subject_id'].every((name) => columns.includes(name))) fail('Sample result is unavailable for the selected class.', 404);
+      const subjectColumns = rows(await database.query('SHOW COLUMNS FROM subjects')).map((item) => item.Field);
+      if (!['id', 'school_id', 'name'].every((name) => subjectColumns.includes(name))) fail('Sample result is unavailable for the selected class.', 404);
+      const clauses = ['s.school_id=?', 'a.class_id=?']; const values = [schoolId, classId];
+      if (columns.includes('school_id')) { clauses.push('a.school_id=?'); values.push(schoolId); }
+      if (columns.includes('academic_year_id')) { clauses.push('(a.academic_year_id IS NULL OR a.academic_year_id=?)'); values.push(academicYearId); }
+      if (columns.includes('term_id')) { clauses.push('(a.term_id IS NULL OR a.term_id=?)'); values.push(text(filters.termId)); }
+      for (const [alias, available] of [['a', columns], ['s', subjectColumns]]) {
+        if (available.includes('active')) clauses.push(`${alias}.active=1`);
+        if (available.includes('status')) clauses.push(`(${alias}.status IS NULL OR ${alias}.status='ACTIVE')`);
+      }
+      result = await database.query(`SELECT DISTINCT s.id,s.name,a.class_id AS classId FROM class_subjects a JOIN subjects s ON s.id=a.subject_id WHERE ${clauses.join(' AND ')} ORDER BY s.name,s.id`, values);
+    }
     return rows(result);
+  }
+
+  async function sampleContext(input, actor) {
+    assertActor(actor);
+    if (!authorized(actor, 'results.generate') && !authorized(actor, 'marks.write')) fail('Forbidden.', 403);
+    const classRecord = (await optionClasses(actor)).find((item) => item.id === text(input.classId));
+    if (!classRecord) fail('Forbidden.', 403);
+    const legacyClassId = canonicalClassId(classRecord.name);
+    if (!legacyClassId) fail('Sample result is unavailable for the selected class.', 404);
+    const period = await resolvePeriod(input);
+    const subjects = await listSubjects({ classId: classRecord.id, academicYearId: period.yearId, termId: period.termId }, actor, { allowLegacyMapping: true });
+    if (!subjects.length) fail('Sample result is unavailable for the selected class.', 404);
+    if (actor.roleKey === 'TEACHER' && actor.assignedSubjectIds?.length && subjects.some((subject) => !actor.assignedSubjectIds.includes(subject.id))) fail('Forbidden.', 403);
+    return { schoolId, classRecord, legacyClassId, period, subjects };
   }
 
   async function resultStudents(input = {}, actor) {
@@ -178,7 +212,7 @@ export function createDurableAcademicService({ database, schoolId, idFactory = r
     return { id: scoreId, schoolId, studentId, permanentStudentId: enrolled.permanent_student_id, classId, subjectId, academicYear: period.yearName, term: period.termName, caScore, examScore, totalScore, grade, remark, saved: true };
   }
 
-  return Object.freeze({ options, resultStudents, listSubjects, listAssignments, assignSubject, roster, saveScore, resolvePeriod });
+  return Object.freeze({ options, resultStudents, sampleContext, listSubjects, listAssignments, assignSubject, roster, saveScore, resolvePeriod });
 }
 
 export default createDurableAcademicService;

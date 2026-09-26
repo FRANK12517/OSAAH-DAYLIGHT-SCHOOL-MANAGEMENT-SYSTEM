@@ -1,5 +1,6 @@
 window.downloadResultPdf = async function downloadResultPdf(result, { mock = false, status = null } = {}) {
   const query = new URLSearchParams({ studentId: result.studentId || '', classId: result.classId || '', academicYear: result.academicYear || '', term: result.term || '' });
+  if (result.isPreview) query.set('sample', 'true');
   if (mock) query.set('mockLabel', result.mockLabel || '');
   const endpoint = mock ? '/api/academic/mock-result/pdf' : '/api/academic/result/pdf';
   const response = await fetch(`${endpoint}?${query}`, { credentials: 'same-origin', headers: { Accept: 'application/pdf' } });

@@ -76,7 +76,7 @@ function element(initialValue = '') {
   return { value: initialValue, disabled: false, hidden: false, textContent: '', handlers: {}, _html: '', addEventListener(name, fn) { this.handlers[name] = fn; }, set innerHTML(html) { this._html = html; this.value = /<option value="([^"]*)"/.exec(html)?.[1] ?? ''; }, get innerHTML() { return this._html; } };
 }
 async function browser(payload, mode = 'ok') {
-  const fields = { classId: element(), studentId: element(), permanentStudentId: element(), academicYear: element('2026/2027'), term: element('First Term'), sampleMode: { checked: false } };
+  const fields = { classId: element(), studentId: element(), permanentStudentId: element(), academicYear: element('2026/2027'), term: element('First Term'), sampleMode: { ...element(), checked: false } };
   const button = element(), status = element(), retry = element(), retryStudents = element(), years = element(), host = element();
   const form = { ...element(), elements: fields, querySelector: () => button };
   const requests = [];

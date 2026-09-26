@@ -152,7 +152,7 @@ function element(value = '') {
   return { value, disabled: false, hidden: false, textContent: '', handlers: {}, _html: '', addEventListener(name, fn) { this.handlers[name] = fn; }, set innerHTML(html) { this._html = html; this.value = /<option value="([^"]*)"/.exec(html)?.[1] ?? ''; }, get innerHTML() { return this._html; } };
 }
 async function browser(lookup = async url => response(url.searchParams.get('classId') === 'class-a' ? [studentA] : url.searchParams.get('classId') === 'class-b' ? [studentB] : [])) {
-  const fields = { academicYear: element('2026/2027'), term: element('First Term'), classId: element(), studentId: element(), permanentStudentId: element(), sampleMode: { checked: false } };
+  const fields = { academicYear: element('2026/2027'), term: element('First Term'), classId: element(), studentId: element(), permanentStudentId: element(), sampleMode: { ...element(), checked: false } };
   const button = element(), status = element(), host = element(), retry = element(), retryStudents = element(), years = element();
   host.querySelectorAll = () => [];
   const form = { ...element(), elements: fields, querySelector: () => button };
@@ -197,7 +197,8 @@ for (const [field, value] of [['classId', 'class-b'], ['academicYear', '2025/202
   page.selectStudent('durable-a');
   page.host.hidden = false;
   page.host.innerHTML = '<div data-assessment="conduct">Old GES assessment and result</div>';
-  page.fields.sampleMode.checked = true;
+  // Part 2 real-mode reset; active sample-mode context changes are covered in Part 3.
+  page.fields.sampleMode.checked = false;
   page.status.textContent = 'Old student validation';
   page.fields[field].value = value;
   const load = page.fields[field].handlers.change();
