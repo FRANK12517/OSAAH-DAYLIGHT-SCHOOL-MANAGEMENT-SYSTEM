@@ -33,12 +33,25 @@ function paymentModel(row) {
   };
 }
 
+function unknownOptionalPaymentColumn(error, column) {
+  const message = String(error?.message ?? error?.sqlMessage ?? '');
+  return /unknown column/i.test(message) && new RegExp(`\\bp\\.${column}\\b`, 'i').test(message);
+}
+
 export function createDurableFeeReader({ adapter } = {}) {
   if (!adapter?.query) throw new Error('A durable database adapter is required for persisted fee reads.');
 
+  const optionalPaymentColumns = { createdAt: true, providerReference: true };
+
   async function listPayments({ studentId = null, status = null } = {}, actor) {
     authorizeFinancial(actor, 'READ', 'payments');
-    const rows = await adapter.query(`
+    let rows;
+    while (true) {
+      const createdAtColumn = optionalPaymentColumns.createdAt ? 'p.created_at' : 'p.payment_date';
+      const providerReferenceColumn = optionalPaymentColumns.providerReference ? 'p.provider_reference' : 'NULL';
+      const createdAtOrder = optionalPaymentColumns.createdAt ? ', p.created_at DESC' : '';
+      try {
+        rows = await adapter.query(`
       SELECT p.id,
         p.payment_reference AS paymentReference,
         r.receipt_number AS receiptNumber,
@@ -59,9 +72,9 @@ export function createDurableFeeReader({ adapter } = {}) {
         p.payment_method AS method,
         p.status,
         p.payment_date AS paymentDate,
-        p.provider_reference AS providerReference,
+        ${providerReferenceColumn} AS providerReference,
         p.received_by AS enteredBy,
-        p.created_at AS createdAt,
+        ${createdAtColumn} AS createdAt,
         r.issued_by AS issuer,
         r.status AS receiptStatus,
         r.previous_balance AS previousBalance,
@@ -71,7 +84,20 @@ export function createDurableFeeReader({ adapter } = {}) {
       LEFT JOIN fee_invoices i ON i.id=p.invoice_id AND i.school_id=p.school_id
       LEFT JOIN student_fee_receipts r ON r.payment_id=p.id AND r.school_id=p.school_id
       WHERE p.school_id=?
-      ORDER BY p.payment_date DESC, p.created_at DESC, p.id DESC`, [actor.schoolId]);
+      ORDER BY p.payment_date DESC${createdAtOrder}, p.id DESC`, [actor.schoolId]);
+        break;
+      } catch (error) {
+        if (optionalPaymentColumns.createdAt && unknownOptionalPaymentColumn(error, 'created_at')) {
+          optionalPaymentColumns.createdAt = false;
+          continue;
+        }
+        if (optionalPaymentColumns.providerReference && unknownOptionalPaymentColumn(error, 'provider_reference')) {
+          optionalPaymentColumns.providerReference = false;
+          continue;
+        }
+        throw error;
+      }
+    }
     return rows.map(paymentModel).filter((payment) => {
       if (studentId && payment.studentId !== studentId && payment.permanentStudentId !== studentId) return false;
       if (status && String(payment.status).toUpperCase() !== String(status).toUpperCase()) return false;
