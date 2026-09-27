@@ -26,12 +26,28 @@ async function runnerFixture({ appliedVersions = [54], badChecksum = null, migra
 }
 
 test('manual inputs require exact confirmation, release_ref, and protected database URL', () => {
-  assert.throws(() => validateReleaseInputs({ confirmation: 'yes', releaseRef: 'release', databaseUrl: 'opaque-secret' }), { code: 'CONFIRMATION_MISMATCH' });
+  const validSha = 'a'.repeat(40);
+  assert.throws(() => validateReleaseInputs({ confirmation: 'yes', releaseRef: 'main', databaseUrl: 'opaque-secret' }), { code: 'CONFIRMATION_MISMATCH' });
   assert.throws(() => validateReleaseInputs({ confirmation: RESULT_SLIP_CONFIRMATION, releaseRef: '', databaseUrl: 'opaque-secret' }), { code: 'RELEASE_REF_REQUIRED' });
-  assert.throws(() => validateReleaseInputs({ confirmation: RESULT_SLIP_CONFIRMATION, releaseRef: 'release', databaseUrl: '' }), { code: 'DATABASE_URL_MISSING' });
-  assert.doesNotThrow(() => validateReleaseInputs({ confirmation: RESULT_SLIP_CONFIRMATION, releaseRef: 'release-sha', databaseUrl: 'opaque-secret' }));
+  assert.throws(() => validateReleaseInputs({ confirmation: RESULT_SLIP_CONFIRMATION, releaseRef: validSha, databaseUrl: '' }), { code: 'DATABASE_URL_MISSING' });
+  for (const releaseRef of ['main', 'fix/result-slip-options-part1', 'refs/heads/main', '1234567', 'A'.repeat(40), 'g'.repeat(40), 'a'.repeat(39), 'a'.repeat(41)]) {
+    assert.throws(() => validateReleaseInputs({ confirmation: RESULT_SLIP_CONFIRMATION, releaseRef, databaseUrl: 'opaque-secret' }), { code: 'RELEASE_REF_INVALID' }, releaseRef);
+  }
+  assert.doesNotThrow(() => validateReleaseInputs({ confirmation: RESULT_SLIP_CONFIRMATION, releaseRef: validSha, databaseUrl: 'opaque-secret' }));
   assert.throws(() => assertExpectedDatabase('wrong-db'), { code: 'DATABASE_TARGET_MISMATCH' });
   assert.doesNotThrow(() => assertExpectedDatabase('osaahdaylightschool'));
+});
+
+test('workflow requires a lowercase 40-character SHA before checkout and compares the resolved SHA', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const workflow = await readFile(new URL('../.github/workflows/apply-result-slip-migrations.yml', import.meta.url), 'utf8');
+  const validation = workflow.indexOf('[[ "$RELEASE_REF" =~ ^[0-9a-f]{40}$ ]]');
+  const checkout = workflow.indexOf('- name: Check out the exact release ref');
+  const resolved = workflow.indexOf('SHA="$(git rev-parse --verify HEAD^{commit})"');
+  const equality = workflow.indexOf('if [ "$SHA" != "$RELEASE_REF" ]; then');
+  const report = workflow.indexOf("printf 'Requested release_ref:");
+  assert.ok(validation >= 0 && validation < checkout);
+  assert.ok(resolved >= checkout && equality > resolved && report > equality);
 });
 
 test('bounded runner applies pending 055 then 056 and never applies future versions', async () => {
@@ -117,12 +133,13 @@ test('migration entrypoint checks the database before runner access and never pr
   const sentinel = 'mysql://private:must-not-print@example.invalid/db';
   let runnerCalled = false;
   const adapter = { async query() { return [[{ databaseName: 'wrong-db' }]]; }, async close() {} };
-  await assert.rejects(applyResultSlipMigrations({ environment: { CONFIRMATION: RESULT_SLIP_CONFIRMATION, RELEASE_REF: 'release-sha', DATABASE_URL: sentinel }, adapterFactory: async () => adapter, runnerFactory: () => { runnerCalled = true; throw Error('must not be called'); }, output: { write() {} } }), { code: 'DATABASE_TARGET_MISMATCH' });
+  const releaseSha = 'a'.repeat(40);
+  await assert.rejects(applyResultSlipMigrations({ environment: { CONFIRMATION: RESULT_SLIP_CONFIRMATION, RELEASE_REF: releaseSha, DATABASE_URL: sentinel }, adapterFactory: async () => adapter, runnerFactory: () => { runnerCalled = true; throw Error('must not be called'); }, output: { write() {} } }), { code: 'DATABASE_TARGET_MISMATCH' });
   assert.equal(runnerCalled, false);
   let adapterCalled = false;
-  await assert.rejects(applyResultSlipMigrations({ environment: { CONFIRMATION: RESULT_SLIP_CONFIRMATION, RELEASE_REF: 'release-sha', DATABASE_URL: '' }, adapterFactory: async () => { adapterCalled = true; }, output: { write() {} } }), { code: 'DATABASE_URL_MISSING' });
+  await assert.rejects(applyResultSlipMigrations({ environment: { CONFIRMATION: RESULT_SLIP_CONFIRMATION, RELEASE_REF: releaseSha, DATABASE_URL: '' }, adapterFactory: async () => { adapterCalled = true; }, output: { write() {} } }), { code: 'DATABASE_URL_MISSING' });
   assert.equal(adapterCalled, false);
-  assert.equal(JSON.stringify({ confirmation: RESULT_SLIP_CONFIRMATION, releaseRef: 'release-sha' }).includes(sentinel), false);
+  assert.equal(JSON.stringify({ confirmation: RESULT_SLIP_CONFIRMATION, releaseRef: releaseSha }).includes(sentinel), false);
 
   const schema = schemaDatabase();
   const applied = [
@@ -142,11 +159,11 @@ test('migration entrypoint checks the database before runner access and never pr
     async validate() { return { valid: true, migrationCount: 55, appliedCount: 56, pendingCount: 0 }; }
   };
   let outputText = '';
-  const result = await applyResultSlipMigrations({ environment: { CONFIRMATION: RESULT_SLIP_CONFIRMATION, RELEASE_REF: 'release-sha', DATABASE_URL: sentinel }, adapterFactory: async () => validAdapter, runnerFactory: () => validRunner, output: { write(value) { outputText += value; } } });
+  const result = await applyResultSlipMigrations({ environment: { CONFIRMATION: RESULT_SLIP_CONFIRMATION, RELEASE_REF: releaseSha, DATABASE_URL: sentinel }, adapterFactory: async () => validAdapter, runnerFactory: () => validRunner, output: { write(value) { outputText += value; } } });
   assert.equal(result.ok, true);
   assert.deepEqual(result.newlyApplied, [55,56]);
   assert.equal(outputText.includes(sentinel), false);
-  assert.equal(outputText.includes('release-sha'), true);
+  assert.equal(outputText.includes(releaseSha), true);
 });
 
 test('workflow is manual-only, confirmation-gated, protected, bounded, and does not deploy', async () => {

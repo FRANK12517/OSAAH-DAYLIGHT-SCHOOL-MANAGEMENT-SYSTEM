@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       release_ref:
-        description: Exact reviewed release commit SHA to inspect and migrate
+        description: Exact reviewed 40-character lowercase release commit SHA to inspect and migrate
         required: true
         type: string
       confirmation:
@@ -37,8 +37,8 @@ jobs:
             echo "Production confirmation phrase did not match."
             exit 1
           fi
-          if [ -z "$RELEASE_REF" ]; then
-            echo "A release_ref is required."
+          if ! [[ "$RELEASE_REF" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "release_ref must be a full lowercase 40-character commit SHA."
             exit 1
           fi
 
@@ -53,6 +53,10 @@ jobs:
           SHA="$(git rev-parse --verify HEAD^{commit})"
           if ! [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
             echo "Could not resolve the checked-out release commit."
+            exit 1
+          fi
+          if [ "$SHA" != "$RELEASE_REF" ]; then
+            echo "Checked-out commit does not match release_ref."
             exit 1
           fi
           printf 'Requested release_ref: %s\nResolved release SHA: %s\n' "$RELEASE_REF" "$SHA"

@@ -4,7 +4,7 @@
 
 This plan prepares the dedicated protected workflow at `.github/workflows/apply-result-slip-migrations.yml` for the canonical score and GES Assessment tables. It is limited to migrations 055 and 056, in ascending order. It does not deploy application code, merge a branch, alter Git refs, or restart services.
 
-The workflow is `workflow_dispatch` only. It requires a non-empty `release_ref` and the exact confirmation phrase `APPLY_RESULT_SLIP_055_056`. The checkout action checks out that requested ref, then reports the requested ref and resolved commit SHA without printing credentials.
+The workflow is `workflow_dispatch` only. It requires `release_ref` to be exactly a lowercase 40-character commit SHA and requires the exact confirmation phrase `APPLY_RESULT_SLIP_055_056`. It checks out that SHA, verifies the resolved `HEAD` exactly matches the input before proceeding, and reports both values without printing credentials.
 
 ## Production protections
 

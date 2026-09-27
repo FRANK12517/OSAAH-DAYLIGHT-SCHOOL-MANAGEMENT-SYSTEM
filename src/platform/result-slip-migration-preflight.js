@@ -1,9 +1,11 @@
 export const RESULT_SLIP_CONFIRMATION = 'APPLY_RESULT_SLIP_055_056';
 export const EXPECTED_PRODUCTION_DATABASE = 'osaahdaylightschool';
+const IMMUTABLE_RELEASE_SHA = /^[0-9a-f]{40}$/;
 
 export function validateReleaseInputs({ confirmation, releaseRef, databaseUrl }) {
   if (confirmation !== RESULT_SLIP_CONFIRMATION) throw Object.assign(new Error('Production confirmation phrase did not match.'), { code: 'CONFIRMATION_MISMATCH' });
   if (typeof releaseRef !== 'string' || !releaseRef.trim()) throw Object.assign(new Error('A release_ref is required.'), { code: 'RELEASE_REF_REQUIRED' });
+  if (!IMMUTABLE_RELEASE_SHA.test(releaseRef)) throw Object.assign(new Error('release_ref must be a full lowercase 40-character commit SHA.'), { code: 'RELEASE_REF_INVALID' });
   if (typeof databaseUrl !== 'string' || !databaseUrl.trim()) throw Object.assign(new Error('Protected DATABASE_URL is unavailable.'), { code: 'DATABASE_URL_MISSING' });
 }
 
