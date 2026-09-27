@@ -327,6 +327,31 @@ export function createApp({ auth = null, students = null, attendance = createAtt
       if (pathname === '/api/admission-prospectus/options' && request.method === 'GET') { if (user.portal !== 'parent' && !(canAccess(user, PROSPECTUS_PERMISSION) || canAccess(user, 'admissions.read'))) return json(response, { error: 'Forbidden.' }, 403); const options = admissionProspectus.listOptions(); if (user.portal === 'school' && !options.academicYears.length) { const year = new Date().getFullYear(); options.academicYears = [{ id: String(year), name: `${year}/${year + 1}` }]; } return json(response, options); }
       if (pathname === '/api/admission-prospectus/template' && request.method === 'GET') { if (!canAccess(user, PROSPECTUS_PERMISSION)) return json(response, { error: 'Forbidden.' }, 403); return json(response, { template: DEFAULT_PROSPECTUS_TEMPLATE }); }
       if (pathname === '/api/academic/options' && request.method === 'GET') { if (!canAccess(user, 'academics.read') && !canAccess(user, 'results.read') && !canAccess(user, 'examinations.read')) return json(response, { error: 'Forbidden.' }, 403); try { return json(response, durableAcademic ? await durableAcademic.options(user) : academicResults.options(user)); } catch (error) { console.error('[Academic options] request failed', { schoolId: user.schoolId, userId: user.id, message: error.message, stack: error.stack }); return json(response, { error: error.message === 'Forbidden.' ? 'Forbidden.' : 'Unable to load academic options. Please try again.' }, error.message === 'Forbidden.' ? 403 : 500); } }
+      if (pathname === '/api/academic/result-students' && request.method === 'GET') {
+        if (!canAccess(user, 'results.read') && !canAccess(user, 'results.generate') && !canAccess(user, 'examinations.read')) return json(response, { error: 'Forbidden.' }, 403);
+        try {
+          const query = Object.fromEntries(new URL(request.url, 'http://localhost').searchParams);
+          const classId = String(query.classId ?? '').trim();
+          const academicYear = String(query.academicYear ?? '').trim();
+          const term = String(query.term ?? '').trim();
+          if (!classId || !academicYear || !term) return json(response, { students: [] });
+          if (user.roleKey === 'TEACHER' && user.assignedClassIds?.length && !user.assignedClassIds.includes(classId)) return json(response, { error: 'Forbidden.' }, 403);
+          let studentsForResult = durableAcademic
+            ? await durableAcademic.resultStudents(query, user)
+            : students.listEligibleStudents({ requestedSchoolId: user.schoolId, academicYearId: academicYear, classId, termId: term, includeTestRecords: false })
+              .filter((student) => student.schoolId === user.schoolId)
+              .map((student) => ({ id: student.id, studentId: student.id, indexNumber: student.permanentStudentId, permanentStudentId: student.permanentStudentId, name: [student.firstName, student.middleName, student.surname].filter(Boolean).join(' '), classId: student.classId, isTestRecord: false }));
+          if (!studentsForResult.length && String(query.sampleMode ?? '').toLowerCase() === 'true') {
+            studentsForResult = students.listStudents({ requestedSchoolId: user.schoolId, includeTestRecords: true })
+              .filter((student) => student.isTestRecord && student.classId === classId)
+              .map((student) => ({ id: student.id, studentId: student.id, indexNumber: student.permanentStudentId, permanentStudentId: student.permanentStudentId, name: [student.firstName, student.middleName, student.surname].filter(Boolean).join(' '), classId: student.classId, isTestRecord: true }));
+          }
+          return json(response, { students: studentsForResult });
+        } catch (error) {
+          console.error('[Result students] request failed', { schoolId: user.schoolId, userId: user.id, message: error.message, stack: error.stack });
+          return json(response, { error: error.message === 'Forbidden.' ? 'Forbidden.' : 'Unable to load students for the selected result context.' }, error.message === 'Forbidden.' ? 403 : 400);
+        }
+      }
       if (pathname === '/api/academic/score-entry/roster' && request.method === 'GET') { if (!canAccess(user, 'marks.write') && !canAccess(user, 'results.read')) return json(response, { error: 'Forbidden.' }, 403); try { const roster = durableAcademic ? await durableAcademic.roster(Object.fromEntries(new URL(request.url, 'http://localhost').searchParams), user) : academicResults.scoreEntryRoster(Object.fromEntries(new URL(request.url, 'http://localhost').searchParams), user); return json(response, { students: roster }); } catch (error) { console.error('[Score Entry roster] request failed', { schoolId: user.schoolId, userId: user.id, message: error.message, stack: error.stack }); return json(response, { error: error.message === 'Forbidden.' ? 'Forbidden.' : 'Unable to load students. Please try again.' }, error.message === 'Forbidden.' ? 403 : 400); } }
       if (pathname === '/api/academic/mock-scores/roster' && request.method === 'GET') { if (!canAccess(user, 'mock.scores.read') && !canAccess(user, 'mock.scores.write')) return json(response, { error: 'Forbidden.' }, 403); try { const roster = academicResults.mockScoreEntryRoster(Object.fromEntries(new URL(request.url, 'http://localhost').searchParams), user); return json(response, { students: roster }); } catch (error) { return json(response, { error: error.message }, error.status ?? 400); } }
       if (pathname === '/api/academic/scores' && request.method === 'GET') { if (!canAccess(user, 'results.read') && !canAccess(user, 'marks.write')) return json(response, { error: 'Forbidden.' }, 403); try { return json(response, { scores: durableAcademic ? [] : academicResults.listScores(Object.fromEntries(new URL(request.url, 'http://localhost').searchParams), user) }); } catch (error) { return json(response, { error: error.message }, error.message === 'Forbidden.' ? 403 : 400); } }

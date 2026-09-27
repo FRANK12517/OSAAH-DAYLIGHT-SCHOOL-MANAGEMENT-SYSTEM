@@ -123,6 +123,19 @@ export function createDurableAcademicService({ database, schoolId, idFactory = r
     return rows(result).map((item) => ({ studentId: item.studentId, permanentStudentId: item.permanentStudentId, studentName: [item.firstName, item.middleName, item.surname].filter(Boolean).join(' '), classId: item.classId, caScore: item.caScore == null ? null : Number(item.caScore), examScore: item.examScore == null ? null : Number(item.examScore), totalScore: item.totalScore == null ? null : Number(item.totalScore), grade: item.grade ?? null, saved: Boolean(item.scoreId) }));
   }
 
+  async function resultStudents(input = {}, actor) {
+    assertActor(actor);
+    if (!authorized(actor, 'results.read') && !authorized(actor, 'results.generate') && !authorized(actor, 'examinations.read')) fail('Forbidden.', 403, 'ACADEMIC_PERMISSION_REQUIRED');
+    const classId = text(input.classId);
+    if (!classId) return [];
+    const period = await resolvePeriod(input);
+    const result = await database.query(`SELECT s.id AS studentId,s.permanent_student_id AS permanentStudentId,s.first_name AS firstName,s.middle_name AS middleName,s.last_name AS surname,e.class_id AS classId
+      FROM student_enrollments e JOIN students s ON s.id=e.student_id
+      WHERE e.school_id=? AND e.class_id=? AND e.academic_year_id=? AND e.term_id=? AND COALESCE(e.enrollment_status,'ACTIVE')='ACTIVE' AND COALESCE(e.is_current,1)=1 AND s.school_id=? AND COALESCE(s.student_status,'ACTIVE')='ACTIVE' AND COALESCE(s.is_test_record,0)=0
+      ORDER BY s.last_name,s.first_name,s.id`, [schoolId, classId, period.yearId, period.termId, schoolId]);
+    return rows(result).map((item) => ({ id: item.studentId, studentId: item.studentId, indexNumber: item.permanentStudentId, permanentStudentId: item.permanentStudentId, name: [item.firstName, item.middleName, item.surname].filter(Boolean).join(' '), classId: item.classId, isTestRecord: false }));
+  }
+
   async function saveScore(input = {}, actor) {
     assertActor(actor, 'marks.write');
     const classId = text(input.classId), subjectId = text(input.subjectId), studentId = text(input.studentId);
@@ -148,7 +161,7 @@ export function createDurableAcademicService({ database, schoolId, idFactory = r
     return { id: scoreId, schoolId, studentId, permanentStudentId: enrolled.permanent_student_id, classId, subjectId, academicYear: period.yearName, term: period.termName, caScore, examScore, totalScore, grade, remark, saved: true };
   }
 
-  return Object.freeze({ options, listSubjects, listAssignments, assignSubject, roster, saveScore, resolvePeriod });
+  return Object.freeze({ options, listSubjects, listAssignments, assignSubject, roster, resultStudents, saveScore, resolvePeriod });
 }
 
 export default createDurableAcademicService;
