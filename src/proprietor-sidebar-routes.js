@@ -8,14 +8,14 @@ export const PROPRIETOR_SIDEBAR_ROUTES = Object.freeze([
   ...group('ADMINISTRATIVE', '/administrative-modules.html', [
     ['settings', 'School Settings', '/settings'], ['users', 'Users & Roles', '/users'], ['school-profile', 'School Profile', '/settings/profile'],
     ['academic-calendar', 'Academic Calendar', '/communication/calendar'],
-    ['multi-school-panel', 'Multi-School Panel', '/settings/multi-school'],
+    ['single-school-panel', 'Single-School Panel', '/settings/single-school'],
     ['official-documents', 'Official Documents', '/official-documents'],
     ['administrator-management', 'Administrator Management', '/administrator-management'],
     ['signature-management', 'Result Signatures', '/settings/result-signatures']
   ]).map((item) => ({ ...item, page: ({
     'settings': '/school-settings.html',
     'official-documents': '/official-documents.html',
-    'users': '/users-and-roles.html', 'administrator-management': '/administrator-management.html', 'signature-management': '/result-signatures.html'
+    'users': '/users-and-roles.html', 'single-school-panel': '/single-school-panel.html', 'administrator-management': '/administrator-management.html', 'signature-management': '/result-signatures.html'
   })[item.moduleKey] ?? item.page })),
   ...group('ACADEMICS', '/subjects.html', [
     ['academics', 'Academics', '/academics'], ['attendance-dashboard', 'Attendance Dashboard', '/attendance'],
