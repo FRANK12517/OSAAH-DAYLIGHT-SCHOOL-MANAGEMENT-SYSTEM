@@ -82,6 +82,22 @@ test('score roster requires every academic selection and returns only the select
   assert.throws(() => resultService.scoreEntryRoster({ academicYear: '2026/2027', term: 'First Term', classId, subjectId: subject.id }, { ...teacher, schoolId: 'another-school' }), /Forbidden/);
 });
 
+test('sample Score Entry mode loads exactly two samples only when no real enrollment exists', () => {
+  const { students, subjects, resultService } = scoreFixture();
+  const classId = 'KG1';
+  const subject = subjects.list({ classId }, teacher)[0];
+  students.seedSampleStudents();
+  const filters = { academicYear: '2026/2027', term: 'First Term', classId, subjectId: subject.id };
+  assert.equal(resultService.scoreEntryRoster({ ...filters, sampleMode: 'false' }, teacher).length, 0);
+  const sampleRoster = resultService.scoreEntryRoster({ ...filters, sampleMode: 'true' }, teacher);
+  assert.equal(sampleRoster.length, 2);
+  assert.ok(sampleRoster.every((student) => student.isTestRecord === true));
+  eligibleStudent(students, classId, 'Real');
+  const realRoster = resultService.scoreEntryRoster({ ...filters, sampleMode: 'true' }, teacher);
+  assert.equal(realRoster.length, 1);
+  assert.equal(realRoster[0].isTestRecord, false);
+});
+
 test('academic options and score-entry roster use the configured authenticated school instead of the legacy service default', async () => {
   const actor = { ...teacher, roleKey: 'PROPRIETOR', assignedClassIds: [], permissions: new Set(['*']) };
   const auth = { authenticateAsync: async (token) => token === 'osaah-school-user' ? actor : token === 'cross-school-user' ? { ...actor, schoolId: 'sch_other_02' } : null };
@@ -179,4 +195,6 @@ test('Score Entry UI has dependent single-select subjects, required-selection ga
   assert.match(js, /optionId\(item\)/);
   assert.match(js, /renderAcademicOptions/);
   assert.match(js, /renderTerms/);
+  assert.match(html, /name="sampleMode"/);
+  assert.match(js, /sampleMode/);
 });
