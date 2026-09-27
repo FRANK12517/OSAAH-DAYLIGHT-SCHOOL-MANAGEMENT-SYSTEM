@@ -83,7 +83,7 @@ function render(students, classId) {
     const ca = student.caScore ?? 0;
     const exam = student.examScore ?? 0;
     const total = student.totalScore ?? 0;
-    return `<tr data-student="${esc(student.studentId)}"><td>${esc(student.permanentStudentId)}</td><td>${esc(student.studentName)}</td><td><input class="ca" type="number" min="0" max="50" step="0.01" value="${esc(ca)}" aria-label="CA score for ${esc(student.studentName)}"></td><td><input class="exam" type="number" min="0" max="50" step="0.01" value="${esc(exam)}" aria-label="Exam score for ${esc(student.studentName)}"></td><td class="total">${Number(total).toFixed(2)}</td><td class="grade">${esc(student.grade ?? grade(total, classId))}</td><td class="save-status">${student.saved ? 'Saved' : 'Not saved'}</td></tr>`;
+    return `<tr data-student="${esc(student.studentId)}"><td>${esc(student.permanentStudentId)}${student.isTestRecord ? ' <small>(SAMPLE DATA)</small>' : ''}</td><td>${esc(student.studentName)}</td><td><input class="ca" type="number" min="0" max="50" step="0.01" value="${esc(ca)}" aria-label="CA score for ${esc(student.studentName)}"></td><td><input class="exam" type="number" min="0" max="50" step="0.01" value="${esc(exam)}" aria-label="Exam score for ${esc(student.studentName)}"></td><td class="total">${Number(total).toFixed(2)}</td><td class="grade">${esc(student.grade ?? grade(total, classId))}</td><td class="save-status">${student.saved ? 'Saved' : 'Not saved'}</td></tr>`;
   }).join('') || '<tr><td colspan="7">No students found for the selected class and academic year.</td></tr>';
   studentsHost.querySelectorAll('tr[data-student]').forEach((row) => {
     const totalCell = row.querySelector('.total');
@@ -162,7 +162,7 @@ termSelect.addEventListener('change', () => {
 
 context.addEventListener('submit', async (event) => {
   event.preventDefault();
-  const filters = { academicYear: context.elements.academicYear.value.trim(), term: context.elements.term.value, classId: classSelect.value, subjectId: subjectSelect.value };
+  const filters = { academicYear: context.elements.academicYear.value.trim(), term: context.elements.term.value, classId: classSelect.value, subjectId: subjectSelect.value, sampleMode: context.elements.sampleMode.checked ? 'true' : 'false' };
   const missing = Object.entries(filters).find(([, value]) => !value);
   if (missing) {
     const labels = { academicYear: 'academic year', term: 'term', classId: 'class', subjectId: 'subject' };

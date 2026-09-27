@@ -56,12 +56,17 @@ export function createAcademicResultsService({ now = () => new Date().toISOStrin
     subjectFor(subjectId, classId, actor, academicYear, term);
     const eligibleStudents = students?.listEligibleStudents?.({ requestedSchoolId: schoolId, academicYearId: academicYear, classId, termId: term }) ?? [];
     const roster = [...new Map(eligibleStudents.filter((student) => student.schoolId === schoolId && student.classId === classId && !student.isTestRecord).map((student) => [student.id, student])).values()];
+    const sampleMode = filters.sampleMode === true || String(filters.sampleMode ?? '').toLowerCase() === 'true';
+    const sampleRoster = sampleMode && roster.length === 0
+      ? [...new Map((students?.listStudents?.({ requestedSchoolId: schoolId, includeTestRecords: true }) ?? []).filter((student) => student.schoolId === schoolId && student.classId === classId && student.isTestRecord).map((student) => [student.id, student])).values()]
+      : [];
+    const selectedRoster = roster.length ? roster : sampleRoster;
     const scores = listScores({ academicYear, term, classId, subjectId }, actor);
     const byStudent = new Map(scores.map((score) => [score.studentId, score]));
-    return roster.map((student) => {
+    return selectedRoster.map((student) => {
       const score = byStudent.get(student.id);
       const totalScore = score?.totalScore ?? 0;
-      return { studentId: student.id, permanentStudentId: student.permanentStudentId, studentName: [student.firstName, student.middleName, student.surname].filter(Boolean).join(' '), classId, caScore: score?.caScore ?? null, examScore: score?.examScore ?? null, totalScore: score?.totalScore ?? null, grade: score?.grade ?? gradeForTotal(totalScore, { classId, examination: 'TERMINAL' })[0], saved: Boolean(score) };
+      return { studentId: student.id, permanentStudentId: student.permanentStudentId, studentName: [student.firstName, student.middleName, student.surname].filter(Boolean).join(' '), classId, isTestRecord: Boolean(student.isTestRecord), caScore: score?.caScore ?? null, examScore: score?.examScore ?? null, totalScore: score?.totalScore ?? null, grade: score?.grade ?? gradeForTotal(totalScore, { classId, examination: 'TERMINAL' })[0], saved: Boolean(score) };
     });
   }
   function mockScoreEntryRoster(filters = {}, actor) {

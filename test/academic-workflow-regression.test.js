@@ -16,7 +16,9 @@ test('academic sidebar routes keep Promotion and Attendance Alerts isolated from
 test('sample students use reserved IDs, populate every class, and stay out of normal lists', () => {
   const students = createStudentService();
   const samples = students.seedSampleStudents();
+  const repeated = students.seedSampleStudents();
   assert.equal(samples.length, CORE_LEVELS.length * 2);
+  assert.deepEqual(repeated.map((student) => student.id), samples.map((student) => student.id));
   assert.ok(samples.every((student) => student.isTestRecord && student.permanentStudentId.startsWith('TEST-OSAAH-')));
   assert.equal(students.listStudents().length, 0);
   assert.equal(students.listStudents({ includeTestRecords: true }).length, CORE_LEVELS.length * 2);
