@@ -24,7 +24,21 @@ function request(server, path, token) { return new Promise((resolve, reject) => 
  test('durable fee reader preserves payment, receipt, invoice, student, and balance relationships', async () => {
   const actor = user('accountant-osaah', 'accountant@osaah.test', 'ACCOUNTANT_BURSAR', SCHOOL, ['fees.read']);
   const result = await createDurableFeeReader({ adapter: database([osaahPayment]) }).listPayments({}, actor);
-  assert.deepEqual(result[0], { id: 'payment-osaah', receiptNumber: 'RCT-OSAah-001', transactionReference: 'PAY-OSAah-001', invoiceNumber: 'INV-OSAah-001', studentId: 'student-osaah', permanentStudentId: 'PS-OSAah-001', classId: 'basic-4', academicYearId: '2026', termId: 'TERM1', amount: 125.5, method: 'MOBILE_MONEY', status: 'COMPLETED', createdAt: '2026-09-01T10:00:00Z', paymentDate: '2026-09-01', providerReference: null, enteredBy: 'accountant-osaah', receiptStatus: 'VALID', previousBalance: 300.5, balance: 175 });
+  assert.deepEqual(result[0], { id: 'payment-osaah', schoolId: SCHOOL, receiptNumber: 'RCT-OSAah-001', transactionReference: 'PAY-OSAah-001', invoiceNumber: 'INV-OSAah-001', studentName: null, className: null, academicYear: '2026', term: 'TERM1', feeType: null, studentId: 'student-osaah', permanentStudentId: 'PS-OSAah-001', classId: 'basic-4', academicYearId: '2026', termId: 'TERM1', amount: 125.5, method: 'MOBILE_MONEY', status: 'COMPLETED', createdAt: '2026-09-01T10:00:00Z', paymentDate: '2026-09-01', providerReference: null, enteredBy: 'accountant-osaah', issuer: null, receiptStatus: 'VALID', previousBalance: 300.5, balance: 175 });
+});
+
+
+test('durable receipt detail preserves canonical identity, balances, and school isolation', async () => {
+  const accountant = user('accountant-osaah', 'accountant@osaah.test', 'ACCOUNTANT_BURSAR', SCHOOL, ['fees.read']);
+  const reader = createDurableFeeReader({ adapter: database([osaahPayment, otherPayment]) });
+  const receipt = await reader.getReceipt('RCT-OSAah-001', accountant);
+  assert.equal(receipt.schoolId, SCHOOL);
+  assert.equal(receipt.permanentStudentId, 'PS-OSAah-001');
+  assert.equal(receipt.amount, 125.5);
+  assert.equal(receipt.balance, 175);
+  assert.equal(receipt.transactionReference, 'PAY-OSAah-001');
+  assert.equal(await reader.getReceipt('RCT-OTHER', accountant), null);
+  assert.equal(await reader.getReceipt('RCT-OSAah-001', { ...accountant, schoolId: 'school-other' }), null);
 });
 
 test('authenticated accountant reads only persisted OSAAH Payments and empty data is a valid response', async () => {
@@ -40,10 +54,19 @@ test('authenticated accountant reads only persisted OSAAH Payments and empty dat
     assert.equal(payments.status, 200);
     assert.deepEqual(payments.body.payments.map((row) => row.id), ['payment-osaah']);
     assert.equal(payments.body.payments[0].amount, 125.5);
+    const receipt = await request(server, '/api/fees/receipts/RCT-OSAah-001', accountantToken);
+    assert.equal(receipt.status, 200);
+    assert.equal(receipt.body.receipt.permanentStudentId, 'PS-OSAah-001');
+    assert.equal(receipt.body.receipt.amount, 125.5);
+    const preview = await fetch(`http://127.0.0.1:${server.address().port}/api/fees/receipts/RCT-OSAah-001/preview`, { headers: { Authorization: `Bearer ${accountantToken}` } });
+    assert.equal(preview.status, 200);
+    assert.match(await preview.text(), /RCT-OSAah-001/);
     assert.equal((await request(server, '/api/fees/payments?studentId=student-other', accountantToken)).body.payments.length, 0);
     assert.equal((await request(server, '/api/fees/payments?schoolId=school-other', accountantToken)).body.payments.length, 1);
     assert.equal((await request(server, '/api/fees/payments', teacherToken)).status, 403);
+    assert.equal((await request(server, '/api/fees/receipts/RCT-OSAah-001', teacherToken)).status, 403);
     assert.equal((await request(server, '/api/fees/payments')).status, 401);
+    assert.equal((await request(server, '/api/fees/receipts/RCT-OSAah-001')).status, 401);
     const emptyApp = createApp({ auth, database: database([]) });
     const emptyServer = createServer(emptyApp); await new Promise((resolve) => emptyServer.listen(0, resolve));
     try { const empty = await request(emptyServer, '/api/fees/payments', accountantToken); assert.equal(empty.status, 200); assert.deepEqual(empty.body, { payments: [] }); } finally { await new Promise((resolve) => emptyServer.close(resolve)); }
