@@ -15,7 +15,7 @@ export const PROPRIETOR_SIDEBAR_ROUTES = Object.freeze([
   ]).map((item) => ({ ...item, page: ({
     'settings': '/school-settings.html',
     'official-documents': '/official-documents.html',
-    'administrator-management': '/administrator-management.html', 'signature-management': '/result-signatures.html'
+    'users': '/users-and-roles.html', 'administrator-management': '/administrator-management.html', 'signature-management': '/result-signatures.html'
   })[item.moduleKey] ?? item.page })),
   ...group('ACADEMICS', '/subjects.html', [
     ['academics', 'Academics', '/academics'], ['attendance-dashboard', 'Attendance Dashboard', '/attendance'],
