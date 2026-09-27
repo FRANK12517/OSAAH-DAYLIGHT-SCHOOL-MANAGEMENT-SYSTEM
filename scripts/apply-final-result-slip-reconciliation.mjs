@@ -25,6 +25,7 @@ export async function applyFinalResultSlipReconciliation({ environment = process
   validateFinalReleaseInputs({ confirmation: environment.CONFIRMATION, releaseSha: environment.RELEASE_SHA, databaseUrl: environment.DATABASE_URL });
   let adapter;
   const executed049 = [];
+  let created049Tables = [];
   let preservedForeignKeys = null;
   try {
     adapter = await adapterFactory({ environment });
@@ -62,6 +63,7 @@ export async function applyFinalResultSlipReconciliation({ environment = process
           preservedForeignKeys = await foreignKeySnapshot(db);
           const reconciled = await reconcile049(db, executeMigrationSql, migration.sql);
           executed049.push(...reconciled.executed);
+          created049Tables = reconciled.createdTables;
           return;
         }
         if (typeof executeMigrationSql !== 'function') throw Object.assign(new Error('Migration executor is unavailable.'), { code: 'DATABASE_ADAPTER_INVALID' });
@@ -69,7 +71,7 @@ export async function applyFinalResultSlipReconciliation({ environment = process
       },
       verifyMigration: async ({ adapter: db, migration }) => {
         if (migration.version === 49) {
-          const state = await inspect049Postconditions(db, sql049);
+          const state = await inspect049Postconditions(db, sql049, { createdTables: created049Tables });
           if (!state.complete) throw Object.assign(new Error('Migration 049 postconditions did not pass; its ledger row was not recorded.'), { code: 'MIGRATION_049_POSTCONDITION_FAILED', details: state });
           if (preservedForeignKeys) {
             const current = await foreignKeySnapshot(db);
@@ -81,7 +83,7 @@ export async function applyFinalResultSlipReconciliation({ environment = process
         }
       }
     });
-    const final049 = await inspect049Postconditions(adapter, sql049);
+    const final049 = await inspect049Postconditions(adapter, sql049, { createdTables: created049Tables });
     if (!final049.complete) throw Object.assign(new Error('Final migration 049 contract did not pass.'), { code: 'MIGRATION_049_POSTCONDITION_FAILED', details: final049 });
     const final054 = await verify054Postconditions(adapter);
     const schema = await verifyResultSlipSchema(adapter);

@@ -39,22 +39,34 @@ function splitTopLevel(input) {
 function parseColumnsAndIndexes(body) {
   const columns = [];
   const indexes = [];
+  const foreignKeys = [];
   for (const part of splitTopLevel(body)) {
-    let match = part.match(/^`?([A-Za-z_][A-Za-z0-9_]*)`?\s+(.+)$/s);
-    if (!match) continue;
-    const [, first, tail] = match;
-    const idx = tail.match(/^(PRIMARY\s+KEY|UNIQUE(?:\s+KEY)?(?:\s+`?([A-Za-z_][A-Za-z0-9_]*)`?)?|KEY\s+`?([A-Za-z_][A-Za-z0-9_]*)`?|INDEX\s+`?([A-Za-z_][A-Za-z0-9_]*)`?)\s*\(([^)]+)\)/i);
-    if (idx) {
-      const kind = /^PRIMARY/i.test(idx[1]) ? 'PRIMARY' : (/^UNIQUE/i.test(idx[1]) ? 'UNIQUE' : 'INDEX');
-      indexes.push({ name: kind === 'PRIMARY' ? 'PRIMARY' : (idx[2] || idx[3] || idx[4] || first), unique: kind !== 'INDEX', primary: kind === 'PRIMARY', columns: idx[5].split(',').map((value) => value.trim().replace(/`/g, '')) });
+    const partText = part.trim();
+    const fk = partText.match(/^(?:CONSTRAINT\s+`?([A-Za-z_][A-Za-z0-9_]*)`?\s+)?FOREIGN\s+KEY\s*\(([^)]+)\)\s+REFERENCES\s+`?([A-Za-z_][A-Za-z0-9_]*)`?\s*\(([^)]+)\)/i);
+    if (fk) {
+      const sourceColumns = fk[2].split(',').map((value) => value.trim().replace(/`/g, ''));
+      const targetColumns = fk[4].split(',').map((value) => value.trim().replace(/`/g, ''));
+      if (sourceColumns.length !== targetColumns.length) throw fail('MIGRATION_049_FOREIGN_KEY_CONTRACT_INVALID', 'A migration foreign key has mismatched source and target columns.');
+      sourceColumns.forEach((column, index) => foreignKeys.push({ name: fk[1] ?? null, column, referencedTable: fk[3], referencedColumn: targetColumns[index] }));
       continue;
     }
-    if (/^(?:CONSTRAINT|FOREIGN|CHECK)\b/i.test(first)) continue;
+    const idx = partText.match(/^(?:PRIMARY\s+KEY|UNIQUE(?:\s+(?:KEY|INDEX))?|(?:KEY|INDEX))\s*(?:`?([A-Za-z_][A-Za-z0-9_]*)`?\s*)?\(([^)]+)\)/i);
+    if (idx) {
+      const kind = /^PRIMARY/i.test(partText) ? 'PRIMARY' : (/^UNIQUE/i.test(partText) ? 'UNIQUE' : 'INDEX');
+      const indexColumns = idx[2].split(',').map((value) => value.trim().replace(/`/g, ''));
+      const name = kind === 'PRIMARY' ? 'PRIMARY' : (idx[1] || `${kind.toLowerCase()}_${indexColumns.join('_')}`);
+      indexes.push({ name, unique: kind !== 'INDEX', primary: kind === 'PRIMARY', columns: indexColumns });
+      continue;
+    }
+    const match = partText.match(/^`?([A-Za-z_][A-Za-z0-9_]*)`?\s+(.+)$/s);
+    if (!match) continue;
+    const [, first, tail] = match;
+    if (/^(?:CONSTRAINT|FOREIGN|CHECK|KEY|INDEX|UNIQUE|PRIMARY)\b/i.test(first)) continue;
     columns.push(first);
     const inlinePk = tail.match(/\bPRIMARY\s+KEY\b/i);
     if (inlinePk) indexes.push({ name: 'PRIMARY', unique: true, primary: true, columns: [first] });
   }
-  return { columns, indexes };
+  return { columns, indexes, foreignKeys };
 }
 
 export function parseReconciliation049(sql) {
@@ -67,10 +79,7 @@ export function parseReconciliation049(sql) {
       const parsed = parseColumnsAndIndexes(body);
       contract.tables.set(table, { statement, columns: parsed.columns });
       contract.indexes.push(...parsed.indexes.map((index) => ({ table, ...index })));
-      for (const constraint of splitTopLevel(body)) {
-        const fk = constraint.match(/(?:CONSTRAINT\s+`?([A-Za-z_][A-Za-z0-9_]*)`?\s+)?FOREIGN\s+KEY\s*\(\s*`?([A-Za-z_][A-Za-z0-9_]*)`?\s*\)\s+REFERENCES\s+`?([A-Za-z_][A-Za-z0-9_]*)`?\s*\(\s*`?([A-Za-z_][A-Za-z0-9_]*)`?\s*\)/i);
-        if (fk) contract.foreignKeys.push({ table, name: fk[1] ?? null, column: fk[2], referencedTable: fk[3], referencedColumn: fk[4] });
-      }
+      contract.foreignKeys.push(...parsed.foreignKeys.map((foreignKey) => ({ table, ...foreignKey })));
       continue;
     }
     match = statement.match(/^ALTER\s+TABLE\s+`?([A-Za-z_][A-Za-z0-9_]*)`?\s+ADD\s+COLUMN\s+IF\s+NOT\s+EXISTS\s+`?([A-Za-z_][A-Za-z0-9_]*)`?/i);
@@ -89,10 +98,7 @@ export function parseReconciliation049(sql) {
     if (match) { contract.views.push({ name: match[1], statement, definition: match[2].replace(/;\s*$/, '') }); continue; }
     throw fail('MIGRATION_049_UNSUPPORTED_STATEMENT', 'Migration 049 contains a statement outside the bounded reconciliation contract.', statement.slice(0, 180));
   }
-  for (const [table, fields] of contract.columns) {
-    if (!contract.tables.has(table)) contract.tables.set(table, { statement: null, columns: [] });
-    contract.tables.get(table).columns.push(...fields.keys());
-  }
+  for (const [table] of contract.columns) if (!contract.tables.has(table)) contract.tables.set(table, { statement: null, columns: [] });
   return contract;
 }
 
@@ -184,7 +190,7 @@ async function ensureIndex(adapter, executeMigrationSql, expected, executed) {
   executed.push(`index:${expected.table}.${name}`);
 }
 
-export async function inspect049Postconditions(adapter, sql) {
+export async function inspect049Postconditions(adapter, sql, { createdTables = [] } = {}) {
   const contract = parseReconciliation049(sql);
   const missingTables = [];
   const missingColumns = [];
@@ -192,11 +198,23 @@ export async function inspect049Postconditions(adapter, sql) {
   const missingViews = [];
   const incompatibleViews = [];
   const foreignKeys = {};
+  const tableMetadata = new Map();
+  const created = new Set(createdTables);
   for (const [table, expected] of contract.tables) {
     if (!(await tableExists(adapter, table))) { missingTables.push(table); continue; }
     const actual = await inspectTable(adapter, table);
-    for (const column of new Set(expected.columns)) if (!actual.columns.has(column)) missingColumns.push(`${table}.${column}`);
+    tableMetadata.set(table, actual);
+    const requiredColumns = new Set(contract.columns.get(table)?.keys() ?? []);
+    if (created.has(table)) for (const column of expected.columns) requiredColumns.add(column);
+    for (const column of requiredColumns) if (!actual.columns.has(column)) missingColumns.push(`${table}.${column}`);
     foreignKeys[table] = actual.foreignKeys;
+  }
+  // The existing production payments table uses amount_paid. amount is the
+  // fresh-table spelling in the legacy CREATE declaration and is not required
+  // for this existing table; the reporting view contract requires amount_paid.
+  for (const [table, columns] of Object.entries({ student_fee_payments: ['amount_paid'] })) {
+    const actual = tableMetadata.get(table);
+    if (actual) for (const column of columns) if (!actual.columns.has(column)) missingColumns.push(`${table}.${column}`);
   }
   const missingForeignKeys = contract.foreignKeys.filter((expected) => !foreignKeys[expected.table]?.some(([column, referencedTable, referencedColumn]) => column === expected.column && referencedTable === expected.referencedTable && referencedColumn === expected.referencedColumn));
   for (const expected of contract.indexes) {
@@ -215,11 +233,13 @@ export async function inspect049Postconditions(adapter, sql) {
 export async function reconcile049(adapter, executeMigrationSql, sql) {
   const contract = parseReconciliation049(sql);
   const executed = [];
+  const createdTables = [];
   for (const [table, expected] of contract.tables) {
     if (await tableExists(adapter, table)) continue;
     if (!expected.statement) throw fail('MIGRATION_049_TABLE_CONTRACT_MISSING', `No safe create statement exists for ${table}.`);
     await executeSql(adapter, executeMigrationSql, expected.statement);
     executed.push(`table:${table}`);
+    createdTables.push(table);
   }
   for (const [table, fields] of contract.columns) {
     for (const [column, statement] of fields) {
@@ -242,9 +262,9 @@ export async function reconcile049(adapter, executeMigrationSql, sql) {
     await executeSql(adapter, executeMigrationSql, statement);
     executed.push(`view:${view.name}`);
   }
-  const postconditions = await inspect049Postconditions(adapter, sql);
+  const postconditions = await inspect049Postconditions(adapter, sql, { createdTables });
   if (!postconditions.complete) throw fail('MIGRATION_049_POSTCONDITION_FAILED', 'Migration 049 reconciliation did not satisfy its complete postcondition contract.', postconditions);
-  return { executed, postconditions };
+  return { executed, createdTables, postconditions };
 }
 
 export async function verify054Postconditions(adapter) {

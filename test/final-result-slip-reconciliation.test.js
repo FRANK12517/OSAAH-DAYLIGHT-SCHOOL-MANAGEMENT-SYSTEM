@@ -41,12 +41,39 @@ test('049 contract includes production date and amount_paid definitions and all 
   assert.ok(contract.indexes.every((index) => index.table !== 'student_attendance' || !index.columns.includes('attendance_date')));
   assert.match(contract.views.find((view) => view.name === 'vw_invoice_receipt_register').definition, /p\.amount_paid\s+AS\s+amount_paid/i);
   assert.doesNotMatch(contract.views.find((view) => view.name === 'vw_invoice_receipt_register').definition, /p\.amount\b/i);
+  const paymentColumns = contract.tables.get('student_fee_payments').columns;
+  assert.ok(paymentColumns.includes('amount'));
+  assert.ok(!paymentColumns.includes('KEY'));
+  assert.ok(!contract.tables.get('fee_obligations').columns.includes('KEY'));
+  assert.ok(!contract.tables.get('fee_collection_records').columns.includes('KEY'));
+  assert.ok(!contract.tables.get('fee_collection_corrections').columns.includes('KEY'));
+  assert.ok(!contract.tables.get('fee_types').columns.includes('UNIQUE'));
+  assert.ok(contract.indexes.some((index) => index.table === 'fee_obligations' && index.unique && index.columns.join(',') === 'school_id,idempotency_key'));
+  assert.ok(contract.indexes.some((index) => index.table === 'fee_types' && index.unique && index.columns.join(',') === 'school_id,code'));
+});
+
+test('049 parser keeps KEY, UNIQUE KEY, and FOREIGN KEY declarations out of column contracts', () => {
+  const contract = parseReconciliation049(`CREATE TABLE IF NOT EXISTS parser_contract (
+    id VARCHAR(64) PRIMARY KEY,
+    school_id VARCHAR(64) NOT NULL,
+    student_id VARCHAR(64) NOT NULL,
+    UNIQUE KEY uq_parser_school_student (school_id, student_id),
+    KEY idx_parser_student (student_id),
+    CONSTRAINT fk_parser_school FOREIGN KEY (school_id) REFERENCES schools(id)
+  );`);
+  assert.deepEqual(contract.tables.get('parser_contract').columns, ['id','school_id','student_id']);
+  assert.ok(contract.indexes.some((index) => index.table === 'parser_contract' && index.unique && index.columns.join(',') === 'school_id,student_id'));
+  assert.ok(contract.indexes.some((index) => index.table === 'parser_contract' && !index.unique && index.columns.join(',') === 'student_id'));
+  assert.deepEqual(contract.foreignKeys, [{ table:'parser_contract', name:'fk_parser_school', column:'school_id', referencedTable:'schools', referencedColumn:'id' }]);
 });
 
 test('049 postcondition inventory checks actual index columns/order/uniqueness and reports missing views', async () => {
   const contract = parseReconciliation049(migration049);
   const tableColumns = new Map([...contract.tables].map(([name, value]) => [name, new Set(value.columns)]));
   for (const [table, fields] of contract.columns) for (const field of fields.keys()) tableColumns.get(table)?.add(field);
+  tableColumns.get('student_fee_payments').delete('amount');
+  tableColumns.get('student_fee_payments').add('amount_paid');
+  for (const optionalLegacyField of ['provider_reference','created_at','reversed_by','reversed_at','reversal_reason']) tableColumns.get('student_fee_payments').delete(optionalLegacyField);
   const indexes = new Map();
   for (const item of contract.indexes) {
     const key = `${item.table}:${item.unique}:${item.columns.join(',')}`;
@@ -81,9 +108,44 @@ test('049 postcondition inventory checks actual index columns/order/uniqueness a
   const partial = await inspect049Postconditions(database, migration049);
   assert.equal(partial.complete, false);
   assert.deepEqual(partial.missingViews, missingViews);
+  for (const name of missingViews) {
+    const expected = contract.views.find((view) => view.name === name);
+    views.set(name, { definition: expected.definition, columns: views.get(name)?.columns ?? {
+      vw_invoice_receipt_register: ['school_id','permanent_student_id','academic_year_id','term_id','class_id','invoice_number','payment_reference','receipt_number','amount_paid','payment_method','payment_date','previous_balance','new_balance','issued_at','payment_status','receipt_status'],
+      vw_fee_collection_summary: ['school_id','collection_type','academic_year_id','term_id','collection_period','collection_date','transaction_count','amount_received_minor']
+    }[name] });
+  }
+  const legacyCompatible = await inspect049Postconditions(database, migration049);
+  assert.equal(legacyCompatible.complete, true);
+  assert.equal(legacyCompatible.missingColumns.some((column) => column === 'student_fee_payments.amount'), false);
+  assert.equal(legacyCompatible.missingColumns.some((column) => column === 'student_fee_payments.amount_paid'), false);
+  assert.equal(legacyCompatible.missingColumns.some((column) => /provider_reference|created_at|reversed_by|reversed_at|reversal_reason/.test(column)), false);
+  const freshPaymentContract = await inspect049Postconditions(database, migration049, { createdTables: ['student_fee_payments'] });
+  assert.ok(freshPaymentContract.missingColumns.includes('student_fee_payments.amount'));
   views.set('vw_invoice_receipt_register', { definition: 'SELECT p.amount AS amount_paid FROM student_fee_payments p', columns: ['school_id','permanent_student_id','academic_year_id','term_id','class_id','invoice_number','payment_reference','receipt_number','amount_paid','payment_method','payment_date','previous_balance','new_balance','issued_at','payment_status','receipt_status'] });
   const incompatible = await inspect049Postconditions(database, migration049);
   assert.ok(incompatible.incompatibleViews.includes('vw_invoice_receipt_register'));
+});
+
+test('049 foreign keys compare table/column targets and preserve compatible metadata', async () => {
+  const sql = `CREATE TABLE IF NOT EXISTS scoped_rows (
+    id VARCHAR(64) PRIMARY KEY,
+    school_id VARCHAR(64) NOT NULL,
+    FOREIGN KEY (school_id) REFERENCES schools(id)
+  );`;
+  let fk = { columnName:'school_id', referencedTable:'schools', referencedColumn:'id' };
+  const adapter = { async query(statement, params = []) {
+    if (statement.includes('information_schema.TABLES')) return [{ tableName:params[0], tableType:'BASE TABLE' }];
+    if (statement.includes('information_schema.COLUMNS')) return ['id','school_id'].map((columnName) => ({ columnName }));
+    if (statement.includes('information_schema.STATISTICS')) return [{ indexName:'PRIMARY', nonUnique:0, sequence:1, columnName:'id' }];
+    if (statement.includes('information_schema.KEY_COLUMN_USAGE')) return fk ? [fk] : [];
+    throw new Error(`Unexpected query: ${statement}`);
+  } };
+  assert.equal((await inspect049Postconditions(adapter, sql)).complete, true);
+  fk = { columnName:'school_id', referencedTable:'schools', referencedColumn:'school_id' };
+  const incompatible = await inspect049Postconditions(adapter, sql);
+  assert.equal(incompatible.complete, false);
+  assert.deepEqual(incompatible.missingForeignKeys, [{ table:'scoped_rows', name:null, column:'school_id', referencedTable:'schools', referencedColumn:'id' }]);
 });
 
 test('compatible arrears projection is preserved by its semantic definition and columns', () => {
@@ -171,7 +233,9 @@ test('bounded runner verifies each stage before recording it and releases its lo
     const failureStorage = { baselines: storage.baselines, applied: storage.applied.filter((row) => [50,51,52,53].includes(row.version)) };
     const failureAdapter = createInMemoryMigrationAdapter(failureStorage);
     const failureRunner = createMigrationRunner({ adapter: failureAdapter, directory, baselineRequired: true });
-    await assert.rejects(failureRunner.applyVersions({ versions: [49,54,55,56], requiredAppliedVersions: [50,51,52,53], applyMigration: async () => {}, verifyMigration: async ({ migration }) => { if (migration.version === 49) throw Object.assign(new Error('bad 049 postcondition'), { code: 'MIGRATION_049_POSTCONDITION_FAILED' }); } }), { code: 'MIGRATION_049_POSTCONDITION_FAILED' });
+    const failedOrder = [];
+    await assert.rejects(failureRunner.applyVersions({ versions: [49,54,55,56], requiredAppliedVersions: [50,51,52,53], applyMigration: async ({ migration }) => failedOrder.push(`apply:${migration.version}`), verifyMigration: async ({ migration }) => { failedOrder.push(`verify:${migration.version}`); if (migration.version === 49) throw Object.assign(new Error('bad 049 postcondition'), { code: 'MIGRATION_049_POSTCONDITION_FAILED' }); } }), { code: 'MIGRATION_049_POSTCONDITION_FAILED' });
+    assert.deepEqual(failedOrder, ['apply:49','verify:49']);
     assert.equal(failureStorage.applied.some((row) => row.version === 49), false);
     assert.equal(failureStorage.locked, false);
   } finally { await rm(directory, { recursive: true, force: true }); }
