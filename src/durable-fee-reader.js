@@ -56,10 +56,10 @@ export function createDurableFeeReader({ adapter } = {}) {
         p.payment_reference AS paymentReference,
         r.receipt_number AS receiptNumber,
         i.invoice_number AS invoiceNumber,
-        i.student_name AS studentName,
-        i.class_name AS className,
-        i.academic_year AS academicYear,
-        i.term AS term,
+        NULL AS studentName,
+        NULL AS className,
+        p.academic_year_id AS academicYear,
+        p.term_id AS term,
         (SELECT GROUP_CONCAT(DISTINCT ii.fee_type ORDER BY ii.fee_type SEPARATOR ', ')
            FROM fee_invoice_items ii
           WHERE ii.invoice_id=i.id AND ii.school_id=p.school_id) AS feeType,
