@@ -46,6 +46,8 @@ test('directory reads existing school users once, aggregates roles, and returns 
   assert.deepEqual(queryParams, [SCHOOL_ID]);
   assert.match(queryText, /FROM users u[\s\S]*LEFT JOIN user_roles ur[\s\S]*LEFT JOIN roles r/);
   assert.match(queryText, /WHERE u\.school_id = \?/);
+  assert.match(queryText, /u\.email AS username/);
+  assert.doesNotMatch(queryText, /u\.username|oversight_rank/);
   assert.doesNotMatch(queryText, /password_hash|reset.?token|session.?token|api.?secret|authentication.?secret/i);
   assert.equal(users.length, 2);
   assert.deepEqual(users[0], {
@@ -66,6 +68,20 @@ test('directory service rejects accounts outside the canonical school and fails 
   assert.equal(queries, 0);
   const unavailable = createUserDirectoryService({ canonicalSchoolId: SCHOOL_ID });
   await assert.rejects(() => unavailable.listFor(actor('administrator', 'SCHOOL_ADMIN')), (error) => error.status === 503 && error.code === 'USER_DIRECTORY_UNAVAILABLE');
+});
+
+test('directory query failures remain generic to clients and log only sanitized schema diagnostics', async () => {
+  const originalError = console.error;
+  const logs = [];
+  console.error = (...args) => logs.push(args);
+  try {
+    const databaseError = Object.assign(new Error("Unknown column 'u.email' in 'field list'"), { code: 'ER_BAD_FIELD_ERROR', errno: 1054, sqlState: '42S22' });
+    const service = createUserDirectoryService({ canonicalSchoolId: SCHOOL_ID, database: { query: async () => { throw databaseError; } } });
+    await assert.rejects(() => service.listFor(actor('administrator', 'SCHOOL_ADMIN')), (error) => error.status === 503 && error.message === 'User directory service is unavailable.' && !error.message.includes('u.email'));
+  } finally {
+    console.error = originalError;
+  }
+  assert.deepEqual(logs, [['Users & Roles database query failed', { code: 'ER_BAD_FIELD_ERROR', errno: 1054, sqlState: '42S22', table: null, column: 'u.email' }]]);
 });
 
 test('Users & Roles API authorizes server-side, ignores requested school IDs, and never returns credentials', async () => {

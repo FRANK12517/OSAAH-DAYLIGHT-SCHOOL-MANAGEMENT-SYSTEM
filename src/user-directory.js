@@ -3,7 +3,7 @@ import { assertCanonicalSchoolContext } from './school-context.js';
 export const USER_DIRECTORY_SQL = `
   SELECT
     u.id AS id,
-    u.username AS username,
+    u.email AS username,
     u.email AS email,
     u.status AS status,
     s.first_name AS firstName,
@@ -15,7 +15,7 @@ export const USER_DIRECTORY_SQL = `
   LEFT JOIN user_roles ur ON ur.user_id = u.id
   LEFT JOIN roles r ON r.id = ur.role_id AND (r.school_id = u.school_id OR r.school_id IS NULL)
   WHERE u.school_id = ?
-  ORDER BY u.username, u.id, r.oversight_rank DESC, r.role_name
+  ORDER BY u.email, u.id, r.role_name
 `;
 
 function directoryError(message, status, code) {
@@ -36,7 +36,16 @@ export function createUserDirectoryService({ database, canonicalSchoolId } = {})
     let rows;
     try {
       rows = await database.query(USER_DIRECTORY_SQL, [context.schoolId]);
-    } catch {
+    } catch (error) {
+      const table = String(error?.message ?? '').match(/Table ['`]([^'`]+)['`] doesn't exist/i)?.[1]?.split('.').pop() ?? null;
+      const column = String(error?.message ?? '').match(/Unknown column ['`]([^'`]+)['`]/i)?.[1] ?? null;
+      console.error('Users & Roles database query failed', {
+        code: error?.code ?? 'UNKNOWN',
+        errno: error?.errno ?? null,
+        sqlState: error?.sqlState ?? null,
+        table,
+        column
+      });
       throw directoryError('User directory service is unavailable.', 503, 'USER_DIRECTORY_UNAVAILABLE');
     }
 
