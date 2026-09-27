@@ -27,6 +27,19 @@ test('durable fee reader preserves payment, receipt, invoice, student, and balan
   assert.deepEqual(result[0], { id: 'payment-osaah', schoolId: SCHOOL, receiptNumber: 'RCT-OSAah-001', transactionReference: 'PAY-OSAah-001', invoiceNumber: 'INV-OSAah-001', studentName: null, className: null, academicYear: '2026', term: 'TERM1', feeType: null, studentId: 'student-osaah', permanentStudentId: 'PS-OSAah-001', classId: 'basic-4', academicYearId: '2026', termId: 'TERM1', amount: 125.5, method: 'MOBILE_MONEY', status: 'COMPLETED', createdAt: '2026-09-01T10:00:00Z', paymentDate: '2026-09-01', providerReference: null, enteredBy: 'accountant-osaah', issuer: null, receiptStatus: 'VALID', previousBalance: 300.5, balance: 175 });
 });
 
+test('durable fee reader projects canonical payment year and term without legacy invoice display columns', async () => {
+  const queries = [];
+  const base = database([osaahPayment]);
+  const adapter = { ...base, async query(sql, params) { queries.push(sql); return base.query(sql, params); } };
+  const actor = user('accountant-osaah', 'accountant@osaah.test', 'ACCOUNTANT_BURSAR', SCHOOL, ['fees.read']);
+  await createDurableFeeReader({ adapter }).listPayments({}, actor);
+  assert.match(queries[0], /NULL AS studentName/);
+  assert.match(queries[0], /NULL AS className/);
+  assert.match(queries[0], /p\.academic_year_id AS academicYear/);
+  assert.match(queries[0], /p\.term_id AS term/);
+  assert.doesNotMatch(queries[0], /i\.(?:student_name|class_name|academic_year|term)\b/);
+});
+
 test('durable fee reader falls back when legacy payments lack optional created_at and provider_reference columns', async () => {
   const queries = [];
   const actor = user('accountant-osaah', 'accountant@osaah.test', 'ACCOUNTANT_BURSAR', SCHOOL, ['fees.read']);
