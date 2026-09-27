@@ -3,7 +3,7 @@
 
 **Certification date:** 2026-09-27  
 **Repository:** `FRANK12517/OSAAH-DAYLIGHT-SCHOOL-MANAGEMENT-SYSTEM`  
-**Certification commit:** `525f36798f55294932862f6d11c81b9679c5bf72` before this report commit  
+**Certification commit:** `823c6dba5b399a0b5ed53f8230b1d871cb821a06` merged into `main`
 **Production domain:** https://www.osaahdaylightschool.online
 
 ## Final status
@@ -62,12 +62,12 @@ Sample students are pre-existing, reserved test records identified by `isTestRec
 | Current production deployment before this report | `dpl_6kZ3Snn5H7V6wGy1SJdh93WDApAV` |
 | Current production deployment state | READY |
 | Current deployment SHA | `525f36798f55294932862f6d11c81b9679c5bf72` |
-| New Part 5 report commit | Recorded after commit/push |
-| Pull request | Recorded after creation |
-| Merge SHA | Recorded after merge |
-| Post-merge deployment ID | Recorded after Vercel deployment completes |
-| Post-merge production SHA | Recorded after deployment inspection |
-| Post-merge production URL verification | Recorded after deployment inspection |
+| New Part 5 report commit | `8fac2e79b720326d7d9092af97bfeb3e4e79ed2d` |
+| Pull request | [#162](https://github.com/FRANK12517/OSAAH-DAYLIGHT-SCHOOL-MANAGEMENT-SYSTEM/pull/162) |
+| Merge SHA | `823c6dba5b399a0b5ed53f8230b1d871cb821a06` |
+| Post-merge deployment ID | `dpl_HBNxuRJvznKPKUdeTrfiuNcesfMZ` — READY |
+| Post-merge production SHA | `823c6dba5b399a0b5ed53f8230b1d871cb821a06` |
+| Post-merge production URL verification | PASS — https://www.osaahdaylightschool.online/ returned 200; unauthenticated protected APIs returned 401 |
 
 ## 7. Remaining blockers
 
