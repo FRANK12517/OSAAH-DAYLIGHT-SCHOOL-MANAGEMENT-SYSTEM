@@ -1,5 +1,7 @@
-import { CORE_LEVELS } from './students.js';
+import { CORE_LEVELS, createStudentService, SAMPLE_STUDENT_ID_PREFIX } from './students.js';
 import { GES_ASSESSMENT_LIBRARIES } from './ges-assessment-libraries.js';
+import { createAcademicResultsService } from './academic-results.js';
+import { levelOf } from './result-calculation.js';
 
 const SAMPLE_CLASSES = Object.freeze([...CORE_LEVELS]);
 const SAMPLE_MOCK_CLASSES = Object.freeze(['JHS 1', 'JHS 2', 'JHS 3']);
@@ -12,9 +14,40 @@ function score(input, min, max) { return min + (hash(input) % (max - min + 1)); 
 function assessmentCategory(key) { return key === 'classTeacherRemarks' ? 'ctRemarks' : key === 'headteacherRemarks' ? 'htRemarks' : key; }
 function assertActor(actor, permission = 'marks.write') { if (!actor?.schoolId || (!actor.permissions?.has?.(permission) && !actor.permissions?.has?.('marks.write') && !actor.permissions?.has?.('results.generate') && actor.roleKey !== 'PROPRIETOR' && actor.roleKey !== 'HEADTEACHER' && actor.roleKey !== 'SCHOOL_ADMIN')) throw new Error('Sample result generation permission required.'); }
 
-export function createSampleResultWorkflow({ students, subjects, academicResults, schoolId = 'school-osaah-daylight', now = () => new Date().toISOString() } = {}) {
+export function createSampleResultWorkflow({ students, subjects, academicResults, schoolId = 'school-osaah-daylight', resolveContext = null, signatures = null, now = () => new Date().toISOString() } = {}) {
   if (!students || !subjects || !academicResults) throw new Error('Sample workflow dependencies are required.');
   const sampleState = new Map();
+  async function generateForContext(input, actor) {
+    assertActor(actor);
+    if (actor.schoolId !== schoolId) throw Object.assign(new Error('Forbidden.'), { status: 403 });
+    if (!resolveContext) throw Object.assign(new Error('Sample result is unavailable for the selected class.'), { status: 404 });
+    // A demonstration never targets the selected real student, even if a caller
+    // sends one. Only the validated durable class/year/term enters this boundary.
+    const context = await resolveContext({ classId: input.classId, academicYear: input.academicYear, term: input.term }, actor);
+    const { classRecord, legacyClassId, period } = context;
+    const fixtures = createStudentService({ schoolId, now });
+    const roster = fixtures.seedSampleStudents().filter((student) => student.classId === legacyClassId)
+      .map((student) => ({ ...student, id: student.permanentStudentId }));
+    if (!roster.length || roster.some((student) => !student.isTestRecord || !student.id.startsWith(SAMPLE_STUDENT_ID_PREFIX))) throw new Error('Invalid sample identity.');
+    const sampleStudents = {
+      listStudents: ({ requestedSchoolId } = {}) => requestedSchoolId === schoolId ? clone(roster) : [],
+      getStudent: (id, { requestedSchoolId } = {}) => requestedSchoolId === schoolId ? clone(roster.find((student) => student.id === id) ?? null) : null
+    };
+    const configured = [...new Map(context.subjects.map((subject) => [subject.id, { ...subject, schoolId, active: true, classIds: [legacyClassId] }])).values()];
+    const sampleSubjects = { list: () => clone(configured), get: (id) => clone(configured.find((subject) => subject.id === id) ?? null) };
+    // Reuse the existing scorer/grade/rank engine with private, request-local
+    // stores. No shared academic store, durable writer, or allocator is passed.
+    const calculatorActor = { ...actor, assignedClassIds: [legacyClassId], permissions: new Set(['marks.write', 'results.read']) };
+    const sampleSignatures = signatures ? { resolveForStudent: (student, period) => signatures.resolveForStudent({ ...student, classId: classRecord.id }, period) } : null;
+    const engine = createAcademicResultsService({ schoolId, students: sampleStudents, subjects: sampleSubjects, signatures: sampleSignatures, classes: [legacyClassId], now });
+    const workflow = createSampleResultWorkflow({ schoolId, students: sampleStudents, subjects: sampleSubjects, academicResults: engine, now });
+    const result = workflow.generate({ classId: legacyClassId, academicYear: period.yearName, term: period.termName }, calculatorActor);
+    return { ...result, schoolId, classId: classRecord.id, className: classRecord.name,
+      assessment: result.assessments,
+      academicYearId: period.yearId, termId: period.termId, sampleLevel: legacyClassId.startsWith('Nursery') ? 'NURSERY' : levelOf(legacyClassId),
+      subjects: result.subjects.map((subject) => ({ ...subject, classId: classRecord.id })),
+      isSample: true, isPreview: true, sampleLabel: 'SAMPLE DATA / DEMONSTRATION' };
+  }
   function sampleStudents(classId) { return students.listStudents({ requestedSchoolId: schoolId, includeTestRecords: true }).filter((student) => student.isTestRecord && (!classId || student.classId === classId)); }
   function generate(input, actor) {
     assertActor(actor); if (actor.schoolId !== schoolId) throw new Error('Forbidden.');
@@ -55,7 +88,7 @@ export function createSampleResultWorkflow({ students, subjects, academicResults
   function state(input, actor) { assertActor(actor); const target = students.findByPermanentStudentId(input.permanentStudentId, { roleKey: actor.roleKey, requestedSchoolId: schoolId }); if (!target?.isTestRecord) return null; return clone(sampleState.get(`${schoolId}:${target.permanentStudentId}:${input.academicYear}:${input.term}:${input.examinationType ?? 'TERMINAL'}`) ?? null); }
   function reset(input, actor) { assertActor(actor); const target = students.findByPermanentStudentId(input.permanentStudentId, { roleKey: actor.roleKey, requestedSchoolId: schoolId }); if (!target?.isTestRecord) throw new Error('Only existing sample records can be reset.'); const prefix = `${schoolId}:${target.permanentStudentId}:${input.academicYear}:${input.term}:`; for (const key of sampleState.keys()) if (key.startsWith(prefix)) sampleState.delete(key); return { ok: true, isSample: true, permanentStudentId: target.permanentStudentId }; }
   function publish(input, actor) { assertActor(actor); const target = students.findByPermanentStudentId(input.permanentStudentId, { roleKey: actor.roleKey, requestedSchoolId: schoolId }); if (!target?.isTestRecord) throw new Error('Only existing sample records can be published through the sample workflow.'); return academicResults.publishResults({ ...input, studentId: target.id, isSample: true }, actor); }
-  return { classes: () => [...SAMPLE_CLASSES], mockClasses: () => [...SAMPLE_MOCK_CLASSES], students: sampleStudents, generate, generateMock, state, publish, reset, resetMock };
+  return { classes: () => [...SAMPLE_CLASSES], mockClasses: () => [...SAMPLE_MOCK_CLASSES], students: sampleStudents, generate, generateForContext, generateMock, state, publish, reset, resetMock };
 }
 function fiftyFive(key, field) { return 55 + (hash(`${key}:${field}`) % 6); }
 export { ASSESSMENT_KEYS };

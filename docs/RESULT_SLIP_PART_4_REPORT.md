@@ -1,0 +1,248 @@
+# Result Slip repair — Part 4 investigation
+
+Status on 2026-09-26: **Lower Primary aggregate defect fixed under Part 4A. Production schema inspected through the protected read-only workflow. Durable real-result integration remains blocked because the active canonical Score Entry source is not established. Part 4 is not complete.**
+
+The Part 4 instruction to stop before speculative schema changes still applies to durable result retrieval. The Part 4A Lower Primary calculation fix changes runtime calculation only. No SQL writer or migration has been changed. Parts 1–3 remain intact. NOT MERGED. NOT DEPLOYED.
+
+## A. Verified previous architecture
+
+With Test Mode off, `public/result-view.js:loadResult` sends the form's internal durable student ID, stored Permanent Student ID, canonical class ID, year and term to `/api/academic/result`. The request has the Part 2/3 abort, context-version and timeout protection. The real response currently has no explicit frontend identity-match validation beyond the request/context version.
+
+`src/server.mjs` authenticates the request and requires `results.read` or `results.generate`, but the route unconditionally invokes `academicResults.result`. That instance is constructed from the ordinary student/subject/signature services rather than a durable real-result reader. Its configured school is `OSAAH_SCHOOL_ID`, defaulting to `sch_default_01` with a database; the service factory itself still has a legacy default, but server construction supplies the configured school.
+
+In `src/academic-results.js`, `terminal`, `mocks`, `savedResults` and `publications` are Maps. `studentFor` uses the in-memory student service. Class checks and classification use legacy class values. Subject resolution uses the in-memory subject service/register, whose generic default catalogue cannot stand in for production configuration. Missing configured marks become zero-valued placeholder rows. The method computes positions, grades, remarks and aggregates using existing calculation services, then returns the full renderer's flat DTO.
+
+Attendance and GES fields come from the in-memory saved-result record. Gender and class totals come from the in-memory student roster. Signatures come from `src/signatures.js`, which stores signatures in a Map and uses in-memory staff assignments. Real PDF generation calls the same in-memory result method. Part 3 separately routes sample previews through its isolated durable-context adapter.
+
+The current durable Score Entry writer is `src/durable-academic.js:saveScore`. It writes CA/examination/total to `academic_score_records`, refers to `student_profiles` for score identity, validates `subject_class_assignments`, and requires `e.school_id`, `e.enrollment_status` and `e.is_current`. The roster query uses the same assumptions. Repository-wide source searches found no current SQL writer/reader mapping the production `assessment_scores`, `exam_scores` or `examination_marks` tables into this result flow.
+
+## B. Root cause and schema blocker
+
+The real endpoint has never been connected to the durable student/score path repaired in the preceding parts. A second, independent incompatibility prevents safely adopting the current durable Score Entry SQL unchanged.
+
+Evidence: the successful [production inventory run 36139568009](https://github.com/FRANK12517/OSAAH-DAYLIGHT-SCHOOL-MANAGEMENT-SYSTEM/actions/runs/36139568009), recorded 2026-09-25 13:13 UTC, was read again for this investigation. Listing the latest five inventory runs found no newer successful inventory.
+
+| Contract | Verified production metadata |
+| --- | --- |
+| `academic_score_records` | Table is absent. The current repository writer in `durable-academic.js` expects it. |
+| `subject_class_assignments` | Table is absent. `class_subjects(id,class_id,subject_id,teacher_id)` exists instead; its declared FKs point to classes, subjects and teachers, with no school/year/term columns. |
+| `student_enrollments` | Only `id,student_id,class_id,academic_year_id`; declared FKs link to `students.id`, `classes.id`, `academic_years.id`. No school/status/current/term columns. |
+| `assessment_scores` | `id,assessment_id,student_id` are non-null `varchar(191)`; `score decimal(5,2)` and `remarks text` nullable. PK `id`; nonunique FK indexes on assessment/student. FKs to `assessments.id` and `students.id`. Parent `assessments` has required class, subject, academic-year ID, name and nullable maximum; no school or term. |
+| `exam_scores` | Required `varchar(191)` IDs, `score decimal(5,2)`, `entered_by`; nullable `remarks`; required `created_at text`. Unique `(exam_id,student_id)`, with FKs to `exams.id`, `student_profiles.id`, `users.id`. Parent `exams` has required school, string academic year/term, class, subject, exam name; max and weight default to 100.00; FKs to school and class. |
+| `examination_marks` | Required IDs, `school_id`, `raw_marks double`, `weight double`, `weighted_marks double`, `grade`, `state`, `version`, `entered_by`, `updated_at`; nullable `comment`; defaults state `DRAFT`, version `1`. Unique `(examination_id,student_id,subject_id)`. FKs to schools, examinations, student profiles, subjects and users. Parent examination links to school, nullable academic-year ID and term ID; examination-subject marks and weights default to 100. |
+| `student_assessments` | Required `varchar(191)` IDs for school/student/subject/term; nullable `class_score`, `exam_score`, `total_score decimal(5,2)` each default `0.00`; nullable `grade varchar(10)` and `remarks varchar(255)`; required `created_at`. FKs link school, student profile and subject. No declared term FK, class/year column or unique score-scope index. |
+| `report_cards` | Required school/profile-student/string-year/string-term/class IDs; nullable `total_score decimal(6,2)`, `average_score decimal(5,2)`, position/size, attendance, remarks, publication time/user and Permanent Student ID; `published` defaults 0, publication status `DRAFT`, `is_blocked` defaults 0. Unique `(school_id,student_id,academic_year,term)`. |
+| Identity and catalogue | `students.permanent_student_id` is unique and stored on the master `students` record. `student_profiles` links to the master by `student_master_id`, and stores profile `student_id`, current `class_id` and school. `subjects` stores school ownership; `class_subjects` links class and subject. |
+
+The expanded [production schema inventory run 36208849852](https://github.com/FRANK12517/OSAAH-DAYLIGHT-SCHOOL-MANAGEMENT-SYSTEM/actions/runs/36208849852) succeeded at 2026-09-26 01:33:50 UTC against the expected production database. It checked out the Part 4A inventory commit `1243aaad5b6272eed3edcd180c5cd4aeb04cc329`. It ran the checked-in metadata-only SQL through the protected production workflow. The SQL queried only `DATABASE()` and `information_schema.COLUMNS`, `STATISTICS`, and `KEY_COLUMN_USAGE`; no score or student rows were read. It found absent `academic_score_records` and `subject_class_assignments`.
+
+Schema alone does not establish which of the three existing scoring designs is the active Score Entry writer. A repository-wide search found no current writer or reader for `student_assessments`, `assessment_scores`, `exam_scores` or `examination_marks`; the only current repository score writer is `durable-academic.js:saveScore`, targeting the absent `academic_score_records`. The `student_assessments` table is the strongest combined-score candidate by its CA/exam/total/grade columns, but it lacks class/year keys, a declared term FK and a uniqueness constraint; there is no code provenance confirming its use by Score Entry. The other candidates split assessment and exam rows, use different student identifiers, or store weighted examination marks. Choosing one as canonical would still be a guess.
+
+No realistic durable score fixture or real-result query was written. Selecting the wrong source risks duplicate or cross-class results, and the request explicitly prohibits a parallel store or guessed data contract.
+
+### Repository provenance
+
+| Table | Repository provenance and usage |
+| --- | --- |
+| `academic_score_records` | Defined in `schema/017_academic_results_migration.sql`; current `src/durable-academic.js` Score Entry writer/roster expects it; absent in production inventory. |
+| `subject_class_assignments` | Used by current durable subject and score queries and assignment writer; no production table. Production has `class_subjects`; no writer for that mapping was found in the Result Slip path. |
+| `assessment_scores` | Production table and FKs verified; no current writer/reader/migration definition found in this repository. Student FK targets master `students.id`; assessment parent supplies class/year, not term/school. |
+| `exam_scores` | Production table and FKs verified; no current writer/reader/migration definition found. Student FK targets `student_profiles.id`; exam parent supplies school, class, subject and string year/term. |
+| `examination_marks` | Defined in `schema/007_examinations_results.sql`; production table/FKs verified. No active score-entry/result reader in this repository was found. Examination supplies school/year/term; mark supplies profile, subject and weighted score. |
+| `student_assessments` | Production table/FKs verified; no current writer/reader/migration definition found. It has combined score fields but the class/year linkage and active writer remain unverified. |
+
+### Canonical score contract decision
+
+| Field | Decision |
+| --- | --- |
+| CA / Class Assessment | **NOT VERIFIED.** `student_assessments.class_score` is a candidate, but no active writer provenance was found. `assessment_scores.score` is another candidate, linked through an assessment parent. |
+| Examination Score | **NOT VERIFIED.** `student_assessments.exam_score`, `exam_scores.score`, and `examination_marks.weighted_marks` represent different possible sources. |
+| Total | **NOT VERIFIED.** `student_assessments.total_score` exists; recomputation/authority against its components is unknown. |
+| Student | **NOT VERIFIED as a unified source.** Existing tables point variously to master `students.id` and `student_profiles.id`; the profile-to-master link is `student_profiles.student_master_id`. |
+| Subject | Subject FKs exist in assessment/exam/examination paths; `student_assessments.subject_id` also declares a FK to `subjects.id`. Active writer still unknown. |
+| Class | **NOT VERIFIED for a combined score row.** Assessment and exam parent records carry a class; `student_assessments` does not. Profile class is current and cannot establish the historical selected class by itself. |
+| Academic Year | **NOT VERIFIED uniformly.** Assessment parent uses an ID; exam parent uses a string; examination parent uses an ID; student assessment has no year column and no declared term FK. |
+| Term | **NOT VERIFIED uniformly.** Exam parent uses a string and examination parent uses an ID; student assessment has a term ID column but no declared FK. |
+| School isolation | **NOT VERIFIED uniformly.** `examination_marks`, exams and student_assessments contain school IDs, but assessment_scores relies on its parent and FKs have no school composite scope. |
+
+The evidence gate therefore selects no single canonical Score Entry table and no Outcome A real-result integration. It also does not prove Outcome B's required capability is missing: production has tables storing score components and a combined-score candidate. No migration proposal or schema change is justified yet.
+
+## C. Work performed and required next step
+
+Part 4A fixed Lower Primary calculation and tests, and extended `scripts/production-schema-inventory.mjs` to execute the checked-in read-only metadata SQL through the existing protected workflow. The workflow succeeded. Its metadata records exact columns/defaults, indexes and declared foreign keys for score, result and supporting tables.
+
+Required next evidence: identify the deployed/authorized production Score Entry writer and verify how it populates `student_assessments`, `assessment_scores`, `exam_scores` or `examination_marks`. Confirm whether score rows can be unambiguously scoped to selected class and year, how duplicate rows are handled, and how class/year/term/filter semantics agree with score-entry UI. Then establish the shared repository contract. Do not implement real result reads against a merely plausible table.
+
+No migration is proposed at this stage. First prefer adapting both result retrieval and any necessary existing Score Entry query to the same established tables. Preserve existing IDs, records and history; do not copy scores into a parallel table. If metadata proves a missing capability, a separately documented additive, backward-compatible proposal and preservation strategy must precede any migration.
+
+## D. Permanent Student ID
+
+The verified source remains `students.permanent_student_id`. Part 2 returns its unchanged stored value separately from `students.id`. This investigation performed no allocation, normalization, regeneration or record write. Real-result integration with that source remains blocked and is not claimed complete.
+
+## E. Existing calculations by level
+
+| Level | Inspected current behavior |
+| --- | --- |
+| Nursery | Existing OTHER classification; no Best Six aggregate |
+| KG | Raw total and no aggregate |
+| Lower Primary | English Language, Mathematics, Science and History plus best two; approved A–I point mapping now sums the selected six |
+| Upper Primary | No aggregate in current calculator |
+| JHS | Existing numeric 1–9 scale, core four plus eligible best two, current tie-breakers retained |
+
+## F. Lower Primary NaN investigation
+
+`src/result-calculation.js:numericGrade` previously applied `Number(row.grade)` and, on failure, `Number(gradeForTotal(...)[0])`. For Lower Primary both values are letters. Six valid 85-point subjects therefore produced six A grades, qualified for aggregation, then produced NaN, serialized as null. This pre-fix behavior was reproduced directly in Node.
+
+This was a missing grade-to-aggregate-point conversion, not malformed marks. Part 4A now provides the user-approved centralized conversion A=1, B=2, C=3, D=4, E=5, F=6, G=7, H=8, I=9. Lower Primary best-subject sorting and aggregate summation use those points. Unknown non-empty grades throw an explicit error; absent grades use the existing score-to-grade service before conversion. Score thresholds are unchanged. KG and JHS do not use the Lower Primary map. Regression tests prove six A grades aggregate to 6 and A,B,B,C,C,D aggregate to 15, with numeric non-null JSON output.
+
+## G. Supporting component status
+
+| Component | Status | Exact gap |
+| --- | --- | --- |
+| GES Assessment | REQUIRES LATER PART | Current saved-result Map/browser assessment storage is not a verified durable GES source. `report_cards` contains conduct, class-teacher and headmaster remarks, but no attitude/interest columns; inspected `student_assessments` does not establish the five GES fields or their writer. |
+| Attendance | REQUIRES LATER PART | Production table columns/FKs are now verified, but differ from `attendance-repository.js` expectations (for example, production has `date`, not `attendance_date`; it lacks `method` and arrival/departure fields). The real result does not call this service. |
+| Gender | PARTIALLY CONNECTED | `students.gender` is verified durable data, but the real result still obtains gender from the memory roster |
+| Class gender totals | REQUIRES LATER PART | Real result must count selected year/class membership from durable students/enrollments and exclude tests |
+| Signatures | REQUIRES LATER PART | Production `result_signatures` and `staff_assignments` metadata is inventoried, but the active writer/role and tenant/class/context resolution contract is not connected to the current Map-based resolver. |
+| PDF | NOT VERIFIED | Real PDF still depends on the in-memory result method; no Part 4 PDF repair or visual validation performed |
+
+These statuses do not establish completion of the blocked durable result contract. No missing supporting value was filled with sample data.
+
+## H. Security
+
+Existing route authentication, RBAC checks, teacher scope and Part 3 sample guards were inspected and left unchanged. The rerun baseline covers prior school isolation and sample mutation protections. It does not prove the requested new real durable cross-student/class/year/term authorization, enrollment validation, no-result semantics or ranking isolation. Those Part 4 checks cannot be honestly marked PASS before the SQL integration exists.
+
+## I. Executed validation
+
+No durable-result Part 4 tests were added because its implementation is blocked. Four new Lower Primary regression tests were added; the focused result-calculation suite has **9 passed, 0 failed, 0 skipped**. The combined Part 1–3 plus relevant sample/calculation suite has **120 passed, 0 failed, 0 skipped, 0 cancelled** on Node v25.6.1. Protected production schema workflow run **36208849852** succeeded; it executed the metadata-only query for exact commit `1243aaad5b6272eed3edcd180c5cd4aeb04cc329`.
+
+```powershell
+node --check scripts/production-schema-inventory.mjs
+node --test test/result-calculation.test.js
+node --test test/result-slip-sample-context.test.js test/result-slip-students.test.js test/result-slip-options.test.js test/durable-academic.test.js test/score-entry-regression.test.js test/academic-results.test.js test/academic-workflow-regression.test.js test/admission-enrollment.test.js test/class-database.test.js test/class-database-part2.test.js test/class-database-financial-identity.test.js test/permanent-student-id.test.js test/student-identity.test.js test/sample-result-workflow.test.js test/result-calculation.test.js
+git diff --check
+```
+
+Direct defect reproduction command:
+
+```powershell
+node --input-type=module -e 'import { calculateAggregate } from "./src/result-calculation.js"; import { gradeForTotal } from "./src/grading.js"; const rows=["English Language","Mathematics","Science","History","RME","Creative Arts"].map(subjectName=>({subjectId:subjectName,subjectName,totalScore:85,grade:gradeForTotal(85,{classId:"Primary1"})[0]}));const r=calculateAggregate(rows,{classId:"Primary1"}); console.log(JSON.stringify({grades:rows.map(x=>x.grade),qualifying:r.qualifying,isNaN:Number.isNaN(r.aggregate),serialized:JSON.stringify({aggregate:r.aggregate})}));'
+```
+
+This command records the pre-fix reproduction: six A grades, qualifying=true, isNaN=true, serialized aggregate=null. The post-fix values are checked by the automated Lower Primary regression tests above.
+
+The schema SQL was inspected: after comments are stripped, all four statements start with SELECT and read `DATABASE()` or `information_schema`; the workflow script rejects mutation keywords before executing them. `node --check src/result-calculation.js`, `node --check scripts/production-schema-inventory.mjs` and `git diff --check` passed. No production score/result rows, SQL-backed durable result fixture or live browser result was read/executed.
+
+## J. Database
+
+- Migration required: **NOT DETERMINED**. The score source is ambiguous, and production already has score-bearing candidate tables; no migration proposal is justified or applied.
+- Schema changes: none. The inventory script uses metadata SELECT statements only.
+- Production data mutations: none.
+- Production schema metadata is collected; deployed writer provenance and unambiguous historical class/year association must be established before deciding the durable score mapping.
+
+## K. Git
+
+- Branch: `fix/result-slip-options-part1`.
+- Part 1 preserved: `5f5e661`.
+- Part 2 preserved: `cfbf0ceb69ce57bf16abb9495998af01772edee7`.
+- Part 3 preserved: `06cf1d1664d784222df26b954242551d00f7a2ea`.
+- Part 4 durable result implementation SHA: **none; implementation remains blocked**.
+- Part 4A calculation/inventory commit: `0a1dca77ac9f62b38eb1f7bc8fc37bb93482f264`.
+- Part 4A malformed-grade and all-level validation commit: `43fab959d6bed1efef3403c9bf7a3fbb0233c551`.
+- Readable inventory log-output commit: `1243aaad5b6272eed3edcd180c5cd4aeb04cc329` (pushed only so the protected workflow could inspect this exact commit).
+- Evidence-report commit and final working-tree status are recorded in the accompanying response; it documents the metadata result and does not add durable result integration.
+- NOT MERGED. NOT DEPLOYED. No history rewrite.
+
+## L. Remaining GES gaps for Part 5
+
+Determine the durable source for Conduct, Attitude, Interest, Class Teacher Remarks and Headteacher Remarks; map its school/student/class/year/term keys; connect saved values and reload behavior without browser-local state overriding authoritative values; preserve save validation and sample isolation. No GES values have been fabricated and Part 5 has not begun.
+
+## Part 4B — Canonical Score Source Provenance
+
+### Verified active Score Entry path
+
+The active `public/score-entry.js` renders one row per roster student with editable CA and Exam inputs (each 0–50). On edit it sends `POST /api/academic/scores` with `studentId`, canonical `classId`, `subjectId`, `academicYear`, `term`, `caScore`, and `examScore`. `src/server.mjs` enforces `marks.write`, invokes `readProductionAcademicInput`, and routes to `durableAcademic.saveScore` when the production database adapter is configured; only without that adapter does it call the in-memory `academicResults.saveScore`. The durable roster/save path is `src/durable-academic.js`.
+
+### Provenance matrix
+
+| Store | Provenance / writer evidence | Scope and identity evidence | Decision for Result Slip |
+|---|---|---|---|
+| `academic_score_records` | Introduced in `schema/017_academic_results_migration.sql`; the durable writer/reader was added in commit `430fcd2` (`src/durable-academic.js`). The current database branch uses it; production inventory says the table is absent. | Intended row key is school, record type, year ID, term ID, class ID, profile ID, subject ID, and mock label; production cannot use this contract because its table is absent. | Intended current durable Score Entry contract, but not deployed in inspected production schema. No safe real-result query until that mismatch is resolved through the governed schema/release process. |
+| `assessment_scores` / `assessments` | Present in production metadata; no active UI/service writer or reader was found in searched repository history. | Score student FK is `students.id`; assessment parent contributes class, subject and year; no term or school scope on that parent. | Not canonical evidence for the active terminal Score Entry flow. |
+| `exam_scores` / `exams` | Present in production metadata; no active UI/service writer or reader was found in searched repository history. | Student FK is `student_profiles.id`; `exams` provides school, string year/term, class and subject. | Separate exam-shaped candidate, but no provenance tying it to the active CA+Exam UI. |
+| `examination_marks` / `examinations` | Defined by `schema/007_examinations_results.sql`; repository history shows the examinations/results workflow, but not an active writer/read path for the current Score Entry endpoint. | Marks are weighted examination values; examination supplies school and optional year/term; student FK is profile ID. | Different examination workflow and score semantics; do not substitute. |
+| `student_assessments` | Present in production metadata; no active writer or reader was found in searched history. | Combined score columns exist; no class/year columns, no declared term FK, and no unique score-scope index. | Plausible by column names only; insufficient provenance and scope. Do not substitute. |
+| `report_cards` | Present in production metadata; no active Score Entry writer/reader was found in searched history. | Published/aggregate snapshot fields, with year and term strings and a unique school/student/year/term key. | Downstream result snapshot, not the demonstrated score-entry source. |
+
+### Finding and implementation decision
+
+**Verified root cause for durable score persistence:** the active database-backed Score Entry writer targets `academic_score_records`, but the production inventory for run `36208849852` reports that table absent. Other candidate tables differ in ownership, score semantics, student identity, or academic scope, and repository history does not tie them to the active Score Entry route. The Result Slip GET route still calls the in-memory `academicResults.result`; no durable reader for an existing production score table is established. Therefore the canonical production score source and a safe durable read contract remain **NOT VERIFIED**. No result-runtime query or schema change is made in Part 4B.
+
+This is a deployment/schema contract mismatch, not evidence that `student_assessments`, `exam_scores`, or `examination_marks` should be repurposed. The proper follow-up is to reconcile the authorized deployed Score Entry writer and the schema release contract, then verify row identity and historical class/year/term scope before connecting the Result Slip. Part 5 has not started.
+
+### Preserved Part 4A calculation
+
+Lower Primary A–I grade mapping remains centralized in `src/result-calculation.js` (A=1 through I=9); malformed or unknown grade input is rejected rather than coerced to zero. No production score rows were read or modified in either part.
+
+### Part 4B verification
+
+- Repository history searched across available local and origin refs for the academic score table names and active Score Entry files; current durable writer provenance is commit `430fcd2`.
+- Protected production schema inventory `36208849852` succeeded against the expected production database and returned metadata only; no score/result data rows were read.
+- `node --test test/result-calculation.test.js`: 9 passed, 0 failed.\n- Focused Result Slip, Score Entry, academic workflow, identity, admission and class database regression suite: 120 passed, 0 failed, 0 skipped.\n- `node --check src/result-calculation.js`, `node --check scripts/production-schema-inventory.mjs`, and `git diff --check`: passed.
+- NOT MERGED. NOT DEPLOYED.
+
+## Part 4C — Canonical Durable Score Contract
+
+### A. Why additive storage is required
+
+Part 4B combined the protected production metadata inventory (`36208849852`) with repository history. The active CA+Exam Score Entry endpoint had no deployed durable writer table: its old repository target was absent in production, while `student_assessments`, `assessment_scores`, `exam_scores`, and `examination_marks` had no writer provenance for that endpoint and failed one or more required scope/identity/score-shape checks. **ADDITIVE DURABLE SCORE STORAGE REQUIRED.** No legacy score rows are backfilled.
+
+The new production contract is named `canonical_academic_scores`. The older SQLite development migration `017` already defines a different `academic_score_records` shape tied to `student_profiles`; changing that historical migration or pretending its identity is the Part 2 master student ID would break existing databases. The new table is the sole repository used by production Score Entry, real Result Slip, PDF and the added real broadsheet route. The old table and all candidate legacy tables remain untouched and are not fallback sources.
+
+### B–I. Canonical contract and scope
+
+| Concern | Implemented contract |
+|---|---|
+| Table / columns | `canonical_academic_scores`: `id`, `school_id`, `student_id`, `class_id`, `academic_year_id`, `term_id`, `subject_id`, `class_score`, `exam_score`, `total_score`, `created_at`, `updated_at`. IDs are `VARCHAR(191)`, timestamps `VARCHAR(32)`, scores `DECIMAL(6,2)`. |
+| Student identity | `student_id` references canonical `students.id`. The Result Slip separately selects and renders the unchanged `students.permanent_student_id`; it is never used as the relational FK. |
+| School | Authenticated `actor.schoolId` is authoritative. Writes validate the student, class, year, term and subject in that school. Reads join score school to both student and subject school. |
+| Class and history | Class FK references `classes.id`; enrollment validation uses production `student_enrollments(student_id,class_id,academic_year_id)` and does not substitute `students.current_class_id`. Historical class membership is retained in each score scope. |
+| Academic year | FK to `academic_years.id`; year is resolved within the actor's school. |
+| Term | Uses `term_id` FK to `terms.id`, resolved under the selected school and year. This matches production metadata (`terms.id`, `terms.academic_year_id`) and the application convention already used by examinations, fees and other academic tables. No parallel term string is stored. |
+| Subject | FK to `subjects.id`; Score Entry confirms the selected subject is configured for the class through the verified `class_subjects` mapping and that the subject belongs to the school. |
+| Duplicate scope | A unique constraint covers `(school_id, student_id, class_id, academic_year_id, term_id, subject_id)`. Repeated saves update the same row; changing term creates a distinct row. |
+
+### J–M. Runtime and calculation
+
+`POST /api/academic/scores` now writes the canonical record after RBAC, teacher class/subject assignment, school, non-sample student, historical enrollment, class-subject, academic-year and term validation. CA and Exam retain the existing 0–50 limits, and Total is calculated as their sum. The Score Entry roster reloads these same canonical values. Race-time duplicate insertion is protected by the unique scope and retried as an update.
+
+`GET /api/academic/result` and `/api/academic/result/pdf` use the same canonical rows in database mode. They return the normal no-result response when no score exists; they do not fall back to memory, legacy score tables, or sample records. Positions, grade, aggregate and totals use existing calculation services, including the approved Lower Primary A=1 through I=9 mapping. `/api/academic/broadsheet` also reads the same store for its class/year/term scope. No Generate Result read saves or publishes a result, and it sends no SMS or notification. The PDF retains the existing bordered layout and now includes Class and Exam components alongside Total.
+
+Sample/Test Mode remains on its isolated sample workflow. The real Result Slip route rejects a sample flag, score writes reject sample flags/reserved identities, and canonical reads exclude test records. No sample path writes the canonical table.
+
+### N–Q. Existing result-slip components and remaining gaps
+
+| Component | Part 4C status |
+|---|---|
+| GES Assessment | Not claimed durable. Production `student_assessments` does not carry class/year scope, and no active writer was established. The canonical Result Slip returns no fabricated assessment; the UI/PDF display “Not recorded”. Connect the verified five-category source in a later authorized result-slip part. |
+| Attendance | Not claimed connected. Production attendance columns differ from the repository's attendance service expectations, and a verified historical student/class/year/term aggregate is not established. Result attendance remains `null`/“Not recorded”; no current enrollment is used to infer historical attendance. |
+| Signatures | Existing `signatures.resolveForStudent` is passed through and the Result Slip/PDF continue displaying its resolved name, phone and signature where available. The current resolver is Map-based; a durable production signature writer/context reconciliation is not implemented here. |
+| PDF | Existing PDF route now obtains the canonical real result and preserves student ID, class/year/term, CA, Exam, total, grade, aggregate, attendance/assessment sections and signature section. The existing PDF regression passes; sample PDF dispatch remains isolated. |
+
+### R. Migration and production data
+
+Migration [055_canonical_academic_scores.sql](../schema/055_canonical_academic_scores.sql) is additive, uses `CREATE TABLE IF NOT EXISTS`, declares FKs to `schools`, `students`, `classes`, `academic_years`, `terms` and `subjects`, and has no data backfill or destructive statement. Tests apply it twice against a production-shaped relational schema and confirm existing records/tables remain. **MIGRATION PREPARED — NOT YET APPLIED.** Production data mutations: **NONE**. The migration was not applied to production or the user's local database.
+
+### S. Tests and validation
+
+- New Part 4C migration/repository/HTTP regression tests: 5 passed, 0 failed, 0 skipped.
+- Focused Result Slip, Score Entry, sample, academic workflow, identity, admission, class database, grading/ranking and PDF suite: 138 passed, 0 failed, 0 skipped in the last focused run.
+- Lower Primary calculation tests: 9 passed, 0 failed, 0 skipped. `npm run migration:validate`: passed with 54 versioned migrations. JavaScript syntax checks and `git diff --check`: passed.
+- Full `npm test`: **873 passed, 1 failed, 0 skipped**. The only failure is `test/part29-sidebar-release-gate.test.js`: the existing `scripts/part28-release-gate.mjs` builds a Windows path as `C:\\C:\\...` and fails before writing its generated report. The migration-count assertion was updated for migration 055 and passes. I left the unrelated release-gate path implementation unchanged.
+
+### T. Git and release state
+
+- Part 4B report recovery commit: `ead9637846d89b27e2ecf72f83f33ad7e22592d9`.
+- Part 4C canonical repository/migration commit: `f714975d0b4a3e0de4dc126a6b523d36ab7efdab`; integration/report commit: recorded in the final task response.
+- Worktree permission issue was resolved without deleting lock files or changing ACLs: this work continues in a standalone local clone; no Git process or `index.lock` existed in the original linked worktree.
+- NOT MERGED. NOT DEPLOYED. Part 5 has not started.

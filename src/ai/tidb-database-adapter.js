@@ -102,6 +102,7 @@ export function createDatabaseAdapter({ environment, poolFactory = mysql.createP
   const metadataTables = ['schema_migrations', 'schema_migration_lock'];
 
   return {
+    supportsRowLocks: true,
     supportsDurableAuthSessions: true,
     async query(sql, params = []) { const [rows] = await pool.query(sql, params); return rows; },
     async execute(sql, params = []) { const [result] = await pool.execute(sql, params); return { insertId: result.insertId, affectedRows: result.affectedRows }; },
@@ -109,6 +110,7 @@ export function createDatabaseAdapter({ environment, poolFactory = mysql.createP
       const connection = await pool.getConnection(); await connection.beginTransaction();
       try {
         const transactionalAdapter = {
+          supportsRowLocks: true,
           async query(sql, params = []) { const [rows] = await connection.query(sql, params); return rows; },
           async execute(sql, params = []) { const [result] = await connection.execute(sql, params); return { insertId: result.insertId, affectedRows: result.affectedRows }; },
           async executeMigrationSql(sql, context) { return executeMigrationSqlOn(connection, sql, context); },
