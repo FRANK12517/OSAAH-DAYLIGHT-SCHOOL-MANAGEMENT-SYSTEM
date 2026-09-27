@@ -21,10 +21,32 @@ function database(paymentRows = [osaahPayment, otherPayment]) {
 }
 function request(server, path, token) { return new Promise((resolve, reject) => { const req = fetch(`http://127.0.0.1:${server.address().port}${path}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} }); req.then(async (response) => resolve({ status: response.status, body: await response.json() })).catch(reject); }); }
 
- test('durable fee reader preserves payment, receipt, invoice, student, and balance relationships', async () => {
+test('durable fee reader preserves payment, receipt, invoice, student, and balance relationships', async () => {
   const actor = user('accountant-osaah', 'accountant@osaah.test', 'ACCOUNTANT_BURSAR', SCHOOL, ['fees.read']);
   const result = await createDurableFeeReader({ adapter: database([osaahPayment]) }).listPayments({}, actor);
   assert.deepEqual(result[0], { id: 'payment-osaah', schoolId: SCHOOL, receiptNumber: 'RCT-OSAah-001', transactionReference: 'PAY-OSAah-001', invoiceNumber: 'INV-OSAah-001', studentName: null, className: null, academicYear: '2026', term: 'TERM1', feeType: null, studentId: 'student-osaah', permanentStudentId: 'PS-OSAah-001', classId: 'basic-4', academicYearId: '2026', termId: 'TERM1', amount: 125.5, method: 'MOBILE_MONEY', status: 'COMPLETED', createdAt: '2026-09-01T10:00:00Z', paymentDate: '2026-09-01', providerReference: null, enteredBy: 'accountant-osaah', issuer: null, receiptStatus: 'VALID', previousBalance: 300.5, balance: 175 });
+});
+
+test('durable fee reader falls back when legacy payments lack optional created_at and provider_reference columns', async () => {
+  const queries = [];
+  const actor = user('accountant-osaah', 'accountant@osaah.test', 'ACCOUNTANT_BURSAR', SCHOOL, ['fees.read']);
+  const adapter = { async query(sql) {
+    queries.push(sql);
+    if (sql.includes('p.created_at')) throw Object.assign(new Error("Unknown column 'p.created_at' in 'order clause'"), { code: 'ER_BAD_FIELD_ERROR' });
+    if (sql.includes('p.provider_reference')) throw Object.assign(new Error("Unknown column 'p.provider_reference' in 'field list'"), { code: 'ER_BAD_FIELD_ERROR' });
+    return [{ ...osaahPayment, createdAt: osaahPayment.paymentDate, providerReference: null }];
+  } };
+  const reader = createDurableFeeReader({ adapter });
+  const payments = await reader.listPayments({}, actor);
+  assert.equal(payments[0].createdAt, osaahPayment.paymentDate);
+  assert.equal(payments[0].providerReference, null);
+  assert.equal(queries.length, 3);
+  assert.match(queries[2], /p\.payment_date AS createdAt/);
+  assert.match(queries[2], /NULL AS providerReference/);
+  assert.match(queries[2], /ORDER BY p\.payment_date DESC, p\.id DESC/);
+  await reader.listPayments({}, actor);
+  assert.equal(queries.length, 4);
+  assert.doesNotMatch(queries[3], /p\.created_at|p\.provider_reference/);
 });
 
 
