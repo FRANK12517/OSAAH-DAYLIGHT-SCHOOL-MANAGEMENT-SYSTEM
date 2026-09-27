@@ -3,6 +3,7 @@ import test from 'node:test';
 import { createServer, request as httpRequest } from 'node:http';
 import { createApp } from '../src/server.mjs';
 import { createAuthService } from '../src/auth.js';
+import { createSchoolSettingsService } from '../src/school-settings.js';
 
 const password = 'SettingsTest123!';
 
@@ -26,4 +27,19 @@ test('School Settings uses the authenticated canonical school, persists edits, a
   assert.equal((await request(server, '/api/school-settings', teacher.token)).status, 403);
   assert.equal((await request(server, '/api/school-settings', teacher.token, 'PATCH', { address: 'Nope' })).status, 403);
   assert.equal(reloaded.body.schoolId, admin.user.schoolId);
+});
+
+test('School Settings reads older school schemas without optional branding columns', async () => {
+  const database = {
+    async query(sql) {
+      if (sql.startsWith('SELECT id,name,motto')) throw new Error("Unknown column 'primary_colour'");
+      if (sql.startsWith('SELECT * FROM schools')) return [{ id: 'school-osaah-daylight', name: 'OSAAH DAYLIGHT SCH. COM.', motto: 'AIM HIGH', address: 'Bogoso', created_at: '2026-01-01', updated_at: '2026-01-01' }];
+      return [];
+    }
+  };
+  const settings = createSchoolSettingsService({ database });
+  const result = await settings.read({ schoolId: 'school-osaah-daylight' });
+  assert.equal(result.schoolId, 'school-osaah-daylight');
+  assert.equal(result.profile.name, 'OSAAH DAYLIGHT SCH. COM.');
+  assert.equal(result.profile.primaryColour, null);
 });

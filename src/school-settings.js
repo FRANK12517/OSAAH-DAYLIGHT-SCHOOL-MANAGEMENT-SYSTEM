@@ -16,8 +16,33 @@ export function createSchoolSettingsService({ database = null, schoolProfile = n
   async function read(actor) {
     const schoolId = assertActor(actor);
     if (!database?.query) return publicView(fallback(schoolId));
-    const schools = await database.query('SELECT id,name,motto,address,telephone,email,website,logo_path AS logoPath,primary_colour AS primaryColour,secondary_colour AS secondaryColour,accent_colour AS accentColour,created_at AS createdAt,updated_at AS updatedAt FROM schools WHERE id=? LIMIT 1', [schoolId]);
-    const school = schools?.[0];
+    let school;
+    try {
+      const schools = await database.query('SELECT id,name,motto,address,telephone,email,website,logo_path AS logoPath,primary_colour AS primaryColour,secondary_colour AS secondaryColour,accent_colour AS accentColour,created_at AS createdAt,updated_at AS updatedAt FROM schools WHERE id=? LIMIT 1', [schoolId]);
+      school = schools?.[0];
+    } catch (error) {
+      // Older production foundations may not yet have the optional branding columns.
+      // Read the row through the database's deployed schema, then expose only the
+      // canonical public profile fields below; authorization and school scope remain unchanged.
+      const rows = await database.query('SELECT * FROM schools WHERE id=? LIMIT 1', [schoolId]);
+      const row = rows?.[0];
+      if (row) school = {
+        id: row.id,
+        name: row.name,
+        motto: row.motto,
+        address: row.address ?? null,
+        telephone: row.telephone ?? null,
+        email: row.email ?? null,
+        website: row.website ?? null,
+        logoPath: row.logoPath ?? row.logo_path ?? null,
+        primaryColour: row.primaryColour ?? row.primary_colour ?? null,
+        secondaryColour: row.secondaryColour ?? row.secondary_colour ?? null,
+        accentColour: row.accentColour ?? row.accent_colour ?? null,
+        createdAt: row.createdAt ?? row.created_at ?? null,
+        updatedAt: row.updatedAt ?? row.updated_at ?? null
+      };
+      else if (error) throw error;
+    }
     if (!school) throw Object.assign(new Error('Canonical OSAAH school record was not found.'), { status: 404 });
     const [settings, academicYears, terms] = await Promise.all([
       database.query('SELECT setting_key AS settingKey,setting_value AS settingValue,value_type AS valueType,updated_at AS updatedAt FROM system_settings WHERE school_id=? ORDER BY setting_key', [schoolId]),
