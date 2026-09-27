@@ -46,3 +46,16 @@ test('promotion page has one class selector, one term selector, filtered student
   const html = fs.readFileSync(new URL('../public/promotion.html', import.meta.url), 'utf8');
   assert.equal((html.match(/id="promotion-class"/g) ?? []).length, 1); assert.equal((html.match(/id="promotion-term"/g) ?? []).length, 1); assert.match(html, /Student<select/); assert.match(html, /permanentStudentId/); assert.match(html, /Save Promotion Decision/); assert.match(html, /api\/examinations\/promotion\/options/); assert.match(html, /api\/examinations\/promotion'/);
 });
+
+test('promotion results provides a single previous/current year selector and canonical Nursery-to-JHS destination classes', () => {
+  const html = fs.readFileSync(new URL('../public/promotion-results.html', import.meta.url), 'utf8');
+  const script = fs.readFileSync(new URL('../public/promotion-results.js', import.meta.url), 'utf8');
+  assert.equal((html.match(/id="academic-year"/g) ?? []).length, 1);
+  assert.match(html, /Promoted To Class<select id="class"/);
+  assert.match(html, /type="module" src="\/promotion-results\.js"/);
+  assert.match(script, /CURRENT_ACADEMIC_YEAR = '2026\/2027'/);
+  assert.match(script, /PREVIOUS_ACADEMIC_YEAR = '2025\/2026'/);
+  assert.match(script, /SCHOOL_CLASS_CATALOGUE/);
+  assert.match(script, /academicYearId: year\.value/);
+  assert.match(script, /classId: klass\.value/);
+});
