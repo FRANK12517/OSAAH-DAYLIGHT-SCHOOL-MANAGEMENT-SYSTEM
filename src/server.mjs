@@ -5,6 +5,7 @@ import { extname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SIDEBAR_MODULES, parentDashboardModules, sidebarHealth, visibleSidebar } from './sidebar-registry.js';
 import { canAccess, createAuthService } from './auth.js';
+import { createUserDirectoryService } from './user-directory.js';
 import { createAuditLog } from './audit.js';
 import { CORE_LEVELS, createStudentService } from './students.js';
 import { canonicalClassId } from './student-classes.js';
@@ -85,6 +86,7 @@ export function createApp({ auth = null, students = null, attendance = null, att
   auth ??= createAuthService({ database });
   schoolSettings ??= createSchoolSettingsService({ database, schoolProfile: branding });
   const serviceSchoolId = process.env.OSAAH_SCHOOL_ID ?? (database ? DEFAULT_PRODUCTION_SCHOOL_ID : DEMO_SCHOOL_ID);
+  const userDirectory = createUserDirectoryService({ database, canonicalSchoolId: serviceSchoolId });
   attendance ??= createAttendanceService({ requireReasons: true, schoolId: serviceSchoolId });
   fees ??= createFeeService({ schoolId: serviceSchoolId });
   feeTypes ??= createFeeTypeRegistry({ schoolId: serviceSchoolId });
@@ -565,10 +567,20 @@ export function createApp({ auth = null, students = null, attendance = null, att
       if (pathname === '/api/parent/children/resolve' && request.method === 'GET') { if (user.portal !== 'parent' || !canAccess(user, 'children.read') || !admissionEnrollment) return json(response, { error: 'Forbidden.' }, 403); try { const permanentStudentId = new URL(request.url, 'http://localhost').searchParams.get('permanentStudentId'); return json(response, { child: await admissionEnrollment.authorizeParentStudent({ parentUserId: user.id, permanentStudentId, schoolId: user.schoolId }) }); } catch (error) { return json(response, { error: error.message }, error.status ?? 403); } }
       if (pathname === '/api/parent/children') { if (user.portal !== 'parent' || !canAccess(user, 'children.read')) return json(response, { error: 'Forbidden.' }, 403); return json(response, { children: user.children }); }
       if (pathname === '/api/management') { if (!canAccess(user, 'users.read')) return json(response, { error: 'Forbidden.' }, 403); audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, action: 'ACCESS', entity: 'ManagementDashboard' })); return json(response, { authorized: true, schoolId: user.schoolId }); }
+      if (pathname === '/api/users' && request.method === 'GET') {
+        if (user.portal !== 'school' || !canAccess(user, 'users.read')) return json(response, { error: 'Forbidden.' }, 403);
+        try {
+          const users = await userDirectory.listFor(user);
+          audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, roleId: user.roleKey, action: 'ACCESS', entity: 'UserDirectory' }));
+          return json(response, { users });
+        } catch (error) {
+          return json(response, { error: error.message ?? 'User directory service is unavailable.' }, error.status ?? 503);
+        }
+      }
       return json(response, { error: 'Not found.' }, 404);
     }
     if (pathname === '/website') { response.writeHead(302, { Location: '/#public-school-website', 'Cache-Control': 'no-store' }); return response.end(); }
-    const pageAliases = { '/developer/communication-setup': '/communication-setup.html', '/academics': '/academics.html', '/students': '/students.html', '/admissions': '/admissions.html', '/attendance': '/attendance.html', '/examinations': '/examinations.html', '/results': '/results.html', '/promotion': '/results.html', '/fees': '/fees.html', '/fees/admission-structures': '/admission-fees.html', '/fees/scholarships': '/fees.html', '/finance': '/finance.html', '/staff': '/staff.html', '/staff/leave': '/leave.html', '/staff/professional-development': '/staff.html', '/administrator-management': '/administrator-management.html', '/staff-management': '/staff-management.html', '/settings': '/school-settings.html', '/users': '/administrator-management.html', '/communication': '/communication.html', '/communication/messages': '/communication.html', '/communication/calendar': '/communication.html', '/compliance': '/compliance.html', '/documents': '/documents.html', '/privacy': '/privacy.html', '/inventory': '/inventory.html', '/assets': '/assets.html', '/procurement': '/procurement.html', '/property': '/assets.html', '/library': '/library.html', '/transport': '/transport.html', '/sporting-activities': '/sporting-activities.html', '/transport/gps': '/transport.html', '/hostel': '/hostel.html', '/welfare/health': '/welfare.html', '/welfare/discipline': '/welfare.html', '/welfare/counselling': '/welfare.html' };
+    const pageAliases = { '/developer/communication-setup': '/communication-setup.html', '/academics': '/academics.html', '/students': '/students.html', '/admissions': '/admissions.html', '/attendance': '/attendance.html', '/examinations': '/examinations.html', '/results': '/results.html', '/promotion': '/results.html', '/fees': '/fees.html', '/fees/admission-structures': '/admission-fees.html', '/fees/scholarships': '/fees.html', '/finance': '/finance.html', '/staff': '/staff.html', '/staff/leave': '/leave.html', '/staff/professional-development': '/staff.html', '/administrator-management': '/administrator-management.html', '/staff-management': '/staff-management.html', '/settings': '/school-settings.html', '/users': '/users-and-roles.html', '/communication': '/communication.html', '/communication/messages': '/communication.html', '/communication/calendar': '/communication.html', '/compliance': '/compliance.html', '/documents': '/documents.html', '/privacy': '/privacy.html', '/inventory': '/inventory.html', '/assets': '/assets.html', '/procurement': '/procurement.html', '/property': '/assets.html', '/library': '/library.html', '/transport': '/transport.html', '/sporting-activities': '/sporting-activities.html', '/transport/gps': '/transport.html', '/hostel': '/hostel.html', '/welfare/health': '/welfare.html', '/welfare/discipline': '/welfare.html', '/welfare/counselling': '/welfare.html' };
     Object.assign(pageAliases, { '/about-developer': '/about-developer.html', '/copyright': '/copyright.html' });
     Object.assign(pageAliases, { '/reports': '/reports.html', '/reports/academic': '/reports-academic.html', '/reports/financial': '/reports-financial.html', '/official-documents': '/official-documents.html', '/website': '/website.html', '/admissions/prospectus': '/admission-prospectus.html', '/parent/admission-prospectus': '/parent-admission-prospectus.html', '/examinations/marks': '/examinations.html', '/examinations/mock': '/mock-examinations.html', '/results/mock': '/results.html', '/academics/subjects': '/subjects.html', '/academics/subject-register': '/subject-register.html', '/welfare/shep': '/shep-activities.html', '/settings/result-signatures': '/result-signatures.html', '/fees/invoices': '/receipts.html' });
     Object.assign(pageAliases, { '/academics': '/subjects.html', '/admissions/analytics': '/admission-analytics.html', '/settings/multi-school': '/school-settings.html', '/user-guide': '/user-guide.html', '/finance/receipts': '/finance-canonical.html' }, PROPRIETOR_PAGE_ALIASES, Object.fromEntries(Object.keys(PROPRIETOR_PAGE_ALIASES).filter((route) => route === '/finance' || route.startsWith('/finance/') || route.startsWith('/fees/')).map((route) => [route, '/finance-canonical.html'])));

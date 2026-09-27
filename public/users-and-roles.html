@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Users &amp; Roles | OsaaH Daylight</title>
+  <link rel="stylesheet" href="/styles.css">
+  <style>
+    .users-toolbar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:20px 0 12px}
+    .users-toolbar p{margin:0}
+    .users-refresh{border:1px solid #1769aa;border-radius:8px;background:#fff;color:#1769aa;padding:9px 14px;font:inherit;font-weight:600;cursor:pointer}
+    .users-refresh:disabled{opacity:.6;cursor:wait}
+    .user-role{display:inline-block;margin:2px 5px 2px 0;padding:4px 8px;border-radius:999px;background:#eaf2f8;color:#102a43;font-size:.82rem;white-space:nowrap}
+    .user-status{font-weight:600}
+    .user-status[data-status="ACTIVE"]{color:#176b45}
+    .user-status[data-status="DISABLED"],.user-status[data-status="REVOKED"]{color:#9a3412}
+    .users-empty{padding:18px;text-align:center;color:#52606d}
+    @media(max-width:640px){.users-toolbar{align-items:flex-start;flex-direction:column}}
+  </style>
+</head>
+<body>
+  <main class="form-page">
+    <a class="text-button" href="/">← Dashboard</a>
+    <p class="eyebrow">ADMINISTRATIVE</p>
+    <h1>Users &amp; Roles</h1>
+    <p class="muted">Existing accounts and assigned roles for your authorized school. This directory is read-only; account changes remain subject to the existing server-side controls.</p>
+    <section class="card" aria-labelledby="directory-heading">
+      <div class="users-toolbar">
+        <div>
+          <h2 id="directory-heading">School user directory</h2>
+          <p id="directory-status" class="muted" role="status" aria-live="polite">Loading existing accounts…</p>
+        </div>
+        <button id="directory-refresh" class="users-refresh" type="button">Refresh</button>
+      </div>
+      <div class="responsive-table">
+        <table>
+          <thead><tr><th>Account</th><th>Username</th><th>Email</th><th>Role(s)</th><th>Status</th></tr></thead>
+          <tbody id="directory-rows"><tr><td colspan="5">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+  <script>
+    const rows=document.querySelector('#directory-rows');
+    const status=document.querySelector('#directory-status');
+    const refresh=document.querySelector('#directory-refresh');
+    const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+    async function loadUsers(){
+      refresh.disabled=true;
+      status.textContent='Loading existing accounts…';
+      rows.innerHTML='<tr><td colspan="5">Loading…</td></tr>';
+      try{
+        const response=await fetch('/api/users',{headers:{Accept:'application/json'},credentials:'same-origin',cache:'no-store'});
+        const data=await response.json().catch(()=>({}));
+        if(!response.ok){
+          const message=response.status===401?'Sign in to view authorized school users.':response.status===403?'You are not authorized to view Users & Roles.':'The user directory is temporarily unavailable.';
+          status.textContent=message;
+          rows.innerHTML=`<tr><td colspan="5" class="users-empty">${esc(message)}</td></tr>`;
+          return;
+        }
+        const users=Array.isArray(data.users)?data.users:[];
+        if(!users.length){
+          status.textContent='No existing accounts were returned for this school.';
+          rows.innerHTML='<tr><td colspan="5" class="users-empty">No existing accounts found.</td></tr>';
+          return;
+        }
+        rows.innerHTML=users.map(user=>{
+          const roleLabels=Array.isArray(user.roles)&&user.roles.length?user.roles.map(role=>`<span class="user-role">${esc(role.name||role.key)}</span>`).join(''):'<span class="muted">No role assigned</span>';
+          const account=user.displayName||user.username||user.email||'Unnamed account';
+          const accountStatus=String(user.status||'UNKNOWN').toUpperCase();
+          return `<tr><td>${esc(account)}</td><td>${esc(user.username)}</td><td>${esc(user.email||'—')}</td><td>${roleLabels}</td><td><span class="user-status" data-status="${esc(accountStatus)}">${esc(accountStatus)}</span></td></tr>`;
+        }).join('');
+        status.textContent=`${users.length} existing account${users.length===1?'':'s'} found.`;
+      }catch{
+        const message='The user directory could not be reached. Try again shortly.';
+        status.textContent=message;
+        rows.innerHTML=`<tr><td colspan="5" class="users-empty">${esc(message)}</td></tr>`;
+      }finally{refresh.disabled=false}
+    }
+    refresh.addEventListener('click',loadUsers);
+    loadUsers();
+  </script>
+</body>
+</html>
