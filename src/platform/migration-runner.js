@@ -58,6 +58,54 @@ export function createMigrationRunner({ adapter, directory, clock = () => new Da
   }
   async function status() { const health = await adapter.healthCheck(); if (!health?.healthy) throw error('DATABASE_UNAVAILABLE', 'Durable database is unavailable.'); const result = await inspect({ createMetadata: false }); return Object.freeze({ baseline: result.baseline, historicalUntracked: result.historicalUntracked.map(({ version, name, checksum }) => ({ version, name, checksum })), applied: result.applied.map(({ version, name, checksum, appliedAt }) => ({ version, name, checksum, appliedAt })), pending: result.pending.map(({ version, name, checksum }) => ({ version, name, checksum })) }); }
   async function validate() { const result = await inspect({ createMetadata: false }); return Object.freeze({ valid: true, migrationCount: result.migrations.length, appliedCount: result.applied.length, pendingCount: result.pending.length, historicalUntrackedCount: result.historicalUntracked.length, baseline: result.baseline }); }
+  async function applyVersions({ versions, requiredAppliedVersions = [], dryRun = false, beforeApply, applyMigration, verifyMigration } = {}) {
+    if (!Array.isArray(versions) || !versions.length || versions.some((version) => !Number.isInteger(version) || version < 1) || new Set(versions).size !== versions.length) throw error('MIGRATION_VERSION_SCOPE_INVALID', 'An explicit unique migration version allowlist is required.');
+    const health = await adapter.healthCheck(); if (!health?.healthy) throw error('DATABASE_UNAVAILABLE', 'Durable database is unavailable.');
+    const before = await inspect({ createMetadata: !dryRun && !baselineRequired });
+    if (before.baseline && before.historicalUntracked.length && baselineRequired === false) throw error('HISTORICAL_BASELINE_REQUIRED', 'Untracked historical migrations require explicit baseline-aware execution.');
+    const selected = versions.map((version) => {
+      const migration = before.migrations.find((item) => item.version === version);
+      if (!migration) throw error('MIGRATION_VERSION_MISSING', `Required migration ${version} is not present.`);
+      return migration;
+    });
+    const appliedVersions = new Set(before.applied.map((item) => Number(item.version)));
+    const missingPredecessors = requiredAppliedVersions.filter((version) => !Number.isInteger(version) || !appliedVersions.has(version));
+    if (missingPredecessors.length) throw error('MIGRATION_PREDECESSOR_MISSING', `Required predecessor migrations are not recorded: ${missingPredecessors.join(', ')}.`);
+    const ordered = [...selected].sort((a, b) => a.version - b.version);
+    if (versions.some((version, index) => version !== ordered[index].version)) throw error('MIGRATION_VERSION_ORDER_INVALID', 'Migration allowlist must be in ascending execution order.');
+    if (ordered.some((migration, index) => index > 0 && !appliedVersions.has(ordered[index - 1].version) && !ordered.slice(0, index).some((prior) => prior.version === ordered[index - 1].version))) throw error('MIGRATION_PREDECESSOR_MISSING', 'A selected migration predecessor is not recorded or included earlier in the explicit scope.');
+    if (appliedVersions.has(ordered.at(-1).version) && ordered.some((migration) => !appliedVersions.has(migration.version))) throw error('MIGRATION_LEDGER_GAP', 'A later selected migration is recorded while an earlier selected migration is missing.');
+    const pending = ordered.filter((migration) => !appliedVersions.has(migration.version));
+    if (dryRun) return Object.freeze({ dryRun: true, baseline: before.baseline, pending: pending.map(({ version, name, checksum }) => ({ version, name, checksum })) });
+    if (!await adapter.acquireLock()) throw error('MIGRATION_LOCKED', 'Another migration execution is already active.');
+    try {
+      const current = await inspect({ createMetadata: false });
+      const currentApplied = new Set(current.applied.map((item) => Number(item.version)));
+      const lostPredecessors = requiredAppliedVersions.filter((version) => !currentApplied.has(version));
+      if (lostPredecessors.length) throw error('MIGRATION_PREDECESSOR_MISSING', `Required predecessor migrations are not recorded: ${lostPredecessors.join(', ')}.`);
+      if (currentApplied.has(ordered.at(-1).version) && ordered.some((migration) => !currentApplied.has(migration.version))) throw error('MIGRATION_LEDGER_GAP', 'A later selected migration is recorded while an earlier selected migration is missing.');
+      if (typeof beforeApply === 'function') await beforeApply({ adapter, applied: current.applied, pending });
+      const applied = [];
+      for (const migration of ordered) {
+        if (currentApplied.has(migration.version)) continue;
+        await adapter.transaction(async (transaction) => {
+          const executor = transaction?.executeMigrationSql ?? adapter.executeMigrationSql;
+          if (typeof applyMigration === 'function') await applyMigration({ adapter: transaction ?? adapter, migration, executeMigrationSql: typeof executor === 'function' ? executor.bind(transaction ?? adapter) : null });
+          else {
+            if (typeof executor !== 'function') throw error('DATABASE_ADAPTER_INVALID', 'Database adapter is missing executeMigrationSql().');
+            await executor.call(transaction ?? adapter, migration.sql, { migrationName: migration.name, version: migration.version });
+          }
+          if (typeof verifyMigration === 'function') await verifyMigration({ adapter: transaction ?? adapter, migration });
+          const record = { version: migration.version, name: migration.name, checksum: migration.checksum, appliedAt: clock() };
+          if (typeof transaction?.recordApplied === 'function') await transaction.recordApplied(record); else await adapter.recordApplied(record);
+          applied.push(record);
+        });
+        currentApplied.add(migration.version);
+      }
+      return Object.freeze({ dryRun: false, baseline: current.baseline, applied });
+    } catch (cause) { if (cause.code) throw cause; throw error('MIGRATION_FAILED', 'Migration execution failed safely.'); }
+    finally { await adapter.releaseLock(); }
+  }
   async function apply({ dryRun = false } = {}) {
     const health = await adapter.healthCheck(); if (!health?.healthy) throw error('DATABASE_UNAVAILABLE', 'Durable database is unavailable.');
     const before = await inspect({ createMetadata: !dryRun && !baselineRequired });
@@ -78,5 +126,5 @@ export function createMigrationRunner({ adapter, directory, clock = () => new Da
     } catch (cause) { if (cause.code) throw cause; throw error('MIGRATION_FAILED', 'Migration execution failed safely.'); }
     finally { await adapter.releaseLock(); }
   }
-  return Object.freeze({ status, validate, apply });
+  return Object.freeze({ status, validate, apply, applyVersions });
 }
