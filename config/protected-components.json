@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "components": [
+    {
+      "id": "administrator-users-roles-directory",
+      "description": "Read-only, canonical-school-scoped directory of existing accounts and assigned roles.",
+      "route": "/users",
+      "files": [
+        {
+          "path": "public/users-and-roles.html",
+          "requiredMarkers": [
+            "<h1>Users &amp; Roles</h1>",
+            "This directory is read-only;",
+            "id=\"directory-rows\"",
+            "fetch('/api/users'"
+          ]
+        },
+        {
+          "path": "src/user-directory.js",
+          "requiredMarkers": [
+            "export const USER_DIRECTORY_SQL",
+            "WHERE u.school_id = ?",
+            "assertCanonicalSchoolContext",
+            "export function createUserDirectoryService"
+          ]
+        },
+        {
+          "path": "src/server.mjs",
+          "requiredMarkers": [
+            "pathname === '/api/users'",
+            "'/users': '/users-and-roles.html'"
+          ]
+        },
+        {
+          "path": "test/users-and-roles.test.js",
+          "requiredMarkers": [
+            "Users & Roles API authorizes server-side",
+            "directory service rejects accounts outside the canonical school",
+            "never returns credentials"
+          ]
+        }
+      ]
+    }
+  ]
+}
