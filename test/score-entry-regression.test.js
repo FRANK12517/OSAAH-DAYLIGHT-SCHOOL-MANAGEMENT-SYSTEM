@@ -174,4 +174,9 @@ test('Score Entry UI has dependent single-select subjects, required-selection ga
   assert.match(js, /exam < 0 \|\| exam > 50/);
   assert.match(js, /setTimeout\(\(\) => save/);
   assert.match(js, /Error saving/);
+  assert.match(html, /<select name="academicYear" required>/);
+  assert.match(html, /<select name="term" required>/);
+  assert.match(js, /optionId\(item\)/);
+  assert.match(js, /renderAcademicOptions/);
+  assert.match(js, /renderTerms/);
 });

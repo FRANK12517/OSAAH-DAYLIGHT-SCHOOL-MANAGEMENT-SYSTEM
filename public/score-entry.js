@@ -11,6 +11,8 @@ const classNames = new Map(SCHOOL_CLASS_CATALOGUE.map((item) => [item.id, item.l
 let options = { classes: [] };
 let currentClass = '';
 let subjectRequest = 0;
+const academicYearSelect = context.elements.academicYear;
+const termSelect = context.elements.term;
 
 const esc = (value) => String(value ?? '').replace(/[&<>'"]/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;' }[c]));
 const grade = (total, classId) => String(classId).toUpperCase().startsWith('JHS') ? (total >= 80 ? '1' : total >= 70 ? '2' : total >= 60 ? '3' : total >= 55 ? '4' : total >= 50 ? '5' : total >= 45 ? '6' : total >= 40 ? '7' : total >= 35 ? '8' : '9') : (total >= 80 ? 'A' : total >= 70 ? 'B' : total >= 60 ? 'C' : total >= 50 ? 'D' : 'F');
@@ -35,6 +37,24 @@ function clearRoster(message = 'Choose a class and subject.') {
   studentsHost.innerHTML = `<tr><td colspan="7">${esc(message)}</td></tr>`;
 }
 
+function optionId(item) { return typeof item === 'string' ? item : item?.id ?? item?.name ?? ''; }
+function optionLabel(item) { return typeof item === 'string' ? (classNames.get(item) ?? item) : item?.name ?? item?.id ?? ''; }
+function renderTerms() {
+  const year = academicYearSelect.value;
+  const yearObject = (options.academicYears ?? []).find((item) => optionId(item) === year);
+  const terms = (options.terms ?? []).filter((item) => !item?.academicYearId || !year || item.academicYearId === year || item.academicYearId === yearObject?.id);
+  const previousTerm = termSelect.value;
+  termSelect.innerHTML = '<option value="">Select Term</option>' + terms.map((item) => `<option value="${esc(optionId(item))}">${esc(item?.name ?? optionId(item))}</option>`).join('');
+  termSelect.value = terms.some((item) => optionId(item) === previousTerm) ? previousTerm : optionId(terms.find((item) => item.isCurrent) ?? terms[0]);
+}
+function renderAcademicOptions() {
+  const years = Array.isArray(options.academicYears) ? options.academicYears : [];
+  const previousYear = academicYearSelect.value;
+  academicYearSelect.innerHTML = '<option value="">Select Academic Year</option>' + years.map((item) => `<option value="${esc(optionId(item))}">${esc(item?.name ?? optionId(item))}</option>`).join('');
+  academicYearSelect.value = years.some((item) => optionId(item) === previousYear) ? previousYear : optionId(years.find((item) => item.isCurrent) ?? years[0]);
+  renderTerms();
+}
+
 async function loadSubjects() {
   const classId = classSelect.value;
   const requestNumber = ++subjectRequest;
@@ -42,7 +62,7 @@ async function loadSubjects() {
   subjectSelect.disabled = true;
   currentClass = classId;
   if (!classId) return;
-  const params = new URLSearchParams({ classId, academicYearId: context.elements.academicYear.value.trim(), termId: context.elements.term.value });
+  const params = new URLSearchParams({ classId, academicYearId: academicYearSelect.value.trim(), termId: termSelect.value });
   try {
     const result = await api(`/api/subjects?${params}`);
     if (requestNumber !== subjectRequest || currentClass !== classSelect.value) return;
@@ -115,7 +135,8 @@ async function save(row, caScore, examScore, stateCell, sequence) {
 
 async function load() {
   options = await api('/api/academic/options');
-  classSelect.innerHTML = '<option value="">Select Class</option>' + options.classes.map((id) => `<option value="${esc(id)}">${esc(classNames.get(id) ?? id)}</option>`).join('');
+  renderAcademicOptions();
+  classSelect.innerHTML = '<option value="">Select Class</option>' + options.classes.map((item) => `<option value="${esc(optionId(item))}">${esc(optionLabel(item))}</option>`).join('');
   subjectSelect.innerHTML = '<option value="">Select Class First</option>';
   subjectSelect.disabled = true;
   clearRoster();
@@ -127,13 +148,17 @@ classSelect.addEventListener('change', () => {
   loadSubjects();
 });
 subjectSelect.addEventListener('change', () => clearRoster('Select the academic context, class, and subject, then load students.'));
-for (const field of [context.elements.academicYear, context.elements.term]) {
-  field.addEventListener('change', () => {
+academicYearSelect.addEventListener('change', () => {
+  renderTerms();
+  subjectSelect.value = '';
+  clearRoster();
+  loadSubjects();
+});
+termSelect.addEventListener('change', () => {
     subjectSelect.value = '';
     clearRoster();
     loadSubjects();
-  });
-}
+});
 
 context.addEventListener('submit', async (event) => {
   event.preventDefault();

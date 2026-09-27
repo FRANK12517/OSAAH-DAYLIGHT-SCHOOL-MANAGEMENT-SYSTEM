@@ -4,6 +4,7 @@ import { gradeForTotal } from './grading.js';
 const rows = (value) => Array.isArray(value) ? value : [];
 const text = (value) => String(value ?? '').trim();
 const fail = (message, status = 400, code = 'ACADEMIC_DATA_ERROR') => { throw Object.assign(new Error(message), { status, code }); };
+const schemaCompatibilityError = (error) => /unknown column|doesn'?t exist|no such table|table .* does not exist/i.test(String(error?.message ?? error));
 
 function authorized(actor, permission) {
   return actor?.permissions?.has?.('*') || actor?.permissions?.has?.(permission) || actor?.roleKey === 'PROPRIETOR';
@@ -19,12 +20,24 @@ export function createDurableAcademicService({ database, schoolId, idFactory = r
 
   async function options(actor) {
     assertActor(actor);
-    const [academicYears, terms, classes] = await Promise.all([
+    const [academicYears, terms] = await Promise.all([
       database.query('SELECT id,name,starts_on AS startsOn,ends_on AS endsOn,is_current AS isCurrent FROM academic_years WHERE school_id=? ORDER BY starts_on DESC,id', [schoolId]),
-      database.query('SELECT t.id,t.academic_year_id AS academicYearId,t.name,t.starts_on AS startsOn,t.ends_on AS endsOn,t.is_current AS isCurrent FROM terms t JOIN academic_years y ON y.id=t.academic_year_id WHERE y.school_id=? ORDER BY t.starts_on ASC,t.id', [schoolId]),
-      database.query('SELECT c.id,c.name,c.display_order AS displayOrder,l.name AS levelName FROM classes c JOIN levels l ON l.id=c.level_id WHERE l.school_id=? ORDER BY c.display_order,c.id', [schoolId])
+      database.query('SELECT t.id,t.academic_year_id AS academicYearId,t.name,t.starts_on AS startsOn,t.ends_on AS endsOn,t.is_current AS isCurrent FROM terms t JOIN academic_years y ON y.id=t.academic_year_id WHERE y.school_id=? ORDER BY t.starts_on ASC,t.id', [schoolId])
     ]);
-    return { academicYears: rows(academicYears), terms: rows(terms), classes: rows(classes) };
+    let classes;
+    try {
+      // Production's canonical class catalogue is the existing classes table.
+      // Do not join levels here: older production rows use classes.school_id,
+      // classes.level, and classes.sort_order rather than classes.level_id.
+      classes = await database.query('SELECT c.id,c.name,c.sort_order AS displayOrder,c.level AS levelName FROM classes c WHERE c.school_id=? ORDER BY c.sort_order,c.id', [schoolId]);
+    } catch (error) {
+      if (!schemaCompatibilityError(error)) throw error;
+      // Keep compatibility with the normalized foundation schema used by
+      // installations where classes are tenant-scoped through levels.
+      classes = await database.query('SELECT c.id,c.name,c.display_order AS displayOrder,l.name AS levelName FROM classes c JOIN levels l ON l.id=c.level_id WHERE l.school_id=? ORDER BY c.display_order,c.id', [schoolId]);
+    }
+    const allowedClasses = rows(classes).filter((item) => !actor?.assignedClassIds?.length || actor.assignedClassIds.includes(item.id));
+    return { academicYears: rows(academicYears), terms: rows(terms), classes: allowedClasses };
   }
 
   async function listSubjects(filters = {}, actor) {
@@ -35,10 +48,22 @@ export function createDurableAcademicService({ database, schoolId, idFactory = r
     const params = [schoolId, classId];
     let yearClause = '';
     if (academicYearId) { yearClause = ' AND (a.academic_year_id IS NULL OR a.academic_year_id=?)'; params.push(academicYearId); }
-    const result = await database.query(`SELECT s.id,s.code,s.name,s.department_id AS departmentId,a.class_id AS classId,a.academic_year_id AS academicYearId
-      FROM subject_class_assignments a JOIN subjects s ON s.id=a.subject_id AND s.school_id=a.school_id
-      WHERE a.school_id=? AND a.class_id=? AND a.active=1${yearClause} ORDER BY s.name,s.id`, params);
-    return rows(result);
+    try {
+      const result = await database.query(`SELECT s.id,s.code,s.name,s.department_id AS departmentId,a.class_id AS classId,a.academic_year_id AS academicYearId
+        FROM subject_class_assignments a JOIN subjects s ON s.id=a.subject_id AND s.school_id=a.school_id
+        WHERE a.school_id=? AND a.class_id=? AND a.active=1${yearClause} ORDER BY s.name,s.id`, params);
+      return rows(result);
+    } catch (error) {
+      if (!schemaCompatibilityError(error)) throw error;
+      // Some production databases retain the original class_subjects mapping.
+      // It is authoritative and already references canonical subject/class
+      // records; do not create a second mapping table or duplicate assignments.
+      const result = await database.query(`SELECT s.id,s.code,s.name,s.department_id AS departmentId,cs.class_id AS classId
+        FROM class_subjects cs JOIN subjects s ON s.id=cs.subject_id AND s.school_id=?
+        JOIN classes c ON c.id=cs.class_id AND c.school_id=?
+        WHERE cs.class_id=? ORDER BY s.name,s.id`, [schoolId, schoolId, classId]);
+      return rows(result);
+    }
   }
 
   async function listAssignments(subjectId, actor) {
