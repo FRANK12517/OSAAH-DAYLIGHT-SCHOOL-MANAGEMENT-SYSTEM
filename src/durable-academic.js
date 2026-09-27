@@ -22,7 +22,7 @@ export function createDurableAcademicService({ database, schoolId, idFactory = r
     const [academicYears, terms, classes] = await Promise.all([
       database.query('SELECT id,name,starts_on AS startsOn,ends_on AS endsOn,is_current AS isCurrent FROM academic_years WHERE school_id=? ORDER BY starts_on DESC,id', [schoolId]),
       database.query('SELECT t.id,t.academic_year_id AS academicYearId,t.name,t.starts_on AS startsOn,t.ends_on AS endsOn,t.is_current AS isCurrent FROM terms t JOIN academic_years y ON y.id=t.academic_year_id WHERE y.school_id=? ORDER BY t.starts_on ASC,t.id', [schoolId]),
-      database.query('SELECT c.id,c.name,COALESCE(c.sort_order,c.display_order,0) AS displayOrder,l.name AS levelName FROM classes c JOIN levels l ON l.id=c.level_id WHERE l.school_id=? AND COALESCE(c.status,"ACTIVE")="ACTIVE" ORDER BY displayOrder,c.id', [schoolId])
+      database.query('SELECT c.id,c.name,c.display_order AS displayOrder,l.name AS levelName FROM classes c JOIN levels l ON l.id=c.level_id WHERE l.school_id=? ORDER BY c.display_order,c.id', [schoolId])
     ]);
     return { academicYears: rows(academicYears), terms: rows(terms), classes: rows(classes) };
   }
