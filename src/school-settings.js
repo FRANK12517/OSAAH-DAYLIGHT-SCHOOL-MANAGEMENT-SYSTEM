@@ -75,8 +75,16 @@ export function createSchoolSettingsService({ database = null, schoolProfile = n
       const current = fallback(schoolId); Object.assign(current, Object.fromEntries(Object.entries(input).map(([key, value]) => [key, value]))); current.updatedAt = now(); return publicView(current);
     }
     const executeAll = async (db) => {
-      if (Object.keys(profileUpdates).length) { const assignments = Object.keys(profileUpdates).map((column) => `${column}=?`).join(','); await db.execute(`UPDATE schools SET ${assignments},updated_at=? WHERE id=?`, [...Object.values(profileUpdates), now(), schoolId]); }
-      for (const [key, value] of Object.entries(settingUpdates)) await db.execute('INSERT INTO system_settings (id,school_id,setting_key,setting_value,value_type,is_sensitive,created_at,updated_at) VALUES (?,?,?,?,?,0,?,?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value),value_type=VALUES(value_type),updated_at=VALUES(updated_at)', [`setting-${schoolId}-${key}`, schoolId, key, typeof value === 'string' ? value : JSON.stringify(value), typeof value, now(), now()]);
+      if (Object.keys(profileUpdates).length) {
+        const assignments = Object.keys(profileUpdates).map((column) => `${column}=?`).join(',');
+        try {
+          await db.execute(`UPDATE schools SET ${assignments},updated_at=? WHERE id=?`, [...Object.values(profileUpdates), now(), schoolId]);
+        } catch {
+          // Legacy production foundations may not have the optional timestamp column.
+          await db.execute(`UPDATE schools SET ${assignments} WHERE id=?`, [...Object.values(profileUpdates), schoolId]);
+        }
+      }
+      for (const [key, value] of Object.entries(settingUpdates)) await db.execute('INSERT INTO system_settings (id,school_id,setting_key,setting_value,value_type,is_sensitive,created_at,updated_at) VALUES (?,?,?,?,?,0,?,?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value),value_type=VALUES(value),updated_at=VALUES(updated_at)', [`setting-${schoolId}-${key}`, schoolId, key, typeof value === 'string' ? value : JSON.stringify(value), typeof value, now(), now()]);
     };
     if (database.transaction) await database.transaction(executeAll); else await executeAll(database);
     return read(actor);
