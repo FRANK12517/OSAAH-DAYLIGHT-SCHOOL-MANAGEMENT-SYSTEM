@@ -46,8 +46,7 @@ test('directory reads existing school users once, aggregates roles, and returns 
   assert.deepEqual(queryParams, [SCHOOL_ID]);
   assert.match(queryText, /FROM users u[\s\S]*LEFT JOIN user_roles ur[\s\S]*LEFT JOIN roles r/);
   assert.match(queryText, /WHERE u\.school_id = \?/);
-  assert.match(queryText, /COALESCE\(NULLIF\(u\.username, ''\), u\.email\) AS username/);
-  assert.match(queryText, /ORDER BY COALESCE\(NULLIF\(u\.username, ''\), u\.email\)/);
+  assert.match(queryText, /u\.email AS username/);
   assert.doesNotMatch(queryText, /oversight_rank/);
   assert.doesNotMatch(queryText, /password_hash|reset.?token|session.?token|api.?secret|authentication.?secret/i);
   assert.equal(users.length, 2);
