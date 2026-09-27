@@ -1,0 +1,72 @@
+name: Apply Final Result Slip Reconciliation
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_sha:
+        description: Exact reviewed 40-character lowercase commit SHA to reconcile
+        required: true
+        type: string
+      confirmation:
+        description: Type APPLY_FINAL_RESULT_SLIP_RECONCILIATION_049_054_055_056
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-final-result-slip-reconciliation
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    if: github.ref == 'refs/heads/main'
+    name: Reconcile production migrations 049, 054, 055, and 056
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    env:
+      RELEASE_SHA: ${{ inputs.release_sha }}
+      CONFIRMATION: ${{ inputs.confirmation }}
+    steps:
+      - name: Validate immutable release inputs
+        shell: bash
+        run: |
+          if ! [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "release_sha must be a full lowercase 40-character commit SHA."
+            exit 1
+          fi
+          if [ "$CONFIRMATION" != "APPLY_FINAL_RESULT_SLIP_RECONCILIATION_049_054_055_056" ]; then
+            echo "Production confirmation phrase did not match."
+            exit 1
+          fi
+
+      - name: Check out the exact release commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_sha }}
+
+      - name: Verify checked out release identity
+        shell: bash
+        run: |
+          resolved="$(git rev-parse --verify 'HEAD^{commit}')"
+          if [ "$resolved" != "$RELEASE_SHA" ]; then
+            echo "Checked-out commit does not match release_sha."
+            exit 1
+          fi
+          printf 'Verified release SHA: %s\n' "$resolved"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Reconcile only 049, 054, 055, and 056
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: node scripts/apply-final-result-slip-reconciliation.mjs

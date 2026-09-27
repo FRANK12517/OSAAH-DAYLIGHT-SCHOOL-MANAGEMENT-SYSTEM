@@ -1,0 +1,46 @@
+name: Production Result Slip targeted metadata inventory
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-result-slip-targeted-inventory
+  cancel-in-progress: false
+
+jobs:
+  inventory:
+    name: Read-only targeted production metadata inventory
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    environment: production
+    timeout-minutes: 15
+    steps:
+      - name: Check out the reviewed workflow commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Confirm protected database secret is available
+        shell: bash
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "Protected DATABASE_URL is unavailable."
+            exit 1
+          fi
+          echo "Protected DATABASE_URL is available."
+      - name: Run read-only targeted metadata inventory
+        run: node scripts/production-result-slip-targeted-inventory.mjs
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
