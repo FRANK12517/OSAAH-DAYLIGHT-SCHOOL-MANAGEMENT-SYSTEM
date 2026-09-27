@@ -10,6 +10,7 @@ const VIEW_BY_MODULE = Object.freeze({
 function componentFor(module) {
   const key = module.moduleKey ?? '';
   const route = module.route ?? '';
+  if (key === 'single-school-panel') return '/single-school-panel.html';
   if (key === 'class-database') return '/class-database.html';
   if (key === 'completed-class-database') return '/completed-class-database.html';
   if (key === 'student-attendance') return '/attendance.html';
@@ -29,6 +30,7 @@ function componentFor(module) {
 
 function apiFor(module) {
   const route = module.route ?? '';
+  if (module.moduleKey === 'single-school-panel') return ['/api/single-school/overview'];
   if (module.moduleKey === 'class-database') return ['/api/class-database/options', '/api/class-database'];
   if (module.moduleKey === 'completed-class-database') return ['/api/class-database/completed/options', '/api/class-database/completed'];
   if (route.startsWith('/finance') || route.startsWith('/fees')) return ['/api/fees/obligations', '/api/reports/financial'];

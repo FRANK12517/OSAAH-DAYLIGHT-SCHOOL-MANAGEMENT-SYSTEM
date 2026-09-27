@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-22T16:37:46.587Z",
+  "generatedAt": "2026-09-27T22:59:20.523Z",
   "part": 29,
   "baseline": {
     "source": "Part 28 release-gate report supplied with the implementation specification",
@@ -15,8 +15,8 @@
       "ASSISTANT_HEADTEACHER",
       "TEACHER"
     ],
-    "roleDestinationRecords": 211,
-    "componentTargetPasses": 211,
+    "roleDestinationRecords": 215,
+    "componentTargetPasses": 215,
     "missingComponentTargetBlockers": 0,
     "sharedRouteContracts": 0,
     "duplicateRouteBlockers": 0,
@@ -27,6 +27,21 @@
     "sharedRoutes": []
   },
   "records": [
+    {
+      "navigationKey": "single-school-panel",
+      "role": "ACCOUNTANT_BURSAR",
+      "parent": null,
+      "child": "Single-School Panel",
+      "oldRoute": "/settings/single-school",
+      "existingImplementationFound": true,
+      "newRoute": "/settings/single-school",
+      "exactView": "single-school-panel",
+      "component": "/single-school-panel.html",
+      "apiDependencies": [
+        "/api/single-school/overview"
+      ],
+      "result": "PASS"
+    },
     {
       "navigationKey": "user-guide",
       "role": "ACCOUNTANT_BURSAR",
@@ -594,6 +609,21 @@
       "exactView": "dashboard",
       "component": "/index.html",
       "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "single-school-panel",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Single-School Panel",
+      "oldRoute": "/settings/single-school",
+      "existingImplementationFound": true,
+      "newRoute": "/settings/single-school",
+      "exactView": "single-school-panel",
+      "component": "/single-school-panel.html",
+      "apiDependencies": [
+        "/api/single-school/overview"
+      ],
       "result": "PASS"
     },
     {
@@ -2020,6 +2050,21 @@
       "result": "PASS"
     },
     {
+      "navigationKey": "single-school-panel",
+      "role": "ASSISTANT_HEADTEACHER",
+      "parent": null,
+      "child": "Single-School Panel",
+      "oldRoute": "/settings/single-school",
+      "existingImplementationFound": true,
+      "newRoute": "/settings/single-school",
+      "exactView": "single-school-panel",
+      "component": "/single-school-panel.html",
+      "apiDependencies": [
+        "/api/single-school/overview"
+      ],
+      "result": "PASS"
+    },
+    {
       "navigationKey": "user-guide",
       "role": "ASSISTANT_HEADTEACHER",
       "parent": null,
@@ -2234,6 +2279,21 @@
       "exactView": "dashboard",
       "component": "/index.html",
       "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "single-school-panel",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Single-School Panel",
+      "oldRoute": "/settings/single-school",
+      "existingImplementationFound": true,
+      "newRoute": "/settings/single-school",
+      "exactView": "single-school-panel",
+      "component": "/single-school-panel.html",
+      "apiDependencies": [
+        "/api/single-school/overview"
+      ],
       "result": "PASS"
     },
     {
