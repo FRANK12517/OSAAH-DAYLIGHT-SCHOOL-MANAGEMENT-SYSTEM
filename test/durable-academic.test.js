@@ -71,3 +71,34 @@ test('cross-school durable academic access is rejected', async () => {
   await assert.rejects(() => service.options({ ...manager, schoolId: 'sch_other_02' }), /Forbidden/);
   await assert.rejects(() => service.assignSubject({ subjectId: 'subject-math', classId: 'class-basic-1' }, { ...manager, schoolId: 'sch_other_02' }), /Forbidden/);
 });
+
+test('Score Entry options use the authoritative production classes table without requiring levels.level_id', async () => {
+  const calls = [];
+  const database = {
+    async query(sql, params = []) {
+      calls.push({ sql, params });
+      if (sql.includes('FROM academic_years')) return [{ id: 'year-2026', name: '2026/2027', isCurrent: 1 }];
+      if (sql.includes('FROM terms')) return [{ id: 'term-1', academicYearId: 'year-2026', name: 'First Term', isCurrent: 1 }];
+      if (sql.includes('FROM classes c WHERE c.school_id')) return [{ id: 'class-basic-1', name: 'Basic 1', displayOrder: 1, levelName: 'PRIMARY' }];
+      return [];
+    },
+    async execute() { return { affectedRows: 1 }; }
+  };
+  const service = createDurableAcademicService({ database, schoolId });
+  const result = await service.options(manager);
+  assert.deepEqual(result.classes, [{ id: 'class-basic-1', name: 'Basic 1', displayOrder: 1, levelName: 'PRIMARY' }]);
+  assert.equal(calls.some(({ sql }) => sql.includes('JOIN levels')), false);
+});
+
+test('legacy class_subjects mapping remains an authoritative subject source when normalized assignments are unavailable', async () => {
+  const database = {
+    async query(sql) {
+      if (sql.includes('subject_class_assignments')) throw new Error("Table 'subject_class_assignments' doesn't exist");
+      if (sql.includes('class_subjects')) return [{ id: 'subject-math', code: 'MATH', name: 'Mathematics', departmentId: null, classId: 'class-basic-1' }];
+      return [];
+    },
+    async execute() { return { affectedRows: 1 }; }
+  };
+  const service = createDurableAcademicService({ database, schoolId });
+  assert.deepEqual(await service.listSubjects({ classId: 'class-basic-1' }, manager), [{ id: 'subject-math', code: 'MATH', name: 'Mathematics', departmentId: null, classId: 'class-basic-1' }]);
+});
