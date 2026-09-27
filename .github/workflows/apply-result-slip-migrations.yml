@@ -1,0 +1,83 @@
+name: Apply Result Slip Migrations
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Exact reviewed 40-character lowercase release commit SHA to inspect and migrate
+        required: true
+        type: string
+      confirmation:
+        description: Type APPLY_RESULT_SLIP_055_056 to authorize these migrations
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-result-slip-migrations
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    name: Apply only Result Slip migrations 055 and 056
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      RELEASE_REF: ${{ inputs.release_ref }}
+      CONFIRMATION: ${{ inputs.confirmation }}
+    steps:
+      - name: Require exact production confirmation
+        shell: bash
+        run: |
+          if [ "$CONFIRMATION" != "APPLY_RESULT_SLIP_055_056" ]; then
+            echo "Production confirmation phrase did not match."
+            exit 1
+          fi
+          if ! [[ "$RELEASE_REF" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "release_ref must be a full lowercase 40-character commit SHA."
+            exit 1
+          fi
+
+      - name: Check out the exact release ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_ref }}
+
+      - name: Report safe release identity
+        shell: bash
+        run: |
+          SHA="$(git rev-parse --verify HEAD^{commit})"
+          if ! [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Could not resolve the checked-out release commit."
+            exit 1
+          fi
+          if [ "$SHA" != "$RELEASE_REF" ]; then
+            echo "Checked-out commit does not match release_ref."
+            exit 1
+          fi
+          printf 'Requested release_ref: %s\nResolved release SHA: %s\n' "$RELEASE_REF" "$SHA"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Confirm protected production database secret is available
+        shell: bash
+        run: |
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "Protected DATABASE_URL is unavailable."
+            exit 1
+          fi
+          echo "Protected DATABASE_URL is available."
+
+      - name: Preflight and apply only migrations 055 and 056
+        run: node scripts/apply-result-slip-migrations.mjs
