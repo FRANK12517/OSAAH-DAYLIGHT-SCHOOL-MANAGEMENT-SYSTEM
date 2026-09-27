@@ -40,11 +40,12 @@ test('durable fee reader projects canonical payment year and term without legacy
   assert.doesNotMatch(queries[0], /i\.(?:student_name|class_name|academic_year|term)\b/);
 });
 
-test('durable fee reader falls back when legacy payments lack optional created_at and provider_reference columns', async () => {
+test('durable fee reader falls back when legacy payments use amount_paid and lack optional columns', async () => {
   const queries = [];
   const actor = user('accountant-osaah', 'accountant@osaah.test', 'ACCOUNTANT_BURSAR', SCHOOL, ['fees.read']);
   const adapter = { async query(sql) {
     queries.push(sql);
+    if (/\bp\.amount\b/.test(sql)) throw Object.assign(new Error("Unknown column 'p.amount' in 'field list'"), { code: 'ER_BAD_FIELD_ERROR' });
     if (sql.includes('p.created_at')) throw Object.assign(new Error("Unknown column 'p.created_at' in 'order clause'"), { code: 'ER_BAD_FIELD_ERROR' });
     if (sql.includes('p.provider_reference')) throw Object.assign(new Error("Unknown column 'p.provider_reference' in 'field list'"), { code: 'ER_BAD_FIELD_ERROR' });
     return [{ ...osaahPayment, createdAt: osaahPayment.paymentDate, providerReference: null }];
@@ -53,13 +54,15 @@ test('durable fee reader falls back when legacy payments lack optional created_a
   const payments = await reader.listPayments({}, actor);
   assert.equal(payments[0].createdAt, osaahPayment.paymentDate);
   assert.equal(payments[0].providerReference, null);
-  assert.equal(queries.length, 3);
-  assert.match(queries[2], /p\.payment_date AS createdAt/);
-  assert.match(queries[2], /NULL AS providerReference/);
-  assert.match(queries[2], /ORDER BY p\.payment_date DESC, p\.id DESC/);
-  await reader.listPayments({}, actor);
+  assert.equal(payments[0].amount, 125.5);
   assert.equal(queries.length, 4);
-  assert.doesNotMatch(queries[3], /p\.created_at|p\.provider_reference/);
+  assert.match(queries[3], /p\.amount_paid AS amount/);
+  assert.match(queries[3], /p\.payment_date AS createdAt/);
+  assert.match(queries[3], /NULL AS providerReference/);
+  assert.match(queries[3], /ORDER BY p\.payment_date DESC, p\.id DESC/);
+  await reader.listPayments({}, actor);
+  assert.equal(queries.length, 5);
+  assert.doesNotMatch(queries[4], /\bp\.amount\b|p\.created_at|p\.provider_reference/);
 });
 
 

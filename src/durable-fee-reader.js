@@ -41,12 +41,13 @@ function unknownOptionalPaymentColumn(error, column) {
 export function createDurableFeeReader({ adapter } = {}) {
   if (!adapter?.query) throw new Error('A durable database adapter is required for persisted fee reads.');
 
-  const optionalPaymentColumns = { createdAt: true, providerReference: true };
+  const optionalPaymentColumns = { amount: true, createdAt: true, providerReference: true };
 
   async function listPayments({ studentId = null, status = null } = {}, actor) {
     authorizeFinancial(actor, 'READ', 'payments');
     let rows;
     while (true) {
+      const paymentAmountColumn = optionalPaymentColumns.amount ? 'p.amount' : 'p.amount_paid';
       const createdAtColumn = optionalPaymentColumns.createdAt ? 'p.created_at' : 'p.payment_date';
       const providerReferenceColumn = optionalPaymentColumns.providerReference ? 'p.provider_reference' : 'NULL';
       const createdAtOrder = optionalPaymentColumns.createdAt ? ', p.created_at DESC' : '';
@@ -68,7 +69,7 @@ export function createDurableFeeReader({ adapter } = {}) {
         p.class_id AS classId,
         p.academic_year_id AS academicYearId,
         p.term_id AS termId,
-        p.amount,
+        ${paymentAmountColumn} AS amount,
         p.payment_method AS method,
         p.status,
         p.payment_date AS paymentDate,
@@ -87,6 +88,10 @@ export function createDurableFeeReader({ adapter } = {}) {
       ORDER BY p.payment_date DESC${createdAtOrder}, p.id DESC`, [actor.schoolId]);
         break;
       } catch (error) {
+        if (optionalPaymentColumns.amount && unknownOptionalPaymentColumn(error, 'amount')) {
+          optionalPaymentColumns.amount = false;
+          continue;
+        }
         if (optionalPaymentColumns.createdAt && unknownOptionalPaymentColumn(error, 'created_at')) {
           optionalPaymentColumns.createdAt = false;
           continue;
