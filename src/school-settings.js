@@ -45,11 +45,22 @@ export function createSchoolSettingsService({ database = null, schoolProfile = n
     }
     if (!school) throw Object.assign(new Error('Canonical OSAAH school record was not found.'), { status: 404 });
     const [settings, academicYears, terms] = await Promise.all([
-      database.query('SELECT setting_key AS settingKey,setting_value AS settingValue,value_type AS valueType,updated_at AS updatedAt FROM system_settings WHERE school_id=? ORDER BY setting_key', [schoolId]),
-      database.query('SELECT id,name,starts_on AS startsOn,ends_on AS endsOn,is_current AS isCurrent FROM academic_years WHERE school_id=? ORDER BY starts_on DESC,id', [schoolId]),
-      database.query('SELECT t.id,t.academic_year_id AS academicYearId,t.name,t.starts_on AS startsOn,t.ends_on AS endsOn,t.is_current AS isCurrent FROM terms t JOIN academic_years y ON y.id=t.academic_year_id WHERE y.school_id=? ORDER BY t.starts_on DESC,t.id', [schoolId])
+      queryOptional('SELECT setting_key AS settingKey,setting_value AS settingValue,value_type AS valueType,updated_at AS updatedAt FROM system_settings WHERE school_id=? ORDER BY setting_key', 'SELECT setting_key AS settingKey,setting_value AS settingValue,value_type AS valueType,updated_at AS updatedAt FROM system_settings WHERE school_id=? ORDER BY setting_key', schoolId),
+      queryOptional('SELECT id,name,starts_on AS startsOn,ends_on AS endsOn,is_current AS isCurrent FROM academic_years WHERE school_id=? ORDER BY starts_on DESC,id', 'SELECT id,name,starts_on AS startsOn,ends_on AS endsOn FROM academic_years WHERE school_id=? ORDER BY starts_on DESC,id', schoolId),
+      queryOptional('SELECT t.id,t.academic_year_id AS academicYearId,t.name,t.starts_on AS startsOn,t.ends_on AS endsOn,t.is_current AS isCurrent FROM terms t JOIN academic_years y ON y.id=t.academic_year_id WHERE y.school_id=? ORDER BY t.starts_on DESC,t.id', 'SELECT t.id,t.academic_year_id AS academicYearId,t.name,t.starts_on AS startsOn,t.ends_on AS endsOn FROM terms t JOIN academic_years y ON y.id=t.academic_year_id WHERE y.school_id=? ORDER BY t.starts_on DESC,t.id', schoolId)
     ]);
     return publicView({ ...school, schoolId, settings: settings.map(parseSetting), academicYears, terms, updatedAt: school.updatedAt });
+  }
+  async function queryOptional(primarySql, fallbackSql, schoolId) {
+    try {
+      return await database.query(primarySql, [schoolId]);
+    } catch {
+      try {
+        return await database.query(fallbackSql, [schoolId]);
+      } catch {
+        return [];
+      }
+    }
   }
   async function update(input, actor) {
     const schoolId = assertActor(actor);
