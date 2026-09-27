@@ -20,7 +20,7 @@ export function createClassDatabaseService({ students, classes = CORE_LEVELS, pa
 
   function authorize(actor) {
     if (!actor || actor.portal === 'parent' || actor.portal === 'student') fail('Forbidden.', 403);
-    if (actor.schoolId !== schoolId) fail('Forbidden.', 403);
+    if (schoolId && actor.schoolId !== schoolId) fail('Forbidden.', 403);
     const permitted = actor.permissions?.has?.('*') || actor.permissions?.has?.('students.read') || actor.permissions?.has?.('class-database.read');
     if (!permitted && !STAFF_ROLES.has(actor.roleKey)) fail('Forbidden.', 403);
     if (actor.roleKey === 'TEACHER' && !actor.assignedClassIds?.length) fail('Forbidden.', 403);

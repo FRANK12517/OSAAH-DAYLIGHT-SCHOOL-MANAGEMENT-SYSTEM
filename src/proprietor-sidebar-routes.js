@@ -35,7 +35,7 @@ export const PROPRIETOR_SIDEBAR_ROUTES = Object.freeze([
   ]).map((item) => ({ ...item, page: ({
     'exam-timetable': '/exam-timetable.html', 'staff-attendance': '/staff-attendance.html', 'broadsheets': '/academic-modules.html', 'attendance-reports': '/reports-academic.html', 'attendance-alerts': '/attendance-alerts.html',
     'academic-classes': '/academic-modules.html', 'academic-subjects': '/subjects.html',
-    'promotion': '/promotion.html', 'report-cards': '/results.html', 'promotion-results': '/results.html',
+    'promotion': '/promotion.html', 'report-cards': '/results.html', 'promotion-results': '/promotion-results.html',
     'curriculum': '/academic-modules.html', 'lesson-plans': '/academic-modules.html',
     'academic-assignments': '/academic-modules.html', 'timetable': '/exam-timetable.html',
     'spreadsheets': '/academic-modules.html', 'academic-years': '/academic-modules.html',
