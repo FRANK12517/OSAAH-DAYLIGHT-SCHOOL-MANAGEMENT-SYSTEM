@@ -13,6 +13,7 @@ export const PROPRIETOR_SIDEBAR_ROUTES = Object.freeze([
     ['administrator-management', 'Administrator Management', '/administrator-management'],
     ['signature-management', 'Result Signatures', '/settings/result-signatures']
   ]).map((item) => ({ ...item, page: ({
+    'settings': '/school-settings.html',
     'official-documents': '/official-documents.html',
     'administrator-management': '/administrator-management.html', 'signature-management': '/result-signatures.html'
   })[item.moduleKey] ?? item.page })),
