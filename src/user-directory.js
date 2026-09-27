@@ -3,7 +3,7 @@ import { assertCanonicalSchoolContext } from './school-context.js';
 export const USER_DIRECTORY_SQL = `
   SELECT
     u.id AS id,
-    u.email AS username,
+    COALESCE(NULLIF(u.username, ''), u.email) AS username,
     u.email AS email,
     u.status AS status,
     s.first_name AS firstName,
@@ -15,7 +15,7 @@ export const USER_DIRECTORY_SQL = `
   LEFT JOIN user_roles ur ON ur.user_id = u.id
   LEFT JOIN roles r ON r.id = ur.role_id AND (r.school_id = u.school_id OR r.school_id IS NULL)
   WHERE u.school_id = ?
-  ORDER BY u.email, u.id, r.role_name
+  ORDER BY COALESCE(NULLIF(u.username, ''), u.email), u.id, r.role_name
 `;
 
 function directoryError(message, status, code) {
