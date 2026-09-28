@@ -40,6 +40,7 @@ test('proprietor sidebar is an accessible responsive accordion with route-based 
   assert.match(script, /history\.pushState/);
   assert.match(script, /window\.onpopstate/);
   assert.match(script, /module-frame/);
+  assert.match(script, /frame\.contentWindow\.location\.replace\(frameUrl\)/);
   assert.match(script, /OSAAH module render failure/);
   assert.match(css, /color:#ef5350/);
   assert.match(css, /\.sidebar-link\.active/);
@@ -60,7 +61,8 @@ test('proprietor shell has one mount point and one replaceable child host', asyn
   assert.match(script, /dashboard\.querySelectorAll\('\[data-module="logout"\]'\)/);
   assert.match(script, /if \(dashboardBuildPromise\) return dashboardBuildPromise/);
   assert.match(script, /dashboard\.querySelector\('\.app-shell'\)\) return/);
-  assert.match(script, /frame\.removeAttribute\('src'\)/);
+  assert.doesNotMatch(script, /frame\.removeAttribute\('src'\)/);
+  assert.match(script, /frame\.contentWindow\.location\.replace\(frameUrl\)/);
   assert.match(script, /overview\.hidden = true; host\.hidden = false/);
   assert.match(script, /if \(route === '\/'\) \{ overview\.hidden = false; host\.hidden = true/);
   assert.equal((script.match(/id="dashboard-overview"/g) ?? []).length, 1);

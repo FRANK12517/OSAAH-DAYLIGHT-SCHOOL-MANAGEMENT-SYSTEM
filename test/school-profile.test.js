@@ -13,6 +13,15 @@ function request(server, path, token, method = 'GET', body = null) {
   });
 }
 
+function requestPage(server, path, token) {
+  return new Promise((resolve, reject) => {
+    const req = httpRequest({ port: server.address().port, path, headers: { Authorization: `Bearer ${token}` } }, (res) => {
+      let text = ''; res.setEncoding('utf8'); res.on('data', (chunk) => { text += chunk; }); res.on('end', () => resolve({ status: res.statusCode, body: text }));
+    });
+    req.on('error', reject); req.end();
+  });
+}
+
 test('School Profile uses the canonical OSAAH record, shows real metrics, and persists edits', async (t) => {
   const auth = createAuthService();
   const proprietor = auth.login({ username: 'proprietor@osaah.edu.gh', password: 'Proprietor123!', portal: 'school', role: 'PROPRIETOR' });
@@ -20,6 +29,10 @@ test('School Profile uses the canonical OSAAH record, shows real metrics, and pe
   const server = createServer(createApp({ auth })); await new Promise((resolve) => server.listen(0, resolve)); t.after(() => new Promise((resolve) => server.close(resolve)));
   const profilePage = await readFile(new URL('../public/school-profile.html', import.meta.url), 'utf8');
   assert.match(profilePage, /School Identity/); assert.match(profilePage, /School Statistics/); assert.doesNotMatch(profilePage, /Module access|School profile information is available/);
+  const sidebarPage = await requestPage(server, '/settings/profile?embedded=1&navigationKey=school-profile', proprietor.token);
+  assert.equal(sidebarPage.status, 200); assert.match(sidebarPage.body, /School Identity/); assert.doesNotMatch(sidebarPage.body, /Module access|School profile information is available/);
+  const fallbackPage = await readFile(new URL('../public/administrative-modules.html', import.meta.url), 'utf8');
+  assert.match(fallbackPage, /key === 'school-profile'/); assert.match(fallbackPage, /location\.replace\(target\.href\)/); assert.doesNotMatch(fallbackPage, /Review the school profile and institutional details|School profile information is available to authorized school leadership/);
   const loaded = await request(server, '/api/school-profile', proprietor.token);
   assert.equal(loaded.status, 200); assert.equal(loaded.body.schoolId, 'school-osaah-daylight'); assert.equal(loaded.body.profile.name, 'OSAAH DAYLIGHT SCH. COM.'); assert.ok(loaded.body.statistics.totalStudents >= 0); assert.ok(Array.isArray(loaded.body.academic.classes));
   const saved = await request(server, '/api/school-profile', proprietor.token, 'PATCH', { schoolInformation: { name: 'OSAAH DAYLIGHT SCHOOL', motto: 'Aim high', vision: 'Every learner thrives', educationalLevels: ['Nursery', 'KG', 'Basic', 'JHS'] } });
