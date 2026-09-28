@@ -8,8 +8,16 @@ const canEdit = (actor) => canView(actor) && (actor.permissions?.has?.('*') || a
 export function createSchoolProfileService({ database = null, schoolSettings, singleSchoolOverview, staff = null, schoolId }) {
   const optional = async (sql, params = []) => { try { return database?.query ? await database.query(sql, params) : []; } catch { return []; } };
   async function leadership(actor) {
-    const rows = database?.query ? await optional('SELECT id,full_name AS fullName,phone,role_key AS roleKey FROM staff_profiles WHERE school_id=? ORDER BY full_name,id', [schoolId]) : (staff?.listProfiles?.() ?? []);
-    return rows.filter((row) => row.schoolId === undefined || row.schoolId === schoolId).filter((row) => leadershipRoles.has(String(row.roleKey ?? '').toUpperCase())).map((row) => ({ id: row.id ?? null, name: row.fullName ?? row.name ?? null, role: roleLabel(row.roleKey), contact: row.phone ?? row.telephone ?? null }));
+    let rows = [];
+    if (database?.query) {
+      rows = await optional(`SELECT u.id AS id,COALESCE(NULLIF(TRIM(CONCAT(COALESCE(s.first_name,''),' ',COALESCE(s.last_name,''))),''),u.email) AS fullName,u.email AS contact,r.role_key AS roleKey
+        FROM users u LEFT JOIN staff s ON s.user_id=u.id AND s.school_id=u.school_id
+        LEFT JOIN user_roles ur ON ur.user_id=u.id LEFT JOIN roles r ON r.id=ur.role_id AND (r.school_id=u.school_id OR r.school_id IS NULL)
+        WHERE u.school_id=? AND u.status='ACTIVE' ORDER BY fullName,u.id`, [schoolId]);
+      if (!rows.length) rows = await optional('SELECT id,full_name AS fullName,phone AS contact,role_key AS roleKey FROM staff_profiles WHERE school_id=? ORDER BY full_name,id', [schoolId]);
+    } else rows = staff?.listProfiles?.() ?? [];
+    const seen = new Set();
+    return rows.filter((row) => row.schoolId === undefined || row.schoolId === schoolId).filter((row) => leadershipRoles.has(String(row.roleKey ?? '').toUpperCase())).filter((row) => { const key = `${row.id}:${String(row.roleKey).toUpperCase()}`; if (seen.has(key)) return false; seen.add(key); return true; }).map((row) => ({ id: row.id ?? null, name: row.fullName ?? row.name ?? null, role: roleLabel(row.roleKey), contact: row.contact ?? row.phone ?? row.telephone ?? null }));
   }
   async function read(actor) {
     if (!canView(actor) || actor.schoolId !== schoolId) throw Object.assign(new Error('Forbidden.'), { status: 403 });
