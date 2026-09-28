@@ -25,6 +25,8 @@ test('School Profile uses the canonical OSAAH record, shows real metrics, and pe
   const saved = await request(server, '/api/school-profile', proprietor.token, 'PATCH', { schoolInformation: { name: 'OSAAH DAYLIGHT SCHOOL', motto: 'Aim high', vision: 'Every learner thrives', educationalLevels: ['Nursery', 'KG', 'Basic', 'JHS'] } });
   assert.equal(saved.status, 200); assert.equal(saved.body.profile.name, 'OSAAH DAYLIGHT SCHOOL'); assert.equal(saved.body.profile.vision, 'Every learner thrives');
   const reloaded = await request(server, '/api/school-profile', proprietor.token); assert.equal(reloaded.body.profile.name, 'OSAAH DAYLIGHT SCHOOL'); assert.equal(reloaded.body.profile.vision, 'Every learner thrives');
+  const emptyOptional = await request(server, '/api/school-profile', proprietor.token, 'PATCH', { schoolInformation: { name: 'OSAAH DAYLIGHT SCHOOL', motto: '', telephone: '', email: '' } });
+  assert.equal(emptyOptional.status, 200); assert.equal(emptyOptional.body.profile.motto, ''); assert.equal(emptyOptional.body.profile.telephone, '');
 });
 
 test('School Profile denies unauthorized users and keeps one canonical school context', async (t) => {
