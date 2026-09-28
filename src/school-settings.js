@@ -66,7 +66,7 @@ export function createSchoolSettingsService({ database = null, schoolProfile = n
     const schoolId = assertActor(actor);
     if (!input || typeof input !== 'object' || Array.isArray(input)) throw validationError('Settings payload must be an object.');
     const profileUpdates = Object.fromEntries(Object.entries(PROFILE_FIELDS).filter(([field]) => input[field] !== undefined).map(([field, column]) => [column, input[field] === null ? null : String(input[field]).trim()]));
-    for (const [field, value] of Object.entries(profileUpdates)) if (['name', 'motto'].includes(field) && !value) throw validationError(`${field} is required.`);
+    if (Object.prototype.hasOwnProperty.call(profileUpdates, 'name') && !profileUpdates.name) throw validationError('name is required.');
     const settingUpdates = Object.fromEntries(Object.entries(input).filter(([key]) => SETTING_KEYS.has(key)).map(([key, value]) => [key, value]));
     const allowed = new Set([...Object.keys(PROFILE_FIELDS), ...SETTING_KEYS]);
     if (Object.keys(input).some((key) => !allowed.has(key))) throw validationError('Unsupported school settings field.');

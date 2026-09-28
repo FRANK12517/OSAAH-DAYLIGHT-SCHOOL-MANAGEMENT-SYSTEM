@@ -31,5 +31,5 @@ test('every authorized role maps to one exact Class Database sidebar route and c
 
 test('Class Database is a single route/component and is not aliased to generic student pages', async () => {
   const source = await (await import('node:fs/promises')).readFile(new URL('../public/app.js', import.meta.url), 'utf8');
-  assert.match(source, /navigateToRoute\(dashboard, route, title/); assert.match(source, /frame\.src = url\.pathname \+ url\.search/); assert.doesNotMatch(source, /class-database[^\n]*(students\.html|student-search|coming-soon)/i);
+  assert.match(source, /navigateToRoute\(dashboard, route, title/); assert.match(source, /frame\.contentWindow\.location\.replace\(frameUrl\)/); assert.doesNotMatch(source, /class-database[^\n]*(students\.html|student-search|coming-soon)/i);
 });

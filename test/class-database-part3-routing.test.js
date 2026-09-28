@@ -87,6 +87,6 @@ test('role sidebar, exact page, refresh state, API authorization, and logout pro
 test('Class Database navigation is not aliased to a generic student page', async () => {
   const app = await (await import('node:fs/promises')).readFile(new URL('../public/app.js', import.meta.url), 'utf8');
   assert.match(app, /navigateToRoute\(dashboard, route, title/);
-  assert.match(app, /frame\.src = url\.pathname \+ url\.search/);
+  assert.match(app, /frame\.contentWindow\.location\.replace\(frameUrl\)/);
   assert.doesNotMatch(app, /class-database[^\n]*(students\.html|student-search|coming-soon)/i);
 });

@@ -32,7 +32,7 @@ function renderWorkspaceRoute(dashboard, route, title, navigationKey = null, exa
   const overview = dashboard.querySelector('#dashboard-overview'); const host = dashboard.querySelector('#module-workspace'); const frame = dashboard.querySelector('#module-frame'); const status = dashboard.querySelector('#module-status');
   const navigationVersion = Number(dashboard.dataset.navigationVersion ?? 0) + 1; dashboard.dataset.navigationVersion = String(navigationVersion);
   setActiveSidebarRoute(dashboard, route);
-  frame.onload = null; frame.onerror = null; frame.removeAttribute('src'); frame.hidden = true;
+  frame.onload = null; frame.onerror = null; frame.hidden = true;
   if (route === '/') { overview.hidden = false; host.hidden = true; mountDashboardOverview(dashboard); document.title = 'OsaaH Daylight School'; return; }
   overview.hidden = true; host.hidden = false; status.hidden = false; status.className = 'module-status'; status.textContent = `Loading ${title}…`; frame.title = title;
   const normalizedRoute = String(route || '/').replace(/\/$/, '') || '/';
@@ -40,7 +40,13 @@ function renderWorkspaceRoute(dashboard, route, title, navigationKey = null, exa
   const currentVersion = String(navigationVersion);
   frame.onload = () => { if (dashboard.dataset.navigationVersion !== currentVersion) return; frame.hidden = false; status.hidden = true; };
   frame.onerror = (error) => { if (dashboard.dataset.navigationVersion !== currentVersion) return; console.error('OSAAH module render failure', { route: normalizedRoute, title, error }); frame.hidden = true; status.hidden = false; status.className = 'module-status error'; status.textContent = `Unable to open ${title}. Please retry or contact the system administrator.`; };
-  frame.src = url.pathname + url.search;
+  const frameUrl = url.pathname + url.search;
+  const currentFrameUrl = frame.contentWindow?.location.href;
+  if (!currentFrameUrl || currentFrameUrl === 'about:blank') frame.src = frameUrl;
+  else {
+    try { frame.contentWindow.location.replace(frameUrl); }
+    catch { frame.src = frameUrl; }
+  }
 }
 function navigateToRoute(dashboard, route, title, { replace = false, navigationKey = null, exactView = null } = {}) {
   const normalizedRoute = String(route || '/').replace(/\/$/, '') || '/';
