@@ -29,6 +29,41 @@ test('School Settings uses the authenticated canonical school, persists edits, a
   assert.equal(reloaded.body.schoolId, admin.user.schoolId);
 });
 
+test('School Settings maps legacy phone_number columns and persists the complete School Profile payload', async () => {
+  const school = { id: 'school-osaah-daylight', name: 'OSAAH DAYLIGHT SCH. COM.', motto: 'AIM HIGH', address: 'Bogoso', phone_number: '0200000000', email: null, website: null, updated_at: '2026-01-01' };
+  const storedSettings = new Map();
+  const schoolUpdates = [];
+  const database = {
+    async query(sql) {
+      if (sql.startsWith('SELECT id,name,motto')) throw new Error("Unknown column 'telephone'");
+      if (sql.startsWith('SELECT * FROM schools')) return [{ ...school }];
+      if (sql.startsWith('SELECT setting_key AS')) return [...storedSettings.entries()].map(([settingKey, value]) => ({ settingKey, settingValue: value.settingValue, valueType: value.valueType, updatedAt: value.updatedAt }));
+      return [];
+    },
+    async execute(sql, params) {
+      if (sql.startsWith('UPDATE schools SET ')) {
+        schoolUpdates.push(sql);
+        const columns = sql.slice('UPDATE schools SET '.length, sql.lastIndexOf(' WHERE id=?')).split(',').map((assignment) => assignment.split('=')[0]);
+        columns.forEach((column, index) => { school[column] = params[index]; });
+      } else if (sql.startsWith('INSERT INTO system_settings')) {
+        storedSettings.set(params[2], { settingValue: params[3], valueType: params[4], updatedAt: params[6] });
+      } else throw new Error(`Unexpected SQL: ${sql}`);
+    }
+  };
+  const settings = createSchoolSettingsService({ database });
+  const result = await settings.update({
+    name: 'OSAAH DAYLIGHT SCHOOL',
+    telephone: '0241234567',
+    schoolInformation: { name: 'OSAAH DAYLIGHT SCHOOL', telephone: '0241234567', secondaryPhone: '0201234567' }
+  }, { schoolId: 'school-osaah-daylight' });
+
+  assert.equal(school.phone_number, '0241234567');
+  assert.match(schoolUpdates[0], /phone_number=\?/);
+  assert.doesNotMatch(schoolUpdates[0], /telephone=/);
+  assert.equal(result.profile.telephone, '0241234567');
+  assert.deepEqual(result.settings.find((item) => item.key === 'schoolInformation').value, { name: 'OSAAH DAYLIGHT SCHOOL', telephone: '0241234567', secondaryPhone: '0201234567' });
+});
+
 test('School Settings reads older school schemas without optional branding columns', async () => {
   const database = {
     async query(sql) {
