@@ -1,9 +1,25 @@
 const PROFILE_FIELDS = Object.freeze({
-  name: 'name', motto: 'motto', address: 'address', telephone: 'telephone', email: 'email', website: 'website', logoPath: 'logo_path', primaryColour: 'primary_colour', secondaryColour: 'secondary_colour', accentColour: 'accent_colour'
+  name: ['name'],
+  motto: ['motto'],
+  address: ['address', 'physical_address'],
+  telephone: ['telephone', 'phone', 'phone_number', 'primary_phone', 'phoneNumber'],
+  email: ['email', 'official_email'],
+  website: ['website', 'url'],
+  logoPath: ['logo_path', 'logoPath', 'logo_url'],
+  primaryColour: ['primary_colour', 'primary_color', 'primaryColour'],
+  secondaryColour: ['secondary_colour', 'secondary_color', 'secondaryColour'],
+  accentColour: ['accent_colour', 'accent_color', 'accentColour']
 });
 const SETTING_KEYS = new Set(['academicYearId', 'termId', 'schoolInformation', 'resultConfiguration', 'communicationConfiguration']);
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const validationError = (message) => Object.assign(new Error(message), { status: 400 });
+
+function readColumn(row, candidates) {
+  const columns = new Map(Object.keys(row ?? {}).map((key) => [key.toLowerCase(), key]));
+  const present = candidates.map((candidate) => columns.get(candidate.toLowerCase())).filter(Boolean);
+  const populated = present.find((key) => row[key] !== null && row[key] !== undefined);
+  return populated ? row[populated] : present.length ? null : undefined;
+}
 
 export function createSchoolSettingsService({ database = null, schoolProfile = null, now = () => new Date().toISOString() } = {}) {
   const memory = new Map();
@@ -21,23 +37,22 @@ export function createSchoolSettingsService({ database = null, schoolProfile = n
       const schools = await database.query('SELECT id,name,motto,address,telephone,email,website,logo_path AS logoPath,primary_colour AS primaryColour,secondary_colour AS secondaryColour,accent_colour AS accentColour,created_at AS createdAt,updated_at AS updatedAt FROM schools WHERE id=? LIMIT 1', [schoolId]);
       school = schools?.[0];
     } catch (error) {
-      // Older production foundations may not yet have the optional branding columns.
-      // Read the row through the database's deployed schema, then expose only the
-      // canonical public profile fields below; authorization and school scope remain unchanged.
+      // Deployed school tables may use older contact/branding column names.
+      // Read through the actual row shape and expose only canonical profile fields.
       const rows = await database.query('SELECT * FROM schools WHERE id=? LIMIT 1', [schoolId]);
       const row = rows?.[0];
       if (row) school = {
         id: row.id,
         name: row.name,
         motto: row.motto,
-        address: row.address ?? null,
-        telephone: row.telephone ?? null,
-        email: row.email ?? null,
-        website: row.website ?? null,
-        logoPath: row.logoPath ?? row.logo_path ?? null,
-        primaryColour: row.primaryColour ?? row.primary_colour ?? null,
-        secondaryColour: row.secondaryColour ?? row.secondary_colour ?? null,
-        accentColour: row.accentColour ?? row.accent_colour ?? null,
+        address: readColumn(row, PROFILE_FIELDS.address),
+        telephone: readColumn(row, PROFILE_FIELDS.telephone),
+        email: readColumn(row, PROFILE_FIELDS.email),
+        website: readColumn(row, PROFILE_FIELDS.website),
+        logoPath: readColumn(row, PROFILE_FIELDS.logoPath),
+        primaryColour: readColumn(row, PROFILE_FIELDS.primaryColour) ?? null,
+        secondaryColour: readColumn(row, PROFILE_FIELDS.secondaryColour) ?? null,
+        accentColour: readColumn(row, PROFILE_FIELDS.accentColour) ?? null,
         createdAt: row.createdAt ?? row.created_at ?? null,
         updatedAt: row.updatedAt ?? row.updated_at ?? null
       };
@@ -65,7 +80,7 @@ export function createSchoolSettingsService({ database = null, schoolProfile = n
   async function update(input, actor) {
     const schoolId = assertActor(actor);
     if (!input || typeof input !== 'object' || Array.isArray(input)) throw validationError('Settings payload must be an object.');
-    const profileUpdates = Object.fromEntries(Object.entries(PROFILE_FIELDS).filter(([field]) => input[field] !== undefined).map(([field, column]) => [column, input[field] === null ? null : String(input[field]).trim()]));
+    const profileUpdates = Object.fromEntries(Object.entries(PROFILE_FIELDS).filter(([field]) => input[field] !== undefined).map(([field]) => [field, input[field] === null ? null : String(input[field]).trim()]));
     if (Object.prototype.hasOwnProperty.call(profileUpdates, 'name') && !profileUpdates.name) throw validationError('name is required.');
     const settingUpdates = Object.fromEntries(Object.entries(input).filter(([key]) => SETTING_KEYS.has(key)).map(([key, value]) => [key, value]));
     const allowed = new Set([...Object.keys(PROFILE_FIELDS), ...SETTING_KEYS]);
@@ -76,12 +91,31 @@ export function createSchoolSettingsService({ database = null, schoolProfile = n
     }
     const executeAll = async (db) => {
       if (Object.keys(profileUpdates).length) {
-        const assignments = Object.keys(profileUpdates).map((column) => `${column}=?`).join(',');
-        try {
-          await db.execute(`UPDATE schools SET ${assignments},updated_at=? WHERE id=?`, [...Object.values(profileUpdates), now(), schoolId]);
-        } catch {
-          // Legacy production foundations may not have the optional timestamp column.
-          await db.execute(`UPDATE schools SET ${assignments} WHERE id=?`, [...Object.values(profileUpdates), schoolId]);
+        // Inspect the existing canonical row so an older production schema can
+        // map contact fields to its available aliases instead of issuing an
+        // UPDATE against a column that is not deployed.
+        let availableColumns = null;
+        if (typeof db.query === 'function') {
+          const rows = await db.query('SELECT * FROM schools WHERE id=? LIMIT 1', [schoolId]);
+          if (!rows?.[0]) throw Object.assign(new Error('Canonical OSAAH school record was not found.'), { status: 404 });
+          availableColumns = new Map(Object.keys(rows[0]).map((key) => [key.toLowerCase(), key]));
+        }
+        const assignments = [];
+        const unsupported = [];
+        for (const [field, value] of Object.entries(profileUpdates)) {
+          const candidates = PROFILE_FIELDS[field];
+          const column = candidates.find((candidate) => !availableColumns || availableColumns.has(candidate.toLowerCase()));
+          if (column) assignments.push([availableColumns?.get(column.toLowerCase()) ?? column, value]);
+          else unsupported.push(field);
+        }
+        if (unsupported.includes('name')) throw Object.assign(new Error('The canonical school name column is unavailable.'), { status: 500 });
+        if (unsupported.length && !Object.prototype.hasOwnProperty.call(settingUpdates, 'schoolInformation')) throw validationError(`The deployed school schema cannot store: ${unsupported.join(', ')}.`);
+        const updatedAtColumn = availableColumns ? (availableColumns.get('updated_at') ?? availableColumns.get('updatedat')) : 'updated_at';
+        if (assignments.length) {
+          const fields = assignments.map(([column]) => `${column}=?`);
+          const values = assignments.map(([, value]) => value);
+          if (updatedAtColumn) { fields.push(`${updatedAtColumn}=?`); values.push(now()); }
+          await db.execute(`UPDATE schools SET ${fields.join(',')} WHERE id=?`, [...values, schoolId]);
         }
       }
       for (const [key, value] of Object.entries(settingUpdates)) await db.execute('INSERT INTO system_settings (id,school_id,setting_key,setting_value,value_type,is_sensitive,created_at,updated_at) VALUES (?,?,?,?,?,0,?,?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value),value_type=VALUES(value),updated_at=VALUES(updated_at)', [`setting-${schoolId}-${key}`, schoolId, key, typeof value === 'string' ? value : JSON.stringify(value), typeof value, now(), now()]);
