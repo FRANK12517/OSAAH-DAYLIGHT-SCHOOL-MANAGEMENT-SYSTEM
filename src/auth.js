@@ -74,6 +74,9 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
   function securityEvent(action, user, sessionId = null) { audit({ action, entity: 'Authentication', entityId: user?.id ?? null, userId: user?.id ?? null, roleId: canonicalRoleKey(user?.roleKey), sessionId }); }
   function sanitize(user, sessionId = null) { const roleKey = canonicalRoleKey(user.roleKey); return { id: user.id, username: user.username, portal: user.portal, roleKey, role: roleKey, accountStatus: isActive(user) ? 'ACTIVE' : String(user.accountStatus ?? 'DISABLED').toUpperCase(), schoolId: user.schoolId, sessionId, dashboard: SCHOOL_PORTAL_DASHBOARDS[roleKey] ?? '/', schoolType: user.schoolType, subscription: user.subscription, entitlements: user.entitlements ?? [], featureAvailability: user.featureAvailability ?? [], children: user.children ?? [], authorizedStaffIds: user.authorizedStaffIds ?? [], assignedStudentIds: user.assignedStudentIds ?? [], assignedParentIds: user.assignedParentIds ?? [], assignedClassIds: user.assignedClassIds ?? [], assignedSubjectIds: user.assignedSubjectIds ?? [], assignedDepartmentIds: user.assignedDepartmentIds ?? [] }; }
   function createSessionResult(user) {
+    // In-memory sessions are not portable across serverless instances. In
+    // production, fail closed unless a stable HMAC signing key is configured.
+    if (process.env.NODE_ENV === 'production' && !signingKey) return { ok: false, status: 503, error: 'Authentication service unavailable.' };
     attempts.delete(user.id);
     const sessionId = randomUUID(); const expiresAt = now() + SESSION_TTL_MS;
     const session = { userId: user.id, sessionId, expiresAt };

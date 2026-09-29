@@ -18,6 +18,22 @@ function request(server, path, { cookie, method = 'GET', headers = {} } = {}) {
   });
 }
 
+test('production rejects in-memory Parent sessions when the shared signing secret is missing', () => {
+  const previousNodeEnv = process.env.NODE_ENV;
+  process.env.NODE_ENV = 'production';
+  try {
+    const auth = createAuthService({ sessionSecret: '' });
+    const result = auth.loginByPhone({ phone: TEST_PARENT_PHONE, portal: 'parent' });
+    assert.equal(result.ok, false);
+    assert.equal(result.status, 503);
+    assert.equal(result.error, 'Authentication service unavailable.');
+    assert.equal(result.token, undefined);
+  } finally {
+    if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousNodeEnv;
+  }
+});
+
 test('signed proprietor session survives a different serverless instance', async () => {
   const loginInstance = createAuthService({ sessionSecret: SESSION_SECRET });
   const navigationInstance = createAuthService({ sessionSecret: SESSION_SECRET });
