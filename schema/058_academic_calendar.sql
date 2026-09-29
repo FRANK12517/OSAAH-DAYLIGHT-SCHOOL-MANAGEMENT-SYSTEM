@@ -1,0 +1,48 @@
+CREATE TABLE IF NOT EXISTS academic_calendar_events (
+  id TEXT PRIMARY KEY,
+  school_id TEXT NOT NULL REFERENCES schools(id),
+  academic_year TEXT NOT NULL,
+  term TEXT NOT NULL,
+  title TEXT NOT NULL,
+  category TEXT NOT NULL,
+  custom_category TEXT,
+  description TEXT,
+  start_date TEXT NOT NULL,
+  end_date TEXT,
+  start_time TEXT,
+  end_time TEXT,
+  all_day INTEGER NOT NULL DEFAULT 1,
+  venue TEXT,
+  audience_json TEXT NOT NULL,
+  class_scope_json TEXT NOT NULL DEFAULT '[]',
+  status TEXT NOT NULL DEFAULT 'DRAFT',
+  created_by TEXT NOT NULL REFERENCES users(id),
+  updated_by TEXT NOT NULL REFERENCES users(id),
+  published_by TEXT REFERENCES users(id),
+  published_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  CHECK (status IN ('DRAFT','PUBLISHED','CANCELLED')),
+  CHECK (end_date IS NULL OR end_date >= start_date)
+);
+CREATE TABLE IF NOT EXISTS academic_calendar_term_configs (
+  id TEXT PRIMARY KEY,
+  school_id TEXT NOT NULL REFERENCES schools(id),
+  academic_year TEXT NOT NULL,
+  term TEXT NOT NULL,
+  reopening_date TEXT,
+  teaching_start_date TEXT,
+  mid_term_break_start TEXT,
+  mid_term_break_end TEXT,
+  examination_start_date TEXT,
+  examination_end_date TEXT,
+  closing_date TEXT,
+  teaching_days INTEGER,
+  created_by TEXT NOT NULL REFERENCES users(id),
+  updated_by TEXT NOT NULL REFERENCES users(id),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(school_id, academic_year, term)
+);
+CREATE INDEX IF NOT EXISTS idx_academic_calendar_scope ON academic_calendar_events(school_id, academic_year, term, status, start_date);
+CREATE INDEX IF NOT EXISTS idx_academic_calendar_dates ON academic_calendar_events(school_id, start_date, end_date);

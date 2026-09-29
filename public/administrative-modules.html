@@ -24,7 +24,9 @@
 
     // Older route maps may still resolve this generic shell for School Profile.
     // Always send that legacy entry point to the canonical, data-backed page.
-    if (key === 'school-profile') {
+    if (key === 'academic-calendar') {
+      location.replace('/academic-calendar');
+    } else if (key === 'school-profile') {
       const target = new URL('/settings/profile', location.origin);
       target.search = location.search;
       location.replace(target.href);
@@ -32,7 +34,7 @@
       const modules = {
         settings: ['School Settings', 'Review the authorized school configuration and operational settings.', 'School configuration is available to authorized school administrators.'],
         users: ['Users & Roles', 'Review authorized user and role management options.', 'Use Administrator Management to assign the active School Administrator.'],
-        'academic-calendar': ['Academic Calendar', 'Review the school calendar and scheduled academic activities.', 'Calendar entries are managed through the existing Communication module.']
+        'academic-calendar': ['Academic Calendar', 'Plan and publish the OSAAH Daylight School academic calendar.', 'Open the independent Academic Calendar workspace.']
       };
       const item = modules[key] || ['Administrative Module', 'Open an administrative workspace.', 'Select an administrative item from the sidebar.'];
       document.querySelector('#module-title').textContent = item[0];

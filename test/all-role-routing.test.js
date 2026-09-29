@@ -34,7 +34,7 @@ test('broken academic links resolve to their intended existing module pages', as
 
 test('administrative and academic oversight children use distinct canonical routes', () => {
   const expected = {
-    'school-profile': '/settings/profile', 'academic-calendar': '/communication/calendar',
+    'school-profile': '/settings/profile', 'academic-calendar': '/academic-calendar',
     academics: '/academics', 'attendance-dashboard': '/attendance', examinations: '/examinations',
     'sporting-activities': '/sporting-activities', 'student-attendance': '/attendance/students',
     'marks-entry': '/examinations/marks', 'staff-attendance': '/attendance/staff', results: '/results',

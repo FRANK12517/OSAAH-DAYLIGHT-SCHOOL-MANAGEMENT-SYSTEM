@@ -7,7 +7,7 @@ const group = (category, page, entries) => entries.map(([moduleKey, moduleName, 
 export const PROPRIETOR_SIDEBAR_ROUTES = Object.freeze([
   ...group('ADMINISTRATIVE', '/administrative-modules.html', [
     ['settings', 'School Settings', '/settings'], ['users', 'Users & Roles', '/users'], ['school-profile', 'School Profile', '/settings/profile'],
-    ['academic-calendar', 'Academic Calendar', '/communication/calendar'],
+    ['academic-calendar', 'Academic Calendar', '/academic-calendar'],
     ['single-school-panel', 'Single-School Panel', '/settings/single-school'],
     ['official-documents', 'Official Documents', '/official-documents'],
     ['administrator-management', 'Administrator Management', '/administrator-management'],
@@ -15,7 +15,7 @@ export const PROPRIETOR_SIDEBAR_ROUTES = Object.freeze([
   ]).map((item) => ({ ...item, page: ({
     'settings': '/school-settings.html',
     'official-documents': '/official-documents.html',
-    'users': '/users-and-roles.html', 'single-school-panel': '/single-school-panel.html', 'administrator-management': '/administrator-management.html', 'signature-management': '/result-signatures.html'
+    'users': '/users-and-roles.html', 'academic-calendar': '/academic-calendar.html', 'single-school-panel': '/single-school-panel.html', 'administrator-management': '/administrator-management.html', 'signature-management': '/result-signatures.html'
   })[item.moduleKey] ?? item.page })),
   ...group('ACADEMICS', '/subjects.html', [
     ['academics', 'Academics', '/academics'], ['attendance-dashboard', 'Attendance Dashboard', '/attendance'],
