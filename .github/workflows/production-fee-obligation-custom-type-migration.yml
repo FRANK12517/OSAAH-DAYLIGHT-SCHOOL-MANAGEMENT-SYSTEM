@@ -1,0 +1,61 @@
+name: Production fee obligation custom type migration
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Exact reviewed release commit SHA containing migration 057
+        required: true
+        type: string
+      execution_token:
+        description: Type APPLY_FEE_OBLIGATION_CUSTOM_TYPE_057 to authorize execution
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-fee-obligation-custom-type-migration
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    name: Preflight, apply, and verify migration 057
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - name: Check out reviewed release commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_ref }}
+          fetch-depth: 1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Confirm protected database secret and execution token
+        shell: bash
+        env:
+          EXECUTION_TOKEN: ${{ inputs.execution_token }}
+        run: |
+          test -n "${DATABASE_URL:-}" || { echo 'Protected DATABASE_URL is unavailable.'; exit 1; }
+          test "${EXECUTION_TOKEN}" = 'APPLY_FEE_OBLIGATION_CUSTOM_TYPE_057' || { echo 'Invalid migration execution token.'; exit 1; }
+
+      - name: Run migration 057 preflight
+        run: node scripts/production-fee-obligation-custom-type-migrate.mjs dry-run
+
+      - name: Apply only migration 057 and verify
+        run: node scripts/production-fee-obligation-custom-type-migrate.mjs apply
+
+      - name: Run focused fee and parent-obligation tests
+        run: node --test test/fee-structures-legacy-compatibility.test.js test/fee-types-registry.test.js test/fee-setup-part4.test.js test/fee-collections-repository.test.js test/parent-fee-obligations-repository.test.js
