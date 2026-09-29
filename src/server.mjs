@@ -128,10 +128,13 @@ export function createApp({ auth = null, students = null, attendance = null, att
     const [academicYears, terms, feeTypes, classes] = await Promise.all([
       database.query('SELECT id,name,starts_on AS startsOn,ends_on AS endsOn,is_current AS isCurrent FROM academic_years WHERE school_id=? ORDER BY starts_on DESC, id',[actor.schoolId]),
       database.query('SELECT t.id,t.academic_year_id AS academicYearId,t.name,t.starts_on AS startsOn,t.ends_on AS endsOn,t.is_current AS isCurrent FROM terms t JOIN academic_years y ON y.id=t.academic_year_id WHERE y.school_id=? ORDER BY t.starts_on ASC,t.id',[actor.schoolId]),
-      database.query('SELECT id,category_name AS name,category_name AS feeType FROM fee_structures WHERE school_id=? ORDER BY category_name,id',[actor.schoolId]),
+      database.query('SELECT id,code,name,category,description,is_active AS isActive,is_system AS isSystem FROM fee_types WHERE school_id=? AND is_active=TRUE ORDER BY name,id',[actor.schoolId]),
       database.query("SELECT c.id,c.name,0 AS displayOrder,c.level AS levelName,COALESCE(l.display_order,999) AS levelOrder FROM classes c LEFT JOIN levels l ON l.school_id=c.school_id AND l.name=c.level WHERE c.school_id=? ORDER BY COALESCE(l.display_order,999),c.name,c.id",[actor.schoolId])
     ]);
-    return { academicYears, terms, feeTypes: feeTypes.filter((item, index, list) => index === list.findIndex((candidate) => candidate.id === item.id)), classes: classes.map((item) => ({ ...item, name: String(item.name).replace(/^Primary /, 'Basic ').replace(/^KG([12])$/, 'KG $1') })) };
+    const normalizeTerm = (name) => String(name ?? '').trim().toLowerCase().replace(/^(first|1st)\s+term$/, '1st Term').replace(/^(second|2nd)\s+term$/, '2nd Term').replace(/^(third|3rd)\s+term$/, '3rd Term');
+    const configuredTerms = new Map(terms.map((item) => [normalizeTerm(item.name), item]));
+    const canonicalTerms = TERM_OPTIONS.map((name) => ({ ...(configuredTerms.get(normalizeTerm(name)) ?? { id: name, academicYearId: null }), name }));
+    return { academicYears, terms: canonicalTerms, feeTypes: feeTypes.filter((item, index, list) => index === list.findIndex((candidate) => candidate.id === item.id)), classes: classes.map((item) => ({ ...item, name: String(item.name).replace(/^Primary /, 'Basic ').replace(/^KG([12])$/, 'KG $1') })) };
   }
   const persistence = aiPersistence ?? selectAIPersistence({ environment: process.env.NODE_ENV ?? 'development', allowMemory: process.env.NODE_ENV !== 'production' });
   const aiAuditLogger = createAIAuditLogger({ sink: persistence.auditSink });
