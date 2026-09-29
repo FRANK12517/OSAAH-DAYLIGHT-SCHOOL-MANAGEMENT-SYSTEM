@@ -1,0 +1,53 @@
+name: Production Academic Calendar migration
+on:
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Exact reviewed release commit SHA containing migration 058
+        required: true
+        type: string
+      execution_token:
+        description: Type APPLY_ACADEMIC_CALENDAR_058 to authorize migration 058
+        required: true
+        default: DRY_RUN_ONLY
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: production-academic-calendar-migration
+  cancel-in-progress: false
+jobs:
+  migrate:
+    name: Preflight, apply, and verify migration 058
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - name: Check out reviewed release
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_ref }}
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Confirm protected database secret and execution token
+        run: |
+          test -n "${DATABASE_URL:-}"
+          test "${{ inputs.execution_token }}" = 'DRY_RUN_ONLY' || test "${{ inputs.execution_token }}" = 'APPLY_ACADEMIC_CALENDAR_058'
+      - name: Read-only migration 058 preflight
+        run: node scripts/production-academic-calendar-migrate.mjs dry-run
+      - name: Apply only migration 058
+        if: ${{ inputs.execution_token == 'APPLY_ACADEMIC_CALENDAR_058' }}
+        run: node scripts/production-academic-calendar-migrate.mjs apply
+      - name: Verify migration inventory
+        run: |
+          npm run migration:validate
+          node scripts/production-academic-calendar-migrate.mjs dry-run
+      - name: Run focused calendar tests
+        run: node --test test/academic-calendar.test.js test/all-role-routing.test.js
