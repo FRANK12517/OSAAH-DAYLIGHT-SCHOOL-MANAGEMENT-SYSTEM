@@ -35,7 +35,7 @@ test('Nursery promotion validates each term and preserves permanent identity', (
 });
 
 test('sample records cannot be promoted into production enrollment', () => {
-  const students = createStudentService(); const sample = students.seedSampleStudents().find((item) => item.classId === 'Nursery 1');
+  const students = createStudentService(); const sample = students.seedSampleStudents()[0];
   const exams = createExaminationService({ students, classes: CORE_LEVELS }); const actor = { id: 'head', userId: 'head', roleKey: 'HEADTEACHER', schoolId: 'school-osaah-daylight' };
   assert.throws(() => exams.promote(sample.id, '2026/2027', 'PROMOTED', actor, null, { classId: 'Nursery 1', termId: 'First Term' }), /Sample students/);
   const testOptions = exams.promotionOptions({ academicYearId: '2026/2027', classId: 'Nursery 1', termId: 'First Term', isSample: true }, actor);

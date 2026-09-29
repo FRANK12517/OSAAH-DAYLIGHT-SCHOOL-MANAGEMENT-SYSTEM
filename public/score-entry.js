@@ -44,7 +44,8 @@ function renderTerms() {
   const yearObject = (options.academicYears ?? []).find((item) => optionId(item) === year);
   const terms = (options.terms ?? []).filter((item) => !item?.academicYearId || !year || item.academicYearId === year || item.academicYearId === yearObject?.id);
   const previousTerm = termSelect.value;
-  termSelect.innerHTML = '<option value="">Select Term</option>' + terms.map((item) => `<option value="${esc(optionId(item))}">${esc(item?.name ?? optionId(item))}</option>`).join('');
+  const termLabel = (item) => ({ 'First Term': '1st Term', 'Second Term': '2nd Term', 'Third Term': '3rd Term' }[item?.name ?? optionId(item)] ?? item?.name ?? optionId(item));
+  termSelect.innerHTML = '<option value="">Select Term</option>' + terms.map((item) => `<option value="${esc(optionId(item))}">${esc(termLabel(item))}</option>`).join('');
   termSelect.value = terms.some((item) => optionId(item) === previousTerm) ? previousTerm : optionId(terms.find((item) => item.isCurrent) ?? terms[0]);
 }
 function renderAcademicOptions() {

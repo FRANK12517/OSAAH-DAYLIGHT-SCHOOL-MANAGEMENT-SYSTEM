@@ -105,7 +105,7 @@ test('legacy missing gender is not inferred and is counted only in total student
 test('sample records remain isolated from real population counts', () => {
   const { students } = makeContext();
   students.createStudent({ firstName: 'Real', surname: 'Boy', gender: 'Male', classId: 'JHS 1', admissionYearId: YEAR, termId: TERM });
-  students.createStudent({ isTestRecord: true, permanentStudentId: 'TEST-OSAAH-J1-999', firstName: 'Sample', surname: 'Boy', gender: 'Male', classId: 'JHS 1' });
+  students.createStudent({ isTestRecord: true, permanentStudentId: 'OSAAH-DEMO-J1-999', firstName: 'Sample', surname: 'Boy', gender: 'Male', classId: 'JHS 1' });
   assert.deepEqual(classGenderDistribution({ students, classId: 'JHS 1', academicYear: YEAR, term: TERM }), { totalBoys: 1, totalGirls: 0, totalStudents: 1 });
   assert.deepEqual(classGenderDistribution({ students, classId: 'JHS 1', academicYear: YEAR, term: TERM, includeTestRecords: true }), { totalBoys: 2, totalGirls: 0, totalStudents: 2 });
 });

@@ -23,7 +23,7 @@ test('JHS terminal grading uses the single authoritative 1–9 scale', () => {
 });
 
 test('sample generation seeds deterministic scores for every sample student in a configured class', () => {
-  const students = createStudentService({ schoolId }); const roster = students.seedSampleStudents().filter((student) => student.classId === 'Primary 1'); const subjects = createSubjectService(); const results = createAcademicResultsService({ schoolId, students, subjects, classes: ['Primary 1'] }); const workflow = createSampleResultWorkflow({ students, subjects, academicResults: results, schoolId });
+  const students = createStudentService({ schoolId }); const roster = students.seedSampleStudents(); const subjects = createSubjectService(); const results = createAcademicResultsService({ schoolId, students, subjects, classes: ['Primary 1'] }); const workflow = createSampleResultWorkflow({ students, subjects, academicResults: results, schoolId });
   workflow.generate({ studentId: roster[0].id, classId: 'Primary 1', academicYear: '2026/2027', term: 'First Term' }, actor);
   for (const sample of roster) { const report = results.result({ studentId: sample.id, classId: 'Primary 1', academicYear: '2026/2027', term: 'First Term', sample: true }, actor); assert.ok(report.subjects.length > 0); assert.ok(report.subjects.every((row) => row.isTestRecord && row.totalScore === row.caScore + row.examScore)); }
 });

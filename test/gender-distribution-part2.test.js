@@ -43,7 +43,7 @@ test('Mock result uses the same live canonical distribution and excludes product
   const male = students.createStudent({ firstName: 'JHS', surname: 'Male', gender: 'M', classId: 'JHS 1', admissionYearId: '2026' });
   students.createStudent({ firstName: 'JHS', surname: 'Female', gender: 'Female', classId: 'JHS 1', admissionYearId: '2026' });
   students.createStudent({ firstName: 'JHS', surname: 'Unknown', classId: 'JHS 1', admissionYearId: '2026' });
-  students.createStudent({ isTestRecord: true, permanentStudentId: 'TEST-OSAAH-J1-999', firstName: 'Sample', surname: 'Boy', gender: 'Male', classId: 'JHS 1' });
+  students.createStudent({ isTestRecord: true, permanentStudentId: 'OSAAH-DEMO-J1-999', firstName: 'Sample', surname: 'Boy', gender: 'Male', classId: 'JHS 1' });
   const subject = subjects.list({ classId: 'JHS 1' }, actor)[0];
   results.saveMockScore({ studentId: male.id, classId: 'JHS 1', subjectId: subject.id, academicYear: '2026/2027', term: 'First Term', mockLabel: '1st Mock', totalScore: 72 }, actor);
   const report = results.result({ studentId: male.id, classId: 'JHS 1', academicYear: '2026/2027', term: 'First Term', mockLabel: '1st Mock' }, actor, { mock: true });
