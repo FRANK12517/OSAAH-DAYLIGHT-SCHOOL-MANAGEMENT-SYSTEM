@@ -43,6 +43,6 @@ test('reserved sample IDs resolve to sample students and remain test records', (
   const students = createStudentService({ schoolId });
   const sample = students.seedSampleStudents()[0];
   assert.ok(sample);
-  assert.match(sample.permanentStudentId, /^TEST-OSAAH-/);
+  assert.match(sample.permanentStudentId, /^OSAAH-DEMO-/);
   assert.equal(students.findByPermanentStudentId(sample.permanentStudentId, { roleKey: 'HEADTEACHER', requestedSchoolId: schoolId }).isTestRecord, true);
 });

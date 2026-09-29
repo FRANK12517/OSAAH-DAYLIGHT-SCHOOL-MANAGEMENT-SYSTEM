@@ -14,11 +14,11 @@ test('sample workflow uses existing reserved-ID students in every configured cor
   const results = createAcademicResultsService({ students, subjects });
   const workflow = createSampleResultWorkflow({ students, subjects, academicResults: results, now: () => '2026-09-17T00:00:00.000Z' });
   assert.deepEqual(workflow.classes(), CORE_LEVELS);
-  assert.equal(samples.length, CORE_LEVELS.length * 2);
+  assert.equal(samples.length, 2);
   for (const classId of CORE_LEVELS) {
     const roster = workflow.students(classId);
     assert.equal(roster.length, 2);
-    assert.ok(roster.every((student) => student.isTestRecord && student.permanentStudentId.startsWith('TEST-OSAAH-')));
+    assert.ok(roster.every((student) => student.isTestRecord && student.permanentStudentId.startsWith('OSAAH-DEMO-')));
     const result = workflow.generate({ classId, studentId: roster[0].id, academicYear: '2026/2027', term: 'First Term', examinationType: 'TERMINAL' }, actor);
     assert.equal(result.isSample, true);
     assert.equal(result.sampleLabel, 'SAMPLE DATA');
@@ -41,7 +41,7 @@ test('sample rankings never include real students and real rankings never includ
   const subjects = createSubjectService();
   const results = createAcademicResultsService({ students, subjects });
   const workflow = createSampleResultWorkflow({ students, subjects, academicResults: results });
-  const roster = samples.filter((student) => student.classId === 'Primary 1');
+  const roster = workflow.students('Primary 1');
   workflow.generate({ classId: 'Primary 1', studentId: roster[0].id, academicYear: '2026/2027', term: 'First Term' }, actor);
   workflow.generate({ classId: 'Primary 1', studentId: roster[1].id, academicYear: '2026/2027', term: 'First Term' }, actor);
   const subject = subjects.list({ classId: 'Primary 1' }, actor)[0];
@@ -57,12 +57,12 @@ test('sample rankings never include real students and real rankings never includ
 test('sample publication is explicitly classified and real sample reset cannot touch a real student', () => {
   const students = createStudentService();
   const sample = students.seedSampleStudents()[0];
-  const real = students.createStudent({ firstName: 'Real', surname: 'Student', classId: sample.classId, admissionYearId: '2026' });
+  const real = students.createStudent({ firstName: 'Real', surname: 'Student', classId: 'Primary 1', admissionYearId: '2026' });
   const subjects = createSubjectService();
   const results = createAcademicResultsService({ students, subjects });
   const workflow = createSampleResultWorkflow({ students, subjects, academicResults: results });
-  workflow.generate({ classId: sample.classId, studentId: sample.id, academicYear: '2026/2027', term: 'First Term' }, actor);
-  const publication = workflow.publish({ permanentStudentId: sample.permanentStudentId, classId: sample.classId, academicYear: '2026/2027', term: 'First Term' }, actor);
+  workflow.generate({ classId: 'Primary 1', studentId: sample.id, academicYear: '2026/2027', term: 'First Term' }, actor);
+  const publication = workflow.publish({ permanentStudentId: sample.permanentStudentId, classId: 'Primary 1', academicYear: '2026/2027', term: 'First Term' }, actor);
   assert.equal(publication.isSample, true);
   assert.equal(publication.sampleLabel, 'SAMPLE DATA');
   assert.throws(() => workflow.reset({ permanentStudentId: real.permanentStudentId, academicYear: '2026/2027', term: 'First Term' }, actor), /sample/);

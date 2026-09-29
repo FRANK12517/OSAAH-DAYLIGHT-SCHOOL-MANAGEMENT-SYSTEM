@@ -8,11 +8,11 @@ Part 4 reuses the existing `isTestRecord` sample-student architecture. It adds a
 
 | Class | Sample student | Permanent Student ID | Subjects scored |
 |---|---|---|---:|
-| JHS 1 | Sample Student 1 | TEST-OSAAH-J1-001 | 8 |
-| JHS 2 | Sample Student 1 | TEST-OSAAH-J2-001 | 8 |
-| JHS 3 | Sample Student 1 | TEST-OSAAH-J3-001 | 8 |
+| JHS 1 | Sample Student One / Two | OSAAH-DEMO-001 / OSAAH-DEMO-002 | 8 |
+| JHS 2 | Sample Student One / Two | OSAAH-DEMO-001 / OSAAH-DEMO-002 | 8 |
+| JHS 3 | Sample Student One / Two | OSAAH-DEMO-001 / OSAAH-DEMO-002 | 8 |
 
-The sample records are marked `isTestRecord: true`, have `provenance: TEST`, and are labelled `SAMPLE DATA / DEMONSTRATION` in the generated result. No Nursery, KG, or Primary Mock data is generated.
+The two reusable sample records are marked `isTestRecord: true`, have `provenance: TEST`, and are available in each configured class context; they are labelled `SAMPLE DATA / DEMONSTRATION` in the generated result. No Nursery, KG, or Primary Mock data is generated.
 
 ## Deterministic sample scores and calculated results
 
