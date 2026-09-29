@@ -32,9 +32,18 @@ export function createDurableAcademicService({ database, schoolId, idFactory = r
       classes = await database.query('SELECT c.id,c.name,c.sort_order AS displayOrder,c.level AS levelName FROM classes c WHERE c.school_id=? ORDER BY c.sort_order,c.id', [schoolId]);
     } catch (error) {
       if (!schemaCompatibilityError(error)) throw error;
-      // Keep compatibility with the normalized foundation schema used by
-      // installations where classes are tenant-scoped through levels.
-      classes = await database.query('SELECT c.id,c.name,c.display_order AS displayOrder,l.name AS levelName FROM classes c JOIN levels l ON l.id=c.level_id WHERE l.school_id=? ORDER BY c.display_order,c.id', [schoolId]);
+      try {
+        // Some production revisions have the tenant key and class names but
+        // not the optional ordering/level columns. Names and IDs are enough
+        // for Score Entry; do not fail because presentation metadata was not
+        // migrated.
+        classes = await database.query('SELECT c.id,c.name FROM classes c WHERE c.school_id=? ORDER BY c.id', [schoolId]);
+      } catch (minimalError) {
+        if (!schemaCompatibilityError(minimalError)) throw minimalError;
+        // Keep compatibility with the normalized foundation schema used by
+        // installations where classes are tenant-scoped through levels.
+        classes = await database.query('SELECT c.id,c.name,c.display_order AS displayOrder,l.name AS levelName FROM classes c JOIN levels l ON l.id=c.level_id WHERE l.school_id=? ORDER BY c.display_order,c.id', [schoolId]);
+      }
     }
     const allowedClasses = rows(classes).filter((item) => !actor?.assignedClassIds?.length || actor.assignedClassIds.includes(item.id));
     return { academicYears: rows(academicYears), terms: rows(terms), classes: allowedClasses };
