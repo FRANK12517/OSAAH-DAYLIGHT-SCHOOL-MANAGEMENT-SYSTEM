@@ -2,6 +2,7 @@ import { SCHOOL_CLASS_CATALOGUE } from '/class-catalogue.js';
 
 const context = document.querySelector('#score-context');
 const status = document.querySelector('#status');
+const retryOptions = document.querySelector('#retry-options');
 const studentsHost = document.querySelector('#students');
 const classSelect = context.elements.classId;
 const subjectSelect = context.elements.subjectId;
@@ -11,6 +12,7 @@ const classNames = new Map(SCHOOL_CLASS_CATALOGUE.map((item) => [item.id, item.l
 let options = { classes: [] };
 let currentClass = '';
 let subjectRequest = 0;
+let optionsRequest = 0;
 const academicYearSelect = context.elements.academicYear;
 const termSelect = context.elements.term;
 
@@ -29,6 +31,11 @@ function showMessage(message, kind = 'error') {
   status.className = kind;
 }
 
+function setOptionError(select, message) {
+  select.innerHTML = `<option value="">${esc(message)}</option>`;
+  select.disabled = true;
+}
+
 function clearRoster(message = 'Choose a class and subject.') {
   studentsHost.querySelectorAll('tr[data-student]').forEach((row) => {
     clearTimeout(timers.get(row));
@@ -38,13 +45,20 @@ function clearRoster(message = 'Choose a class and subject.') {
 }
 
 function optionId(item) { return typeof item === 'string' ? item : item?.id ?? item?.name ?? ''; }
-function optionLabel(item) { return typeof item === 'string' ? (classNames.get(item) ?? item) : item?.name ?? item?.id ?? ''; }
+function optionLabel(item) {
+  const value = optionId(item);
+  return classNames.get(value) ?? (typeof item === 'string' ? value : item?.name ?? value);
+}
 function renderTerms() {
   const year = academicYearSelect.value;
   const yearObject = (options.academicYears ?? []).find((item) => optionId(item) === year);
   const terms = (options.terms ?? []).filter((item) => !item?.academicYearId || !year || item.academicYearId === year || item.academicYearId === yearObject?.id);
   const previousTerm = termSelect.value;
-  const termLabel = (item) => ({ 'First Term': '1st Term', 'Second Term': '2nd Term', 'Third Term': '3rd Term' }[item?.name ?? optionId(item)] ?? item?.name ?? optionId(item));
+  const termLabel = (item) => ({
+    'First Term': '1st Term', 'Second Term': '2nd Term', 'Third Term': '3rd Term',
+    'Term 1': '1st Term', 'Term 2': '2nd Term', 'Term 3': '3rd Term',
+    'TERM_1': '1st Term', 'TERM_2': '2nd Term', 'TERM_3': '3rd Term'
+  }[item?.name ?? optionId(item)] ?? item?.name ?? optionId(item));
   termSelect.innerHTML = '<option value="">Select Term</option>' + terms.map((item) => `<option value="${esc(optionId(item))}">${esc(termLabel(item))}</option>`).join('');
   termSelect.value = terms.some((item) => optionId(item) === previousTerm) ? previousTerm : optionId(terms.find((item) => item.isCurrent) ?? terms[0]);
 }
@@ -135,12 +149,35 @@ async function save(row, caScore, examScore, stateCell, sequence) {
 }
 
 async function load() {
-  options = await api('/api/academic/options');
-  renderAcademicOptions();
-  classSelect.innerHTML = '<option value="">Select Class</option>' + options.classes.map((item) => `<option value="${esc(optionId(item))}">${esc(optionLabel(item))}</option>`).join('');
-  subjectSelect.innerHTML = '<option value="">Select Class First</option>';
-  subjectSelect.disabled = true;
-  clearRoster();
+  const requestNumber = ++optionsRequest;
+  retryOptions.hidden = true;
+  showMessage('Loading academic options…', 'muted');
+  academicYearSelect.disabled = true;
+  termSelect.disabled = true;
+  classSelect.disabled = true;
+  try {
+    const result = await api('/api/academic/options');
+    if (requestNumber !== optionsRequest) return;
+    options = result;
+    renderAcademicOptions();
+    classSelect.innerHTML = '<option value="">Select Class</option>' + (options.classes ?? []).map((item) => `<option value="${esc(optionId(item))}">${esc(optionLabel(item))}</option>`).join('');
+    subjectSelect.innerHTML = '<option value="">Select Class First</option>';
+    subjectSelect.disabled = true;
+    academicYearSelect.disabled = false;
+    termSelect.disabled = false;
+    classSelect.disabled = false;
+    clearRoster();
+    showMessage('', 'muted');
+  } catch (error) {
+    if (requestNumber !== optionsRequest) return;
+    setOptionError(academicYearSelect, 'Academic years unavailable');
+    setOptionError(termSelect, 'Terms unavailable');
+    setOptionError(classSelect, 'Classes unavailable');
+    setOptionError(subjectSelect, 'Select Class First');
+    clearRoster('Academic options could not be loaded.');
+    showMessage(error.message || 'Unable to load academic options. Please try again.', 'error');
+    retryOptions.hidden = false;
+  }
 }
 
 classSelect.addEventListener('change', () => {
@@ -183,4 +220,5 @@ context.addEventListener('submit', async (event) => {
   }
 });
 
+retryOptions.addEventListener('click', load);
 load().catch((error) => showMessage(error.message || 'Unable to load Score Entry options. Please try again.'));
