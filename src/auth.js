@@ -1,5 +1,6 @@
 import bcrypt from 'bcrypt';
 import { createHash, createHmac, randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
+import { normalizeGhanaPhone } from './ghana-phone.js';
 
 const SESSION_TTL_MS = 30 * 60 * 1000;
 const RESET_TTL_MS = 15 * 60 * 1000;
@@ -17,7 +18,7 @@ function passwordHash(password, salt = randomBytes(16).toString('hex')) { return
 function passwordMatches(password, stored) { const [salt, expected] = stored.split(':'); const actual = scryptSync(password, salt, 32); return timingSafeEqual(actual, Buffer.from(expected, 'hex')); }
 
 export const DEMO_USERS = [
-  { id: 'user-parent-1', username: 'parent@example.com', passwordHash: passwordHash('Parent123!', 'parent-salt'), portal: 'parent', roleKey: 'PARENT', schoolId: 'school-osaah-daylight', permissions: new Set(['children.read', 'communication.read', 'messages.read', 'messages.write', 'calendar.read', 'library.read', 'transport.read', 'hostel.read', 'discipline.read']), children: [{ id: 'student-1', name: 'Ama Mensah', className: 'Primary 4' }, { id: 'student-2', name: 'Kojo Mensah', className: 'Primary 2' }], authorizedStaffIds: ['user-teacher-1'] },
+  { id: 'user-parent-1', username: 'parent@example.com', phone: '+233241234567', passwordHash: passwordHash('Parent123!', 'parent-salt'), portal: 'parent', roleKey: 'PARENT', schoolId: 'school-osaah-daylight', permissions: new Set(['children.read', 'communication.read', 'messages.read', 'messages.write', 'calendar.read', 'library.read', 'transport.read', 'hostel.read', 'discipline.read']), children: [{ id: 'student-1', name: 'Ama Mensah', className: 'Primary 4' }, { id: 'student-2', name: 'Kojo Mensah', className: 'Primary 2' }], authorizedStaffIds: ['user-teacher-1'] },
   { id: 'user-proprietor-1', username: 'proprietor@osaah.edu.gh', passwordHash: passwordHash('Proprietor123!', 'proprietor-salt'), portal: 'school', roleKey: 'PROPRIETOR', schoolId: 'school-osaah-daylight', permissions: new Set(['*']) },
   { id: 'user-teacher-1', username: 'teacher@osaah.edu.gh', passwordHash: passwordHash('Teacher123!', 'teacher-salt'), portal: 'school', roleKey: 'TEACHER', schoolId: 'school-osaah-daylight', permissions: new Set(['students.read', 'academics.read', 'attendance.read', 'attendance.write', 'examinations.read', 'marks.write', 'results.read', 'results.generate', 'results.print', 'mock.scores.read', 'mock.scores.write', 'mock.results.read', 'mock.results.generate', 'leave.read', 'leave.write', 'staff.professional-development.view', 'communication.read', 'messages.read', 'messages.write', 'discipline.read', 'discipline.write', 'property.request', 'shep_activities.view', 'shep_activities.create', 'shep_activities.update', 'shep_activities.manage_participants', 'shep_activities.record_screening', 'shep_activities.create_referral', 'shep_activities.manage_followup', 'shep_activities.generate_reports']), assignedStudentIds: ['student-1'], assignedParentIds: ['user-parent-1'] },
   { id: 'user-hr-1', username: 'hr@osaah.edu.gh', passwordHash: passwordHash('HumanResources123!', 'hr-salt'), portal: 'school', roleKey: 'HR_OFFICER', schoolId: 'school-osaah-daylight', permissions: new Set(['staff.read', 'staff.write', 'hr.read', 'hr.write', 'hr.confidential.read', 'leave.read', 'leave.write', 'staff.attendance.read', 'staff.attendance.write']) },
@@ -68,12 +69,54 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
   function isActive(user) { return user.is_active !== false && user.isActive !== false && !['DISABLED', 'REVOKED', 'REMOVED', 'SUSPENDED', 'DEACTIVATED'].includes(String(user.accountStatus ?? '').toUpperCase()); }
   function securityEvent(action, user, sessionId = null) { audit({ action, entity: 'Authentication', entityId: user?.id ?? null, userId: user?.id ?? null, roleId: canonicalRoleKey(user?.roleKey), sessionId }); }
   function sanitize(user, sessionId = null) { const roleKey = canonicalRoleKey(user.roleKey); return { id: user.id, username: user.username, portal: user.portal, roleKey, role: roleKey, accountStatus: isActive(user) ? 'ACTIVE' : String(user.accountStatus ?? 'DISABLED').toUpperCase(), schoolId: user.schoolId, sessionId, dashboard: SCHOOL_PORTAL_DASHBOARDS[roleKey] ?? '/', schoolType: user.schoolType, subscription: user.subscription, entitlements: user.entitlements ?? [], featureAvailability: user.featureAvailability ?? [], children: user.children ?? [], authorizedStaffIds: user.authorizedStaffIds ?? [], assignedStudentIds: user.assignedStudentIds ?? [], assignedParentIds: user.assignedParentIds ?? [], assignedClassIds: user.assignedClassIds ?? [], assignedSubjectIds: user.assignedSubjectIds ?? [], assignedDepartmentIds: user.assignedDepartmentIds ?? [] }; }
+  function createSessionResult(user) {
+    attempts.delete(user.id);
+    const sessionId = randomUUID(); const expiresAt = now() + SESSION_TTL_MS;
+    const session = { userId: user.id, sessionId, expiresAt };
+    const token = signingKey ? signSession(session) : randomBytes(32).toString('hex');
+    sessions.set(token, session); securityEvent('LOGIN_SUCCESS', user, sessionId);
+    return { ok: true, token, user: sanitize(user, sessionId), redirectTo: SCHOOL_PORTAL_DASHBOARDS[canonicalRoleKey(user.roleKey)] ?? '/', expiresAt };
+  }
+  function loginByPhone({ phone, portal = 'parent' }) {
+    const normalized = normalizeGhanaPhone(phone);
+    const key = String(phone ?? '').trim();
+    const throttle = attempts.get(`parent-phone:${normalized ?? key}`);
+    if (throttle?.lockedUntil > now()) return { ok: false, status: 429, error: 'Too many failed attempts. Try again later.' };
+    if (portal !== 'parent' || !normalized) {
+      return { ok: false, status: 401, error: normalized ? 'Phone number is not registered. Contact the school administrator.' : 'Enter a valid Ghana phone number.' };
+    }
+    const user = users.find((candidate) => candidate.portal === 'parent' && isActive(candidate) && [candidate.phone, candidate.telephone, candidate.parentPhone, ...(candidate.children ?? []).flatMap((child) => [child.phone, child.parentPhone])].some((value) => normalizeGhanaPhone(value) === normalized));
+    if (!user) {
+      const next = throttle ?? { count: 0 }; next.count += 1; if (next.count >= MAX_ATTEMPTS) next.lockedUntil = now() + LOCKOUT_MS; attempts.set(`parent-phone:${normalized}`, next); securityEvent('PARENT_PHONE_LOGIN_FAILED', null); return { ok: false, status: 401, error: 'Phone number is not registered. Contact the school administrator.' };
+    }
+    attempts.delete(`parent-phone:${normalized}`); return createSessionResult(user);
+  }
   function login({ username, password, portal, role }) {
     const key = String(username ?? '').trim().toLowerCase(); const throttle = attempts.get(key); if (throttle?.lockedUntil > now()) return { ok: false, status: 429, error: 'Too many failed attempts. Try again later.' };
     const user = users.find((candidate) => (candidate.username.toLowerCase() === key || String(candidate.email ?? '').toLowerCase() === key) && candidate.portal === portal);
     if (user && portal === 'school' && role && canonicalRoleKey(role) !== canonicalRoleKey(user.roleKey)) return { ok: false, status: 401, error: 'The selected role does not match this account.' };
     if (!user || typeof password !== 'string' || !passwordMatches(password, user.passwordHash) || !isActive(user)) { const next = throttle ?? { count: 0 }; next.count += 1; if (next.count >= MAX_ATTEMPTS) next.lockedUntil = now() + LOCKOUT_MS; attempts.set(key, next); securityEvent('LOGIN_FAILED', user); return { ok: false, status: 401, error: GENERIC_LOGIN_ERROR }; }
-    attempts.delete(key); const sessionId = randomUUID(); const expiresAt = now() + SESSION_TTL_MS; const session = { userId: user.id, sessionId, expiresAt }; const token = signingKey ? signSession(session) : randomBytes(32).toString('hex'); sessions.set(token, session); securityEvent('LOGIN_SUCCESS', user, sessionId); return { ok: true, token, user: sanitize(user, sessionId), redirectTo: SCHOOL_PORTAL_DASHBOARDS[canonicalRoleKey(user.roleKey)] ?? '/', expiresAt };
+    attempts.delete(key); return createSessionResult(user);
+  }
+  async function loginByPhoneFromDatabase({ phone, portal = 'parent' }) {
+    const normalized = normalizeGhanaPhone(phone);
+    if (portal !== 'parent' || !normalized) return loginByPhone({ phone, portal });
+    if (!database?.query) return loginByPhone({ phone, portal });
+    let rows = [];
+    try {
+      rows = await database.query(`SELECT DISTINCT u.id,u.school_id AS schoolId,u.username,u.email,u.status,psl.telephone AS parentPhone
+        FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id
+        JOIN parent_student_links psl ON psl.parent_user_id=u.id
+        WHERE r.role_key='PARENT' AND UPPER(COALESCE(u.status,'ACTIVE'))='ACTIVE' AND COALESCE(psl.link_status,'ACTIVE')='ACTIVE'`, []);
+    } catch {
+      try { rows = await database.query(`SELECT DISTINCT u.id,u.school_id AS schoolId,u.username,u.email,u.status,psl.telephone AS parentPhone
+        FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id JOIN parent_student_links psl ON psl.parent_user_id=u.id
+        WHERE r.role_key='PARENT' AND UPPER(COALESCE(u.status,'ACTIVE'))='ACTIVE'`, []); } catch { rows = []; }
+    }
+    const row = rows.find((candidate) => normalizeGhanaPhone(candidate.parentPhone) === normalized);
+    if (!row) return { ok: false, status: 401, error: 'Phone number is not registered. Contact the school administrator.' };
+    const user = { id: row.id, username: row.username ?? row.email ?? row.id, email: row.email, portal: 'parent', roleKey: 'PARENT', schoolId: row.schoolId, phone: normalized, accountStatus: 'ACTIVE', is_active: true, permissions: new Set(['children.read', 'communication.read', 'messages.read', 'messages.write', 'calendar.read', 'library.read', 'transport.read', 'hostel.read', 'discipline.read']) };
+    users.push(user); return createSessionResult(user);
   }
   async function loginFromDatabase({ username, password, portal, role }) {
     const key = String(username ?? '').trim().toLowerCase();
@@ -154,7 +197,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
   function resetStaffCredentials(userId, schoolId) { const user = users.find((candidate) => candidate.id === userId && candidate.schoolId === schoolId && candidate.staffId); if (!user) return null; const temporaryPassword = randomBytes(18).toString('base64url'); user.passwordHash = passwordHash(temporaryPassword); user.must_change_password = true; for (const [token, session] of sessions) if (session.userId === userId) sessions.delete(token); return { username: user.username, temporaryPassword }; }
   function requestPasswordReset(username) { const user = users.find((candidate) => candidate.username.toLowerCase() === username.trim().toLowerCase()); if (!user) return { ok: true }; const token = randomUUID(); resetTokens.set(token, { userId: user.id, expiresAt: now() + RESET_TTL_MS }); return { ok: true, token }; }
   function completePasswordReset(token, newPassword) { const reset = resetTokens.get(token); if (!reset || reset.expiresAt <= now() || typeof newPassword !== 'string' || newPassword.length < 10) return { ok: false, error: 'Invalid or expired reset request.' }; const user = users.find((candidate) => candidate.id === reset.userId); if (!user) return { ok: false, error: 'Invalid or expired reset request.' }; user.passwordHash = passwordHash(newPassword); resetTokens.delete(token); for (const [sessionToken, session] of sessions) if (session.userId === user.id) sessions.delete(sessionToken); return { ok: true }; }
-  return { login, loginFromDatabase, authenticate, authenticateAsync, logout, logoutSession, requestPasswordReset, completePasswordReset, setAccountStatus, revokeAccount, createAdministrator, listAdministrators, getAdministrator, updateAdministrator, resetAdministratorCredentials, registerStaff, listStaff, getStaff, updateStaff, changeStaffRole, assignStaff, resetStaffCredentials, sessionTtlMs: SESSION_TTL_MS, genericLoginError: GENERIC_LOGIN_ERROR };
+  return { login, loginByPhone, loginByPhoneFromDatabase, loginFromDatabase, authenticate, authenticateAsync, logout, logoutSession, requestPasswordReset, completePasswordReset, setAccountStatus, revokeAccount, createAdministrator, listAdministrators, getAdministrator, updateAdministrator, resetAdministratorCredentials, registerStaff, listStaff, getStaff, updateStaff, changeStaffRole, assignStaff, resetStaffCredentials, sessionTtlMs: SESSION_TTL_MS, genericLoginError: GENERIC_LOGIN_ERROR };
 }
 
 export function canAccess(user, permission) { return Boolean(user && (user.permissions.has('*') || user.permissions.has(permission))); }
