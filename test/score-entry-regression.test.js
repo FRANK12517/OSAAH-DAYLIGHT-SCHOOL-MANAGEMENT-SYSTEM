@@ -198,3 +198,17 @@ test('Score Entry UI has dependent single-select subjects, required-selection ga
   assert.match(html, /name="sampleMode"/);
   assert.match(js, /sampleMode/);
 });
+
+test('Score Entry terminates academic-option loading with an actionable retry state', () => {
+  const html = fs.readFileSync(new URL('../public/examinations.html', import.meta.url), 'utf8');
+  const js = fs.readFileSync(new URL('../public/score-entry.js', import.meta.url), 'utf8');
+  assert.match(html, /id="retry-options"/);
+  assert.match(js, /Academic years unavailable/);
+  assert.match(js, /Terms unavailable/);
+  assert.match(js, /Academic options could not be loaded\./);
+  assert.match(js, /retryOptions\.hidden = false/);
+  assert.match(js, /retryOptions\.addEventListener\('click', load\)/);
+  assert.match(js, /optionsRequest/);
+  assert.match(js, /'Term 1': '1st Term'/);
+  assert.match(js, /'TERM_3': '3rd Term'/);
+});
