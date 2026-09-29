@@ -37,7 +37,8 @@ test('receipt aliases use one canonical loader and preserve both routes', async 
   const routeMatches = [...source.matchAll(/'\/(?:fees|finance)\/receipts': \{[^}]*loader:'receipts'/g)];
   assert.equal(routeMatches.length, 2);
   assert.equal((source.match(/async function loadReceipts\(/g) || []).length, 1);
-  assert.match(source, /api\/fees\/receipts\/\$\{encodeURIComponent\(row\.receiptNumber\)\}\/pdf/);
+  assert.match(source, /function receiptActions\(receiptNumber/);
+  assert.match(source, /api\/fees\/receipts\/\$\{encoded\}\/pdf/);
 });
 
 test('fee service exposes school-scoped published structures without creating another data source', () => {
