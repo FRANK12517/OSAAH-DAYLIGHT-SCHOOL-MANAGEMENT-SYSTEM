@@ -78,6 +78,7 @@ import { authorizeFinancial, assertInputSchool, FinancialAuthorizationError } fr
 import { DEFAULT_PRODUCTION_SCHOOL_ID, DEMO_SCHOOL_ID, resolveCurrentSchoolContext } from './school-context.js';
 import { createDurableFeeReader } from './durable-fee-reader.js';
 import { createDurableFeePayments } from './durable-fee-payments.js';
+import { createParentDashboardService } from './parent-dashboard.js';
 import { createSchoolSettingsService } from './school-settings.js';
 import { createSingleSchoolOverviewService } from './single-school-overview.js';
 import { createSchoolProfileService } from './school-profile.js';
@@ -159,6 +160,7 @@ export function createApp({ auth = null, students = null, attendance = null, att
   communicationEngine ??= createCommunicationEngine({ audit, schoolId: serviceSchoolId });
   shepActivities ??= createShepActivitiesService({ students, staff });
   receiptBranding ??= createReceiptBrandingService({ fees, students, schoolId: serviceSchoolId });
+  const parentDashboard = createParentDashboardService({ students, admissionEnrollment, attendance, attendanceRepository, academicResults, durableAcademic, fees, parentFeeObligations, durableFeeReader, receiptBranding, examinations, communication, academicCalendar, operations });
   financialIntelligence ??= createFinancialIntelligenceService({ fees });
   academicAttendanceIntelligence ??= createAcademicAttendanceIntelligence({ academicResults, attendance, students, subjects, staff });
   admissionsWorkforceIntelligence ??= createAdmissionsWorkforceIntelligence({ admissions: admissionForms, staff, attendance });
@@ -599,50 +601,55 @@ export function createApp({ auth = null, students = null, attendance = null, att
       if (pathname.startsWith('/api/admissions/') && pathname.endsWith('/advance') && request.method === 'POST') { if (!canAccess(user, 'admissions.write')) return json(response, { error: 'Forbidden.' }, 403); const applicationNumber = pathname.split('/')[3]; const application = students.advanceAdmission(applicationNumber, (await readJson(request)).stage); audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, action: 'ADVANCE', entity: 'AdmissionApplication', entityId: applicationNumber, newValue: application })); return json(response, application); }
       if (pathname === '/api/parent/options' && request.method === 'GET') {
         if (!user || user.portal !== 'parent' || !canAccess(user, 'children.read')) return json(response, { error: 'Forbidden.' }, 403);
-        let options = { academicYears: [], terms: [{ id: '1st Term', name: '1st Term' }, { id: '2nd Term', name: '2nd Term' }, { id: '3rd Term', name: '3rd Term' }], classes: ['Nursery 1','Nursery 2','KG 1','KG 2','Primary 1','Primary 2','Primary 3','Primary 4','Primary 5','Primary 6','JHS 1','JHS 2','JHS 3','Completed / Graduated'] };
-        try { options = { ...options, ...(durableAcademic ? await durableAcademic.options(user) : academicResults.options(user)) }; } catch {}
-        options.terms = [{ id: '1st Term', name: '1st Term' }, { id: '2nd Term', name: '2nd Term' }, { id: '3rd Term', name: '3rd Term' }];
-        options.classes = ['Nursery 1','Nursery 2','KG 1','KG 2','Primary 1','Primary 2','Primary 3','Primary 4','Primary 5','Primary 6','JHS 1','JHS 2','JHS 3','Completed / Graduated'];
-        return json(response, options);
+        try { return json(response, await parentDashboard.options(user)); }
+        catch (error) { return parentApiError(response, error, 'options'); }
+      }
+      if (pathname === '/api/parent/children' && request.method === 'GET') {
+        if (!user || user.portal !== 'parent' || !canAccess(user, 'children.read')) return json(response, { error: 'Forbidden.' }, 403);
+        try { return json(response, { children: await parentDashboard.listChildren(user) }); }
+        catch (error) { return parentApiError(response, error, 'children'); }
+      }
+      if (pathname === '/api/parent/records' && request.method === 'GET') {
+        if (!user || user.portal !== 'parent' || !canAccess(user, 'children.read')) return json(response, { error: 'Forbidden.' }, 403);
+        try { return json(response, await parentDashboard.loadRecord(user, Object.fromEntries(new URL(request.url, 'http://localhost').searchParams))); }
+        catch (error) { return parentApiError(response, error, 'records'); }
+      }
+      if (pathname === '/api/parent/results/pdf' && request.method === 'GET') {
+        if (!user || user.portal !== 'parent' || !canAccess(user, 'children.read')) return json(response, { error: 'Forbidden.' }, 403);
+        try {
+          const query = Object.fromEntries(new URL(request.url, 'http://localhost').searchParams);
+          const record = await parentDashboard.loadRecord(user, { ...query, recordType: 'published-results' });
+          const content = await resultPdf.pdf(record.result);
+          response.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="${resultPdf.filename(record.result)}"`, 'Cache-Control': 'private, no-store' });
+          return response.end(content);
+        } catch (error) { return parentApiError(response, error, 'results-pdf'); }
+      }
+      if (pathname === '/api/parent/components' && request.method === 'GET') {
+        if (!user || user.portal !== 'parent' || !canAccess(user, 'children.read')) return json(response, { error: 'Forbidden.' }, 403);
+        try { const query = Object.fromEntries(new URL(request.url, 'http://localhost').searchParams); return json(response, await parentDashboard.component(user, query.moduleKey, query)); }
+        catch (error) { return parentApiError(response, error, 'components'); }
       }
       if (pathname === '/api/parent/lookup' && request.method === 'GET') {
         if (!user || user.portal !== 'parent' || !canAccess(user, 'children.read')) return json(response, { error: 'Forbidden.' }, 403);
-        const query = new URL(request.url, 'http://localhost').searchParams;
-        const permanentStudentId = String(query.get('permanentStudentId') ?? '').trim();
-        const academicYear = String(query.get('academicYear') ?? '').trim();
-        const term = String(query.get('term') ?? '').trim();
-        const classId = String(query.get('classId') ?? '').trim();
-        if ((!/^OSAAH\/\d{4}\/\d{4,}$/.test(permanentStudentId) && !isConfiguredTestStudentId(permanentStudentId)) || !academicYear || !term || !classId) return json(response, { error: 'Academic year, class, term, and Permanent Student ID are required.' }, 400);
-        const student = await authorizeParentStudent({ actor: user, permanentStudentId, students, admissionEnrollment });
-        if (!student) return json(response, { error: PARENT_UNLINKED_MESSAGE }, 403);
-        const studentId = student.id ?? student.studentId;
-        const studentName = student.name ?? [student.firstName, student.middleName, student.surname].filter(Boolean).join(' ');
-        let fee = { invoices: [], payments: [] };
+        const query = Object.fromEntries(new URL(request.url, 'http://localhost').searchParams);
         try {
-          if (durableFeeReader) {
-            const receipts = await durableFeeReader.listReceipts({}, user);
-            fee.payments = receipts.filter((row) => row.permanentStudentId === permanentStudentId && (!query.get('academicYear') || row.academicYearId === academicYear) && (!query.get('term') || row.termId === term) && (!query.get('classId') || row.classId === classId));
-          } else fee = fees.statement(studentId, null, null, { academicYearId: academicYear, termId: term, classId });
-        } catch {}
-        let payable = fee.invoices.reduce((sum, row) => sum + Number(row.total ?? 0), 0);
-        let paid = fee.payments.reduce((sum, row) => sum + Number(row.amount ?? row.amountPaid ?? 0), 0);
-        if (database?.query && durableFeeReader) { try { const balanceRows = await database.query('SELECT total_fees AS payable,total_paid AS paid,balance AS outstanding FROM vw_student_fee_balances WHERE school_id=? AND permanent_student_id=? AND academic_year=? AND term=? AND class_id=? LIMIT 1', [user.schoolId, permanentStudentId, academicYear, term, classId]); if (balanceRows[0]) { payable = Number(balanceRows[0].payable ?? 0); paid = Number(balanceRows[0].paid ?? 0); } } catch {} }
-        let result = null;
-        try {
-          if (academicResults.publicationFor({ classId, academicYear, term })?.status === 'PUBLISHED') result = academicResults.result({ studentId, classId, academicYear, term }, { ...user, roleKey: 'HEADTEACHER', permissions: new Set(['*']) });
-        } catch {}
-        return json(response, { student: { name: studentName || 'Authorized student', permanentStudentId, classId, academicYear, term }, fees: { payable, paid, outstanding: Math.max(0, payable - paid), receipts: fee.payments }, result: result ? { published: true, data: result } : { published: false } });
+          const student = await parentDashboard.loadRecord(user, { ...query, recordType: 'student-summary' });
+          const feesForChild = await parentDashboard.loadRecord(user, { ...query, recordType: 'fees' });
+          let result = { published: false };
+          try { result = { published: true, data: (await parentDashboard.loadRecord(user, { ...query, recordType: 'published-results' })).result }; }
+          catch (error) { if (error.status !== 404) throw error; }
+          return json(response, { student: { ...student.student, ...(student.context ?? {}) }, fees: { ...feesForChild.summary, receipts: feesForChild.receipts ?? [] }, result });
+        } catch (error) { return parentApiError(response, error, 'lookup'); }
       }
-      if (pathname === '/api/parent/children/resolve' && request.method === 'GET') { if (user.portal !== 'parent' || !canAccess(user, 'children.read')) return json(response, { error: 'Forbidden.' }, 403); const permanentStudentId = new URL(request.url, 'http://localhost').searchParams.get('permanentStudentId'); const child = await authorizeParentStudent({ actor: user, permanentStudentId, students, admissionEnrollment }); return child ? json(response, { child }) : json(response, { error: PARENT_UNLINKED_MESSAGE }, 403); }
+      if (pathname === '/api/parent/children/resolve' && request.method === 'GET') { if (!user || user.portal !== 'parent' || !canAccess(user, 'children.read')) return json(response, { error: 'Forbidden.' }, 403); const permanentStudentId = new URL(request.url, 'http://localhost').searchParams.get('permanentStudentId'); const child = await authorizeParentStudent({ actor: user, permanentStudentId, students, admissionEnrollment }); return child ? json(response, { child }) : json(response, { error: PARENT_UNLINKED_MESSAGE }, 403); }
       if (pathname === '/api/parent/receipts' && request.method === 'GET') {
         if (!user || user.portal !== 'parent' || !canAccess(user, 'children.read')) return json(response, { error: 'Forbidden.' }, 403);
         try {
           const rows = durableFeeReader ? await durableFeeReader.listReceipts({}, user) : receiptBranding.listForParent(user);
           const receipts = durableFeeReader ? await Promise.all(rows.map((row) => receiptBranding.getDurable(row.receiptNumber, user, durableFeeReader))) : rows;
           return json(response, { receipts });
-        } catch (error) { return json(response, { error: error.message === 'Forbidden.' ? 'Forbidden.' : 'Unable to load payment receipts.' }, error.status ?? 403); }
+        } catch (error) { return parentApiError(response, error, 'receipts'); }
       }
-      if (pathname === '/api/parent/children') { if (user.portal !== 'parent' || !canAccess(user, 'children.read')) return json(response, { error: 'Forbidden.' }, 403); return json(response, { children: user.children }); }
       if (pathname === '/api/management') { if (!canAccess(user, 'users.read')) return json(response, { error: 'Forbidden.' }, 403); audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, action: 'ACCESS', entity: 'ManagementDashboard' })); return json(response, { authorized: true, schoolId: user.schoolId }); }
       if (pathname === '/api/single-school/overview' && request.method === 'GET') {
         if (user.portal !== 'school' || (!canAccess(user, 'students.read') && !canAccess(user, 'users.read') && !canAccess(user, 'academics.read') && !canAccess(user, 'attendance.read') && !canAccess(user, 'finance.read') && !canAccess(user, 'fees.read'))) return json(response, { error: 'Forbidden.' }, 403);
@@ -733,6 +740,13 @@ function publicUser(user) { return { id: user.id, username: user.username, porta
 async function login(request, response, auth, audit) { const body = await readJson(request); const isParentPhoneLogin = body.portal === 'parent' && Object.prototype.hasOwnProperty.call(body, 'phone'); const result = isParentPhoneLogin ? (typeof auth.loginByPhoneFromDatabase === 'function' ? await auth.loginByPhoneFromDatabase(body) : auth.loginByPhone(body)) : (typeof auth.loginFromDatabase === 'function' ? await auth.loginFromDatabase(body) : auth.login(body)); if (!result.ok) return json(response, { error: result.error }, result.status); audit(createAuditLog({ userId: result.user.id, roleId: result.user.roleKey, sessionId: result.user.sessionId, action: 'LOGIN_SUCCESS', entity: 'Authentication' })); return json(response, { user: result.user, redirectTo: result.redirectTo, expiresAt: result.expiresAt }, 200, `osaah_session=${result.token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Math.floor(auth.sessionTtlMs / 1000)}`); }
 function readCookie(request, name) { return (request.headers.cookie ?? '').split(';').map((part) => part.trim().split('=')).find(([key]) => key === name)?.[1]; }
 function safeFeeError(error, fallbackStatus = 503) { const status = Number.isInteger(error?.status) && error.status >= 400 && error.status < 500 ? error.status : fallbackStatus; const safeMessages = new Set(['Forbidden.', 'Parent access required.', 'Financial read permission required.', 'Financial write permission required.', 'Collection not found.', 'Fee obligation not found.', 'Invalid amount.', 'Collection correction reason required.', 'Invalid collection type.', 'Invalid Extra Classes collection period.', 'Canteen collections support only 1st Term, 2nd Term, and 3rd Term.', 'Fee publication input is invalid.', 'Invalid fee target.', 'Academic year, term, fee type, and amount are required.', 'Academic year not found.', 'Term not found.', 'Fee structure not found.', 'Class is required for a specific-class fee.', 'Class not found.']); const message = safeMessages.has(error?.message) ? error.message : 'Fee service is temporarily unavailable.'; return { body: { error: message }, status }; }
+function parentApiError(response, error, endpoint) {
+  const status = Number.isInteger(error?.status) && error.status >= 400 && error.status <= 599 ? error.status : 503;
+  const code = String(error?.code ?? '');
+  if (status >= 500) console.error('[Parent API] read failed', { endpoint, code: code || 'UNCLASSIFIED', errno: error?.errno ?? error?.cause?.errno ?? null, sqlState: error?.sqlState ?? error?.cause?.sqlState ?? null, causeCode: error?.cause?.code ?? null, errorType: error?.name ?? 'Error' });
+  const message = code.startsWith('PARENT_') ? error.message : status === 403 ? 'Forbidden.' : status === 404 ? 'The requested Parent record was not found.' : status === 501 ? 'Not available yet.' : status === 400 ? 'Check the selected child and academic context.' : 'Unable to load Parent data right now. Check academic setup and try again.';
+  return json(response, { error: message, ...(code.startsWith('PARENT_') ? { code } : {}) }, status);
+}
 function safeReceiptFilename(receiptNumber) { const safe = String(receiptNumber ?? '').replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 80) || 'receipt'; return `OSAAH-Receipt-${safe}.pdf`; }
 function safeProspectusFilename(prospectus) { const detail = `${prospectus.className}-${prospectus.academicYear}`.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 80); return `OSAAH-Admission-Prospectus-${detail || 'Published'}.pdf`; }
 function bearer(request) { const value = request.headers.authorization ?? ''; return value.startsWith('Bearer ') ? value.slice(7) : null; }

@@ -8,6 +8,7 @@ const RESET_TTL_MS = 15 * 60 * 1000;
 const MAX_ATTEMPTS = 5;
 const LOCKOUT_MS = 15 * 60 * 1000;
 const GENERIC_LOGIN_ERROR = 'Incorrect username or password.';
+const PARENT_PERMISSIONS = Object.freeze(['children.read', 'communication.read', 'messages.read', 'messages.write', 'calendar.read', 'library.read', 'transport.read', 'hostel.read', 'discipline.read']);
 export const SCHOOL_PORTAL_ROLE_ALIASES = Object.freeze({ ADMINISTRATOR: 'SCHOOL_ADMIN', SCHOOL_ADMINISTRATOR: 'SCHOOL_ADMIN', ACCOUNTANT: 'ACCOUNTANT_BURSAR', CLASSROOM_TEACHER: 'TEACHER', PROPRIETOR: 'PROPRIETOR', PROPRIETRESS: 'PROPRIETOR', SCHOOL_PROPRIETOR: 'PROPRIETOR', SCHOOL_PROPRIETRESS: 'PROPRIETOR' });
 export const SCHOOL_PORTAL_DASHBOARDS = Object.freeze({ PROPRIETOR: '/reports', SCHOOL_ADMIN: '/settings', HEADTEACHER: '/academics', ASSISTANT_HEADTEACHER: '/academics', ACCOUNTANT_BURSAR: '/fees', TEACHER: '/academics', DEVELOPER: '/developer/communication-setup' });
 const STAFF_ASSIGNABLE_ROLES = Object.freeze({ HEADTEACHER: 'HEADTEACHER', ASSISTANT_HEADTEACHER: 'ASSISTANT_HEADTEACHER', ACCOUNTANT: 'ACCOUNTANT_BURSAR', ACCOUNTANT_BURSAR: 'ACCOUNTANT_BURSAR', CLASSROOM_TEACHER: 'TEACHER', TEACHER: 'TEACHER' });
@@ -41,7 +42,7 @@ export const DEMO_USERS = [
 
 export function createAuthService({ users = DEMO_USERS, database = null, now = () => Date.now(), audit = () => {}, sessionSecret = process.env.OSAAH_SESSION_SECRET } = {}) {
   users = users.map((user) => ({ ...user, permissions: new Set(user.permissions), children: user.children?.map((child) => ({ ...child })) }));
-  const sessions = new Map(); const attempts = new Map(); const resetTokens = new Map();
+  const sessions = new Map(); const durableSessionIds = new Set(); const revokedSessionIds = new Set(); const attempts = new Map(); const resetTokens = new Map();
   const administratorAssignments = [];
   const signingKey = typeof sessionSecret === 'string' && sessionSecret.length >= 32 ? sessionSecret : null;
   const durableSessionStore = Boolean(database?.supportsDurableAuthSessions && database?.query && database?.execute);
@@ -66,8 +67,9 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     // decoded HMAC unchanged and make a tampered token appear valid.
     if (actual.toString('base64url') !== parts[2]) return null;
     if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) return null;
-    try { const session = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')); return session && typeof session.userId === 'string' && typeof session.sessionId === 'string' && Number.isFinite(session.expiresAt) ? session : null; } catch { return null; }
+    try { const session = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')); return session && typeof session.userId === 'string' && typeof session.sessionId === 'string' && Number.isFinite(session.expiresAt) && !revokedSessionIds.has(session.sessionId) ? session : null; } catch { return null; }
   }
+  function revokeLocalSession(token, session = verifiedSession(token)) { if (session?.sessionId) revokedSessionIds.add(session.sessionId); if (token) sessions.delete(token); if (session?.sessionId) durableSessionIds.delete(session.sessionId); }
   function isActive(user) { return user.is_active !== false && user.isActive !== false && !['DISABLED', 'REVOKED', 'REMOVED', 'SUSPENDED', 'DEACTIVATED'].includes(String(user.accountStatus ?? '').toUpperCase()); }
   function securityEvent(action, user, sessionId = null) { audit({ action, entity: 'Authentication', entityId: user?.id ?? null, userId: user?.id ?? null, roleId: canonicalRoleKey(user?.roleKey), sessionId }); }
   function sanitize(user, sessionId = null) { const roleKey = canonicalRoleKey(user.roleKey); return { id: user.id, username: user.username, portal: user.portal, roleKey, role: roleKey, accountStatus: isActive(user) ? 'ACTIVE' : String(user.accountStatus ?? 'DISABLED').toUpperCase(), schoolId: user.schoolId, sessionId, dashboard: SCHOOL_PORTAL_DASHBOARDS[roleKey] ?? '/', schoolType: user.schoolType, subscription: user.subscription, entitlements: user.entitlements ?? [], featureAvailability: user.featureAvailability ?? [], children: user.children ?? [], authorizedStaffIds: user.authorizedStaffIds ?? [], assignedStudentIds: user.assignedStudentIds ?? [], assignedParentIds: user.assignedParentIds ?? [], assignedClassIds: user.assignedClassIds ?? [], assignedSubjectIds: user.assignedSubjectIds ?? [], assignedDepartmentIds: user.assignedDepartmentIds ?? [] }; }
@@ -77,6 +79,17 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     const session = { userId: user.id, sessionId, expiresAt };
     const token = signingKey ? signSession(session) : randomBytes(32).toString('hex');
     sessions.set(token, session); securityEvent('LOGIN_SUCCESS', user, sessionId);
+    return { ok: true, token, user: sanitize(user, sessionId), redirectTo: SCHOOL_PORTAL_DASHBOARDS[canonicalRoleKey(user.roleKey)] ?? '/', expiresAt };
+  }
+  async function createDurableSessionResult(user) {
+    attempts.delete(user.id);
+    const sessionId = randomUUID(); const expiresAt = now() + SESSION_TTL_MS;
+    const session = { userId: user.id, sessionId, expiresAt };
+    const token = signingKey ? signSession(session) : randomBytes(32).toString('hex');
+    sessions.set(token, session);
+    await persistDurableSession(user, session, token);
+    if (durableSessionStore) durableSessionIds.add(session.sessionId);
+    securityEvent('LOGIN_SUCCESS', user, sessionId);
     return { ok: true, token, user: sanitize(user, sessionId), redirectTo: SCHOOL_PORTAL_DASHBOARDS[canonicalRoleKey(user.roleKey)] ?? '/', expiresAt };
   }
   function loginByPhone({ phone, portal = 'parent' }) {
@@ -122,8 +135,8 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
       return createSessionResult(user);
     }
     if (!row) return { ok: false, status: 401, error: 'Phone number is not registered. Contact the school administrator.' };
-    const user = { id: row.id, username: row.username ?? row.email ?? row.id, email: row.email, portal: 'parent', roleKey: 'PARENT', schoolId: row.schoolId, phone: normalized, accountStatus: 'ACTIVE', is_active: true, permissions: new Set(['children.read', 'communication.read', 'messages.read', 'messages.write', 'calendar.read', 'library.read', 'transport.read', 'hostel.read', 'discipline.read']) };
-    users.push(user); return createSessionResult(user);
+    const user = { id: row.id, username: row.username ?? row.email ?? row.id, email: row.email, portal: 'parent', roleKey: 'PARENT', schoolId: row.schoolId, phone: normalized, accountStatus: 'ACTIVE', is_active: true, permissions: new Set(PARENT_PERMISSIONS) };
+    users.push(user); return await createDurableSessionResult(user);
   }
   async function loginFromDatabase({ username, password, portal, role }) {
     const key = String(username ?? '').trim().toLowerCase();
@@ -162,28 +175,32 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     }
     const user = { id: row.id, username: row.username ?? row.email, email: row.email, portal: 'school', roleKey, schoolId: row.schoolId, accountStatus: 'ACTIVE', is_active: true, permissions: new Set(userRows.map((candidate) => candidate.permissionKey).filter(Boolean)) };
     if (!user.permissions.size) for (const permission of ROLE_PERMISSIONS[roleKey] ?? []) user.permissions.add(permission);
-    attempts.delete(key); const sessionId = randomUUID(); const expiresAt = now() + SESSION_TTL_MS; const session = { userId: user.id, sessionId, expiresAt }; const token = randomBytes(32).toString('hex'); sessions.set(token, session); users.push(user); await persistDurableSession(user, session, token); securityEvent('LOGIN_SUCCESS', user, sessionId); return { ok: true, token, user: sanitize(user, sessionId), redirectTo: SCHOOL_PORTAL_DASHBOARDS[roleKey] ?? '/', expiresAt };
+    attempts.delete(key); const sessionId = randomUUID(); const expiresAt = now() + SESSION_TTL_MS; const session = { userId: user.id, sessionId, expiresAt }; const token = randomBytes(32).toString('hex'); sessions.set(token, session); users.push(user); await persistDurableSession(user, session, token); if (durableSessionStore) durableSessionIds.add(sessionId); securityEvent('LOGIN_SUCCESS', user, sessionId); return { ok: true, token, user: sanitize(user, sessionId), redirectTo: SCHOOL_PORTAL_DASHBOARDS[roleKey] ?? '/', expiresAt };
   }
-  function authenticate(token) { const session = verifiedSession(token); if (!session || session.expiresAt <= now()) { if (token) sessions.delete(token); return null; } const user = users.find((candidate) => candidate.id === session.userId); if (!user || !isActive(user)) { sessions.delete(token); if (user) securityEvent('SESSION_REVOKED', user, session.sessionId); return null; } return { ...sanitize(user, session.sessionId), permissions: user.permissions }; }
+  function authenticate(token) { const session = verifiedSession(token); if (!session || session.expiresAt <= now()) { if (token) sessions.delete(token); return null; } const user = users.find((candidate) => candidate.id === session.userId); if (!user) { if (token) sessions.delete(token); return null; } if (!isActive(user)) { revokeLocalSession(token, session); securityEvent('SESSION_REVOKED', user, session.sessionId); return null; } return { ...sanitize(user, session.sessionId), permissions: user.permissions }; }
   async function authenticateAsync(token) {
     const local = authenticate(token);
-    if (local || !durableSessionStore || typeof token !== 'string' || !token) return local;
+    const session = verifiedSession(token);
+    if (!durableSessionStore || typeof token !== 'string' || !token || local && (!session || !durableSessionIds.has(session.sessionId))) return local;
     const rows = await database.query(`SELECT s.id AS sessionId,s.user_id AS userId,s.school_id AS schoolId,s.expires_at AS expiresAt,u.email AS username,u.email,u.status,r.role_key AS roleKey,p.permission_key AS permissionKey FROM auth_sessions s JOIN users u ON u.id=s.user_id LEFT JOIN user_roles ur ON ur.user_id=u.id LEFT JOIN roles r ON r.id=ur.role_id LEFT JOIN role_permissions rp ON rp.role_id=r.id LEFT JOIN permissions p ON p.id=rp.permission_id WHERE s.token_hash=? AND s.revoked_at IS NULL AND s.expires_at>? AND u.status='ACTIVE'`, [tokenHash(token), nowIso()]);
     const row = rows?.[0];
-    if (!row) return null;
+    if (!row) { if (session) revokeLocalSession(token, session); else sessions.delete(token); return null; }
     const userRows = rows.filter((candidate) => candidate.userId === row.userId);
-    const user = { id: row.userId, username: row.username, email: row.email, portal: 'school', roleKey: canonicalRoleKey(row.roleKey), schoolId: row.schoolId, accountStatus: 'ACTIVE', is_active: true, permissions: new Set(userRows.map((candidate) => candidate.permissionKey).filter(Boolean)) };
+    const roleKey = canonicalRoleKey(row.roleKey);
+    const user = { id: row.userId, username: row.username, email: row.email, portal: roleKey === 'PARENT' ? 'parent' : 'school', roleKey, schoolId: row.schoolId, accountStatus: 'ACTIVE', is_active: true, permissions: new Set(userRows.map((candidate) => candidate.permissionKey).filter(Boolean)) };
+    if (user.roleKey === 'PARENT') for (const permission of PARENT_PERMISSIONS) user.permissions.add(permission);
     if (!user.permissions.size) for (const permission of ROLE_PERMISSIONS[user.roleKey] ?? []) user.permissions.add(permission);
     await database.execute('UPDATE auth_sessions SET last_used_at=? WHERE id=? AND revoked_at IS NULL', [nowIso(), row.sessionId]);
     return { ...sanitize(user, row.sessionId), permissions: user.permissions };
   }
   async function logoutSession(token) {
-    const local = authenticate(token);
+    const session = verifiedSession(token);
+    const user = users.find((candidate) => candidate.id === session?.userId);
     if (token && durableSessionStore) await database.execute('UPDATE auth_sessions SET revoked_at=? WHERE token_hash=? AND revoked_at IS NULL', [nowIso(), tokenHash(token)]);
-    if (local) { const session = verifiedSession(token); const user = users.find((candidate) => candidate.id === session?.userId); sessions.delete(token); if (user) securityEvent('SESSION_REVOKED', user, session.sessionId); }
+    if (session) { revokeLocalSession(token, session); if (user) securityEvent('SESSION_REVOKED', user, session.sessionId); }
   }
   function logout(token) { void logoutSession(token); }
-  function changeAccountState(userId, active, status = active ? 'ACTIVE' : 'DISABLED') { const user = users.find((candidate) => candidate.id === userId); if (!user) return false; user.is_active = active; user.accountStatus = status; if (!active) for (const [token, session] of sessions) if (session.userId === userId) { sessions.delete(token); securityEvent(status === 'REVOKED' ? 'SESSION_REVOKED' : 'ACCOUNT_DISABLED', user, session.sessionId); } void revokeDurableSessionsForUser(userId); for (const assignment of administratorAssignments) if (assignment.userId === userId && !active) { assignment.status = status; assignment.removedAt ??= new Date(now()).toISOString(); } return true; }
+  function changeAccountState(userId, active, status = active ? 'ACTIVE' : 'DISABLED') { const user = users.find((candidate) => candidate.id === userId); if (!user) return false; user.is_active = active; user.accountStatus = status; if (!active) for (const [token, session] of sessions) if (session.userId === userId) { revokeLocalSession(token, session); securityEvent(status === 'REVOKED' ? 'SESSION_REVOKED' : 'ACCOUNT_DISABLED', user, session.sessionId); } void revokeDurableSessionsForUser(userId); for (const assignment of administratorAssignments) if (assignment.userId === userId && !active) { assignment.status = status; assignment.removedAt ??= new Date(now()).toISOString(); } return true; }
   function setAccountStatus(userId, status) { return changeAccountState(userId, status === true); }
   function revokeAccount(userId) { return changeAccountState(userId, false, 'REVOKED'); }
   function administratorUsername(fullName) { const base = String(fullName ?? 'administrator').toLowerCase().replace(/[^a-z0-9]+/g, '.').replace(/^\.|\.$/g, '') || 'administrator'; let username = `${base}@osaah.edu.gh`; let suffix = 2; while (users.some((user) => user.username.toLowerCase() === username.toLowerCase())) username = `${base}${suffix++}@osaah.edu.gh`; return username; }
@@ -191,7 +208,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
   function listAdministrators(schoolId) { return administratorAssignments.filter((assignment) => !schoolId || assignment.schoolId === schoolId).map((assignment) => ({ ...assignment })); }
   function getAdministrator(userId, schoolId) { const assignment = administratorAssignments.find((item) => item.userId === userId && item.schoolId === schoolId); return assignment ? { ...assignment } : null; }
   function updateAdministrator(userId, input, schoolId) { const user = users.find((candidate) => candidate.id === userId && candidate.schoolId === schoolId); if (!user) return null; if (input.staffId && input.staffId !== user.staffId && users.some((candidate) => candidate.staffId === input.staffId)) throw new Error('Staff ID already exists'); for (const field of ['fullName', 'staffId', 'phone', 'email']) if (input[field] !== undefined) user[field] = input[field]; const assignment = administratorAssignments.find((item) => item.userId === userId && item.schoolId === schoolId); if (assignment) Object.assign(assignment, { fullName: user.fullName, staffId: user.staffId }); return { id: user.id, fullName: user.fullName, staffId: user.staffId, username: user.username, phone: user.phone, email: user.email, status: user.accountStatus }; }
-  function resetAdministratorCredentials(userId, schoolId) { const user = users.find((candidate) => candidate.id === userId && candidate.schoolId === schoolId); if (!user) return null; const temporaryPassword = randomBytes(18).toString('base64url'); user.passwordHash = passwordHash(temporaryPassword); user.must_change_password = true; for (const [token, session] of sessions) if (session.userId === userId) sessions.delete(token); return { username: user.username, temporaryPassword }; }
+  function resetAdministratorCredentials(userId, schoolId) { const user = users.find((candidate) => candidate.id === userId && candidate.schoolId === schoolId); if (!user) return null; const temporaryPassword = randomBytes(18).toString('base64url'); user.passwordHash = passwordHash(temporaryPassword); user.must_change_password = true; for (const [token, session] of sessions) if (session.userId === userId) revokeLocalSession(token, session); void revokeDurableSessionsForUser(userId); return { username: user.username, temporaryPassword }; }
   let staffSequence = users.filter((user) => /^OSAAH-STAFF-\d+$/.test(user.username)).length;
   function staffUsername() { let username; do { staffSequence += 1; username = `OSAAH-STAFF-${String(staffSequence).padStart(4, '0')}`; } while (users.some((user) => user.username === username)); return username; }
   function staffView(user) { return { id: user.id, fullName: user.fullName, staffId: user.staffId, username: user.username, email: user.email, phone: user.phone, roleKey: user.roleKey, primaryRole: user.roleKey === 'TEACHER' ? 'CLASSROOM_TEACHER' : user.roleKey === 'ACCOUNTANT_BURSAR' ? 'ACCOUNTANT' : user.roleKey, assignedClassIds: user.assignedClassIds ?? [], assignedSubjectIds: user.assignedSubjectIds ?? [], accountStatus: user.accountStatus ?? 'ACTIVE', createdAt: user.createdAt, mustChangePassword: Boolean(user.must_change_password) }; }
@@ -199,11 +216,11 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
   function listStaff(schoolId) { return users.filter((user) => user.schoolId === schoolId && user.staffId && user.roleKey !== 'SCHOOL_ADMIN' && user.portal === 'school').map(staffView); }
   function getStaff(userId, schoolId) { const user = users.find((candidate) => candidate.id === userId && candidate.schoolId === schoolId && candidate.staffId); return user ? staffView(user) : null; }
   function updateStaff(userId, input, schoolId) { const user = users.find((candidate) => candidate.id === userId && candidate.schoolId === schoolId && candidate.staffId); if (!user) return null; if (input.staffId && input.staffId !== user.staffId && users.some((candidate) => candidate.staffId === input.staffId)) throw new Error('Staff ID already exists'); for (const field of ['fullName', 'staffId', 'phone', 'email']) if (input[field] !== undefined) user[field] = input[field]; return staffView(user); }
-  function changeStaffRole(userId, requestedRole, schoolId) { const user = users.find((candidate) => candidate.id === userId && candidate.schoolId === schoolId && candidate.staffId); const roleKey = STAFF_ASSIGNABLE_ROLES[requestedRole]; if (!user || !roleKey) return null; const previousRole = user.roleKey; user.roleKey = roleKey; user.permissions = new Set(ROLE_PERMISSIONS[roleKey] ?? []); user.must_change_password = true; for (const [token, session] of sessions) if (session.userId === userId) sessions.delete(token); return { staff: staffView(user), previousRole, newRole: roleKey }; }
+  function changeStaffRole(userId, requestedRole, schoolId) { const user = users.find((candidate) => candidate.id === userId && candidate.schoolId === schoolId && candidate.staffId); const roleKey = STAFF_ASSIGNABLE_ROLES[requestedRole]; if (!user || !roleKey) return null; const previousRole = user.roleKey; user.roleKey = roleKey; user.permissions = new Set(ROLE_PERMISSIONS[roleKey] ?? []); user.must_change_password = true; for (const [token, session] of sessions) if (session.userId === userId) revokeLocalSession(token, session); void revokeDurableSessionsForUser(userId); return { staff: staffView(user), previousRole, newRole: roleKey }; }
   function assignStaff(userId, input, schoolId) { const user = users.find((candidate) => candidate.id === userId && candidate.schoolId === schoolId && candidate.staffId); if (!user) return null; if (input.classId !== undefined) user.assignedClassIds = input.classId ? [input.classId] : []; if (input.subjectId !== undefined) user.assignedSubjectIds = input.subjectId ? [input.subjectId] : []; return staffView(user); }
-  function resetStaffCredentials(userId, schoolId) { const user = users.find((candidate) => candidate.id === userId && candidate.schoolId === schoolId && candidate.staffId); if (!user) return null; const temporaryPassword = randomBytes(18).toString('base64url'); user.passwordHash = passwordHash(temporaryPassword); user.must_change_password = true; for (const [token, session] of sessions) if (session.userId === userId) sessions.delete(token); return { username: user.username, temporaryPassword }; }
+  function resetStaffCredentials(userId, schoolId) { const user = users.find((candidate) => candidate.id === userId && candidate.schoolId === schoolId && candidate.staffId); if (!user) return null; const temporaryPassword = randomBytes(18).toString('base64url'); user.passwordHash = passwordHash(temporaryPassword); user.must_change_password = true; for (const [token, session] of sessions) if (session.userId === userId) revokeLocalSession(token, session); void revokeDurableSessionsForUser(userId); return { username: user.username, temporaryPassword }; }
   function requestPasswordReset(username) { const user = users.find((candidate) => candidate.username.toLowerCase() === username.trim().toLowerCase()); if (!user) return { ok: true }; const token = randomUUID(); resetTokens.set(token, { userId: user.id, expiresAt: now() + RESET_TTL_MS }); return { ok: true, token }; }
-  function completePasswordReset(token, newPassword) { const reset = resetTokens.get(token); if (!reset || reset.expiresAt <= now() || typeof newPassword !== 'string' || newPassword.length < 10) return { ok: false, error: 'Invalid or expired reset request.' }; const user = users.find((candidate) => candidate.id === reset.userId); if (!user) return { ok: false, error: 'Invalid or expired reset request.' }; user.passwordHash = passwordHash(newPassword); resetTokens.delete(token); for (const [sessionToken, session] of sessions) if (session.userId === user.id) sessions.delete(sessionToken); return { ok: true }; }
+  function completePasswordReset(token, newPassword) { const reset = resetTokens.get(token); if (!reset || reset.expiresAt <= now() || typeof newPassword !== 'string' || newPassword.length < 10) return { ok: false, error: 'Invalid or expired reset request.' }; const user = users.find((candidate) => candidate.id === reset.userId); if (!user) return { ok: false, error: 'Invalid or expired reset request.' }; user.passwordHash = passwordHash(newPassword); resetTokens.delete(token); for (const [sessionToken, session] of sessions) if (session.userId === user.id) revokeLocalSession(sessionToken, session); void revokeDurableSessionsForUser(user.id); return { ok: true }; }
   return { login, loginByPhone, loginByPhoneFromDatabase, loginFromDatabase, authenticate, authenticateAsync, logout, logoutSession, requestPasswordReset, completePasswordReset, setAccountStatus, revokeAccount, createAdministrator, listAdministrators, getAdministrator, updateAdministrator, resetAdministratorCredentials, registerStaff, listStaff, getStaff, updateStaff, changeStaffRole, assignStaff, resetStaffCredentials, sessionTtlMs: SESSION_TTL_MS, genericLoginError: GENERIC_LOGIN_ERROR };
 }
 

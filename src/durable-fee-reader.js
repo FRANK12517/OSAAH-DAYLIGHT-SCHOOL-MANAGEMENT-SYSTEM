@@ -118,7 +118,7 @@ export function createDurableFeeReader({ adapter } = {}) {
         p.payment_reference AS paymentReference,
         r.receipt_number AS receiptNumber,
         i.invoice_number AS invoiceNumber,
-        CONCAT_WS(' ', s.first_name, s.middle_name, s.surname) AS studentName,
+        CONCAT_WS(' ', s.first_name, s.middle_name, s.last_name) AS studentName,
         sp.class_id AS className,
         p.academic_year_id AS academicYear,
         p.term_id AS term,
