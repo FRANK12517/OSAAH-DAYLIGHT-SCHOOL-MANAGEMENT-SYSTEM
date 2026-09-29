@@ -90,6 +90,25 @@ test('Score Entry options use the authoritative production classes table without
   assert.equal(calls.some(({ sql }) => sql.includes('JOIN levels')), false);
 });
 
+test('Score Entry options survive production class tables without optional ordering metadata', async () => {
+  const calls = [];
+  const database = {
+    async query(sql) {
+      calls.push(sql);
+      if (sql.includes('FROM academic_years')) return [{ id: 'year-2026', name: '2026/2027' }];
+      if (sql.includes('FROM terms')) return [{ id: 'term-1', academicYearId: 'year-2026', name: 'First Term' }];
+      if (sql.includes('c.sort_order')) throw new Error("Unknown column 'c.sort_order' in 'field list'");
+      if (sql.includes('SELECT c.id,c.name FROM classes')) return [{ id: 'class-basic-1', name: 'Basic 1' }];
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+    async execute() { return { affectedRows: 1 }; }
+  };
+  const service = createDurableAcademicService({ database, schoolId });
+  const result = await service.options(manager);
+  assert.deepEqual(result.classes, [{ id: 'class-basic-1', name: 'Basic 1' }]);
+  assert.equal(calls.some((sql) => sql.includes('c.level_id')), false);
+});
+
 test('legacy class_subjects mapping remains an authoritative subject source when normalized assignments are unavailable', async () => {
   const database = {
     async query(sql) {
