@@ -32,8 +32,10 @@ test('official receipt branding preserves payment values in print and PDF output
   assert.match(pdf.toString('latin1'), /\/ToUnicode/);
   assert.equal(await service.validateAssets(), true);
   assert.throws(() => service.get(payment.receiptNumber, { id: 'other', portal: 'parent', schoolId: 'school-osaah-daylight' }), /Forbidden/);
-  const parentReceipt = service.get(payment.receiptNumber, { id: 'parent-1', portal: 'parent', schoolId: 'school-osaah-daylight' });
+  const parentUser = { id: 'parent-1', portal: 'parent', schoolId: 'school-osaah-daylight', permissions: new Set(['children.read']) };
+  const parentReceipt = service.get(payment.receiptNumber, parentUser);
   assert.equal(parentReceipt.receiptNumber, payment.receiptNumber);
+  assert.equal(service.listForParent(parentUser).length, 1);
   await access(new URL(`../public${RECEIPT_HEADER_ASSET}`, import.meta.url));
   await access(new URL(`../public${RECEIPT_WATERMARK_ASSET}`, import.meta.url));
   await access(new URL(`../public${RECEIPT_FONT_ASSET}`, import.meta.url));
@@ -66,6 +68,7 @@ test('receipt HTTP routes enforce IDOR protection and safe private responses', a
   const accountant = auth.login({ username: 'bursar@osaah.edu.gh', password: 'Bursar123!', portal: 'school' }); const parent = auth.login({ username: 'parent@example.com', password: 'Parent123!', portal: 'parent' }); const teacher = auth.login({ username: 'teacher@osaah.edu.gh', password: 'Teacher123!', portal: 'school' });
   const pdf = await request(port, `/api/fees/receipts/${payment.receiptNumber}/pdf`, accountant.token); assert.equal(pdf.status, 200); assert.match(pdf.headers['content-type'], /application\/pdf/); assert.match(pdf.headers['content-disposition'], /OSAAH-Receipt-RCT-000001\.pdf/); assert.equal(pdf.headers['cache-control'], 'private, no-store');
   const preview = await request(port, `/api/fees/receipts/${payment.receiptNumber}/preview`, parent.token); assert.equal(preview.status, 200); assert.match(preview.body.toString(), /branding-osaah-watermark/);
+  const parentReceipts = await request(port, '/api/parent/receipts', parent.token); assert.equal(parentReceipts.status, 200); assert.match(parentReceipts.body.toString(), /RCT-000001/);
   assert.equal((await request(port, `/api/fees/receipts/${payment.receiptNumber}`, teacher.token)).status, 403); assert.equal((await request(port, `/api/fees/receipts/${payment.receiptNumber}`)).status, 401); assert.equal((await request(port, '/api/fees/receipts/RCT-999999/pdf', accountant.token)).status, 404);
   assert.equal(fees.counts().payments, 1); assert.equal(fees.listInvoices()[0].balance, 400); await new Promise((resolve) => server.close(resolve));
 });

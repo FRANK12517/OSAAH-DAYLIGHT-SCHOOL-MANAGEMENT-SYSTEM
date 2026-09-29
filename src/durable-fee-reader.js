@@ -29,7 +29,8 @@ function paymentModel(row) {
     issuer: row.issuer ?? null,
     receiptStatus: row.receiptStatus ?? null,
     previousBalance: row.previousBalance == null ? null : Number(row.previousBalance),
-    balance: row.newBalance == null ? null : Number(row.newBalance)
+    balance: row.newBalance == null ? null : Number(row.newBalance),
+    ...(row.parentGuardianName !== undefined ? { parentGuardianName: row.parentGuardianName ?? null, registeredParentPhone: row.registeredParentPhone ?? null } : {})
   };
 }
 
@@ -110,8 +111,53 @@ export function createDurableFeeReader({ adapter } = {}) {
     });
   }
 
+  async function listParentReceipts(actor) {
+    if (!actor?.id || actor.portal !== 'parent') throw Object.assign(new Error('Parent access required.'), { status: 403 });
+    const rows = await adapter.query(`
+      SELECT p.id,
+        p.payment_reference AS paymentReference,
+        r.receipt_number AS receiptNumber,
+        i.invoice_number AS invoiceNumber,
+        CONCAT_WS(' ', s.first_name, s.middle_name, s.surname) AS studentName,
+        sp.class_id AS className,
+        p.academic_year_id AS academicYear,
+        p.term_id AS term,
+        (SELECT GROUP_CONCAT(DISTINCT ii.fee_type ORDER BY ii.fee_type SEPARATOR ', ')
+           FROM fee_invoice_items ii
+          WHERE ii.invoice_id=i.id AND ii.school_id=p.school_id) AS feeType,
+        a.student_id AS studentId,
+        p.permanent_student_id AS permanentStudentId,
+        p.class_id AS classId,
+        p.academic_year_id AS academicYearId,
+        p.term_id AS termId,
+        p.amount AS amount,
+        p.payment_method AS method,
+        p.status,
+        p.payment_date AS paymentDate,
+        p.provider_reference AS providerReference,
+        p.received_by AS enteredBy,
+        p.created_at AS createdAt,
+        r.issued_by AS issuer,
+        r.status AS receiptStatus,
+        r.previous_balance AS previousBalance,
+        r.new_balance AS newBalance,
+        COALESCE(psl.telephone, '') AS registeredParentPhone,
+        COALESCE(pu.full_name, '') AS parentGuardianName
+      FROM student_fee_payments p
+      LEFT JOIN student_fee_accounts a ON a.id=p.account_id AND a.school_id=p.school_id
+      LEFT JOIN fee_invoices i ON i.id=p.invoice_id AND i.school_id=p.school_id
+      LEFT JOIN student_fee_receipts r ON r.payment_id=p.id AND r.school_id=p.school_id
+      JOIN parent_student_links psl ON psl.student_id=a.student_id AND psl.parent_user_id=? AND psl.link_status='ACTIVE'
+      JOIN users pu ON pu.id=psl.parent_user_id AND pu.school_id=p.school_id
+      LEFT JOIN student_profiles sp ON sp.id=a.student_id AND sp.school_id=p.school_id
+      LEFT JOIN students s ON s.id=sp.student_master_id AND s.school_id=p.school_id
+      WHERE p.school_id=? AND (r.status IS NULL OR r.status <> 'VOIDED')
+      ORDER BY p.payment_date DESC, p.id DESC`, [actor.id, actor.schoolId]);
+    return rows.map(paymentModel).filter((payment) => payment.receiptNumber);
+  }
+
   async function listReceipts(filters = {}, actor) {
-    const payments = await listPayments(filters, actor);
+    const payments = actor?.portal === 'parent' ? await listParentReceipts(actor) : await listPayments(filters, actor);
     return payments.filter((payment) => payment.receiptNumber && (!payment.receiptStatus || String(payment.receiptStatus).toUpperCase() !== 'VOIDED'));
   }
 
@@ -120,5 +166,5 @@ export function createDurableFeeReader({ adapter } = {}) {
     return receipts.find((receipt) => receipt.receiptNumber === receiptNumber) ?? null;
   }
 
-  return { listPayments, listReceipts, getReceipt, validStatuses: () => [...VALID_STATUSES] };
+  return { listPayments, listParentReceipts, listReceipts, getReceipt, validStatuses: () => [...VALID_STATUSES] };
 }
