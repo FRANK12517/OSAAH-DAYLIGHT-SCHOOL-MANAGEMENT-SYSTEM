@@ -1,6 +1,7 @@
 import bcrypt from 'bcrypt';
 import { createHash, createHmac, randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 import { normalizeGhanaPhone } from './ghana-phone.js';
+import { createConfiguredTestParent, isConfiguredTestParentPhone } from './test-parent-fixture.js';
 
 const SESSION_TTL_MS = 30 * 60 * 1000;
 const RESET_TTL_MS = 15 * 60 * 1000;
@@ -18,6 +19,7 @@ function passwordHash(password, salt = randomBytes(16).toString('hex')) { return
 function passwordMatches(password, stored) { const [salt, expected] = stored.split(':'); const actual = scryptSync(password, salt, 32); return timingSafeEqual(actual, Buffer.from(expected, 'hex')); }
 
 export const DEMO_USERS = [
+  createConfiguredTestParent(),
   { id: 'user-parent-1', username: 'parent@example.com', phone: '+233241234567', passwordHash: passwordHash('Parent123!', 'parent-salt'), portal: 'parent', roleKey: 'PARENT', schoolId: 'school-osaah-daylight', permissions: new Set(['children.read', 'communication.read', 'messages.read', 'messages.write', 'calendar.read', 'library.read', 'transport.read', 'hostel.read', 'discipline.read']), children: [{ id: 'student-1', name: 'Ama Mensah', className: 'Primary 4' }, { id: 'student-2', name: 'Kojo Mensah', className: 'Primary 2' }], authorizedStaffIds: ['user-teacher-1'] },
   { id: 'user-proprietor-1', username: 'proprietor@osaah.edu.gh', passwordHash: passwordHash('Proprietor123!', 'proprietor-salt'), portal: 'school', roleKey: 'PROPRIETOR', schoolId: 'school-osaah-daylight', permissions: new Set(['*']) },
   { id: 'user-teacher-1', username: 'teacher@osaah.edu.gh', passwordHash: passwordHash('Teacher123!', 'teacher-salt'), portal: 'school', roleKey: 'TEACHER', schoolId: 'school-osaah-daylight', permissions: new Set(['students.read', 'academics.read', 'attendance.read', 'attendance.write', 'examinations.read', 'marks.write', 'results.read', 'results.generate', 'results.print', 'mock.scores.read', 'mock.scores.write', 'mock.results.read', 'mock.results.generate', 'leave.read', 'leave.write', 'staff.professional-development.view', 'communication.read', 'messages.read', 'messages.write', 'discipline.read', 'discipline.write', 'property.request', 'shep_activities.view', 'shep_activities.create', 'shep_activities.update', 'shep_activities.manage_participants', 'shep_activities.record_screening', 'shep_activities.create_referral', 'shep_activities.manage_followup', 'shep_activities.generate_reports']), assignedStudentIds: ['student-1'], assignedParentIds: ['user-parent-1'] },
@@ -114,6 +116,11 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
         WHERE r.role_key='PARENT' AND UPPER(COALESCE(u.status,'ACTIVE'))='ACTIVE'`, []); } catch { rows = []; }
     }
     const row = rows.find((candidate) => normalizeGhanaPhone(candidate.parentPhone) === normalized);
+    if (!row && isConfiguredTestParentPhone(normalized) && process.env.OSAAH_ENABLE_SAMPLE_FIXTURES !== 'false') {
+      const user = createConfiguredTestParent();
+      users.push(user);
+      return createSessionResult(user);
+    }
     if (!row) return { ok: false, status: 401, error: 'Phone number is not registered. Contact the school administrator.' };
     const user = { id: row.id, username: row.username ?? row.email ?? row.id, email: row.email, portal: 'parent', roleKey: 'PARENT', schoolId: row.schoolId, phone: normalized, accountStatus: 'ACTIVE', is_active: true, permissions: new Set(['children.read', 'communication.read', 'messages.read', 'messages.write', 'calendar.read', 'library.read', 'transport.read', 'hostel.read', 'discipline.read']) };
     users.push(user); return createSessionResult(user);

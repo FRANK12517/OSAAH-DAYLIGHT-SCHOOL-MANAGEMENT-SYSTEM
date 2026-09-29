@@ -82,6 +82,7 @@ import { createSchoolSettingsService } from './school-settings.js';
 import { createSingleSchoolOverviewService } from './single-school-overview.js';
 import { createSchoolProfileService } from './school-profile.js';
 import { authorizeParentStudent, PARENT_UNLINKED_MESSAGE } from './parent-authorization.js';
+import { isConfiguredTestStudentId } from './test-parent-fixture.js';
 
 const root = join(fileURLToPath(new URL('.', import.meta.url)), '..', 'public');
 const mime = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.svg': 'image/svg+xml' };
@@ -598,7 +599,7 @@ export function createApp({ auth = null, students = null, attendance = null, att
       if (pathname.startsWith('/api/admissions/') && pathname.endsWith('/advance') && request.method === 'POST') { if (!canAccess(user, 'admissions.write')) return json(response, { error: 'Forbidden.' }, 403); const applicationNumber = pathname.split('/')[3]; const application = students.advanceAdmission(applicationNumber, (await readJson(request)).stage); audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, action: 'ADVANCE', entity: 'AdmissionApplication', entityId: applicationNumber, newValue: application })); return json(response, application); }
       if (pathname === '/api/parent/options' && request.method === 'GET') {
         if (!user || user.portal !== 'parent' || !canAccess(user, 'children.read')) return json(response, { error: 'Forbidden.' }, 403);
-        let options = { academicYears: [], terms: [{ id: '1st Term', name: '1st Term' }, { id: '2nd Term', name: '2nd Term' }, { id: '3rd Term', name: '3rd Term' }], classes: ['Nursery 1','Nursery 2','KG 1','KG 2','Primary 1','Primary 2','Primary 3','Primary 4','Primary 5','Primary 6','JHS 1','JHS 2','JHS 3','Completed / Graduated'] };
+        let options = { academicYears: ACADEMIC_YEAR_OPTIONS.map((name) => ({ id: name, name })), terms: [{ id: '1st Term', name: '1st Term' }, { id: '2nd Term', name: '2nd Term' }, { id: '3rd Term', name: '3rd Term' }], classes: ['Nursery 1','Nursery 2','KG 1','KG 2','Primary 1','Primary 2','Primary 3','Primary 4','Primary 5','Primary 6','JHS 1','JHS 2','JHS 3','Completed / Graduated'] };
         try { options = { ...options, ...(durableAcademic ? await durableAcademic.options(user) : academicResults.options(user)) }; } catch {}
         options.terms = [{ id: '1st Term', name: '1st Term' }, { id: '2nd Term', name: '2nd Term' }, { id: '3rd Term', name: '3rd Term' }];
         options.classes = ['Nursery 1','Nursery 2','KG 1','KG 2','Primary 1','Primary 2','Primary 3','Primary 4','Primary 5','Primary 6','JHS 1','JHS 2','JHS 3','Completed / Graduated'];
@@ -611,7 +612,7 @@ export function createApp({ auth = null, students = null, attendance = null, att
         const academicYear = String(query.get('academicYear') ?? '').trim();
         const term = String(query.get('term') ?? '').trim();
         const classId = String(query.get('classId') ?? '').trim();
-        if (!/^OSAAH\/\d{4}\/\d{4,}$/.test(permanentStudentId) || !academicYear || !term || !classId) return json(response, { error: 'Academic year, class, term, and Permanent Student ID are required.' }, 400);
+        if ((!/^OSAAH\/\d{4}\/\d{4,}$/.test(permanentStudentId) && !isConfiguredTestStudentId(permanentStudentId)) || !academicYear || !term || !classId) return json(response, { error: 'Academic year, class, term, and Permanent Student ID are required.' }, 400);
         const student = await authorizeParentStudent({ actor: user, permanentStudentId, students, admissionEnrollment });
         if (!student) return json(response, { error: PARENT_UNLINKED_MESSAGE }, 403);
         const studentId = student.id ?? student.studentId;
