@@ -72,3 +72,12 @@ test('staff attendance persists academic scope and prevents duplicate daily stat
   attendance.saveStaffAttendance({ ...entry, academicYear: '2026/2027' }, actor);
   assert.equal(attendance.listStaffRecords().length, 2);
 });
+
+test('staff attendance status changes preserve the logical record identity', () => {
+  const attendance = createAttendanceService({ schoolId: 'school-1' });
+  const entry = { academicYear: '2025/2026', term: '1st Term', date: '2025-09-10', staffId: 'staff-1', type: 'PRESENT', status: 'PRESENT' };
+  const present = attendance.upsertStaffAttendance(entry, actor);
+  const late = attendance.upsertStaffAttendance({ ...entry, type: 'LATE', status: 'LATE', reason: 'Traffic' }, actor, { forceStatus: true });
+  assert.equal(late.id, present.id);
+  assert.deepEqual(attendance.listStaffRecords().map(({ id, status }) => ({ id, status })), [{ id: present.id, status: 'LATE' }]);
+});
