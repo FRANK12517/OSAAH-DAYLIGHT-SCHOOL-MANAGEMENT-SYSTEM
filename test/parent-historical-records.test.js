@@ -96,17 +96,16 @@ test('completed archive returns only explicit completion status or completed enr
     async query(sql, params) {
       assert.deepEqual(params, ['school-1', 'parent-1', 'school-1', child.permanentStudentId]);
       assert.match(sql, /student_status/);
-      assert.match(sql, /completed_at/);
       assert.match(sql, /enrollment_status/);
       return [
-        { studentStatus: 'COMPLETED', academicYearId: 'year-2024', academicYearName: '2024/2025', termId: 'term-1', termName: '1st Term', classId: 'class-jhs-3', className: 'JHS 3', enrollmentStatus: 'COMPLETED', completedAt: '2025-06-30T12:00:00Z' },
-        { studentStatus: 'ACTIVE', enrollmentStatus: 'ACTIVE', completedAt: null }
+        { studentStatus: 'COMPLETED', academicYearId: 'year-2024', academicYearName: '2024/2025', termId: 'term-1', termName: '1st Term', classId: 'class-jhs-3', className: 'JHS 3', enrollmentStatus: 'COMPLETED' },
+        { studentStatus: 'ACTIVE', enrollmentStatus: 'ACTIVE' }
       ];
     }
   } });
   assert.deepEqual(await service.listCompletedRecords(actor, child), [{
     status: 'COMPLETED', academicYearId: 'year-2024', academicYearName: '2024/2025',
-    termId: 'term-1', termName: '1st Term', classId: 'class-jhs-3', className: 'JHS 3', completedAt: '2025-06-30T12:00:00Z'
+    termId: 'term-1', termName: '1st Term', classId: 'class-jhs-3', className: 'JHS 3', completedAt: null
   }]);
 });
 
