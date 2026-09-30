@@ -17,7 +17,7 @@ WHERE e.school_id IS NULL
   AND s.school_id IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_student_enrollments_compat_scope
-  ON student_enrollments (school_id, student_id, academic_year_id, class_id, term_id);
+  ON student_enrollments (student_id, academic_year_id, class_id);
 
 -- No term backfill is performed. Rows with missing or conflicting provenance
 -- remain NULL and are handled by record-specific Parent authorization.

@@ -6,6 +6,8 @@ import { createMigrationRunner, discoverMigrations } from '../src/platform/migra
 const VERSION = 59;
 const NAME = '059_backward_compatible_enrollment_contract.sql';
 const EXPECTED_DATABASE = 'osaahdaylightschool';
+const COMPATIBILITY_INDEX = 'idx_student_enrollments_compat_scope';
+const COMPATIBILITY_INDEX_COLUMNS = 'student_id,academic_year_id,class_id';
 const mode = process.argv[2] ?? 'apply';
 if (!['dry-run', 'apply'].includes(mode)) throw Object.assign(new Error('Only dry-run or apply is allowed.'), { code: 'INVALID_MIGRATION_MODE' });
 if (!process.env.DATABASE_URL) throw Object.assign(new Error('Protected DATABASE_URL is required.'), { code: 'DATABASE_URL_MISSING' });
@@ -38,7 +40,7 @@ async function schemaSnapshot() {
     orphanCount: Number(orphanCount[0]?.row_count ?? 0),
     nullSchoolCount: Number(nullSchoolCount[0]?.row_count ?? 0),
     nonNullEnrollmentSchoolCount: Number(nonNullEnrollmentSchoolCount[0]?.row_count ?? 0),
-    compatibilityIndex: indexes.find((row) => row.INDEX_NAME === 'idx_student_enrollments_compat_scope') ?? null
+    compatibilityIndex: indexes.find((row) => row.INDEX_NAME === COMPATIBILITY_INDEX) ?? null
   };
 }
 
@@ -56,7 +58,7 @@ function assertPostSchema(snapshot, migration) {
   const term = column(snapshot, 'student_enrollments', 'term_id');
   if (!school || String(school.COLUMN_TYPE).toLowerCase() !== 'varchar(191)' || String(school.IS_NULLABLE).toUpperCase() !== 'YES' || school.COLUMN_DEFAULT !== null) throw Object.assign(new Error('Migration 059 school_id definition is incompatible.'), { code: 'MIGRATION_059_SCHEMA_VERIFICATION_FAILED', details: { school } });
   if (!term || String(term.COLUMN_TYPE).toLowerCase() !== 'varchar(64)' || String(term.IS_NULLABLE).toUpperCase() !== 'YES' || term.COLUMN_DEFAULT !== null) throw Object.assign(new Error('Migration 059 term_id definition is incompatible.'), { code: 'MIGRATION_059_SCHEMA_VERIFICATION_FAILED', details: { term } });
-  if (!snapshot.compatibilityIndex) throw Object.assign(new Error('Migration 059 compatibility index is missing.'), { code: 'MIGRATION_059_INDEX_VERIFICATION_FAILED' });
+  if (!snapshot.compatibilityIndex || snapshot.compatibilityIndex.columns !== COMPATIBILITY_INDEX_COLUMNS) throw Object.assign(new Error('Migration 059 compatibility index is missing or has an unexpected column order.'), { code: 'MIGRATION_059_INDEX_VERIFICATION_FAILED', details: { expected: COMPATIBILITY_INDEX_COLUMNS, actual: snapshot.compatibilityIndex } });
   return migration;
 }
 
@@ -76,8 +78,8 @@ async function main() {
     const school = rows.find((item) => item.COLUMN_NAME === 'school_id');
     const term = rows.find((item) => item.COLUMN_NAME === 'term_id');
     if (!school || String(school.COLUMN_TYPE).toLowerCase() !== 'varchar(191)' || String(school.IS_NULLABLE).toUpperCase() !== 'YES' || school.COLUMN_DEFAULT !== null || !term || String(term.COLUMN_TYPE).toLowerCase() !== 'varchar(64)' || String(term.IS_NULLABLE).toUpperCase() !== 'YES' || term.COLUMN_DEFAULT !== null) throw Object.assign(new Error('Migration 059 schema verification failed inside transaction.'), { code: 'MIGRATION_059_SCHEMA_VERIFICATION_FAILED' });
-    const indexes = await tx.query("SELECT INDEX_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='student_enrollments' AND INDEX_NAME='idx_student_enrollments_compat_scope'");
-    if (!indexes.length) throw Object.assign(new Error('Migration 059 index verification failed inside transaction.'), { code: 'MIGRATION_059_INDEX_VERIFICATION_FAILED' });
+    const indexes = await tx.query("SELECT INDEX_NAME,GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX SEPARATOR ',') AS columns FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='student_enrollments' AND INDEX_NAME=? GROUP BY INDEX_NAME", [COMPATIBILITY_INDEX]);
+    if (!indexes.length || indexes[0].columns !== COMPATIBILITY_INDEX_COLUMNS) throw Object.assign(new Error('Migration 059 index verification failed inside transaction.'), { code: 'MIGRATION_059_INDEX_VERIFICATION_FAILED', details: { expected: COMPATIBILITY_INDEX_COLUMNS, actual: indexes[0] ?? null } });
   } });
   const afterSchema = await schemaSnapshot();
   const afterLedger = await ledgerState();

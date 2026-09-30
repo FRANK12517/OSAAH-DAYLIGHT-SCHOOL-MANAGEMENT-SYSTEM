@@ -118,8 +118,8 @@ WHERE TABLE_SCHEMA = DATABASE()
   AND COLUMN_NAME = 'term_id';
 
 -- 9. INDEX_CONSTRAINT_PREFLIGHT
--- Check the proposed index name, all current enrollment indexes, and the
--- canonical student_id -> students.id foreign-key relationship.
+-- Check the proposed three-column index name, all current enrollment indexes,
+-- and the canonical student_id -> students.id foreign-key relationship.
 SELECT
   'INDEX_CONSTRAINT_PREFLIGHT' AS result_set,
   'proposed_index_name' AS check_name,
@@ -129,6 +129,16 @@ FROM INFORMATION_SCHEMA.STATISTICS
 WHERE TABLE_SCHEMA = DATABASE()
   AND TABLE_NAME = 'student_enrollments'
   AND INDEX_NAME = 'idx_student_enrollments_compat_scope'
+UNION ALL
+SELECT
+  'INDEX_CONSTRAINT_PREFLIGHT' AS result_set,
+  'proposed_index_columns' AS check_name,
+  'student_id,academic_year_id,class_id' AS object_name,
+  COALESCE(GROUP_CONCAT(s.COLUMN_NAME ORDER BY s.SEQ_IN_INDEX SEPARATOR ','), 'ABSENT') AS status
+FROM INFORMATION_SCHEMA.STATISTICS s
+WHERE s.TABLE_SCHEMA = DATABASE()
+  AND s.TABLE_NAME = 'student_enrollments'
+  AND s.INDEX_NAME = 'idx_student_enrollments_compat_scope'
 UNION ALL
 SELECT
   'INDEX_CONSTRAINT_PREFLIGHT' AS result_set,
