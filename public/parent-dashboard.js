@@ -151,15 +151,24 @@ function renderRecord(body) {
       ['Sample status', student.sampleLabel ?? 'Official student record']
     ])}`;
   }
-  if (body.recordType === 'attendance') return `<h4>Attendance</h4>${summaryCards([
-    ['Student', body.student?.name], ['Academic year', body.context?.yearName], ['Class', body.context?.className], ['Term', body.context?.termName]
-  ])}${table([
+  if (body.recordType === 'attendance') {
+    const summary = body.attendanceSummary ?? {};
+    const percentage = Number.isFinite(summary.recordedAttendancePercentage) ? `${summary.recordedAttendancePercentage}%` : '—';
+    const unknownStatuses = (summary.unknownStatuses ?? []).map((item) => `${item.status} (${item.count})`).join(', ');
+    return `<h4>Attendance</h4>${summaryCards([
+      ['Student', body.student?.name], ['Academic year', body.context?.yearName], ['Class', body.context?.className], ['Term', body.context?.termName]
+    ])}<section class="parent-attendance-summary"><h5>ATTENDANCE SUMMARY</h5>${summaryCards([
+      ['Recorded Days', summary.recordedDays ?? 0], ['Present', summary.present ?? 0], ['Absent', summary.absent ?? 0], ['Late', summary.late ?? 0],
+      ['Early Departure', summary.earlyDeparture ?? 0], ['Excused Absence', summary.excusedAbsence ?? 0], ['Unexcused Absence', summary.unexcusedAbsence ?? 0],
+      ['Sick Absence', summary.sickAbsence ?? 0], ['Recorded Attendance %', percentage]
+    ])}${unknownStatuses ? `<p class="parent-attendance-note">Other status values (not classified as Present or Absent): ${esc(unknownStatuses)}</p>` : ''}</section><h5>Detailed attendance records</h5>${table([
     { key: 'date', label: 'Date', render: (value, row) => esc(formatDate(value ?? row.attendanceDate)) },
     { key: 'status', label: 'Status' },
     { key: 'arrivalTime', label: 'Arrival' },
     { key: 'departureTime', label: 'Departure' },
     { key: 'remarks', label: 'Notes' }
-  ], body.records ?? [])}`;
+    ], body.records ?? [])}`;
+  }
   if (body.recordType === 'published-results') return renderResult(body);
   if (body.recordType === 'fees') return renderFees(body);
   if (body.recordType === 'payments' || body.recordType === 'payment-receipts') return renderFees(body, { payments: true });
