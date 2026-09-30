@@ -85,6 +85,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     return { ok: true, token, user: sanitize(user, sessionId), redirectTo: SCHOOL_PORTAL_DASHBOARDS[canonicalRoleKey(user.roleKey)] ?? '/', expiresAt };
   }
   async function createDurableSessionResult(user) {
+    if (process.env.NODE_ENV === 'production' && !durableSessionStore) return { ok: false, status: 503, error: 'Authentication service unavailable.' };
     attempts.delete(user.id);
     const sessionId = randomUUID(); const expiresAt = now() + SESSION_TTL_MS;
     const session = { userId: user.id, sessionId, expiresAt };
