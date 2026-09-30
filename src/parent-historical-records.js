@@ -104,13 +104,13 @@ export function createParentHistoricalRecordsService({ database } = {}) {
         e.academic_year_id AS academicYearId, y.name AS academicYearName,
         e.term_id AS termId, t.name AS termName,
         e.class_id AS classId, c.name AS className,
-        e.enrollment_status AS enrollmentStatus, e.completed_at AS completedAt
+        e.enrollment_status AS enrollmentStatus
       FROM parent_student_links psl
       JOIN users pu ON pu.id=psl.parent_user_id AND pu.school_id=? AND UPPER(COALESCE(pu.status,'ACTIVE'))='ACTIVE'
       JOIN student_profiles sp ON sp.id=psl.student_id AND sp.school_id=pu.school_id
       JOIN students s ON s.id=sp.student_master_id AND s.school_id=pu.school_id
       LEFT JOIN student_enrollments e ON e.student_id=s.id AND e.school_id=s.school_id
-        AND (UPPER(COALESCE(e.enrollment_status,''))='COMPLETED' OR e.completed_at IS NOT NULL)
+        AND UPPER(COALESCE(e.enrollment_status,''))='COMPLETED'
       LEFT JOIN academic_years y ON y.id=e.academic_year_id AND y.school_id=s.school_id
       LEFT JOIN terms t ON t.id=e.term_id AND t.academic_year_id=y.id
       LEFT JOIN classes c ON c.id=e.class_id AND c.school_id=s.school_id
@@ -118,11 +118,11 @@ export function createParentHistoricalRecordsService({ database } = {}) {
         AND s.school_id=? AND s.permanent_student_id=?
         AND COALESCE(s.is_test_record,0)=0
         AND (UPPER(COALESCE(s.student_status,'')) IN ('COMPLETED','GRADUATED') OR e.id IS NOT NULL)
-      ORDER BY e.completed_at,e.academic_year_id,e.id`, [actor.schoolId, actor.id, actor.schoolId, permanentStudentId]);
+      ORDER BY e.academic_year_id,e.id`, [actor.schoolId, actor.id, actor.schoolId, permanentStudentId]);
 
     return rows(result).map((item) => {
       const studentStatus = String(item.studentStatus ?? '').toUpperCase();
-      const completionMarker = String(item.enrollmentStatus ?? '').toUpperCase() === 'COMPLETED' || item.completedAt != null;
+      const completionMarker = String(item.enrollmentStatus ?? '').toUpperCase() === 'COMPLETED';
       return {
         status: ['COMPLETED', 'GRADUATED'].includes(studentStatus) ? studentStatus : completionMarker ? 'COMPLETED' : null,
         academicYearId: item.academicYearId == null ? null : String(item.academicYearId),
@@ -131,7 +131,7 @@ export function createParentHistoricalRecordsService({ database } = {}) {
         termName: item.termName ?? item.termId ?? null,
         classId: item.classId == null ? null : String(item.classId),
         className: item.className ?? item.classId ?? null,
-        completedAt: item.completedAt ?? null
+        completedAt: null
       };
     }).filter((item) => item.status);
   }
