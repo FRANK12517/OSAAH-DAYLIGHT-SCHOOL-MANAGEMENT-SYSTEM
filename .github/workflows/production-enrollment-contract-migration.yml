@@ -47,11 +47,13 @@ jobs:
       - name: Confirm protected inputs
         shell: bash
         env:
+          RELEASE_REF: ${{ inputs.release_ref }}
           EXECUTION_TOKEN: ${{ inputs.execution_token }}
         run: |
           test -n "${DATABASE_URL:-}" || { echo 'Protected DATABASE_URL is unavailable.'; exit 1; }
-          test "${{ inputs.release_ref }}" =~ ^[0-9a-f]{40}$ || { echo 'release_ref must be a full lowercase 40-character SHA.'; exit 1; }
+          [[ "${RELEASE_REF}" =~ ^[0-9a-f]{40}$ ]] || { echo 'release_ref must be a full lowercase 40-character SHA.'; exit 1; }
           test "${EXECUTION_TOKEN}" = 'DRY_RUN_ONLY' || test "${EXECUTION_TOKEN}" = 'APPLY_ENROLLMENT_CONTRACT_059' || { echo 'Invalid execution token.'; exit 1; }
+          test "$(git rev-parse HEAD)" = "${RELEASE_REF}" || { echo 'Checked-out commit does not match release_ref.'; exit 1; }
           echo 'Protected migration inputs are available; no secret value is printed.'
 
       - name: Run read-only migration 059 preflight

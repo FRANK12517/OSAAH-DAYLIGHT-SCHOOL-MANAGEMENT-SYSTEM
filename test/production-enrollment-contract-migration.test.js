@@ -9,6 +9,9 @@ test('production enrollment migration is explicitly scoped to version 059', asyn
   assert.match(workflow, /production-enrollment-contract-migrate\.mjs dry-run/);
   assert.match(workflow, /production-enrollment-contract-migrate\.mjs apply/);
   assert.match(workflow, /secrets\.DATABASE_URL/);
+  assert.match(workflow, /\[\[ "\$\{RELEASE_REF\}" =~ \^\[0-9a-f\]\{40\}\$ \]\]/);
+  assert.match(workflow, /git rev-parse HEAD/);
+  assert.doesNotMatch(workflow, /test .* =~/);
   assert.match(script, /const VERSION = 59/);
   assert.match(script, /const NAME = '059_backward_compatible_enrollment_contract\.sql'/);
   assert.match(script, /applyVersions\(\{ versions: \[VERSION\]/);
