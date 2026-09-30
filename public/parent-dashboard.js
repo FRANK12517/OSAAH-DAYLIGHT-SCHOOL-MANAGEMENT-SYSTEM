@@ -7,6 +7,18 @@ export function isCurrentParentChildResolution(currentId, requestedId) {
   return String(currentId ?? '').trim() === String(requestedId ?? '').trim();
 }
 
+export function parentContextAfterChildResolution(context = {}, { previousChildId = '', child = null, classes = [] } = {}) {
+  const previousId = String(previousChildId ?? '').trim();
+  const nextId = String(child?.permanentStudentId ?? '').trim();
+  const classId = String(child?.classId ?? child?.class_id ?? '').trim();
+  const className = String(child?.className ?? child?.class_name ?? '').trim();
+  const classMatch = (classId || className)
+    ? classes.find((item) => item.id === classId || item.name === className || item.id === className)
+    : null;
+  const sameChild = Boolean(previousId && nextId && previousId === nextId);
+  return { ...context, classId: classMatch?.id ?? (sameChild ? context.classId : '') };
+}
+
 export function createParentDashboardViewState() {
   let revision = 0;
   let selectedChildId = '';
@@ -270,11 +282,11 @@ export async function mountParentDashboard({ dashboard, user, sidebar } = {}) {
   }
 
   function applyChildContext(child) {
+    const previousChildId = selectedStudent?.permanentStudentId ?? '';
+    const context = parentContextAfterChildResolution(selectedContext(), { previousChildId, child, classes: options?.classes ?? [] });
     selectedStudent = child;
     permanentId.value = child?.permanentStudentId ?? '';
-    const classMatch = options?.classes.find((item) => item.id === child?.classId || item.name === child?.className || item.id === child?.className);
-    if (classMatch) classSelect.value = classMatch.id;
-    else classSelect.value = '';
+    classSelect.value = context.classId ?? '';
     const summary = byId(overview, 'parent-child-summary');
     summary.innerHTML = child ? `<strong>${esc(child.name)}</strong><span>Permanent Student ID: ${esc(child.permanentStudentId)}</span><span>Current class: ${esc(child.className ?? 'Not recorded')}</span>${child.isTestRecord ? '<span class="parent-sample-badge">SAMPLE DATA</span>' : ''}` : childLoadError ? esc(childLoadError) : childList.length ? 'Select a child to begin.' : 'No children are currently linked to this Parent account.';
   }
@@ -332,6 +344,9 @@ export async function mountParentDashboard({ dashboard, user, sidebar } = {}) {
       option.value = displayedChild.permanentStudentId;
       option.textContent = `${displayedChild.name} — ${displayedChild.permanentStudentId}`;
       childSelect.append(option);
+    } else {
+      displayedChild = { ...displayedChild, ...body.child };
+      childList[childList.findIndex((child) => child.permanentStudentId === body.child.permanentStudentId)] = displayedChild;
     }
     childSelect.value = displayedChild.permanentStudentId;
     applyChildContext(displayedChild);

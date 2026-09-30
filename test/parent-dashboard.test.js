@@ -7,7 +7,7 @@ import { createCommunicationService } from '../src/communication.js';
 import { createOperationsService } from '../src/operations.js';
 import { parentDashboardModules } from '../src/sidebar-registry.js';
 import '../src/module-registry.js';
-import { createParentDashboardViewState, isCurrentParentChildResolution } from '../public/parent-dashboard.js';
+import { createParentDashboardViewState, isCurrentParentChildResolution, parentContextAfterChildResolution } from '../public/parent-dashboard.js';
 
 const child = {
   id: 'student-1',
@@ -62,6 +62,37 @@ test('a delayed Child A resolution cannot overwrite a later Child B selection', 
   assert.equal(isCurrentParentChildResolution('OSAAH/2026/0002', 'OSAAH/2026/0001'), false);
   assert.equal(isCurrentParentChildResolution(' OSAAH/2026/0002 ', 'OSAAH/2026/0002'), true);
 });
+
+test('same-child re-resolution without a recorded class preserves the Parent academic context', () => {
+  const context = { academicYear: 'year-2026', classId: 'class-primary-4', term: 'term-2' };
+  const classes = [{ id: 'class-primary-4', name: 'Primary 4' }];
+  for (const missingClass of [null, '', undefined]) {
+    assert.deepEqual(parentContextAfterChildResolution(context, {
+      previousChildId: 'OSAAH-DEMO-001',
+      child: { permanentStudentId: 'OSAAH-DEMO-001', classId: missingClass, className: missingClass },
+      classes
+    }), context);
+  }
+});
+
+test('same-child re-resolution with a valid canonical class retains existing synchronization behavior', () => {
+  const context = { academicYear: 'year-2026', classId: 'class-primary-4', term: 'term-2' };
+  assert.deepEqual(parentContextAfterChildResolution(context, {
+    previousChildId: 'OSAAH-DEMO-001',
+    child: { permanentStudentId: 'OSAAH-DEMO-001', classId: 'class-primary-1', className: 'Primary 1' },
+    classes: [{ id: 'class-primary-1', name: 'Primary 1' }, { id: 'class-primary-4', name: 'Primary 4' }]
+  }), { ...context, classId: 'class-primary-1' });
+});
+
+test('switching children clears a stale class when the new child has no recorded class', () => {
+  const context = { academicYear: 'year-2026', classId: 'class-primary-1', term: 'term-1' };
+  assert.deepEqual(parentContextAfterChildResolution(context, {
+    previousChildId: 'OSAAH-DEMO-001',
+    child: { permanentStudentId: 'OSAAH-DEMO-002', classId: null, className: null },
+    classes: [{ id: 'class-primary-1', name: 'Primary 1' }]
+  }), { ...context, classId: '' });
+});
+
 function dependencies(overrides = {}) {
   const databaseRows = [child, { ...child, id: 'student-2', studentId: 'student-2', studentProfileId: 'profile-2', permanentStudentId: 'OSAAH/2026/0002', firstName: 'Kojo' }];
   return {
