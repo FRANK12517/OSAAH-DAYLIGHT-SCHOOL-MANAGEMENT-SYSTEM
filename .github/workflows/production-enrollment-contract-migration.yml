@@ -1,0 +1,65 @@
+name: Production enrollment contract migration
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Exact reviewed main commit SHA containing migration 059
+        required: true
+        type: string
+      execution_token:
+        description: Type DRY_RUN_ONLY or APPLY_ENROLLMENT_CONTRACT_059
+        required: true
+        default: DRY_RUN_ONLY
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-enrollment-contract-migration
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    name: Preflight, apply, and verify migration 059
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - name: Check out reviewed release
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_ref }}
+          fetch-depth: 1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Confirm protected inputs
+        shell: bash
+        env:
+          EXECUTION_TOKEN: ${{ inputs.execution_token }}
+        run: |
+          test -n "${DATABASE_URL:-}" || { echo 'Protected DATABASE_URL is unavailable.'; exit 1; }
+          test "${{ inputs.release_ref }}" =~ ^[0-9a-f]{40}$ || { echo 'release_ref must be a full lowercase 40-character SHA.'; exit 1; }
+          test "${EXECUTION_TOKEN}" = 'DRY_RUN_ONLY' || test "${EXECUTION_TOKEN}" = 'APPLY_ENROLLMENT_CONTRACT_059' || { echo 'Invalid execution token.'; exit 1; }
+          echo 'Protected migration inputs are available; no secret value is printed.'
+
+      - name: Run read-only migration 059 preflight
+        run: node scripts/production-enrollment-contract-migrate.mjs dry-run
+
+      - name: Apply only migration 059 and verify
+        if: ${{ inputs.execution_token == 'APPLY_ENROLLMENT_CONTRACT_059' }}
+        run: node scripts/production-enrollment-contract-migrate.mjs apply
+
+      - name: Run focused post-migration contract tests
+        run: node --test test/backward-compatible-enrollment.test.js test/parent-dashboard.test.js test/admission-enrollment.test.js
