@@ -214,7 +214,33 @@ export function createParentDashboardService({
     return student;
   }
 
-  async function validateContext(actor, input, student = null) {
+  async function legacyTermEvidence(actor, student, context, recordType) {
+    const childIds = new Set(authorizedIds(student));
+    try {
+      if (recordType === 'attendance' && attendanceRepository?.listStudentRecords) {
+        const records = await attendanceRepository.listStudentRecords({ schoolId: actor.schoolId, academicYear: context.yearName, term: context.termName, classId: context.classId, studentId: text(student.studentProfileId ?? student.student_profile_id ?? student.id ?? student.student_id) });
+        return rows(records).some((row) => childIds.has(text(row.studentId ?? row.student_id)));
+      }
+      if (recordType === 'published-results' && academicResults?.publicationFor && academicResults?.result) {
+        const publication = academicResults.publicationFor({ classId: context.classId, academicYear: context.yearId, term: context.termId, isSample: Boolean(student.isTestRecord ?? student.is_test_record) });
+        if (publication?.status !== 'PUBLISHED') return false;
+        academicResults.result({ studentId: student.id ?? student.studentId ?? student.student_id, classId: context.classId, academicYear: context.yearId, term: context.termId, sample: Boolean(student.isTestRecord ?? student.is_test_record) }, { ...actor, children: [student], roleKey: 'HEADTEACHER', permissions: new Set(['*']) });
+        return true;
+      }
+      if ((recordType === 'fees' || recordType === 'payments' || recordType === 'payment-receipts') && parentFeeObligations?.listForParent) {
+        const result = await parentFeeObligations.listForParent(actor, { academicYearId: context.yearId, termId: context.termId, classId: context.classId, status: 'PUBLISHED' });
+        const child = rows(result.children).find((item) => text(item.student?.permanentStudentId ?? item.student?.permanent_student_id) === text(student.permanentStudentId ?? student.permanent_student_id));
+        if (recordType === 'fees') return rows(child?.obligations).length > 0;
+        if (!durableFeeReader?.listReceipts) return false;
+        const receipts = await durableFeeReader.listReceipts({}, actor);
+        return rows(receipts).some((item) => text(item.permanentStudentId ?? item.permanent_student_id) === text(student.permanentStudentId ?? student.permanent_student_id) && String(item.academicYearId ?? '') === String(context.yearId) && String(item.termId ?? '') === String(context.termId) && (!item.classId || String(item.classId) === String(context.classId)));
+      }
+      if (recordType === 'timetable' && examinations?.listTimetables) return rows(examinations.listTimetables({ academicYearId: context.yearId, termId: context.termId, classId: context.classId }, { ...actor, children: [student] })).length > 0;
+    } catch { return false; }
+    return false;
+  }
+
+  async function validateContext(actor, input, student = null, recordType = 'student-summary') {
     const source = await options(actor);
     const yearInput = text(input.academicYear ?? input.academicYearId);
     const year = source.academicYears.find((item) => item.id === yearInput || item.name === yearInput);
@@ -230,7 +256,7 @@ export function createParentDashboardService({
       const enrolledClass = text(student.classId ?? student.class_id);
       const classMatchesCurrentEnrollment = enrolledClass && (classRecord.id === enrolledClass || classRecord.name === enrolledClass);
       const classMatchesSelectedEnrollment = admissionEnrollment?.parentEnrolledInClass
-        ? await admissionEnrollment.parentEnrolledInClass({ parentUserId: actor.id, schoolId: actor.schoolId, permanentStudentId: text(student.permanentStudentId ?? student.permanent_student_id), academicYearId: year.id, termId: term.id, classId: classRecord.id })
+        ? await admissionEnrollment.parentEnrolledInClass({ parentUserId: actor.id, schoolId: actor.schoolId, permanentStudentId: text(student.permanentStudentId ?? student.permanent_student_id), academicYearId: year.id, termId: term.id, termName: term.name, classId: classRecord.id, recordType, legacyTermEvidence: (scope) => legacyTermEvidence(actor, student, { yearId: scope.academicYearId, yearName: year.name, termId: scope.termId, termName: scope.termName, classId: scope.classId }, recordType) })
         : classMatchesCurrentEnrollment;
       if (!classMatchesSelectedEnrollment) fail('The selected class is not an authorized enrollment for this child and academic period.', 403, 'PARENT_CLASS_FORBIDDEN');
     }
@@ -244,14 +270,14 @@ export function createParentDashboardService({
     const student = await resolveChild(actor, permanentStudentId);
     const name = studentName(student) || 'Authorized student';
     if (type === 'student-summary') {
-      const context = input.academicYear && input.term && input.classId ? await validateContext(actor, input, student) : null;
+      const context = input.academicYear && input.term && input.classId ? await validateContext(actor, input, student, type) : null;
       return { recordType: type, available: true, student: { name, permanentStudentId, classId: student.classId ?? student.class_id ?? null, className: student.className ?? student.class_name ?? student.class_id ?? null, sampleLabel: student.isTestRecord || student.is_test_record ? 'SAMPLE DATA' : null }, context };
     }
     const availableTypes = (await options(actor)).recordTypes;
     const chosen = availableTypes.find((item) => item.id === type);
     if (!chosen) fail('Select a supported record type.', 400, 'INVALID_RECORD_TYPE');
     if (!chosen.available) fail(chosen.message ?? 'This information is not available yet.', 501, 'PARENT_RECORD_NOT_AVAILABLE');
-    const context = chosen.requiresAcademicContext ? await validateContext(actor, input, student) : null;
+    const context = chosen.requiresAcademicContext ? await validateContext(actor, input, student, type) : null;
     const childIds = authorizedIds(student);
     const selectedActor = { ...actor, children: [{ ...student, id: student.id ?? student.student_id ?? student.studentProfileId, studentProfileId: student.studentProfileId ?? student.student_profile_id, permanentStudentId, classId: student.classId ?? student.class_id, className: student.className ?? student.class_id }] };
     if (type === 'attendance') {

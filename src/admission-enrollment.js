@@ -118,18 +118,25 @@ export function createAdmissionEnrollmentService({ database, clock = () => new D
       ORDER BY s.permanent_student_id,s.id`, [schoolId, parentUserId, schoolId]));
   }
 
-  async function parentEnrolledInClass({ parentUserId, schoolId, permanentStudentId, academicYearId, termId, classId } = {}) {
+  async function parentEnrolledInClass({ parentUserId, schoolId, permanentStudentId, academicYearId, termId, termName, classId, recordType = 'student-summary', legacyTermEvidence = null } = {}) {
     if (!parentUserId || !schoolId || !permanentStudentId || !academicYearId || !termId || !classId) return false;
     const result = rows(await database.query(`SELECT e.class_id AS classId
+      ,e.term_id AS termId
       FROM parent_student_links psl
       JOIN users pu ON pu.id=psl.parent_user_id AND pu.school_id=? AND UPPER(COALESCE(pu.status,'ACTIVE'))='ACTIVE'
       JOIN student_profiles sp ON sp.id=psl.student_id AND sp.school_id=pu.school_id
       JOIN students s ON s.id=sp.student_master_id AND s.school_id=sp.school_id
       JOIN student_enrollments e ON e.student_id=s.id AND e.school_id=s.school_id
       WHERE psl.parent_user_id=? AND psl.link_status='ACTIVE' AND s.school_id=?
-        AND s.permanent_student_id=? AND e.academic_year_id=? AND e.term_id=? AND e.class_id=?
-        AND COALESCE(s.is_test_record,0)=0 LIMIT 1`, [schoolId, parentUserId, schoolId, permanentStudentId, academicYearId, termId, classId]));
-    return result.length > 0;
+        AND s.permanent_student_id=? AND e.academic_year_id=? AND e.class_id=?
+        AND (e.term_id=? OR e.term_id IS NULL)
+        AND COALESCE(s.is_test_record,0)=0 LIMIT 1`, [schoolId, parentUserId, schoolId, permanentStudentId, academicYearId, classId, termId]));
+    const enrollment = result[0];
+    if (!enrollment) return false;
+    if (enrollment.termId !== null && enrollment.termId !== undefined && String(enrollment.termId) !== String(termId)) return false;
+    if (enrollment.termId !== null && enrollment.termId !== undefined) return true;
+    if (recordType === 'student-summary') return true;
+    return typeof legacyTermEvidence === 'function' && Boolean(await legacyTermEvidence({ parentUserId, schoolId, permanentStudentId, academicYearId, termId, termName, classId, recordType }));
   }
 
   return Object.freeze({ enroll, authorizeParentStudent, listParentStudents, parentEnrolledInClass });

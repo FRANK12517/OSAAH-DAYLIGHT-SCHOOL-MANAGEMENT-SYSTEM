@@ -14,7 +14,7 @@ function adapter({ failOn = null, initialApplication = application(), authorized
       if (sql.includes('FROM student_id_sequences')) return [{ next_sequence: state.sequence }];
       if (sql.includes('FROM users WHERE school_id=')) return [{ id: 'parent-1' }];
       if (sql.includes('SELECT s.id AS id,s.id AS studentId') && sql.includes('JOIN users pu')) return authorized ? [{ id: 'student-1', studentId: 'student-1', student_id: 'student-1', permanentStudentId: 'OSAAH/2026/0001', permanent_student_id: 'OSAAH/2026/0001', studentProfileId: 'profile-1', student_profile_id: 'profile-1', classId: 'class-1', class_id: 'class-1', firstName: 'Ama', lastName: 'Mensah', className: 'Primary 1' }] : [];
-      if (sql.includes('SELECT e.class_id AS classId')) return authorized ? [{ classId: params[6] }] : [];
+      if (sql.includes('SELECT e.class_id AS classId')) return authorized ? [{ classId: params[5], termId: params[6] }] : [];
       if (sql.includes('SELECT * FROM students WHERE id=')) return state.students.filter((row) => row.id === params[0] && row.permanent_student_id === params[1]);
       if (sql.includes('JOIN student_profiles')) return authorized ? [{ student_id: 'STD-000001', permanent_student_id: params[4], student_profile_id: 'profile-1', class_id: 'class-1' }] : [];
       return [];
@@ -110,7 +110,7 @@ test('Parent historical class authorization binds child relationship, school, ye
   const service = createAdmissionEnrollmentService({ database: api });
   assert.equal(await service.parentEnrolledInClass({ parentUserId: 'parent-1', schoolId: 'school-1', permanentStudentId: 'OSAAH/2026/0001', academicYearId: 'year-2025', termId: 'term-2', classId: 'class-old' }), true);
   const [, sql, params] = state.calls.find((call) => call[0] === 'query' && call[1].includes('SELECT e.class_id AS classId'));
-  assert.deepEqual(params, ['school-1', 'parent-1', 'school-1', 'OSAAH/2026/0001', 'year-2025', 'term-2', 'class-old']);
+  assert.deepEqual(params, ['school-1', 'parent-1', 'school-1', 'OSAAH/2026/0001', 'year-2025', 'class-old', 'term-2']);
   assert.match(sql, /psl\.parent_user_id=\?/);
   assert.match(sql, /e\.academic_year_id=\?/);
   assert.match(sql, /e\.term_id=\?/);
