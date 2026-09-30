@@ -5,6 +5,9 @@ import { createStudentService } from '../src/students.js';
 import { createConfiguredTestParent, TEST_PARENT_STUDENT_IDS } from '../src/test-parent-fixture.js';
 import { createCommunicationService } from '../src/communication.js';
 import { createOperationsService } from '../src/operations.js';
+import { parentDashboardModules } from '../src/sidebar-registry.js';
+import '../src/module-registry.js';
+import { createParentDashboardViewState, isCurrentParentChildResolution } from '../public/parent-dashboard.js';
 
 const child = {
   id: 'student-1',
@@ -30,6 +33,35 @@ const cards = [
   { moduleKey: 'parent-attendance', moduleName: 'Attendance', route: '#attendance' },
   { moduleKey: 'parent-documents', moduleName: 'Documents', route: '#documents' }
 ];
+
+test('Parent Dashboard card routes resolve to explicit dashboard views instead of hash fragments', () => {
+  const modules = parentDashboardModules();
+  assert.equal(modules.length, 12);
+  assert.ok(modules.every((item) => item.route.startsWith('/?parentCard=parent-')));
+  assert.ok(modules.every((item) => !item.route.includes('#')));
+});
+
+test('switching Child A to Child B clears Child A data and prevents stale in-flight responses from reappearing', () => {
+  const state = createParentDashboardViewState();
+  const childARequest = state.invalidate('OSAAH/2026/0001');
+  assert.equal(state.commit('record', childARequest, { permanentStudentId: childARequest.childId, attendance: ['A'] }), true);
+  assert.equal(state.snapshot().record.permanentStudentId, childARequest.childId);
+
+  const staleChildARequest = state.capture();
+  state.invalidate('OSAAH/2026/0002');
+  assert.equal(state.snapshot().record, null);
+  assert.equal(state.snapshot().component, null);
+  assert.equal(state.commit('record', staleChildARequest, { permanentStudentId: 'OSAAH/2026/0001', attendance: ['stale'] }), false);
+
+  const childBRequest = state.capture();
+  assert.equal(state.commit('record', childBRequest, { permanentStudentId: childBRequest.childId, attendance: ['B'] }), true);
+  assert.equal(state.snapshot().record.permanentStudentId, 'OSAAH/2026/0002');
+});
+
+test('a delayed Child A resolution cannot overwrite a later Child B selection', () => {
+  assert.equal(isCurrentParentChildResolution('OSAAH/2026/0002', 'OSAAH/2026/0001'), false);
+  assert.equal(isCurrentParentChildResolution(' OSAAH/2026/0002 ', 'OSAAH/2026/0002'), true);
+});
 function dependencies(overrides = {}) {
   const databaseRows = [child, { ...child, id: 'student-2', studentId: 'student-2', studentProfileId: 'profile-2', permanentStudentId: 'OSAAH/2026/0002', firstName: 'Kojo' }];
   return {
@@ -60,6 +92,21 @@ test('Parent child list is resolved from the authenticated school-scoped relatio
   assert.deepEqual(children.map((item) => item.permanentStudentId), ['OSAAH/2026/0001', 'OSAAH/2026/0002']);
   assert.deepEqual(children.map((item) => item.name), ['Ama Mensah', 'Kojo Mensah']);
   assert.ok(children.every((item) => !('id' in item) && !('studentId' in item)));
+});
+
+test('selected-child resolution rechecks the live link and rejects stale session relationships after revocation', async () => {
+  let linked = true;
+  const base = dependencies();
+  const service = createParentDashboardService({
+    ...base,
+    admissionEnrollment: {
+      ...base.admissionEnrollment,
+      authorizeParentStudent: async () => linked ? child : null
+    }
+  });
+  assert.equal((await service.resolveChild(actor(), child.permanentStudentId)).permanentStudentId, child.permanentStudentId);
+  linked = false;
+  await assert.rejects(() => service.resolveChild(actor(), child.permanentStudentId), (error) => error.status === 403 && error.code === 'PARENT_STUDENT_FORBIDDEN');
 });
 
 test('controlled Parent children come from existing server-side sample links without changing official student counts', async () => {

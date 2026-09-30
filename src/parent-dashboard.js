@@ -1,5 +1,5 @@
 import { parentDashboardModules } from './sidebar-registry.js';
-import { isConfiguredTestStudentId } from './test-parent-fixture.js';
+import { isConfiguredTestParentActor, listConfiguredTestParentRelationships, isConfiguredTestStudentId } from './test-parent-fixture.js';
 import { authorizeParentStudent } from './parent-authorization.js';
 
 const text = (value) => String(value ?? '').trim();
@@ -55,6 +55,18 @@ function termOption(item) {
 }
 function studentName(student) {
   return text(student?.name) || [student?.firstName, student?.middleName, student?.surname ?? student?.lastName].map(text).filter(Boolean).join(' ');
+}
+function childSummary(student) {
+  const permanentStudentId = text(student?.permanentStudentId ?? student?.permanent_student_id);
+  const isTestRecord = Boolean(student?.isTestRecord ?? student?.is_test_record);
+  return {
+    permanentStudentId,
+    name: studentName(student) || 'Authorized student',
+    classId: student?.classId ?? student?.class_id ?? student?.currentClassId ?? null,
+    className: student?.className ?? student?.class_name ?? student?.classId ?? student?.class_id ?? null,
+    isTestRecord,
+    sampleLabel: isTestRecord ? 'SAMPLE DATA' : null
+  };
 }
 function authorizedIds(student) {
   return [...new Set([student?.id, student?.studentId, student?.student_id, student?.studentProfileId, student?.student_profile_id, student?.permanentStudentId]
@@ -173,33 +185,23 @@ export function createParentDashboardService({
 
   async function listChildren(actor) {
     parentActor(actor);
-    const fixtureChildren = (actor.children ?? []).filter((item) => isConfiguredTestStudentId(item.permanentStudentId));
     let children = [];
-    if (fixtureChildren.length) {
-      children = fixtureChildren.map((item) => {
-        const student = students?.listStudents?.({ requestedSchoolId: actor.schoolId, includeTestRecords: true, includeCompleted: true })?.find((candidate) => candidate.permanentStudentId === item.permanentStudentId && candidate.isTestRecord === true);
-        return student ? { ...student, isTestRecord: true } : null;
-      }).filter(Boolean);
+    if (isConfiguredTestParentActor(actor)) {
+      const relationships = listConfiguredTestParentRelationships(actor.id);
+      const sampleStudents = students?.listStudents?.({ requestedSchoolId: actor.schoolId, includeTestRecords: true, includeCompleted: true }) ?? [];
+      children = relationships.map((link) => sampleStudents.find((student) => student.permanentStudentId === link.permanentStudentId && student.isTestRecord === true && student.schoolId === actor.schoolId)).filter(Boolean);
     } else if (admissionEnrollment?.listParentStudents) {
       children = await admissionEnrollment.listParentStudents({ parentUserId: actor.id, schoolId: actor.schoolId });
     } else {
-      children = (actor.children ?? []).filter((item) => item.permanentStudentId);
+      children = (students?.listStudents?.({ requestedSchoolId: actor.schoolId, includeCompleted: true }) ?? []).filter((student) => !student.isTestRecord && (students?.parentLinksFor?.(student.id, actor.schoolId) ?? []).some((link) => link.parentId === actor.id));
     }
     const unique = new Map();
     for (const child of children) {
       const permanentStudentId = text(child.permanentStudentId ?? child.permanent_student_id);
       if (!permanentStudentId || (!/^OSAAH\/\d{4}\/\d{4,}$/.test(permanentStudentId) && !isConfiguredTestStudentId(permanentStudentId))) continue;
-      unique.set(permanentStudentId, {
-        permanentStudentId,
-        name: studentName(child) || 'Authorized student',
-        classId: child.classId ?? child.class_id ?? child.currentClassId ?? null,
-        className: child.className ?? child.class_name ?? child.classId ?? child.class_id ?? null,
-        isTestRecord: Boolean(child.isTestRecord ?? child.is_test_record),
-        sampleLabel: child.isTestRecord || child.is_test_record ? 'SAMPLE DATA' : null,
-        _record: child
-      });
+      unique.set(permanentStudentId, childSummary(child));
     }
-    return [...unique.values()].map(({ _record, ...child }) => child);
+    return [...unique.values()];
   }
 
   async function resolveChild(actor, permanentStudentId) {
@@ -330,7 +332,9 @@ export function createParentDashboardService({
       return { moduleKey, moduleName: card.moduleName, student: student ? { name: studentName(student), permanentStudentId } : null, records: await academicCalendar.list(filters, selectedActor) };
     }
     if (moduleKey === 'parent-messages') {
-      const ids = student ? authorizedIds(student) : [];
+      const linkedChildren = student ? [] : await listChildren(actor);
+      const linkedStudents = student ? [student] : await Promise.all(linkedChildren.map((child) => resolveChild(actor, child.permanentStudentId)));
+      const ids = [...new Set(linkedStudents.flatMap(authorizedIds))];
       return { moduleKey, moduleName: card.moduleName, student: student ? { name: studentName(student), permanentStudentId } : null, records: communication.listMessages(selectedActor, ids) };
     }
     if (moduleKey === 'parent-transport') {
@@ -343,5 +347,5 @@ export function createParentDashboardService({
     return { moduleKey, moduleName: card.moduleName, student: student ? { name: studentName(student), permanentStudentId } : null, records: [], available: false, message: 'Not available yet.' };
   }
 
-  return Object.freeze({ options, listChildren, resolveChild, loadRecord, component, componentCatalog });
+  return Object.freeze({ options, listChildren, resolveChild, childSummary, loadRecord, component, componentCatalog });
 }

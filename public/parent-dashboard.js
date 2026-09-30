@@ -3,6 +3,32 @@ const display = (value) => value === null || value === undefined || value === ''
 const money = (value) => `GHS ${Number(value ?? 0).toLocaleString('en-GH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const byId = (root, id) => root.querySelector(`#${id}`);
 
+export function isCurrentParentChildResolution(currentId, requestedId) {
+  return String(currentId ?? '').trim() === String(requestedId ?? '').trim();
+}
+
+export function createParentDashboardViewState() {
+  let revision = 0;
+  let selectedChildId = '';
+  let visible = { record: null, component: null };
+  return Object.freeze({
+    invalidate(childId = selectedChildId) {
+      selectedChildId = String(childId ?? '').trim();
+      visible = { record: null, component: null };
+      revision += 1;
+      return { revision, childId: selectedChildId };
+    },
+    capture() { return { revision, childId: selectedChildId }; },
+    isCurrent(token) { return token?.revision === revision && token?.childId === selectedChildId; },
+    commit(kind, token, value) {
+      if (!['record', 'component'].includes(kind) || !this.isCurrent(token)) return false;
+      visible = { ...visible, [kind]: value };
+      return true;
+    },
+    snapshot() { return { revision, childId: selectedChildId, ...visible }; }
+  });
+}
+
 function field(label, id, options, { required = true, disabled = false } = {}) {
   return `<label>${esc(label)}<select id="${esc(id)}" name="${esc(id)}"${required ? ' required' : ''}${disabled ? ' disabled' : ''}><option value="">Select ${esc(label)}</option>${options.map((option) => `<option value="${esc(option.id)}"${option.available === false ? ' disabled' : ''}>${esc(option.name)}${option.available === false ? ' — Not available yet' : ''}</option>`).join('')}</select></label>`;
 }
@@ -170,29 +196,29 @@ function installStyles() {
   document.head.append(link);
 }
 
-export async function mountParentDashboard({ dashboard, user, sidebar, children: initialChildren } = {}) {
+export async function mountParentDashboard({ dashboard, user, sidebar } = {}) {
   if (!dashboard || user?.portal !== 'parent') return;
   installStyles();
   const overview = dashboard.querySelector('#dashboard-overview');
   if (!overview) return;
   const cards = sidebar?.parentCards ?? [];
-  const childResponse = Array.isArray(initialChildren?.children) ? initialChildren : await fetch('/api/parent/children', { credentials: 'same-origin', headers: { Accept: 'application/json' } }).then(async (response) => { const body = await response.json(); if (!response.ok) throw new Error(body.error || 'Unable to load linked children.'); return body; }).catch((error) => ({ children: [], error: error.message }));
+  const childResponse = await fetch('/api/parent/children', { credentials: 'same-origin', headers: { Accept: 'application/json' } }).then(async (response) => { const body = await response.json(); if (!response.ok) throw new Error(body.error || 'Unable to load linked children.'); return body; }).catch((error) => ({ children: [], error: error.message }));
   const childList = Array.isArray(childResponse.children) ? childResponse.children : [];
   const childLoadError = String(childResponse.error ?? '');
   overview.innerHTML = `<section class="hero parent-dashboard-hero"><p class="eyebrow">AUTHORIZED PARENT ACCESS</p><h3>My Children</h3><p class="muted">Choose an authorized child. Every record request is checked against your signed-in Parent account.</p>
     <div class="parent-child-context"><label for="parent-child-select">Selected child<select id="parent-child-select" aria-label="Select an authorized child"><option value="">Select a child</option>${childList.map((child) => `<option value="${esc(child.permanentStudentId)}">${esc(child.name)} · ${esc(child.permanentStudentId)}${child.className ? ` · ${esc(child.className)}` : ''}</option>`).join('')}</select></label><div id="parent-child-summary" class="parent-child-summary" aria-live="polite">${childLoadError ? esc(childLoadError) : childList.length ? 'Select a child to begin.' : 'No children are currently linked to this Parent account.'}</div></div>
     <section class="parent-lookup card"><p class="eyebrow">STUDENT RECORD LOOKUP</p><h3>Load your child’s records</h3><p class="muted">Choose one record type and the academic context to load. The Permanent Student ID is selected from your authorized children.</p>
       <form id="parent-record-form" class="form-grid parent-record-form">
-        <label>Permanent Student ID<input id="parent-permanent-id" name="permanentStudentId" readonly required placeholder="Select an authorized child"></label>
+        <label>Permanent Student ID<input id="parent-permanent-id" name="permanentStudentId" required placeholder="Select or enter an authorized Permanent Student ID" autocomplete="off"></label>
         ${field('Academic Year', 'parent-academic-year', [], { required: false })}
         ${field('Class', 'parent-class', [], { required: false })}
         ${field('Term', 'parent-term', [], { required: false })}
-        ${field('Record to Load', 'parent-record-type', [{ id: 'student-summary', name: 'Student Summary' }])}
+        ${field('Record to View', 'parent-record-type', [{ id: 'student-summary', name: 'Student Summary' }])}
         <button class="primary-button" type="submit">Load Student Records</button>
       </form><p id="parent-options-status" class="module-status" role="status">Loading configured academic options…</p><p id="parent-record-status" class="module-status" role="status"></p><div id="parent-record-output" class="parent-output" aria-live="polite"></div>
     </section>
     <section class="parent-components-section"><div class="section-heading"><div><p class="eyebrow">PARENT SERVICES</p><h3>Child information and school services</h3></div></div><div class="parent-card-grid parent-component-grid">${cards.map((card) => `<button class="parent-card" type="button" data-parent-component="${esc(card.moduleKey)}"><strong>${esc(card.moduleName)}</strong><span data-parent-card-status="${esc(card.moduleKey)}">Open authorized information</span></button>`).join('')}</div></section>
-    <section id="parent-component-panel" class="parent-component-panel card" aria-live="polite" hidden><div class="parent-panel-heading"><div><p class="eyebrow">SELECTED CHILD</p><h3 id="parent-panel-title"></h3></div><button id="parent-panel-close" type="button" class="secondary-button">Close</button></div><p id="parent-component-status" class="module-status" role="status"></p><div id="parent-component-output" class="parent-output"></div></section>
+    <section id="parent-component-panel" class="parent-component-panel card" aria-live="polite" hidden><div class="parent-panel-heading"><div><p class="eyebrow">PARENT SERVICES</p><h3 id="parent-panel-title"></h3></div><button id="parent-panel-close" type="button" class="secondary-button">Close</button></div><p id="parent-component-status" class="module-status" role="status"></p><div id="parent-component-output" class="parent-output"></div></section>
   </section>`;
 
   const childSelect = byId(overview, 'parent-child-select');
@@ -210,11 +236,11 @@ export async function mountParentDashboard({ dashboard, user, sidebar, children:
   const panelOutput = byId(overview, 'parent-component-output');
   const cardSupport = new Map();
   let options = null;
-  let requestVersion = 0;
+  const viewState = createParentDashboardViewState();
   let selectedStudent = null;
 
   function clearData() {
-    requestVersion += 1;
+    viewState.invalidate(permanentId.value.trim());
     recordOutput.replaceChildren();
     panelOutput.replaceChildren();
     panelStatus.textContent = '';
@@ -270,7 +296,7 @@ export async function mountParentDashboard({ dashboard, user, sidebar, children:
       for (const component of body.components ?? []) {
         cardSupport.set(component.moduleKey, component);
         const status = overview.querySelector(`[data-parent-card-status="${CSS.escape(component.moduleKey)}"]`);
-        if (status) status.textContent = component.available ? 'Open child-scoped information' : component.status === 'NOT_AVAILABLE_YET' ? 'Not available yet' : 'Service not configured';
+        if (status) status.textContent = component.available ? (component.scope === 'student' ? 'Open child-scoped information' : 'Open Parent or school information') : component.status === 'NOT_AVAILABLE_YET' ? 'Not available yet' : 'Service not configured';
         const card = overview.querySelector(`[data-parent-component="${CSS.escape(component.moduleKey)}"]`);
         card?.classList.toggle('parent-card-unavailable', !component.available);
       }
@@ -284,12 +310,32 @@ export async function mountParentDashboard({ dashboard, user, sidebar, children:
   }
 
   async function ensureSelectedChild() {
-    const child = currentChild();
-    if (!child) throw new Error('Select an authorized child first.');
-    const response = await fetch(`/api/parent/children/resolve?permanentStudentId=${encodeURIComponent(child.permanentStudentId)}`, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
-    const body = await response.json();
+    const permanentStudentId = permanentId.value.trim() || currentChild()?.permanentStudentId;
+    if (!permanentStudentId) throw new Error('Select or enter an authorized child first.');
+    let response;
+    let body;
+    try {
+      response = await fetch(`/api/parent/children/resolve?permanentStudentId=${encodeURIComponent(permanentStudentId)}`, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+      body = await response.json();
+    } catch (error) {
+      if (!isCurrentParentChildResolution(permanentId.value, permanentStudentId)) return null;
+      throw error;
+    }
+    if (!isCurrentParentChildResolution(permanentId.value, permanentStudentId)) return null;
     if (!response.ok) throw new Error(body.error || 'This child is not linked to your Parent account.');
-    return child;
+    if (!body.child?.permanentStudentId) throw new Error('The server did not return an authorized child.');
+    let displayedChild = childList.find((child) => child.permanentStudentId === body.child.permanentStudentId);
+    if (!displayedChild) {
+      displayedChild = body.child;
+      childList.push(displayedChild);
+      const option = document.createElement('option');
+      option.value = displayedChild.permanentStudentId;
+      option.textContent = `${displayedChild.name} — ${displayedChild.permanentStudentId}`;
+      childSelect.append(option);
+    }
+    childSelect.value = displayedChild.permanentStudentId;
+    applyChildContext(displayedChild);
+    return body.child;
   }
 
   function showError(container, error) {
@@ -303,9 +349,10 @@ export async function mountParentDashboard({ dashboard, user, sidebar, children:
   async function loadRecord(event) {
     event?.preventDefault();
     clearData();
-    const version = requestVersion;
+    const token = viewState.capture();
     try {
       const child = await ensureSelectedChild();
+      if (!viewState.isCurrent(token)) return;
       const recordType = recordTypeSelect.value;
       if (!recordType) throw new Error('Select a record type.');
       const type = options?.recordTypes.find((item) => item.id === recordType);
@@ -314,13 +361,14 @@ export async function mountParentDashboard({ dashboard, user, sidebar, children:
       const params = new URLSearchParams({ permanentStudentId: child.permanentStudentId, recordType, ...selectedContext() });
       const response = await fetch(`/api/parent/records?${params}`, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
       const body = await response.json();
-      if (version !== requestVersion) return;
+      if (!viewState.isCurrent(token)) return;
       if (!response.ok) throw new Error(body.error || 'Unable to load this record.');
+      if (!viewState.commit('record', token, body)) return;
       recordOutput.innerHTML = renderRecord(body);
       recordOutput.querySelector('[data-parent-print]')?.addEventListener('click', () => window.print());
       recordStatus.textContent = '';
     } catch (error) {
-      if (version !== requestVersion) return;
+      if (!viewState.isCurrent(token)) return;
       recordStatus.textContent = '';
       showError(recordOutput, error);
     }
@@ -328,7 +376,7 @@ export async function mountParentDashboard({ dashboard, user, sidebar, children:
 
   async function openComponent(moduleKey) {
     clearData();
-    const version = requestVersion;
+    const token = viewState.capture();
     const card = cards.find((item) => item.moduleKey === moduleKey);
     const support = cardSupport.get(moduleKey);
     panel.hidden = false;
@@ -340,27 +388,30 @@ export async function mountParentDashboard({ dashboard, user, sidebar, children:
       return;
     }
     try {
-      const child = await ensureSelectedChild();
+      const childRequired = support?.scope === 'student';
+      const child = childRequired || permanentId.value.trim() ? await ensureSelectedChild() : null;
+      if (!viewState.isCurrent(token)) return;
       if (support?.requiresAcademicContext && !contextComplete()) throw new Error('Select an academic year, class, and term in Student Record Lookup before opening this component.');
       panelStatus.textContent = 'Loading authorized information…';
-      const params = new URLSearchParams({ moduleKey, permanentStudentId: child.permanentStudentId, ...selectedContext() });
+      const params = new URLSearchParams({ moduleKey, ...selectedContext(), ...(child ? { permanentStudentId: child.permanentStudentId } : {}) });
       const response = await fetch(`/api/parent/components?${params}`, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
       const body = await response.json();
-      if (version !== requestVersion) return;
+      if (!viewState.isCurrent(token)) return;
       if (!response.ok) throw new Error(body.error || 'Unable to load this Parent service.');
+      if (!viewState.commit('component', token, body)) return;
       panelOutput.innerHTML = support?.recordType ? renderRecord(body) : renderService(body, moduleKey);
       panelStatus.textContent = '';
       panelOutput.querySelector('[data-parent-print]')?.addEventListener('click', () => window.print());
     } catch (error) {
-      if (version !== requestVersion) return;
+      if (!viewState.isCurrent(token)) return;
       panelStatus.textContent = '';
       showError(panelOutput, error);
     }
   }
 
   childSelect.addEventListener('change', () => {
-    clearData();
     applyChildContext(currentChild());
+    clearData();
     if (selectedStudent) ensureSelectedChild().then(() => {}).catch((error) => {
       selectedStudent = null;
       childSelect.value = '';
@@ -369,6 +420,20 @@ export async function mountParentDashboard({ dashboard, user, sidebar, children:
       panel.hidden = false;
       panelTitle.textContent = 'Child access';
     });
+  });
+  permanentId.addEventListener('input', () => {
+    clearData();
+    const entered = permanentId.value.trim();
+    const match = childList.find((child) => child.permanentStudentId === entered) ?? null;
+    childSelect.value = match?.permanentStudentId ?? '';
+    if (match) applyChildContext(match);
+    else {
+      selectedStudent = null;
+      byId(overview, 'parent-child-summary').textContent = entered
+        ? 'Permanent Student ID entered. The server will verify that this student is linked to your Parent account.'
+        : childList.length ? 'Select a child or enter an authorized Permanent Student ID.' : childLoadError || 'No children are currently linked to this Parent account.';
+      classSelect.value = '';
+    }
   });
   yearSelect.addEventListener('change', () => { fillTerms(); clearData(); });
   for (const control of [classSelect, termSelect, recordTypeSelect]) control.addEventListener('change', clearData);
@@ -381,4 +446,6 @@ export async function mountParentDashboard({ dashboard, user, sidebar, children:
     applyChildContext(childList[0]);
     ensureSelectedChild().catch((error) => { byId(overview, 'parent-child-summary').textContent = error.message; });
   }
+  const requestedCard = new URLSearchParams(window.location.search).get('parentCard');
+  if (cards.some((card) => card.moduleKey === requestedCard)) await openComponent(requestedCard);
 }

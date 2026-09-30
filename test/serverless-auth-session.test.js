@@ -99,7 +99,7 @@ test('database Parent phone sessions persist and restore the Parent portal ident
   assert.equal(await independentInstanceAuth.authenticateAsync(login.token), null, 'an unrelated instance must reject the database-revoked token');
 });
 
-test('controlled sample Parent session restores across serverless instances without broadening its fixture children', async () => {
+test('controlled sample Parent session restores across serverless instances with Parent identity only', async () => {
   const loginAuth = createAuthService({ sessionSecret: SESSION_SECRET });
   const login = await loginAuth.loginByPhoneFromDatabase({ phone: TEST_PARENT_PHONE, portal: 'parent' });
   assert.equal(login.ok, true);
@@ -107,7 +107,7 @@ test('controlled sample Parent session restores across serverless instances with
   const restored = await nextInstance.authenticateAsync(login.token);
   assert.equal(restored.id, 'user-test-parent-sample');
   assert.equal(restored.portal, 'parent');
-  assert.deepEqual(restored.children.map((child) => child.permanentStudentId), [...TEST_PARENT_STUDENT_IDS]);
+  assert.equal(restored.children, undefined);
 });
 
 test('Parent APIs expose only linked children, canonical options, allowed records, and invalidate data on logout', async () => {
@@ -118,9 +118,27 @@ test('Parent APIs expose only linked children, canonical options, allowed record
   const server = createServer(createApp({ auth, aiEnabled: false }));
   await new Promise((resolve) => server.listen(0, resolve));
   try {
+    const unauthenticatedChildren = await request(server, '/api/parent/children');
+    assert.equal(unauthenticatedChildren.status, 401);
+
     const childrenResponse = await request(server, '/api/parent/children', { cookie });
     assert.equal(childrenResponse.status, 200);
     assert.deepEqual(JSON.parse(childrenResponse.body).children.map((child) => child.permanentStudentId), [...TEST_PARENT_STUDENT_IDS]);
+
+    const sessionResponse = await request(server, '/api/auth/session', { cookie });
+    assert.equal(sessionResponse.status, 200);
+    const sessionUser = JSON.parse(sessionResponse.body).user;
+    assert.equal(sessionUser.children, undefined, 'parent auth responses contain stable identity, not student authorization data');
+    assert.equal(sessionUser.assignedStudentIds, undefined);
+
+    const resolve = await request(server, `/api/parent/children/resolve?permanentStudentId=${encodeURIComponent(TEST_PARENT_STUDENT_IDS[0])}`, { cookie });
+    assert.equal(resolve.status, 200, resolve.body);
+    const resolvedChild = JSON.parse(resolve.body).child;
+    assert.equal(resolvedChild.permanentStudentId, TEST_PARENT_STUDENT_IDS[0]);
+    assert.equal(resolvedChild.sampleLabel, 'SAMPLE DATA');
+    assert.equal(resolvedChild.id, undefined, 'the resolver returns only safe display/context fields');
+    const unrelatedChild = await request(server, '/api/parent/children/resolve?permanentStudentId=OSAAH%2F2026%2F9999', { cookie });
+    assert.equal(unrelatedChild.status, 403);
 
     const optionsResponse = await request(server, '/api/parent/options', { cookie });
     assert.equal(optionsResponse.status, 200, optionsResponse.body);

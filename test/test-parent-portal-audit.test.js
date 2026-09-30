@@ -15,7 +15,7 @@ test('controlled test parent authenticates through canonical Ghana phone forms a
     assert.equal(result.ok, true, phone);
     assert.equal(result.user.portal, 'parent');
     assert.equal(result.user.roleKey, 'PARENT');
-    assert.equal(result.user.children.length, 2);
+    assert.equal(result.user.children, undefined);
     assert.equal(auth.authenticate(result.token)?.id, 'user-test-parent-sample');
     auth.logout(result.token);
   }
@@ -34,6 +34,13 @@ test('test parent authorization resolves only existing sample students and rejec
   const unrelated = await authorizeParentStudent({ actor: parent, permanentStudentId: 'OSAAH/2026/0001', students });
   assert.equal(unrelated, null);
   assert.equal(PARENT_UNLINKED_MESSAGE, 'This student is not linked to your registered parent account.');
+});
+
+test('a session child entry cannot authorize an unlinked official student when the relationship service is absent', async () => {
+  const students = createStudentService({ schoolId });
+  const official = students.createStudent({ firstName: 'Unrelated', surname: 'Student', permanentStudentId: 'OSAAH/2026/0001' });
+  const actor = { id: 'parent-1', portal: 'parent', roleKey: 'PARENT', schoolId, children: [{ id: official.id, permanentStudentId: official.permanentStudentId }] };
+  assert.equal(await authorizeParentStudent({ actor, permanentStudentId: official.permanentStudentId, students }), null);
 });
 
 test('sample students remain excluded from official student counts and ordinary lists', () => {

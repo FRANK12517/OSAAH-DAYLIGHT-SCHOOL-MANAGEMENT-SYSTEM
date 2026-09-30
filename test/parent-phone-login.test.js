@@ -26,10 +26,14 @@ test('Parent phone login creates a session and does not change school authentica
   assert.equal(auth.authenticate(parent.token), null);
 });
 
-test('one registered parent phone can authenticate one parent identity with multiple children', () => {
-  const users = [{ id: 'parent-1', username: 'parent-1', phone: '+233241234567', portal: 'parent', roleKey: 'PARENT', schoolId: 'school-osaah-daylight', permissions: new Set(['children.read']), children: [{ id: 's-1', permanentStudentId: 'OSAAH/2026/0001' }, { id: 's-2', permanentStudentId: 'OSAAH/2026/0002' }] }];
+test('one registered parent phone authenticates a stable Parent identity without embedding child authorization in the session', () => {
+  const users = [{ id: 'parent-1', username: 'parent-1', phone: '+233241234567', portal: 'parent', roleKey: 'PARENT', schoolId: 'school-osaah-daylight', permissions: new Set(['children.read']), children: [{ id: 's-1', permanentStudentId: 'OSAAH/2026/0001' }, { id: 's-2', permanentStudentId: 'OSAAH/2026/0002' }], assignedStudentIds: ['s-1'], authorizedStaffIds: ['staff-1'] }];
   const auth = createAuthService({ users });
   const result = auth.loginByPhone({ phone: '233241234567', portal: 'parent' });
   assert.equal(result.ok, true);
-  assert.equal(result.user.children.length, 2);
+  assert.equal(result.user.children, undefined);
+  assert.equal(result.user.assignedStudentIds, undefined);
+  assert.equal(result.user.authorizedStaffIds, undefined);
+  assert.equal(auth.authenticate(result.token).children, undefined);
+  assert.equal(auth.authenticate(result.token).assignedStudentIds, undefined);
 });
