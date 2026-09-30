@@ -1,5 +1,5 @@
 import { parentDashboardModules } from './sidebar-registry.js';
-import { isConfiguredTestParentActor, listConfiguredTestParentRelationships, isConfiguredTestStudentId } from './test-parent-fixture.js';
+import { isConfiguredTestParentActor, listConfiguredTestParentRelationships, isConfiguredTestStudentId, TEST_PARENT_SCHOOL_ID } from './test-parent-fixture.js';
 import { authorizeParentStudent } from './parent-authorization.js';
 
 const text = (value) => String(value ?? '').trim();
@@ -91,7 +91,8 @@ export function createParentDashboardService({
   communication = null,
   academicCalendar = null,
   operations = null,
-  cards = parentDashboardModules()
+  cards = parentDashboardModules(),
+  testParentSchoolId = TEST_PARENT_SCHOOL_ID
 } = {}) {
   function componentSupport(moduleKey) {
     switch (moduleKey) {
@@ -186,8 +187,8 @@ export function createParentDashboardService({
   async function listChildren(actor) {
     parentActor(actor);
     let children = [];
-    if (isConfiguredTestParentActor(actor)) {
-      const relationships = listConfiguredTestParentRelationships(actor.id);
+    if (isConfiguredTestParentActor(actor, testParentSchoolId)) {
+      const relationships = listConfiguredTestParentRelationships(actor.id, testParentSchoolId);
       const sampleStudents = students?.listStudents?.({ requestedSchoolId: actor.schoolId, includeTestRecords: true, includeCompleted: true }) ?? [];
       children = relationships.map((link) => sampleStudents.find((student) => student.permanentStudentId === link.permanentStudentId && student.isTestRecord === true && student.schoolId === actor.schoolId)).filter(Boolean);
     } else if (admissionEnrollment?.listParentStudents) {
@@ -208,7 +209,7 @@ export function createParentDashboardService({
     parentActor(actor);
     const id = text(permanentStudentId);
     if (!/^OSAAH\/\d{4}\/\d{4,}$/.test(id) && !isConfiguredTestStudentId(id)) fail('Enter a valid Permanent Student ID.', 400, 'INVALID_PERMANENT_STUDENT_ID');
-    const student = await authorizeParentStudent({ actor, permanentStudentId: id, students, admissionEnrollment });
+    const student = await authorizeParentStudent({ actor, permanentStudentId: id, students, admissionEnrollment, testParentSchoolId });
     if (!student) fail('This student is not linked to your registered parent account.', 403, 'PARENT_STUDENT_FORBIDDEN');
     return student;
   }

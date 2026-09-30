@@ -90,9 +90,9 @@ const mime = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=u
 const branding = { schoolName: 'OSAAH DAYLIGHT SCH. COM.', location: 'BOGOSO', motto: 'AIM HIGH, ACADEMIC IS OUR CORE VALUE', logoPath: '/assets/osaah-daylight-logo.png', colours: { navy: '#102a43', royalBlue: '#1769aa', gold: '#d4a72c', white: '#ffffff' } };
 
 export function createApp({ auth = null, students = null, attendance = null, attendanceRepository = null, examinations = null, fees = null, feeTypes = null, staff = null, communication = null, communicationEngine = null, operations = null, resources = null, compliance = null, reporting = null, generalFinance = null, cashbook = null, admissionForms = null, admissionProspectus = null, subjects = null, signatures = null, classDatabase = null, database = null, academicResults = null, transcripts = null, receiptBranding = null, prospectusPdf = createAdmissionProspectusPdfService(), resultPdf = createResultSlipPdfService(), sportingActivities = null, subjectRegister = null, shepActivities = null, aiGateway = null, aiConversation = null, capabilityRegistry = null, toolRegistry = null, providerRegistry = null, providerId = process.env.OSAAH_AI_PROVIDER_ID ?? 'openai', modelId = process.env.OSAAH_AI_MODEL_ID ?? 'unconfigured', financialIntelligence = null, academicAttendanceIntelligence = null, admissionsWorkforceIntelligence = null, schoolSettings = null, operationalIntelligence = null, schoolKnowledgeIntelligence = null, academicCalendar = null, executiveIntelligence = null, humanControlledActions = null, aiPersistence = null, aiEnabled = null, audit = () => {}, singleSchoolOverview = null, schoolProfile = null } = {}) {
-  auth ??= createAuthService({ database });
-  schoolSettings ??= createSchoolSettingsService({ database, schoolProfile: branding });
   const serviceSchoolId = process.env.OSAAH_SCHOOL_ID ?? (database ? DEFAULT_PRODUCTION_SCHOOL_ID : DEMO_SCHOOL_ID);
+  auth ??= createAuthService({ database, testParentSchoolId: serviceSchoolId });
+  schoolSettings ??= createSchoolSettingsService({ database, schoolProfile: branding });
   const userDirectory = createUserDirectoryService({ database, canonicalSchoolId: serviceSchoolId });
   attendance ??= createAttendanceService({ requireReasons: true, schoolId: serviceSchoolId });
   fees ??= createFeeService({ schoolId: serviceSchoolId });
@@ -160,7 +160,7 @@ export function createApp({ auth = null, students = null, attendance = null, att
   communicationEngine ??= createCommunicationEngine({ audit, schoolId: serviceSchoolId });
   shepActivities ??= createShepActivitiesService({ students, staff });
   receiptBranding ??= createReceiptBrandingService({ fees, students, schoolId: serviceSchoolId });
-  const parentDashboard = createParentDashboardService({ students, admissionEnrollment, attendance, attendanceRepository, academicResults, durableAcademic, fees, parentFeeObligations, durableFeeReader, receiptBranding, examinations, communication, academicCalendar, operations });
+  const parentDashboard = createParentDashboardService({ students, admissionEnrollment, attendance, attendanceRepository, academicResults, durableAcademic, fees, parentFeeObligations, durableFeeReader, receiptBranding, examinations, communication, academicCalendar, operations, testParentSchoolId: serviceSchoolId });
   async function parentStudentsForRequest(actor) {
     const linked = await parentDashboard.listChildren(actor);
     const settled = await Promise.allSettled(linked.map((child) => parentDashboard.resolveChild(actor, child.permanentStudentId)));
@@ -652,7 +652,7 @@ export function createApp({ auth = null, students = null, attendance = null, att
           return json(response, { student: { ...student.student, ...(student.context ?? {}) }, fees: { ...feesForChild.summary, receipts: feesForChild.receipts ?? [] }, result });
         } catch (error) { return parentApiError(response, error, 'lookup'); }
       }
-      if (pathname === '/api/parent/children/resolve' && request.method === 'GET') { if (!user) return json(response, { error: 'UNAUTHENTICATED' }, 401); if (user.portal !== 'parent' || !canAccess(user, 'children.read')) return json(response, { error: 'Forbidden.' }, 403); const permanentStudentId = new URL(request.url, 'http://localhost').searchParams.get('permanentStudentId'); const child = await authorizeParentStudent({ actor: user, permanentStudentId, students, admissionEnrollment }); return child ? json(response, { child: parentDashboard.childSummary(child) }) : json(response, { error: PARENT_UNLINKED_MESSAGE }, 403); }
+      if (pathname === '/api/parent/children/resolve' && request.method === 'GET') { if (!user) return json(response, { error: 'UNAUTHENTICATED' }, 401); if (user.portal !== 'parent' || !canAccess(user, 'children.read')) return json(response, { error: 'Forbidden.' }, 403); const permanentStudentId = new URL(request.url, 'http://localhost').searchParams.get('permanentStudentId'); const child = await authorizeParentStudent({ actor: user, permanentStudentId, students, admissionEnrollment, testParentSchoolId: serviceSchoolId }); return child ? json(response, { child: parentDashboard.childSummary(child) }) : json(response, { error: PARENT_UNLINKED_MESSAGE }, 403); }
       if (pathname === '/api/parent/receipts' && request.method === 'GET') {
         if (!user) return json(response, { error: 'UNAUTHENTICATED' }, 401); if (user.portal !== 'parent' || !canAccess(user, 'children.read')) return json(response, { error: 'Forbidden.' }, 403);
         try {
