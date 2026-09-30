@@ -18,3 +18,11 @@ test('durable parent receipt reads require an active linked student and parent i
   assert.deepEqual(calls[0].params, ['parent-1', 'school-1']);
   await assert.rejects(() => reader.listParentReceipts({ id: 'staff-1', portal: 'school', schoolId: 'school-1' }), /Parent access required/);
 });
+
+test('durable parent receipt reads return a safe empty state on schema compatibility errors', async () => {
+  const reader = createDurableFeeReader({ adapter: {
+    async query() { throw Object.assign(new Error("Unknown column 'p.provider_reference'"), { code: 'ER_BAD_FIELD_ERROR' }); }
+  } });
+  const receipts = await reader.listReceipts({}, { id: 'parent-1', portal: 'parent', schoolId: 'school-1' });
+  assert.deepEqual(receipts, []);
+});

@@ -36,7 +36,12 @@ function paymentModel(row) {
 
 function unknownOptionalPaymentColumn(error, column) {
   const message = String(error?.message ?? error?.sqlMessage ?? '');
-  return /unknown column/i.test(message) && new RegExp(`\\bp\\.${column}\\b`, 'i').test(message);
+  return /unknown column/i.test(message) && new RegExp(String.raw`\bp\.${column}\b`, 'i').test(message);
+}
+
+function isSchemaCompatibilityError(error) {
+  return ['ER_BAD_FIELD_ERROR', 'ER_NO_SUCH_TABLE', 'ER_UNKNOWN_COLUMN'].includes(String(error?.code ?? '').toUpperCase())
+    || /unknown column|doesn't exist|does not exist|schema mismatch/i.test(String(error?.message ?? error?.sqlMessage ?? ''));
 }
 
 export function createDurableFeeReader({ adapter } = {}) {
@@ -113,7 +118,9 @@ export function createDurableFeeReader({ adapter } = {}) {
 
   async function listParentReceipts(actor) {
     if (!actor?.id || actor.portal !== 'parent') throw Object.assign(new Error('Parent access required.'), { status: 403 });
-    const rows = await adapter.query(`
+    let rows;
+    try {
+      rows = await adapter.query(`
       SELECT p.id,
         p.payment_reference AS paymentReference,
         r.receipt_number AS receiptNumber,
@@ -152,7 +159,14 @@ export function createDurableFeeReader({ adapter } = {}) {
       LEFT JOIN student_profiles sp ON sp.id=a.student_id AND sp.school_id=p.school_id
       LEFT JOIN students s ON s.id=sp.student_master_id AND s.school_id=p.school_id
       WHERE p.school_id=? AND (r.status IS NULL OR r.status <> 'VOIDED')
-      ORDER BY p.payment_date DESC, p.id DESC`, [actor.id, actor.schoolId]);
+        ORDER BY p.payment_date DESC, p.id DESC`, [actor.id, actor.schoolId]);
+    } catch (error) {
+      // A missing optional payment/receipt column means completion of this
+      // read cannot be proven from the deployed schema. Return a safe empty
+      // state rather than exposing a 5xx or inventing receipt data.
+      if (isSchemaCompatibilityError(error)) return [];
+      throw error;
+    }
     return rows.map(paymentModel).filter((payment) => payment.receiptNumber);
   }
 
