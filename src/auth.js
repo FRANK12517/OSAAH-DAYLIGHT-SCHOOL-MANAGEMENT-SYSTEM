@@ -1,7 +1,7 @@
 import bcrypt from 'bcrypt';
 import { createHash, createHmac, randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 import { normalizeGhanaPhone } from './ghana-phone.js';
-import { createConfiguredTestParent, isConfiguredTestParentPhone, TEST_PARENT_SCHOOL_ID } from './test-parent-fixture.js';
+import { createConfiguredTestParent, isConfiguredTestParentPhone, TEST_PARENT_ID, TEST_PARENT_SCHOOL_ID } from './test-parent-fixture.js';
 
 const SESSION_TTL_MS = 30 * 60 * 1000;
 const RESET_TTL_MS = 15 * 60 * 1000;
@@ -85,7 +85,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     if (process.env.NODE_ENV === 'production' && !signingKey) return { ok: false, status: 503, error: 'Authentication service unavailable.' };
     attempts.delete(user.id);
     const sessionId = randomUUID(); const expiresAt = now() + SESSION_TTL_MS;
-    const session = { userId: user.id, sessionId, expiresAt };
+    const session = { userId: user.id, sessionId, expiresAt, ...(user.id === TEST_PARENT_ID && user.isTestFixture === true ? { testParentFixture: true } : {}) };
     const token = signingKey ? signSession(session) : randomBytes(32).toString('hex');
     sessions.set(token, session); securityEvent('LOGIN_SUCCESS', user, sessionId);
     return { ok: true, token, user: sanitize(user, sessionId), redirectTo: SCHOOL_PORTAL_DASHBOARDS[canonicalRoleKey(user.roleKey)] ?? '/', expiresAt };
@@ -94,7 +94,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     if (process.env.NODE_ENV === 'production' && !durableSessionStore) return { ok: false, status: 503, error: 'Authentication service unavailable.' };
     attempts.delete(user.id);
     const sessionId = randomUUID(); const expiresAt = now() + SESSION_TTL_MS;
-    const session = { userId: user.id, sessionId, expiresAt };
+    const session = { userId: user.id, sessionId, expiresAt, ...(user.id === TEST_PARENT_ID && user.isTestFixture === true ? { testParentFixture: true } : {}) };
     const token = signingKey ? signSession(session) : randomBytes(32).toString('hex');
     sessions.set(token, session);
     await persistDurableSession(user, session, token);
@@ -189,7 +189,17 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     if (!user.permissions.size) for (const permission of ROLE_PERMISSIONS[roleKey] ?? []) user.permissions.add(permission);
     attempts.delete(key); const sessionId = randomUUID(); const expiresAt = now() + SESSION_TTL_MS; const session = { userId: user.id, sessionId, expiresAt }; const token = randomBytes(32).toString('hex'); sessions.set(token, session); users.push(user); await persistDurableSession(user, session, token); if (durableSessionStore) durableSessionIds.add(sessionId); securityEvent('LOGIN_SUCCESS', user, sessionId); return { ok: true, token, user: sanitize(user, sessionId), redirectTo: SCHOOL_PORTAL_DASHBOARDS[roleKey] ?? '/', expiresAt };
   }
-  function authenticate(token) { const session = verifiedSession(token); if (!session || session.expiresAt <= now()) { if (token) sessions.delete(token); return null; } const user = users.find((candidate) => candidate.id === session.userId); if (!user) { if (token) sessions.delete(token); return null; } if (!isActive(user)) { revokeLocalSession(token, session); securityEvent('SESSION_REVOKED', user, session.sessionId); return null; } return { ...sanitize(user, session.sessionId), permissions: user.permissions }; }
+  function authenticate(token) {
+    const session = verifiedSession(token);
+    if (!session || session.expiresAt <= now()) { if (token) sessions.delete(token); return null; }
+    const isTestParentFixtureSession = session.userId === TEST_PARENT_ID && session.testParentFixture === true;
+    const user = isTestParentFixtureSession
+      ? (process.env.OSAAH_ENABLE_SAMPLE_FIXTURES === 'false' ? null : createConfiguredTestParent(testParentSchoolId))
+      : users.find((candidate) => candidate.id === session.userId);
+    if (!user) { if (token) sessions.delete(token); return null; }
+    if (!isActive(user)) { revokeLocalSession(token, session); securityEvent('SESSION_REVOKED', user, session.sessionId); return null; }
+    return { ...sanitize(user, session.sessionId), permissions: user.permissions };
+  }
   async function authenticateAsync(token) {
     const local = authenticate(token);
     const session = verifiedSession(token);
