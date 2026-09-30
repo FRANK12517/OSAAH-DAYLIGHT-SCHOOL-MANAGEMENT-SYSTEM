@@ -1,16 +1,16 @@
-import { isConfiguredTestParentActor, listConfiguredTestParentRelationships } from './test-parent-fixture.js';
+import { isConfiguredTestParentActor, listConfiguredTestParentRelationships, TEST_PARENT_SCHOOL_ID } from './test-parent-fixture.js';
 
 export const PARENT_UNLINKED_MESSAGE = 'This student is not linked to your registered parent account.';
 
-export async function authorizeParentStudent({ actor, permanentStudentId, students, admissionEnrollment }) {
+export async function authorizeParentStudent({ actor, permanentStudentId, students, admissionEnrollment, testParentSchoolId = TEST_PARENT_SCHOOL_ID }) {
   if (actor?.portal !== 'parent' || actor?.roleKey !== 'PARENT' || !actor?.id || !actor?.schoolId || !permanentStudentId) return null;
   const requestedId = String(permanentStudentId).trim();
 
   // The only sample relationship is the server-owned controlled test fixture.
   // Resolve it to an actual isolated sample record; never authorize by phone or
   // by any child list that happened to be serialized into a session.
-  if (isConfiguredTestParentActor(actor)) {
-    const relationship = listConfiguredTestParentRelationships(actor.id)
+  if (isConfiguredTestParentActor(actor, testParentSchoolId)) {
+    const relationship = listConfiguredTestParentRelationships(actor.id, testParentSchoolId)
       .find((item) => item.schoolId === actor.schoolId && item.permanentStudentId === requestedId && item.linkStatus === 'ACTIVE');
     if (!relationship) return null;
     return students?.listStudents?.({ requestedSchoolId: actor.schoolId, includeTestRecords: true, includeCompleted: true })

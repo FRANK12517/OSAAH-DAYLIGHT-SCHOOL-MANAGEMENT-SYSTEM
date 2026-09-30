@@ -122,6 +122,23 @@ test('controlled Parent children come from existing server-side sample links wit
   assert.equal(students.listStudents().length, 0);
 });
 
+test('controlled Parent fixture follows the canonical production school while other Parents cannot claim its sample children', async () => {
+  const productionSchoolId = 'sch_default_01';
+  const students = createStudentService({ schoolId: productionSchoolId });
+  students.seedSampleStudents();
+  const parent = createConfiguredTestParent(productionSchoolId);
+  const service = createParentDashboardService({ students, testParentSchoolId: productionSchoolId, cards: [] });
+
+  const children = await service.listChildren(parent);
+  assert.deepEqual(children.map((item) => item.permanentStudentId), [...TEST_PARENT_STUDENT_IDS]);
+  assert.ok(children.every((item) => item.isTestRecord));
+  assert.equal((await service.resolveChild(parent, TEST_PARENT_STUDENT_IDS[0])).permanentStudentId, TEST_PARENT_STUDENT_IDS[0]);
+
+  const unrelatedParent = { ...parent, id: 'another-parent', children: [{ permanentStudentId: TEST_PARENT_STUDENT_IDS[0] }] };
+  assert.deepEqual(await service.listChildren(unrelatedParent), []);
+  await assert.rejects(() => service.resolveChild(unrelatedParent, TEST_PARENT_STUDENT_IDS[0]), (error) => error.status === 403);
+});
+
 test('Parent announcements include school, parent, selected-class, and selected-student audiences only', async () => {
   const communication = createCommunicationService({ schoolId: 'school-1' });
   const schoolActor = { id: 'staff-1', roleKey: 'HEADTEACHER', schoolId: 'school-1' };

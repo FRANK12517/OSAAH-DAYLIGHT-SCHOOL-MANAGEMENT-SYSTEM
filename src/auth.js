@@ -1,7 +1,7 @@
 import bcrypt from 'bcrypt';
 import { createHash, createHmac, randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 import { normalizeGhanaPhone } from './ghana-phone.js';
-import { createConfiguredTestParent, isConfiguredTestParentPhone } from './test-parent-fixture.js';
+import { createConfiguredTestParent, isConfiguredTestParentPhone, TEST_PARENT_SCHOOL_ID } from './test-parent-fixture.js';
 
 const SESSION_TTL_MS = 30 * 60 * 1000;
 const RESET_TTL_MS = 15 * 60 * 1000;
@@ -40,7 +40,7 @@ export const DEMO_USERS = [
   { id: 'user-dpo-1', username: 'dpo@osaah.edu.gh', passwordHash: passwordHash('DataProtection123!', 'dpo-salt'), portal: 'school', roleKey: 'DATA_PROTECTION_OFFICER', schoolId: 'school-osaah-daylight', permissions: new Set(['privacy.read', 'privacy.write', 'documents.read']) }
 ];
 
-export function createAuthService({ users = DEMO_USERS, database = null, now = () => Date.now(), audit = () => {}, sessionSecret = process.env.OSAAH_SESSION_SECRET } = {}) {
+export function createAuthService({ users = DEMO_USERS, database = null, now = () => Date.now(), audit = () => {}, sessionSecret = process.env.OSAAH_SESSION_SECRET, testParentSchoolId = TEST_PARENT_SCHOOL_ID } = {}) {
   users = users.map((user) => ({ ...user, permissions: new Set(user.permissions), children: user.children?.map((child) => ({ ...child })) }));
   const sessions = new Map(); const durableSessionIds = new Set(); const revokedSessionIds = new Set(); const attempts = new Map(); const resetTokens = new Map();
   const administratorAssignments = [];
@@ -140,8 +140,10 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     }
     const row = rows.find((candidate) => normalizeGhanaPhone(candidate.parentPhone) === normalized);
     if (!row && isConfiguredTestParentPhone(normalized) && process.env.OSAAH_ENABLE_SAMPLE_FIXTURES !== 'false') {
-      const user = createConfiguredTestParent();
-      users.push(user);
+      const user = createConfiguredTestParent(testParentSchoolId);
+      const existingIndex = users.findIndex((candidate) => candidate.id === user.id);
+      if (existingIndex >= 0) users[existingIndex] = user;
+      else users.push(user);
       return createSessionResult(user);
     }
     if (!row) return { ok: false, status: 401, error: 'Phone number is not registered. Contact the school administrator.' };

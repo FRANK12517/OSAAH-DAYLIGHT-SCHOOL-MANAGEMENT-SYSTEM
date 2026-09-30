@@ -13,28 +13,28 @@ export function isConfiguredTestStudentId(value) {
   return TEST_PARENT_STUDENT_IDS.includes(String(value ?? '').trim());
 }
 
-export function isConfiguredTestParentActor(actor) {
+export function isConfiguredTestParentActor(actor, schoolId = TEST_PARENT_SCHOOL_ID) {
   return actor?.id === TEST_PARENT_ID
     && actor?.portal === 'parent'
     && actor?.roleKey === 'PARENT'
-    && actor?.schoolId === TEST_PARENT_SCHOOL_ID
+    && actor?.schoolId === schoolId
     && process.env.OSAAH_ENABLE_SAMPLE_FIXTURES !== 'false';
 }
 
 // This server-owned mapping is the complete authorization boundary for the
 // controlled test parent. It is intentionally not copied into session data.
-export function listConfiguredTestParentRelationships(parentUserId) {
+export function listConfiguredTestParentRelationships(parentUserId, schoolId = TEST_PARENT_SCHOOL_ID) {
   if (parentUserId !== TEST_PARENT_ID || process.env.OSAAH_ENABLE_SAMPLE_FIXTURES === 'false') return [];
   return TEST_PARENT_STUDENT_IDS.map((permanentStudentId) => ({
     parentUserId: TEST_PARENT_ID,
-    schoolId: TEST_PARENT_SCHOOL_ID,
+    schoolId,
     permanentStudentId,
     linkStatus: 'ACTIVE',
     isTestFixture: true
   }));
 }
 
-export function createConfiguredTestParent() {
+export function createConfiguredTestParent(schoolId = TEST_PARENT_SCHOOL_ID) {
   return {
     id: TEST_PARENT_ID,
     username: 'test-parent.sample@osaah.local',
@@ -42,7 +42,7 @@ export function createConfiguredTestParent() {
     telephone: TEST_PARENT_PHONE,
     portal: 'parent',
     roleKey: 'PARENT',
-    schoolId: TEST_PARENT_SCHOOL_ID,
+    schoolId,
     accountStatus: 'ACTIVE',
     is_active: true,
     isTestFixture: true,

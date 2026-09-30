@@ -8,13 +8,13 @@ import { TEST_PARENT_PHONE, TEST_PARENT_STUDENT_IDS } from '../src/test-parent-f
 
 const SESSION_SECRET = 'test-only-session-secret-with-at-least-32-characters';
 
-function request(server, path, { cookie, method = 'GET', headers = {} } = {}) {
+function request(server, path, { cookie, method = 'GET', headers = {}, body = null } = {}) {
   return new Promise((resolve, reject) => {
     const req = httpRequest({ port: server.address().port, path, method, headers: { ...headers, ...(cookie ? { Cookie: cookie } : {}) } }, (response) => {
       let body = ''; response.setEncoding('utf8'); response.on('data', (chunk) => { body += chunk; });
       response.on('end', () => resolve({ status: response.statusCode, body, headers: response.headers }));
     });
-    req.on('error', reject); req.end();
+    req.on('error', reject); req.end(body ?? undefined);
   });
 }
 
@@ -108,6 +108,37 @@ test('controlled sample Parent session restores across serverless instances with
   assert.equal(restored.id, 'user-test-parent-sample');
   assert.equal(restored.portal, 'parent');
   assert.equal(restored.children, undefined);
+});
+
+test('controlled sample Parent uses the canonical production school scope for login and child authorization', async () => {
+  const database = { async query() { return []; }, async execute() { return { affectedRows: 1 }; } };
+  const server = createServer(createApp({ database, aiEnabled: false }));
+  await new Promise((resolve) => server.listen(0, resolve));
+  try {
+    const login = await request(server, '/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: TEST_PARENT_PHONE, portal: 'parent' })
+    });
+    assert.equal(login.status, 200, login.body);
+    const cookie = login.headers['set-cookie']?.[0]?.split(';')[0];
+    assert.ok(cookie, 'successful fixture login must establish a session cookie');
+
+    const session = await request(server, '/api/auth/session', { cookie });
+    assert.equal(session.status, 200);
+    const user = JSON.parse(session.body).user;
+    assert.equal(user.id, 'user-test-parent-sample');
+    assert.equal(user.schoolId, 'sch_default_01');
+    assert.equal(user.children, undefined, 'sample-child authorization must not be embedded in the session');
+
+    const children = await request(server, '/api/parent/children', { cookie });
+    assert.equal(children.status, 200, children.body);
+    assert.deepEqual(JSON.parse(children.body).children.map((child) => child.permanentStudentId), [...TEST_PARENT_STUDENT_IDS]);
+
+    const resolve = await request(server, `/api/parent/children/resolve?permanentStudentId=${encodeURIComponent(TEST_PARENT_STUDENT_IDS[0])}`, { cookie });
+    assert.equal(resolve.status, 200, resolve.body);
+    assert.equal(JSON.parse(resolve.body).child.sampleLabel, 'SAMPLE DATA');
+  } finally { await new Promise((resolve) => server.close(resolve)); }
 });
 
 test('Parent APIs expose only linked children, canonical options, allowed records, and invalidate data on logout', async () => {
