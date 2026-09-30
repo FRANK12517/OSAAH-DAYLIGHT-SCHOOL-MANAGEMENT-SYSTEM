@@ -25,6 +25,24 @@ const schemaBaselineDdl = `CREATE TABLE IF NOT EXISTS schema_baselines (
 )`;
 const adapterError = (code, message, details) => Object.assign(new Error(message), { code, details });
 
+function stripLeadingComments(statement) {
+  let remaining = statement.trimStart();
+  while (remaining) {
+    if (remaining.startsWith('--') || remaining.startsWith('#')) {
+      const newline = remaining.indexOf('\n');
+      remaining = newline === -1 ? '' : remaining.slice(newline + 1).trimStart();
+      continue;
+    }
+    if (remaining.startsWith('/*')) {
+      const end = remaining.indexOf('*/', 2);
+      remaining = end === -1 ? '' : remaining.slice(end + 2).trimStart();
+      continue;
+    }
+    break;
+  }
+  return remaining;
+}
+
 function splitMigrationSql(sql) {
   if (typeof sql !== 'string') throw new TypeError('Migration SQL must be a string.');
   const statements = [];
@@ -55,11 +73,11 @@ function splitMigrationSql(sql) {
     if (character === "'") { current += character; state = 'single'; continue; }
     if (character === '"') { current += character; state = 'double'; continue; }
     if (character === '`') { current += character; state = 'backtick'; continue; }
-    if (character === ';') { if (current.trim()) statements.push(current.trim()); current = ''; continue; }
+    if (character === ';') { if (stripLeadingComments(current).trim()) statements.push(current.trim()); current = ''; continue; }
     current += character;
   }
   if (state !== 'normal') throw new Error('Unterminated SQL quote or comment in migration.');
-  if (current.trim()) statements.push(current.trim());
+  if (stripLeadingComments(current).trim()) statements.push(current.trim());
   return statements;
 }
 
@@ -69,7 +87,7 @@ function sanitizedMessage(error) {
     .replace(/(password|passwd|secret|token|key)=([^\s&]+)/gi, '$1=[redacted]');
 }
 
-function operationOf(statement) { const withoutLeadingComments = statement.replace(/^\s*(?:(?:--|#)[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/\s*)*/g, ''); return withoutLeadingComments.match(/^(\w+)/)?.[1]?.toUpperCase() ?? 'UNKNOWN'; }
+function operationOf(statement) { return stripLeadingComments(statement).match(/^(\w+)/)?.[1]?.toUpperCase() ?? 'UNKNOWN'; }
 
 async function executeMigrationSqlOn(connection, sql, context = {}) {
   const statements = splitMigrationSql(sql);

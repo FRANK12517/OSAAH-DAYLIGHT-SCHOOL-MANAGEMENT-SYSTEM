@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { createMigrationRunner } from '../src/platform/migration-runner.js';
-import { splitMigrationSql } from '../src/ai/tidb-database-adapter.js';
+import { executeMigrationSqlOn, splitMigrationSql } from '../src/ai/tidb-database-adapter.js';
 
 const migrationUrl = new URL('../schema/059_backward_compatible_enrollment_contract.sql', import.meta.url);
 const migrationDirectory = new URL('../schema/', import.meta.url);
@@ -68,6 +68,16 @@ test('migration 059 corrected index is below the TiDB/MySQL key limit and explai
   assert.equal(originalWidth, 3312);
   assert.equal(correctedWidth, 2292);
   assert.ok(correctedWidth < 3072);
+});
+
+test('migration 059 parser does not submit comment-only statement 5 to mysql2', async () => {
+  const sql = await readFile(migrationUrl, 'utf8');
+  const executed = [];
+  await executeMigrationSqlOn({ execute: async (statement) => executed.push(statement) }, sql, { migrationName: '059_backward_compatible_enrollment_contract.sql', version: 59 });
+  assert.equal(executed.length, 4);
+  assert.match(executed[0], /ALTER TABLE student_enrollments/);
+  assert.match(executed[3], /CREATE INDEX IF NOT EXISTS idx_student_enrollments_compat_scope/);
+  assert.ok(executed.every((statement) => /\b(?:ALTER|UPDATE|CREATE)\b/i.test(statement.replace(/^\s*(?:(?:--|#)[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/\s*)*/g, ''))));
 });
 
 test('fresh schema applies migration 059 and records it only after the corrected index exists', async () => {
