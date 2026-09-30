@@ -18,6 +18,8 @@ test('production enrollment migration is explicitly scoped to version 059', asyn
   assert.match(script, /DATABASE_TARGET_MISMATCH/);
   assert.match(script, /MIGRATION_059_SCHEMA_VERIFICATION_FAILED/);
   assert.match(script, /historicalTermsFabricated: 0/);
+  assert.match(script, /COMPATIBILITY_INDEX_COLUMNS = 'student_id,academic_year_id,class_id'/);
+  assert.match(script, /GROUP_CONCAT\(COLUMN_NAME ORDER BY SEQ_IN_INDEX/);
   assert.doesNotMatch(workflow, /npm run migration:apply/);
   assert.doesNotMatch(script, /DROP\s+(TABLE|COLUMN|DATABASE)|TRUNCATE|DELETE\s+FROM/i);
 });
