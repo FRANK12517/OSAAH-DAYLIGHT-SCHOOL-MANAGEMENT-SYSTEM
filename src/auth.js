@@ -127,6 +127,16 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     const normalized = normalizeGhanaPhone(phone);
     if (portal !== 'parent' || !normalized) return loginByPhone({ phone, portal });
     if (!database?.query) return loginByPhone({ phone, portal });
+    // The controlled QA identity is a server-owned namespace, not a durable
+    // Parent account. Resolve it before any live lookup so a colliding phone
+    // value can never authenticate an unintended production Parent.
+    if (isConfiguredTestParentPhone(normalized) && process.env.OSAAH_ENABLE_SAMPLE_FIXTURES !== 'false') {
+      const user = createConfiguredTestParent(testParentSchoolId);
+      const existingIndex = users.findIndex((candidate) => candidate.id === user.id);
+      if (existingIndex >= 0) users[existingIndex] = user;
+      else users.push(user);
+      return createSessionResult(user);
+    }
     let rows = [];
     try {
       rows = await database.query(`SELECT DISTINCT u.id,u.school_id AS schoolId,u.username,u.email,u.status,psl.telephone AS parentPhone
@@ -139,13 +149,6 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
         WHERE r.role_key='PARENT' AND UPPER(COALESCE(u.status,'ACTIVE'))='ACTIVE'`, []); } catch { rows = []; }
     }
     const row = rows.find((candidate) => normalizeGhanaPhone(candidate.parentPhone) === normalized);
-    if (!row && isConfiguredTestParentPhone(normalized) && process.env.OSAAH_ENABLE_SAMPLE_FIXTURES !== 'false') {
-      const user = createConfiguredTestParent(testParentSchoolId);
-      const existingIndex = users.findIndex((candidate) => candidate.id === user.id);
-      if (existingIndex >= 0) users[existingIndex] = user;
-      else users.push(user);
-      return createSessionResult(user);
-    }
     if (!row) return { ok: false, status: 401, error: 'Phone number is not registered. Contact the school administrator.' };
     const user = { id: row.id, username: row.username ?? row.email ?? row.id, email: row.email, portal: 'parent', roleKey: 'PARENT', schoolId: row.schoolId, phone: normalized, accountStatus: 'ACTIVE', is_active: true, permissions: new Set(PARENT_PERMISSIONS) };
     users.push(user); return await createDurableSessionResult(user);

@@ -110,6 +110,23 @@ test('controlled sample Parent session restores across serverless instances with
   assert.equal(restored.children, undefined);
 });
 
+test('controlled sample Parent namespace wins before a colliding durable Parent phone lookup', async () => {
+  let queried = false;
+  const database = {
+    async query() {
+      queried = true;
+      return [{ id: 'real-parent-1', schoolId: 'sch_default_01', username: 'real-parent@example.test', email: 'real-parent@example.test', status: 'ACTIVE', parentPhone: TEST_PARENT_PHONE }];
+    },
+    async execute() { return { affectedRows: 1 }; }
+  };
+  const auth = createAuthService({ database, sessionSecret: SESSION_SECRET, testParentSchoolId: 'sch_default_01' });
+  const login = await auth.loginByPhoneFromDatabase({ phone: '0247293733', portal: 'parent' });
+  assert.equal(login.ok, true);
+  assert.equal(login.user.id, 'user-test-parent-sample');
+  assert.equal(login.user.schoolId, 'sch_default_01');
+  assert.equal(queried, false, 'fixture authentication must not consult durable Parent identities');
+});
+
 test('database-backed test Parent session hydrates canonical scope on every instance and fails closed when fixtures are disabled', async () => {
   const database = { async query() { return []; }, async execute() { return { affectedRows: 1 }; } };
   const loginAuth = createAuthService({ database, sessionSecret: SESSION_SECRET, testParentSchoolId: 'sch_default_01' });
