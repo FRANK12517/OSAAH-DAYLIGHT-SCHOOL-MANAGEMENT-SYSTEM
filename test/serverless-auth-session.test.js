@@ -110,6 +110,28 @@ test('controlled sample Parent session restores across serverless instances with
   assert.equal(restored.children, undefined);
 });
 
+test('database-backed test Parent session hydrates canonical scope on every instance and fails closed when fixtures are disabled', async () => {
+  const database = { async query() { return []; }, async execute() { return { affectedRows: 1 }; } };
+  const loginAuth = createAuthService({ database, sessionSecret: SESSION_SECRET, testParentSchoolId: 'sch_default_01' });
+  const login = await loginAuth.loginByPhoneFromDatabase({ phone: TEST_PARENT_PHONE, portal: 'parent' });
+  assert.equal(login.ok, true);
+
+  const nextInstance = createAuthService({ database, sessionSecret: SESSION_SECRET, testParentSchoolId: 'sch_default_01' });
+  const restored = await nextInstance.authenticateAsync(login.token);
+  assert.equal(restored.schoolId, 'sch_default_01');
+  assert.equal(restored.children, undefined);
+
+  const previousFlag = process.env.OSAAH_ENABLE_SAMPLE_FIXTURES;
+  process.env.OSAAH_ENABLE_SAMPLE_FIXTURES = 'false';
+  try {
+    const disabledInstance = createAuthService({ database, sessionSecret: SESSION_SECRET, testParentSchoolId: 'sch_default_01' });
+    assert.equal(disabledInstance.authenticate(login.token), null);
+  } finally {
+    if (previousFlag === undefined) delete process.env.OSAAH_ENABLE_SAMPLE_FIXTURES;
+    else process.env.OSAAH_ENABLE_SAMPLE_FIXTURES = previousFlag;
+  }
+});
+
 test('controlled sample Parent uses the canonical production school scope for login and child authorization', async () => {
   const database = { async query() { return []; }, async execute() { return { affectedRows: 1 }; } };
   const server = createServer(createApp({ database, aiEnabled: false }));
@@ -248,4 +270,39 @@ test('signed session rejects tampering, expires, and logout clears the cookie', 
     assert.match(response.headers['set-cookie'][0], /osaah_session=;/);
     assert.match(response.headers['set-cookie'][0], /Max-Age=0/);
   } finally { await new Promise((resolve) => server.close(resolve)); }
+});
+
+test('test Parent child authorization survives separate serverless app instances', async () => {
+  const previousSessionSecret = process.env.OSAAH_SESSION_SECRET;
+  process.env.OSAAH_SESSION_SECRET = SESSION_SECRET;
+  const database = { async query() { return []; }, async execute() { return { affectedRows: 1 }; } };
+  const loginServer = createServer(createApp({ database, aiEnabled: false }));
+  const navigationServer = createServer(createApp({ database, aiEnabled: false }));
+  if (previousSessionSecret === undefined) delete process.env.OSAAH_SESSION_SECRET;
+  else process.env.OSAAH_SESSION_SECRET = previousSessionSecret;
+  await Promise.all([loginServer, navigationServer].map((server) => new Promise((resolve) => server.listen(0, resolve))));
+  try {
+    const login = await request(loginServer, '/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: TEST_PARENT_PHONE, portal: 'parent' })
+    });
+    assert.equal(login.status, 200, login.body);
+    const cookie = login.headers['set-cookie']?.[0]?.split(';')[0];
+    assert.ok(cookie, 'cross-instance fixture login must establish a signed session cookie');
+
+    const session = await request(navigationServer, '/api/auth/session', { cookie });
+    assert.equal(session.status, 200, session.body);
+    assert.equal(JSON.parse(session.body).user.schoolId, 'sch_default_01');
+
+    const children = await request(navigationServer, '/api/parent/children', { cookie });
+    assert.equal(children.status, 200, children.body);
+    assert.deepEqual(JSON.parse(children.body).children.map((child) => child.permanentStudentId), [...TEST_PARENT_STUDENT_IDS]);
+
+    const resolve = await request(navigationServer, `/api/parent/children/resolve?permanentStudentId=${encodeURIComponent(TEST_PARENT_STUDENT_IDS[0])}`, { cookie });
+    assert.equal(resolve.status, 200, resolve.body);
+    assert.equal(JSON.parse(resolve.body).child.sampleLabel, 'SAMPLE DATA');
+  } finally {
+    await Promise.all([loginServer, navigationServer].map((server) => new Promise((resolve) => server.close(resolve))));
+  }
 });
