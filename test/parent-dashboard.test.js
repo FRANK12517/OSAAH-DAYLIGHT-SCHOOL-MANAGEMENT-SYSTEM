@@ -18,6 +18,9 @@ const child = {
   lastName: 'Mensah',
   classId: 'class-primary-1',
   className: 'Primary 1',
+  gender: 'Female',
+  studentStatus: 'ACTIVE',
+  enrollmentStatus: 'ACTIVE',
   schoolId: 'school-1',
   isTestRecord: false
 };
@@ -122,7 +125,37 @@ test('Parent child list is resolved from the authenticated school-scoped relatio
   const children = await service.listChildren(actor());
   assert.deepEqual(children.map((item) => item.permanentStudentId), ['OSAAH/2026/0001', 'OSAAH/2026/0002']);
   assert.deepEqual(children.map((item) => item.name), ['Ama Mensah', 'Kojo Mensah']);
+  assert.equal(children[0].gender, 'Female');
+  assert.equal(children[0].studentStatus, 'ACTIVE');
+  assert.equal(children[0].enrollmentStatus, 'ACTIVE');
   assert.ok(children.every((item) => !('id' in item) && !('studentId' in item)));
+});
+
+test('Student Summary returns canonical gender and status fields for only the authorized child', async () => {
+  const service = createParentDashboardService(dependencies());
+  const result = await service.loadRecord(actor(), { permanentStudentId: child.permanentStudentId, recordType: 'student-summary' });
+  assert.equal(result.student.gender, 'Female');
+  assert.equal(result.student.studentStatus, 'ACTIVE');
+  assert.equal(result.student.enrollmentStatus, 'ACTIVE');
+  assert.equal(result.student.permanentStudentId, child.permanentStudentId);
+  await assert.rejects(() => service.loadRecord(actor(), { permanentStudentId: 'OSAAH/2026/0002', recordType: 'student-summary' }), (error) => error.status === 403);
+});
+
+test('missing canonical gender and status remain absent rather than being fabricated', async () => {
+  const missing = { ...child, gender: null, studentStatus: null, enrollmentStatus: null };
+  const service = createParentDashboardService(dependencies({
+    admissionEnrollment: {
+      listParentStudents: async () => [missing],
+      authorizeParentStudent: async () => missing
+    }
+  }));
+  const [listed, summary] = [await service.listChildren(actor()), await service.loadRecord(actor(), { permanentStudentId: child.permanentStudentId, recordType: 'student-summary' })];
+  assert.equal('gender' in listed[0], false);
+  assert.equal('studentStatus' in listed[0], false);
+  assert.equal('enrollmentStatus' in listed[0], false);
+  assert.equal('gender' in summary.student, false);
+  assert.equal('studentStatus' in summary.student, false);
+  assert.equal('enrollmentStatus' in summary.student, false);
 });
 
 test('selected-child resolution rechecks the live link and rejects stale session relationships after revocation', async () => {
