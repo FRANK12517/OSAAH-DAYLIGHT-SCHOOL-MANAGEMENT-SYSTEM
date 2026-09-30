@@ -109,6 +109,13 @@ test('completed archive returns only explicit completion status or completed enr
   }]);
 });
 
+test('completion history returns a safe empty state when an older schema lacks a completion marker column', async () => {
+  const service = createParentHistoricalRecordsService({ database: {
+    async query() { throw Object.assign(new Error("Unknown column 's.student_status'"), { code: 'ER_BAD_FIELD_ERROR' }); }
+  } });
+  assert.deepEqual(await service.listCompletedRecords(actor, child), []);
+});
+
 test('historical database failures propagate instead of becoming empty success responses', async () => {
   const failure = new Error('database unavailable');
   const service = createParentHistoricalRecordsService({ database: { query: async () => { throw failure; } } });
