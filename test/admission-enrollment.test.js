@@ -13,6 +13,8 @@ function adapter({ failOn = null, initialApplication = application(), authorized
       if (sql.includes("FROM students WHERE id LIKE")) return state.students.length ? [{ id: state.students.at(-1).id }] : [];
       if (sql.includes('FROM student_id_sequences')) return [{ next_sequence: state.sequence }];
       if (sql.includes('FROM users WHERE school_id=')) return [{ id: 'parent-1' }];
+      if (sql.includes('SELECT s.id AS id,s.id AS studentId') && sql.includes('JOIN users pu')) return authorized ? [{ id: 'student-1', studentId: 'student-1', student_id: 'student-1', permanentStudentId: 'OSAAH/2026/0001', permanent_student_id: 'OSAAH/2026/0001', studentProfileId: 'profile-1', student_profile_id: 'profile-1', classId: 'class-1', class_id: 'class-1', firstName: 'Ama', lastName: 'Mensah', className: 'Primary 1' }] : [];
+      if (sql.includes('SELECT e.class_id AS classId')) return authorized ? [{ classId: params[6] }] : [];
       if (sql.includes('SELECT * FROM students WHERE id=')) return state.students.filter((row) => row.id === params[0] && row.permanent_student_id === params[1]);
       if (sql.includes('JOIN student_profiles')) return authorized ? [{ student_id: 'STD-000001', permanent_student_id: params[4], student_profile_id: 'profile-1', class_id: 'class-1' }] : [];
       return [];
@@ -83,4 +85,35 @@ test('parent portal resolution requires an active parent/profile authorization l
   const query = denied.state.calls.find((call) => call[0] === 'query')[1];
   assert.match(query, /parent_student_links/);
   assert.match(query, /parent_user_id=\?/);
+});
+
+test('Parent child list selects only linked active students from the authenticated school', async () => {
+  const { api, state } = adapter({ authorized: true });
+  const service = createAdmissionEnrollmentService({ database: api });
+  const children = await service.listParentStudents({ parentUserId: 'parent-1', schoolId: 'school-1' });
+  assert.equal(children.length, 1);
+  assert.equal(children[0].permanentStudentId, 'OSAAH/2026/0001');
+  assert.equal(children[0].lastName, 'Mensah');
+  const [, sql, params] = state.calls.find((call) => call[0] === 'query' && call[1].includes('SELECT s.id AS id,s.id AS studentId') && call[1].includes('JOIN users pu'));
+  assert.deepEqual(params, ['school-1', 'parent-1', 'school-1']);
+  assert.match(sql, /parent_student_links/);
+  assert.match(sql, /psl\.parent_user_id=\?/);
+  assert.match(sql, /pu\.school_id=\?/);
+  assert.match(sql, /s\.last_name AS lastName/);
+  assert.doesNotMatch(sql, /s\.surname/);
+  const denied = adapter({ authorized: false });
+  assert.deepEqual(await createAdmissionEnrollmentService({ database: denied.api }).listParentStudents({ parentUserId: 'other-parent', schoolId: 'school-1' }), []);
+});
+
+test('Parent historical class authorization binds child relationship, school, year, term, and class', async () => {
+  const { api, state } = adapter({ authorized: true });
+  const service = createAdmissionEnrollmentService({ database: api });
+  assert.equal(await service.parentEnrolledInClass({ parentUserId: 'parent-1', schoolId: 'school-1', permanentStudentId: 'OSAAH/2026/0001', academicYearId: 'year-2025', termId: 'term-2', classId: 'class-old' }), true);
+  const [, sql, params] = state.calls.find((call) => call[0] === 'query' && call[1].includes('SELECT e.class_id AS classId'));
+  assert.deepEqual(params, ['school-1', 'parent-1', 'school-1', 'OSAAH/2026/0001', 'year-2025', 'term-2', 'class-old']);
+  assert.match(sql, /psl\.parent_user_id=\?/);
+  assert.match(sql, /e\.academic_year_id=\?/);
+  assert.match(sql, /e\.term_id=\?/);
+  assert.match(sql, /e\.class_id=\?/);
+  assert.equal(await createAdmissionEnrollmentService({ database: adapter({ authorized: false }).api }).parentEnrolledInClass({ parentUserId: 'other-parent', schoolId: 'school-1', permanentStudentId: 'OSAAH/2026/0001', academicYearId: 'year-2025', termId: 'term-2', classId: 'class-old' }), false);
 });

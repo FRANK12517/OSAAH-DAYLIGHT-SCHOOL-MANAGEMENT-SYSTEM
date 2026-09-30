@@ -81,7 +81,9 @@ export function createAdmissionEnrollmentService({ database, clock = () => new D
         const profileId = idFactory();
         await tx.execute('INSERT INTO student_profiles (id,student_master_id,student_id,school_id,class_id,stream_id,admission_number,admission_date,first_name,last_name,gender,date_of_birth,enrollment_status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [profileId, studentId, permanentStudentId, application.school_id, classId, value(application.stream_id, applicant.streamId), admissionNumber, value(application.admission_date, applicant.applicationDate, timestamp.slice(0, 10)), firstName, lastName, gender, value(applicant.dateOfBirth), 'ACTIVE', timestamp]);
         const enrollmentId = idFactory();
-        await tx.execute('INSERT INTO student_enrollments (id,student_id,class_id,academic_year_id) VALUES (?,?,?,?)', [enrollmentId, studentId, classId, value(application.academic_year_id, applicant.academicYearId, applicant.academicYear)]);
+        const academicYearId = value(application.academic_year_id, applicant.academicYearId, applicant.academicYear);
+        const termId = value(application.term_id, applicant.termId, applicant.term);
+        await tx.execute('INSERT INTO student_enrollments (id,student_id,school_id,class_id,academic_year_id,term_id,enrollment_status,is_current,enrolled_at) VALUES (?,?,?,?,?,?,?,?,?)', [enrollmentId, studentId, application.school_id, classId, academicYearId, termId, 'ACTIVE', 1, timestamp]);
         const parentUserId = await resolveParent(tx, application, applicant, timestamp);
         await tx.execute('INSERT INTO parent_student_links (parent_user_id,student_id,permanent_student_id,telephone,relationship,relationship_type,link_status,created_at,updated_at) SELECT ?,?,?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM parent_student_links WHERE parent_user_id=? AND student_id=?)', [parentUserId, profileId, permanentStudentId, value(applicant.primaryGuardianPrimaryPhone, applicant.guardianPhone, applicant.telephone), value(applicant.primaryGuardianRelationship, 'Guardian'), value(applicant.primaryGuardianRelationship, 'GUARDIAN'), 'ACTIVE', timestamp, timestamp, parentUserId, profileId]);
         await tx.execute('UPDATE admission_applications SET student_id=?,permanent_student_id=?,stage=?,updated_at=? WHERE id=? AND student_id IS NULL AND permanent_student_id IS NULL', [studentId, permanentStudentId, 'ENROLLMENT', timestamp, application.id]);
@@ -96,10 +98,39 @@ export function createAdmissionEnrollmentService({ database, clock = () => new D
 
   async function authorizeParentStudent({ parentUserId, permanentStudentId, schoolId }) {
     if (!parentUserId || !permanentStudentId || !schoolId) fail('PARENT_STUDENT_SCOPE_REQUIRED', 'Parent, student, and school scope are required.', 400);
-    const result = rows(await database.query('SELECT s.id AS student_id,s.permanent_student_id,sp.id AS student_profile_id,sp.class_id FROM students s JOIN student_profiles sp ON sp.student_master_id=s.id AND (sp.student_id=s.permanent_student_id OR sp.student_id=?) JOIN parent_student_links psl ON psl.student_id=sp.id AND psl.parent_user_id=? AND psl.link_status=? WHERE s.school_id=? AND s.permanent_student_id=? AND s.is_test_record=0 LIMIT 1', [permanentStudentId, parentUserId, 'ACTIVE', schoolId, permanentStudentId]))[0];
+    const result = rows(await database.query('SELECT s.id AS id,s.id AS studentId,s.id AS student_id,s.permanent_student_id AS permanentStudentId,s.permanent_student_id,sp.id AS studentProfileId,sp.id AS student_profile_id,sp.class_id AS classId,sp.class_id FROM students s JOIN student_profiles sp ON sp.student_master_id=s.id AND (sp.student_id=s.permanent_student_id OR sp.student_id=?) JOIN parent_student_links psl ON psl.student_id=sp.id AND psl.parent_user_id=? AND psl.link_status=? WHERE s.school_id=? AND s.permanent_student_id=? AND s.is_test_record=0 LIMIT 1', [permanentStudentId, parentUserId, 'ACTIVE', schoolId, permanentStudentId]))[0];
     if (!result) fail('PARENT_STUDENT_FORBIDDEN', 'You are not authorized to access this student.', 403);
     return result;
   }
 
-  return Object.freeze({ enroll, authorizeParentStudent });
+  async function listParentStudents({ parentUserId, schoolId } = {}) {
+    if (!parentUserId || !schoolId) fail('PARENT_STUDENT_SCOPE_REQUIRED', 'Parent and school scope are required.', 400);
+    return rows(await database.query(`SELECT s.id AS id,s.id AS studentId,s.id AS student_id,
+      s.permanent_student_id AS permanentStudentId,s.permanent_student_id,
+      sp.id AS studentProfileId,sp.id AS student_profile_id,sp.class_id AS classId,sp.class_id,
+      s.first_name AS firstName,s.last_name AS lastName,c.name AS className
+      FROM parent_student_links psl
+      JOIN users pu ON pu.id=psl.parent_user_id AND pu.school_id=?
+      JOIN student_profiles sp ON sp.id=psl.student_id AND sp.school_id=pu.school_id
+      JOIN students s ON s.id=sp.student_master_id AND s.school_id=pu.school_id
+      LEFT JOIN classes c ON c.id=sp.class_id AND c.school_id=pu.school_id
+      WHERE psl.parent_user_id=? AND psl.link_status='ACTIVE' AND s.school_id=? AND s.is_test_record=0
+      ORDER BY s.permanent_student_id,s.id`, [schoolId, parentUserId, schoolId]));
+  }
+
+  async function parentEnrolledInClass({ parentUserId, schoolId, permanentStudentId, academicYearId, termId, classId } = {}) {
+    if (!parentUserId || !schoolId || !permanentStudentId || !academicYearId || !termId || !classId) return false;
+    const result = rows(await database.query(`SELECT e.class_id AS classId
+      FROM parent_student_links psl
+      JOIN users pu ON pu.id=psl.parent_user_id AND pu.school_id=? AND UPPER(COALESCE(pu.status,'ACTIVE'))='ACTIVE'
+      JOIN student_profiles sp ON sp.id=psl.student_id AND sp.school_id=pu.school_id
+      JOIN students s ON s.id=sp.student_master_id AND s.school_id=sp.school_id
+      JOIN student_enrollments e ON e.student_id=s.id AND e.school_id=s.school_id
+      WHERE psl.parent_user_id=? AND psl.link_status='ACTIVE' AND s.school_id=?
+        AND s.permanent_student_id=? AND e.academic_year_id=? AND e.term_id=? AND e.class_id=?
+        AND COALESCE(s.is_test_record,0)=0 LIMIT 1`, [schoolId, parentUserId, schoolId, permanentStudentId, academicYearId, termId, classId]));
+    return result.length > 0;
+  }
+
+  return Object.freeze({ enroll, authorizeParentStudent, listParentStudents, parentEnrolledInClass });
 }
