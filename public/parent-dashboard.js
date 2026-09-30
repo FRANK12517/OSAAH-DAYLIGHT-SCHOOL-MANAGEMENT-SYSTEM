@@ -142,8 +142,12 @@ function renderRecord(body) {
     return `<h4>Student summary</h4>${summaryCards([
       ['Student name', student.name],
       ['Permanent Student ID', student.permanentStudentId],
+      ['Gender', student.gender],
       ['Current class', student.className ?? student.classId],
       ['Academic year', body.context?.yearName ?? 'Select an academic context for year-specific records'],
+      ['Term', body.context?.termName],
+      ['Student status', student.studentStatus],
+      ['Enrollment status', student.enrollmentStatus ?? student.profileEnrollmentStatus],
       ['Sample status', student.sampleLabel ?? 'Official student record']
     ])}`;
   }
@@ -288,7 +292,7 @@ export async function mountParentDashboard({ dashboard, user, sidebar } = {}) {
     permanentId.value = child?.permanentStudentId ?? '';
     classSelect.value = context.classId ?? '';
     const summary = byId(overview, 'parent-child-summary');
-    summary.innerHTML = child ? `<strong>${esc(child.name)}</strong><span>Permanent Student ID: ${esc(child.permanentStudentId)}</span><span>Current class: ${esc(child.className ?? 'Not recorded')}</span>${child.isTestRecord ? '<span class="parent-sample-badge">SAMPLE DATA</span>' : ''}` : childLoadError ? esc(childLoadError) : childList.length ? 'Select a child to begin.' : 'No children are currently linked to this Parent account.';
+    summary.innerHTML = child ? `<strong>${esc(child.name)}</strong><span>Permanent Student ID: ${esc(child.permanentStudentId)}</span><span>Gender: ${esc(display(child.gender))}</span><span>Current class: ${esc(display(child.className ?? child.classId))}</span><span>Status: ${esc(display(child.enrollmentStatus ?? child.studentStatus))}</span>${child.isTestRecord ? '<span class="parent-sample-badge">SAMPLE DATA</span>' : ''}` : childLoadError ? esc(childLoadError) : childList.length ? 'Select a child to begin.' : 'No children are currently linked to this Parent account.';
   }
 
   async function loadOptions() {

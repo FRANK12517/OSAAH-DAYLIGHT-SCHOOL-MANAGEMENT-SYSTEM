@@ -98,7 +98,7 @@ export function createAdmissionEnrollmentService({ database, clock = () => new D
 
   async function authorizeParentStudent({ parentUserId, permanentStudentId, schoolId }) {
     if (!parentUserId || !permanentStudentId || !schoolId) fail('PARENT_STUDENT_SCOPE_REQUIRED', 'Parent, student, and school scope are required.', 400);
-    const result = rows(await database.query('SELECT s.id AS id,s.id AS studentId,s.id AS student_id,s.permanent_student_id AS permanentStudentId,s.permanent_student_id,sp.id AS studentProfileId,sp.id AS student_profile_id,sp.class_id AS classId,sp.class_id FROM students s JOIN student_profiles sp ON sp.student_master_id=s.id AND (sp.student_id=s.permanent_student_id OR sp.student_id=?) JOIN parent_student_links psl ON psl.student_id=sp.id AND psl.parent_user_id=? AND psl.link_status=? WHERE s.school_id=? AND s.permanent_student_id=? AND s.is_test_record=0 LIMIT 1', [permanentStudentId, parentUserId, 'ACTIVE', schoolId, permanentStudentId]))[0];
+    const result = rows(await database.query('SELECT s.id AS id,s.id AS studentId,s.id AS student_id,s.permanent_student_id AS permanentStudentId,s.permanent_student_id,s.gender,s.student_status AS studentStatus,sp.id AS studentProfileId,sp.id AS student_profile_id,sp.class_id AS classId,sp.class_id,sp.enrollment_status AS profileEnrollmentStatus,(SELECT e.enrollment_status FROM student_enrollments e WHERE e.student_id=s.id AND e.school_id=s.school_id AND e.is_current=1 ORDER BY e.enrolled_at DESC,e.id DESC LIMIT 1) AS enrollmentStatus FROM students s JOIN student_profiles sp ON sp.student_master_id=s.id AND (sp.student_id=s.permanent_student_id OR sp.student_id=?) JOIN parent_student_links psl ON psl.student_id=sp.id AND psl.parent_user_id=? AND psl.link_status=? WHERE s.school_id=? AND s.permanent_student_id=? AND s.is_test_record=0 LIMIT 1', [permanentStudentId, parentUserId, 'ACTIVE', schoolId, permanentStudentId]))[0];
     if (!result) fail('PARENT_STUDENT_FORBIDDEN', 'You are not authorized to access this student.', 403);
     return result;
   }
@@ -108,7 +108,10 @@ export function createAdmissionEnrollmentService({ database, clock = () => new D
     return rows(await database.query(`SELECT s.id AS id,s.id AS studentId,s.id AS student_id,
       s.permanent_student_id AS permanentStudentId,s.permanent_student_id,
       sp.id AS studentProfileId,sp.id AS student_profile_id,sp.class_id AS classId,sp.class_id,
-      s.first_name AS firstName,s.last_name AS lastName,c.name AS className
+      s.first_name AS firstName,s.last_name AS lastName,s.gender,s.student_status AS studentStatus,
+      sp.enrollment_status AS profileEnrollmentStatus,
+      (SELECT e.enrollment_status FROM student_enrollments e WHERE e.student_id=s.id AND e.school_id=s.school_id AND e.is_current=1 ORDER BY e.enrolled_at DESC,e.id DESC LIMIT 1) AS enrollmentStatus,
+      c.name AS className
       FROM parent_student_links psl
       JOIN users pu ON pu.id=psl.parent_user_id AND pu.school_id=?
       JOIN student_profiles sp ON sp.id=psl.student_id AND sp.school_id=pu.school_id

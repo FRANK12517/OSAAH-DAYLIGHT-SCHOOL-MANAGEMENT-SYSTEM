@@ -59,11 +59,17 @@ function studentName(student) {
 function childSummary(student) {
   const permanentStudentId = text(student?.permanentStudentId ?? student?.permanent_student_id);
   const isTestRecord = Boolean(student?.isTestRecord ?? student?.is_test_record);
+  const gender = student?.gender ?? null;
+  const studentStatus = student?.studentStatus ?? student?.student_status ?? student?.status ?? null;
+  const enrollmentStatus = student?.enrollmentStatus ?? student?.enrollment_status ?? student?.profileEnrollmentStatus ?? student?.profile_enrollment_status ?? null;
   return {
     permanentStudentId,
     name: studentName(student) || 'Authorized student',
     classId: student?.classId ?? student?.class_id ?? student?.currentClassId ?? null,
     className: student?.className ?? student?.class_name ?? student?.classId ?? student?.class_id ?? null,
+    ...(gender !== null && gender !== undefined ? { gender } : {}),
+    ...(studentStatus !== null && studentStatus !== undefined ? { studentStatus } : {}),
+    ...(enrollmentStatus !== null && enrollmentStatus !== undefined ? { enrollmentStatus } : {}),
     isTestRecord,
     sampleLabel: isTestRecord ? 'SAMPLE DATA' : null
   };
@@ -271,7 +277,7 @@ export function createParentDashboardService({
     const name = studentName(student) || 'Authorized student';
     if (type === 'student-summary') {
       const context = input.academicYear && input.term && input.classId ? await validateContext(actor, input, student, type) : null;
-      return { recordType: type, available: true, student: { name, permanentStudentId, classId: student.classId ?? student.class_id ?? null, className: student.className ?? student.class_name ?? student.class_id ?? null, sampleLabel: student.isTestRecord || student.is_test_record ? 'SAMPLE DATA' : null }, context };
+      return { recordType: type, available: true, student: childSummary({ ...student, name, permanentStudentId }), context };
     }
     const availableTypes = (await options(actor)).recordTypes;
     const chosen = availableTypes.find((item) => item.id === type);
