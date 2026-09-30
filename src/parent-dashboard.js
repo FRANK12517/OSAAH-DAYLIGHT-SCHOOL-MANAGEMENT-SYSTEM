@@ -24,9 +24,7 @@ const COMPONENTS = Object.freeze([
 const UNSUPPORTED_RECORD_TYPES = Object.freeze([
   { id: 'homework', name: 'Homework', message: 'Homework records are not available yet.' },
   { id: 'assignments', name: 'Assignments', message: 'Assignment records are not available yet.' },
-  { id: 'documents', name: 'Documents', message: 'Parent-safe student document access is not available yet.' },
-  { id: 'promotion-history', name: 'Promotion History', message: 'Parent promotion history is not available yet.' },
-  { id: 'completed-records', name: 'Completed / Graduated Records', message: 'Parent completed-student records are not available yet.' }
+  { id: 'documents', name: 'Documents', message: 'Parent-safe student document access is not available yet.' }
 ]);
 
 function fail(message, status = 400, code = 'PARENT_DASHBOARD_ERROR') {
@@ -133,6 +131,7 @@ export function createParentDashboardService({
   durableFeeReader = null,
   receiptBranding = null,
   examinations = null,
+  historicalRecords = null,
   communication = null,
   academicCalendar = null,
   operations = null,
@@ -224,7 +223,12 @@ export function createParentDashboardService({
         const support = available.get(sourceModule) ?? false;
         const unsupported = UNSUPPORTED_RECORD_TYPES.find((item) => item.id === id);
         return { id, name: labels[id] ?? id.charAt(0).toUpperCase() + id.slice(1), available: unsupported ? false : support, scope: 'student', requiresAcademicContext: !['transport', 'documents', 'promotion-history', 'completed-records'].includes(id), ...(unsupported ? { message: unsupported.message } : !support ? { message: 'Not available yet.' } : {}) };
-      })
+      }),
+      ...[
+        { id: 'historical-contexts', name: 'Historical Contexts', available: Boolean(historicalRecords?.listHistoricalContexts), requiresAcademicContext: false },
+        { id: 'promotion-history', name: 'Promotion History', available: Boolean(historicalRecords?.listPromotionHistory), requiresAcademicContext: false },
+        { id: 'completed-records', name: 'Completed / Graduated Records', available: Boolean(historicalRecords?.listCompletedRecords), requiresAcademicContext: false }
+      ].filter((item) => item.available)
     ].filter((item) => item.available);
     return { academicYears, terms, classes, recordTypes, components: componentCatalog(actor) };
   }
@@ -296,7 +300,7 @@ export function createParentDashboardService({
     const classInput = text(input.classId);
     const classRecord = source.classes.find((item) => item.id === classInput || item.name === classInput);
     if (!classRecord) fail('Select a class from the configured class list.', 400, 'INVALID_CLASS');
-    if (classRecord.contextOnly) fail('Completed / Graduated records are not available yet.', 501, 'PARENT_RECORD_NOT_AVAILABLE');
+    if (classRecord.contextOnly) fail('Select a historical class from Historical Contexts. Completed records do not require a class selection.', 400, 'INVALID_CLASS');
     if (student) {
       const enrolledClass = text(student.classId ?? student.class_id);
       const classMatchesCurrentEnrollment = enrolledClass && (classRecord.id === enrolledClass || classRecord.name === enrolledClass);
@@ -325,6 +329,18 @@ export function createParentDashboardService({
     const context = chosen.requiresAcademicContext ? await validateContext(actor, input, student, type) : null;
     const childIds = authorizedIds(student);
     const selectedActor = { ...actor, children: [{ ...student, id: student.id ?? student.student_id ?? student.studentProfileId, studentProfileId: student.studentProfileId ?? student.student_profile_id, permanentStudentId, classId: student.classId ?? student.class_id, className: student.className ?? student.class_id }] };
+    if (type === 'historical-contexts') {
+      const contexts = await historicalRecords.listHistoricalContexts(actor, student);
+      return { recordType: type, available: true, student: { name, permanentStudentId }, contexts: rows(contexts) };
+    }
+    if (type === 'promotion-history') {
+      const records = await historicalRecords.listPromotionHistory(actor, student);
+      return { recordType: type, available: true, student: { name, permanentStudentId }, records: rows(records) };
+    }
+    if (type === 'completed-records') {
+      const records = await historicalRecords.listCompletedRecords(actor, student);
+      return { recordType: type, available: true, student: { name, permanentStudentId }, records: rows(records) };
+    }
     if (type === 'attendance') {
       let records;
       if (attendanceRepository?.listStudentRecords) {

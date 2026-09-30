@@ -79,6 +79,7 @@ import { DEFAULT_PRODUCTION_SCHOOL_ID, DEMO_SCHOOL_ID, resolveCurrentSchoolConte
 import { createDurableFeeReader } from './durable-fee-reader.js';
 import { createDurableFeePayments } from './durable-fee-payments.js';
 import { createParentDashboardService } from './parent-dashboard.js';
+import { createParentHistoricalRecordsService } from './parent-historical-records.js';
 import { createSchoolSettingsService } from './school-settings.js';
 import { createSingleSchoolOverviewService } from './single-school-overview.js';
 import { createSchoolProfileService } from './school-profile.js';
@@ -160,7 +161,8 @@ export function createApp({ auth = null, students = null, attendance = null, att
   communicationEngine ??= createCommunicationEngine({ audit, schoolId: serviceSchoolId });
   shepActivities ??= createShepActivitiesService({ students, staff });
   receiptBranding ??= createReceiptBrandingService({ fees, students, schoolId: serviceSchoolId });
-  const parentDashboard = createParentDashboardService({ students, admissionEnrollment, attendance, attendanceRepository, academicResults, durableAcademic, fees, parentFeeObligations, durableFeeReader, receiptBranding, examinations, communication, academicCalendar, operations, testParentSchoolId: serviceSchoolId });
+  const parentHistoricalRecords = database?.query ? createParentHistoricalRecordsService({ database }) : null;
+  const parentDashboard = createParentDashboardService({ students, admissionEnrollment, attendance, attendanceRepository, academicResults, durableAcademic, fees, parentFeeObligations, durableFeeReader, receiptBranding, examinations, historicalRecords: parentHistoricalRecords, communication, academicCalendar, operations, testParentSchoolId: serviceSchoolId });
   async function parentStudentsForRequest(actor) {
     const linked = await parentDashboard.listChildren(actor);
     const settled = await Promise.allSettled(linked.map((child) => parentDashboard.resolveChild(actor, child.permanentStudentId)));

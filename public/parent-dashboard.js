@@ -136,6 +136,39 @@ function renderResult(body) {
   ], subjects)}<div class="parent-result-actions no-print"><button class="secondary-button" type="button" data-parent-print>View / Print Result Slip</button><a class="primary-button" href="${esc(pdfUrl)}" target="_blank" rel="noopener">Download Result PDF</a></div></div>`;
 }
 
+function renderHistoricalContexts(body) {
+  const contexts = body.contexts ?? [];
+  if (!contexts.length) return `<h4>Historical academic contexts</h4>${empty('No historical records available.')}`;
+  return `<h4>Historical academic contexts</h4><p class="muted">These year, term, and class combinations are drawn from this child’s stored enrollment history.</p>${table([
+    { key: 'academicYearName', label: 'Academic year' },
+    { key: 'termName', label: 'Term' },
+    { key: 'className', label: 'Class' },
+    { key: 'action', label: 'Action', render: (_, row) => `<button type="button" class="secondary-button" data-parent-historical-context="true" data-year-id="${esc(row.academicYearId)}" data-term-id="${esc(row.termId)}" data-class-id="${esc(row.classId)}">Use context</button>` }
+  ], contexts)}`;
+}
+
+function renderPromotionHistory(body) {
+  const records = body.records ?? [];
+  if (!records.length) return `<h4>Promotion History</h4>${empty('No promotion history available.')}`;
+  return `<h4>Promotion History</h4><p class="muted">Decision values are shown as recorded by the school.</p>${table([
+    { key: 'academicYearName', label: 'Academic year' },
+    { key: 'decision', label: 'Decision' },
+    { key: 'decisionDate', label: 'Decision date', render: (value) => esc(formatDate(value)) }
+  ], records)}`;
+}
+
+function renderCompletedRecords(body) {
+  const records = body.records ?? [];
+  if (!records.length) return `<h4>Completed / Graduated Records</h4>${empty('No completed records available.')}`;
+  return `<h4>Completed / Graduated Records</h4>${table([
+    { key: 'status', label: 'Recorded status' },
+    { key: 'academicYearName', label: 'Academic year' },
+    { key: 'termName', label: 'Term' },
+    { key: 'className', label: 'Archived class' },
+    { key: 'completedAt', label: 'Completion date', render: (value) => esc(formatDate(value)) }
+  ], records)}`;
+}
+
 function renderRecord(body) {
   if (body.recordType === 'student-summary') {
     const student = body.student ?? {};
@@ -151,6 +184,9 @@ function renderRecord(body) {
       ['Sample status', student.sampleLabel ?? 'Official student record']
     ])}`;
   }
+  if (body.recordType === 'historical-contexts') return renderHistoricalContexts(body);
+  if (body.recordType === 'promotion-history') return renderPromotionHistory(body);
+  if (body.recordType === 'completed-records') return renderCompletedRecords(body);
   if (body.recordType === 'attendance') {
     const summary = body.attendanceSummary ?? {};
     const percentage = Number.isFinite(summary.recordedAttendancePercentage) ? `${summary.recordedAttendancePercentage}%` : '—';
@@ -294,8 +330,18 @@ export async function mountParentDashboard({ dashboard, user, sidebar } = {}) {
     if (preferred) termSelect.value = preferred.id;
   }
 
+  function resetAcademicContext() {
+    if (!options) return;
+    yearSelect.value = options.academicYears.find((item) => item.isCurrent)?.id ?? '';
+    fillTerms();
+    const currentTerms = options.terms.filter((item) => !item.academicYearId || item.academicYearId === yearSelect.value);
+    termSelect.value = currentTerms.find((item) => item.isCurrent)?.id ?? '';
+    classSelect.value = '';
+  }
+
   function applyChildContext(child) {
     const previousChildId = selectedStudent?.permanentStudentId ?? '';
+    if (previousChildId && child?.permanentStudentId && previousChildId !== child.permanentStudentId) resetAcademicContext();
     const context = parentContextAfterChildResolution(selectedContext(), { previousChildId, child, classes: options?.classes ?? [] });
     selectedStudent = child;
     permanentId.value = child?.permanentStudentId ?? '';
@@ -394,6 +440,15 @@ export async function mountParentDashboard({ dashboard, user, sidebar } = {}) {
       if (!viewState.commit('record', token, body)) return;
       recordOutput.innerHTML = renderRecord(body);
       recordOutput.querySelector('[data-parent-print]')?.addEventListener('click', () => window.print());
+      recordOutput.querySelectorAll('[data-parent-historical-context]').forEach((button) => button.addEventListener('click', () => {
+        yearSelect.value = button.dataset.yearId ?? '';
+        fillTerms();
+        termSelect.value = button.dataset.termId ?? '';
+        classSelect.value = button.dataset.classId ?? '';
+        recordTypeSelect.value = '';
+        clearData();
+        recordStatus.textContent = 'Historical context selected. Choose a record type, then load the records.';
+      }));
       recordStatus.textContent = '';
     } catch (error) {
       if (!viewState.isCurrent(token)) return;
