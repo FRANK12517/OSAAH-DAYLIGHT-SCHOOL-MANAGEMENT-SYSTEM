@@ -271,6 +271,86 @@ test('attendance record reads are scoped to one authorized child and the selecte
   assert.equal(result.context.yearName, '2026/2027');
 });
 
+function parentAttendanceRow({ date, status, subjectId = 'daily', studentId = 'profile-1', schoolId = 'school-1', academicYear = '2026/2027', term = '1st Term', classId = 'class-primary-1' }) {
+  return { date, status, subjectId, studentId, schoolId, academicYear, term, classId };
+}
+
+test('Parent attendance summary counts every canonical status and distinct recorded dates across subject records', async () => {
+  const source = [
+    parentAttendanceRow({ date: '2026-09-01', status: 'PRESENT', subjectId: 'math' }),
+    parentAttendanceRow({ date: '2026-09-01', status: 'PRESENT', subjectId: 'english' }),
+    parentAttendanceRow({ date: '2026-09-02', status: 'ABSENT' }),
+    parentAttendanceRow({ date: '2026-09-03', status: 'LATE' }),
+    parentAttendanceRow({ date: '2026-09-04', status: 'EARLY_DEPARTURE' }),
+    parentAttendanceRow({ date: '2026-09-05', status: 'EXCUSED_ABSENCE' }),
+    parentAttendanceRow({ date: '2026-09-06', status: 'UNEXCUSED_ABSENCE' }),
+    parentAttendanceRow({ date: '2026-09-07', status: 'SICK_ABSENCE' }),
+    parentAttendanceRow({ date: '2026-09-01', status: 'ABSENT', studentId: 'profile-2' }),
+    parentAttendanceRow({ date: '2026-09-01', status: 'ABSENT', academicYear: '2025/2026' }),
+    parentAttendanceRow({ date: '2026-09-01', status: 'ABSENT', term: '2nd Term' }),
+    parentAttendanceRow({ date: '2026-09-01', status: 'ABSENT', classId: 'class-jhs-3' }),
+    parentAttendanceRow({ date: '2026-09-01', status: 'ABSENT', schoolId: 'school-other' })
+  ];
+  const service = createParentDashboardService(dependencies({ attendanceRepository: { listStudentRecords: async () => source } }));
+  const result = await service.loadRecord(actor(), {
+    permanentStudentId: child.permanentStudentId,
+    recordType: 'attendance',
+    academicYear: 'year-2026',
+    classId: 'class-primary-1',
+    term: 'term-1'
+  });
+
+  assert.equal(result.records.length, 8, 'the detailed records remain available and out-of-scope rows are removed');
+  assert.deepEqual(result.attendanceSummary, {
+    recordedDays: 7,
+    present: 2,
+    absent: 1,
+    late: 1,
+    earlyDeparture: 1,
+    excusedAbsence: 1,
+    unexcusedAbsence: 1,
+    sickAbsence: 1,
+    recordedAttendancePercentage: 50,
+    unknownStatuses: []
+  });
+});
+
+test('Parent attendance summary uses neutral zero-record and zero-denominator values', async () => {
+  const emptyService = createParentDashboardService(dependencies({ attendanceRepository: { listStudentRecords: async () => [] } }));
+  const empty = await emptyService.loadRecord(actor(), { permanentStudentId: child.permanentStudentId, recordType: 'attendance', academicYear: 'year-2026', classId: 'class-primary-1', term: 'term-1' });
+  assert.deepEqual(empty.attendanceSummary, {
+    recordedDays: 0, present: 0, absent: 0, late: 0, earlyDeparture: 0, excusedAbsence: 0,
+    unexcusedAbsence: 0, sickAbsence: 0, recordedAttendancePercentage: null, unknownStatuses: []
+  });
+  const excusedService = createParentDashboardService(dependencies({ attendanceRepository: { listStudentRecords: async () => [
+    parentAttendanceRow({ date: '2026-09-01', status: 'EXCUSED_ABSENCE' }), parentAttendanceRow({ date: '2026-09-02', status: 'SICK_ABSENCE' })
+  ] } }));
+  const excusedOnly = await excusedService.loadRecord(actor(), { permanentStudentId: child.permanentStudentId, recordType: 'attendance', academicYear: 'year-2026', classId: 'class-primary-1', term: 'term-1' });
+  assert.equal(excusedOnly.attendanceSummary.recordedDays, 2);
+  assert.equal(excusedOnly.attendanceSummary.recordedAttendancePercentage, null);
+});
+
+test('Parent attendance keeps unknown statuses visible and never classifies them as present or absent', async () => {
+  const service = createParentDashboardService(dependencies({ attendanceRepository: { listStudentRecords: async () => [
+    parentAttendanceRow({ date: '2026-09-01', status: 'PRESENT' }), parentAttendanceRow({ date: '2026-09-02', status: 'LEGACY_REVIEW' })
+  ] } }));
+  const result = await service.loadRecord(actor(), { permanentStudentId: child.permanentStudentId, recordType: 'attendance', academicYear: 'year-2026', classId: 'class-primary-1', term: 'term-1' });
+  assert.equal(result.attendanceSummary.present, 1);
+  assert.equal(result.attendanceSummary.absent, 0);
+  assert.deepEqual(result.attendanceSummary.unknownStatuses, [{ status: 'LEGACY_REVIEW', count: 1 }]);
+  assert.equal(result.attendanceSummary.recordedAttendancePercentage, 50);
+});
+
+test('changing academic context clears a visible Parent attendance summary and blocks stale responses', () => {
+  const state = createParentDashboardViewState();
+  const originalContextRequest = state.invalidate(child.permanentStudentId);
+  assert.equal(state.commit('record', originalContextRequest, { attendanceSummary: { present: 3 } }), true);
+  const staleRequest = state.capture();
+  state.invalidate(child.permanentStudentId);
+  assert.equal(state.snapshot().record, null);
+  assert.equal(state.commit('record', staleRequest, { attendanceSummary: { present: 3 } }), false);
+});
+
 test('Parent cannot request an unlinked Permanent Student ID', async () => {
   const service = createParentDashboardService(dependencies());
   await assert.rejects(() => service.loadRecord(actor(), { permanentStudentId: 'OSAAH/2026/9999', recordType: 'student-summary' }), (error) => error.status === 403 && error.code === 'PARENT_STUDENT_FORBIDDEN');

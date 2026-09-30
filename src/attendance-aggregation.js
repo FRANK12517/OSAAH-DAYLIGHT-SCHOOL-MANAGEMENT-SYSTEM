@@ -2,7 +2,8 @@ import { normalizeStudentGender } from './student-gender.js';
 import { STUDENT_STATUSES } from './attendance.js';
 
 export const ATTENDANCE_REPORT_PERIODS = ['DAILY', 'WEEKLY', 'MONTHLY', 'TERM'];
-const EXCUSED_STATUSES = new Set(['EXCUSED_ABSENCE', 'SICK_ABSENCE']);
+export const EXCUSED_ATTENDANCE_STATUSES = Object.freeze(['EXCUSED_ABSENCE', 'SICK_ABSENCE']);
+const EXCUSED_STATUSES = new Set(EXCUSED_ATTENDANCE_STATUSES);
 const PRESENT_STATUSES = new Set(['PRESENT', 'LATE']);
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -18,9 +19,11 @@ function dateInRange(date, start, end) { const value = asDate(date); return valu
 function monthRange(month) { const match = /^(\d{4})-(\d{2})$/.exec(String(month ?? '')); if (!match) return null; const start = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, 1)); const end = new Date(Date.UTC(Number(match[1]), Number(match[2]), 0)); return { start, end, label: `${match[1]}-${match[2]}` }; }
 function genderOf(student) { const gender = normalizeStudentGender(student?.gender); return gender === 'Male' ? 'BOYS' : gender === 'Female' ? 'GIRLS' : 'UNKNOWN'; }
 
+export function attendancePercentageDenominator(rows = []) { return rows.filter((row) => !EXCUSED_STATUSES.has(row.status)).length; }
+
 export function attendancePercentage(rows = []) {
-  const eligible = rows.filter((row) => !EXCUSED_STATUSES.has(row.status));
-  return eligible.length ? Math.round((eligible.filter((row) => PRESENT_STATUSES.has(row.status)).length / eligible.length) * 10000) / 100 : 0;
+  const denominator = attendancePercentageDenominator(rows);
+  return denominator ? Math.round((rows.filter((row) => !EXCUSED_STATUSES.has(row.status) && PRESENT_STATUSES.has(row.status)).length / denominator) * 10000) / 100 : 0;
 }
 
 export function createAttendanceAggregationService({ attendance, students, schoolId = 'school-osaah-daylight', now = () => new Date().toISOString() } = {}) {

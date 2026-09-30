@@ -1,6 +1,8 @@
 import { parentDashboardModules } from './sidebar-registry.js';
 import { isConfiguredTestParentActor, listConfiguredTestParentRelationships, isConfiguredTestStudentId, TEST_PARENT_SCHOOL_ID } from './test-parent-fixture.js';
 import { authorizeParentStudent } from './parent-authorization.js';
+import { STUDENT_STATUSES } from './attendance.js';
+import { attendancePercentage, attendancePercentageDenominator } from './attendance-aggregation.js';
 
 const text = (value) => String(value ?? '').trim();
 const rows = (value) => Array.isArray(value) ? value : [];
@@ -80,6 +82,43 @@ function authorizedIds(student) {
 }
 function normalizeTermName(value) {
   return text(value).toLowerCase().replace(/^(first|1st)\s+term$/, '1st Term').replace(/^(second|2nd)\s+term$/, '2nd Term').replace(/^(third|3rd)\s+term$/, '3rd Term').toLowerCase();
+}
+
+function attendanceSummary(records) {
+  const counts = Object.fromEntries(STUDENT_STATUSES.map((status) => [status, 0]));
+  const unknown = new Map();
+  for (const record of records) {
+    const status = text(record.status) || 'UNSPECIFIED';
+    if (Object.hasOwn(counts, status)) counts[status] += 1;
+    else unknown.set(status, (unknown.get(status) ?? 0) + 1);
+  }
+  const recordedDates = new Set(records.map((record) => text(record.date ?? record.attendanceDate ?? record.attendance_date)).filter(Boolean));
+  const denominator = attendancePercentageDenominator(records);
+  return {
+    recordedDays: recordedDates.size,
+    present: counts.PRESENT,
+    absent: counts.ABSENT,
+    late: counts.LATE,
+    earlyDeparture: counts.EARLY_DEPARTURE,
+    excusedAbsence: counts.EXCUSED_ABSENCE,
+    unexcusedAbsence: counts.UNEXCUSED_ABSENCE,
+    sickAbsence: counts.SICK_ABSENCE,
+    recordedAttendancePercentage: denominator ? attendancePercentage(records) : null,
+    unknownStatuses: [...unknown].map(([status, count]) => ({ status, count }))
+  };
+}
+
+function attendanceRecordMatchesContext(record, actor, context) {
+  const scopedFields = [
+    [['schoolId', 'school_id'], actor.schoolId],
+    [['academicYear', 'academic_year'], context.yearName],
+    [['term'], context.termName],
+    [['classId', 'class_id'], context.classId]
+  ];
+  return scopedFields.every(([keys, expected]) => {
+    const actual = keys.map((key) => record?.[key]).find((value) => value !== undefined && value !== null);
+    return actual === undefined || String(actual) === String(expected);
+  });
 }
 
 export function createParentDashboardService({
@@ -294,7 +333,8 @@ export function createParentDashboardService({
       } else {
         records = attendance.summary({ academicYear: context.yearName, term: context.termName, classId: context.classId, studentIds: childIds }).records;
       }
-      return { recordType: type, available: true, student: { name, permanentStudentId }, context, records: rows(records).filter((row) => childIds.includes(text(row.studentId ?? row.student_id))) };
+      const authorizedRecords = rows(records).filter((row) => childIds.includes(text(row.studentId ?? row.student_id)) && attendanceRecordMatchesContext(row, actor, context));
+      return { recordType: type, available: true, student: { name, permanentStudentId }, context, attendanceSummary: attendanceSummary(authorizedRecords), records: authorizedRecords };
     }
     if (type === 'published-results') {
       const publication = academicResults.publicationFor({ classId: context.classId, academicYear: context.yearId, term: context.termId, isSample: Boolean(student.isTestRecord ?? student.is_test_record) });
