@@ -91,7 +91,7 @@ jobs:
           npm run migration:validate
           node --test test/production-three-term-config.test.js test/sample-academic-context.test.js test/parent-dashboard.test.js
 
-      - name: Execute approved three-term operation
+      - name: ${{ inputs.mode == 'dry-run' && 'Dry-run approved three-term configuration' || 'Apply approved three-term configuration' }}
         shell: bash
         run: npm run production:three-terms -- "$MODE"
 

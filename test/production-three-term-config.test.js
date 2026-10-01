@@ -1,18 +1,26 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { configureThreeTerms, readThreeTermPreflight, THREE_TERM_CONFIGURATION } from '../src/production-three-term-config.js';
+import {
+  configureThreeTerms,
+  detectAcademicYearNameUniqueIndexes,
+  readThreeTermPreflight,
+  THREE_TERM_CONFIGURATION
+} from '../src/production-three-term-config.js';
 
-function database({ terms = [] } = {}) {
-  const state = {
-    schools: [{ id: 'sch_default_01', name: 'OsaaH Daylight School' }],
-    years: [{ id: 'ay_2026_01', schoolId: 'sch_default_01', name: '2026/2027 Academic Year', startsOn: '2026-09-01', endsOn: '2027-07-31' }],
-    terms: structuredClone(terms),
-    writes: 0
-  };
+const firstTerm = { id: 'term_2026_01', academicYearId: 'ay_2026_01', name: 'First Term', startsOn: '2026-09-01', endsOn: '2026-12-18', isCurrent: 1 };
+const secondTerm = { id: 'term_2026_02', academicYearId: 'ay_2026_01', name: 'Second Term', startsOn: '2027-01-11', endsOn: '2027-04-09', isCurrent: 0 };
+const thirdTerm = { id: 'term_2026_03', academicYearId: 'ay_2026_01', name: 'Third Term', startsOn: '2027-05-03', endsOn: '2027-07-23', isCurrent: 0 };
+const uniqueIndexRows = [
+  { tableSchema: 'osaahdaylightschool', tableName: 'terms', indexName: 'terms_year_term_name_unique', nonUnique: 0, seqInIndex: 1, columnName: 'academic_year_id', subPart: null },
+  { tableSchema: 'osaahdaylightschool', tableName: 'terms', indexName: 'terms_year_term_name_unique', nonUnique: 0, seqInIndex: 2, columnName: 'name', subPart: null }
+];
+
+function database({ terms = [firstTerm], indexRows = uniqueIndexRows } = {}) {
+  const state = { schools: [{ id: 'sch_default_01', name: 'OsaaH Daylight School' }], terms: structuredClone(terms), writes: 0 };
   const query = async (sql, params = []) => {
     if (sql.includes('FROM schools')) return state.schools.filter((row) => row.id === params[0]);
-    if (sql.includes('FROM academic_years')) return state.years.filter((row) => row.id === params[0] && row.schoolId === params[1]);
-    if (sql.includes('information_schema.STATISTICS')) return [{ indexName: 'terms_academic_year_name', nonUnique: 0, columns: 'academic_year_id,name' }];
+    if (sql.includes('FROM academic_years')) return [{ id: 'ay_2026_01', schoolId: 'sch_default_01', name: '2026/2027 Academic Year', startsOn: '2026-09-01', endsOn: '2027-07-31' }];
+    if (sql.includes('INFORMATION_SCHEMA.STATISTICS')) return structuredClone(indexRows);
     if (sql.includes('WHERE id IN')) return state.terms.filter((row) => params.includes(row.id));
     if (sql.includes('FROM terms')) return state.terms.filter((row) => row.academicYearId === params[0]);
     throw new Error(`Unhandled query: ${sql}`);
@@ -36,50 +44,158 @@ function database({ terms = [] } = {}) {
   };
 }
 
-const firstTerm = { id: 'term_2026_01', academicYearId: 'ay_2026_01', name: 'First Term', startsOn: '2026-09-01', endsOn: '2026-12-18', isCurrent: 1 };
+function tidbIndexRows({ schema = 'osaahdaylightschool', table = 'terms', index = 'PRIMARY', unique = 0, columns = ['academic_year_id', 'name'], prefixes = [] } = {}) {
+  return columns.map((columnName, indexPosition) => ({
+    TABLE_SCHEMA: schema,
+    TABLE_NAME: table,
+    INDEX_NAME: index,
+    NON_UNIQUE: unique,
+    SEQ_IN_INDEX: indexPosition + 1,
+    COLUMN_NAME: columnName,
+    SUB_PART: prefixes[indexPosition] ?? null
+  }));
+}
 
-test('preflight recognizes the approved school, academic year, ID convention, and uniqueness contract', async () => {
-  const result = await readThreeTermPreflight(database({ terms: [firstTerm] }), { databaseName: 'osaahdaylightschool' });
-  assert.equal(result.checks.school, true);
-  assert.equal(result.checks.academicYear, true);
-  assert.equal(result.checks.firstTerm, true);
-  assert.equal(result.checks.uniqueness, true);
-  assert.deepEqual(result.targetIds, ['term_2026_01']);
+test('first term plus missing second and third passes dry-run with two planned writes', async () => {
+  const db = database({ terms: [firstTerm] });
+  const result = await configureThreeTerms(db, { databaseName: 'osaahdaylightschool', dryRun: true });
+  assert.equal(result.ok, true);
+  assert.equal(result.before.checks.secondTerm, false);
+  assert.equal(result.before.checks.thirdTerm, false);
+  assert.equal(result.safeToApply, true);
+  assert.equal(result.configurationComplete, false);
+  assert.deepEqual(result.plannedWrites, ['Second Term', 'Third Term']);
+  assert.equal(result.plannedWriteCount, 2);
+  assert.equal(db.state.writes, 0);
 });
 
-test('apply inserts only Second and Third Term with approved sample dates', async () => {
+test('first and correct second term plus missing third passes with one planned write', async () => {
+  const result = await configureThreeTerms(database({ terms: [firstTerm, secondTerm] }), { databaseName: 'osaahdaylightschool', dryRun: true });
+  assert.equal(result.safeToApply, true);
+  assert.equal(result.before.checks.secondTerm, true);
+  assert.equal(result.before.checks.thirdTerm, false);
+  assert.deepEqual(result.plannedWrites, ['Third Term']);
+  assert.equal(result.plannedWriteCount, 1);
+});
+
+test('all three correct terms pass dry-run with zero planned writes and complete configuration', async () => {
+  const result = await configureThreeTerms(database({ terms: [firstTerm, secondTerm, thirdTerm] }), { databaseName: 'osaahdaylightschool', dryRun: true });
+  assert.equal(result.safeToApply, true);
+  assert.equal(result.configurationComplete, true);
+  assert.deepEqual(result.plannedWrites, []);
+  assert.equal(result.plannedWriteCount, 0);
+});
+
+test('TiDB INFORMATION_SCHEMA row representation recognizes a PRIMARY composite unique index', () => {
+  assert.deepEqual(detectAcademicYearNameUniqueIndexes(tidbIndexRows()), [{
+    schema: 'osaahdaylightschool', table: 'terms', indexName: 'PRIMARY', nonUnique: 0, columns: ['academic_year_id', 'name']
+  }]);
+});
+
+test('an arbitrary unique index name is accepted when ordered semantic columns match', () => {
+  const rows = tidbIndexRows({ index: 'custom_business_key' });
+  assert.equal(detectAcademicYearNameUniqueIndexes(rows).length, 1);
+});
+
+test('a NON_UNIQUE index does not satisfy the contract', () => {
+  assert.deepEqual(detectAcademicYearNameUniqueIndexes(tidbIndexRows({ unique: 1 })), []);
+});
+
+test('wrong column order does not satisfy the contract', () => {
+  assert.deepEqual(detectAcademicYearNameUniqueIndexes(tidbIndexRows({ columns: ['name', 'academic_year_id'] })), []);
+});
+
+test('an index with extra columns does not satisfy the exact contract', () => {
+  assert.deepEqual(detectAcademicYearNameUniqueIndexes(tidbIndexRows({ columns: ['academic_year_id', 'name', 'school_id'] })), []);
+});
+
+test('metadata from another schema or table does not satisfy the contract', () => {
+  assert.deepEqual(detectAcademicYearNameUniqueIndexes(tidbIndexRows({ schema: 'other_database' })), []);
+  assert.deepEqual(detectAcademicYearNameUniqueIndexes(tidbIndexRows({ table: 'academic_years' })), []);
+});
+
+test('prefix uniqueness does not satisfy full-column uniqueness', () => {
+  assert.deepEqual(detectAcademicYearNameUniqueIndexes(tidbIndexRows({ prefixes: [null, 12] })), []);
+});
+
+test('preflight fails closed when the uniqueness guarantee is absent', async () => {
+  await assert.rejects(
+    () => configureThreeTerms(database({ indexRows: [] }), { databaseName: 'osaahdaylightschool', dryRun: true }),
+    (error) => error.code === 'THREE_TERM_PREFLIGHT_FAILED' && error.details.failed.includes('uniqueness')
+  );
+});
+
+test('duplicate names fail before any write', async () => {
+  const db = database({ terms: [firstTerm, { ...secondTerm, id: 'another-id', name: 'FIRST TERM' }] });
+  await assert.rejects(() => configureThreeTerms(db, { databaseName: 'osaahdaylightschool' }), (error) => error.code === 'THREE_TERM_PREFLIGHT_FAILED' && error.details.failed.includes('noDuplicateNames'));
+  assert.equal(db.state.writes, 0);
+});
+
+test('equivalent duplicate desired-term name fails before any write', async () => {
+  const db = database({ terms: [firstTerm, secondTerm, { ...secondTerm, id: 'another-id', name: '  second term  ' }] });
+  await assert.rejects(() => configureThreeTerms(db, { databaseName: 'osaahdaylightschool' }), (error) => error.code === 'THREE_TERM_PREFLIGHT_FAILED' && (error.details.failed.includes('noEquivalentDuplicateNames') || error.details.failed.includes('noDuplicateNames')));
+  assert.equal(db.state.writes, 0);
+});
+
+test('target ID owned by another academic year fails before any write', async () => {
+  const db = database({ terms: [firstTerm, { ...secondTerm, academicYearId: 'ay_other' }] });
+  await assert.rejects(() => configureThreeTerms(db, { databaseName: 'osaahdaylightschool' }), (error) => error.code === 'THREE_TERM_PREFLIGHT_FAILED' && error.details.failed.includes('targetIdsAvailableOrOwned'));
+  assert.equal(db.state.writes, 0);
+});
+
+test('wrong Second Term dates fail before any write', async () => {
+  const db = database({ terms: [firstTerm, { ...secondTerm, startsOn: '2027-01-12' }] });
+  await assert.rejects(() => configureThreeTerms(db, { databaseName: 'osaahdaylightschool' }), (error) => error.code === 'THREE_TERM_PREFLIGHT_FAILED' && error.details.failed.includes('noConflictingTerms'));
+  assert.equal(db.state.writes, 0);
+});
+
+test('wrong Third Term dates fail before any write', async () => {
+  const db = database({ terms: [firstTerm, { ...thirdTerm, endsOn: '2027-07-22' }] });
+  await assert.rejects(() => configureThreeTerms(db, { databaseName: 'osaahdaylightschool' }), (error) => error.code === 'THREE_TERM_PREFLIGHT_FAILED' && error.details.failed.includes('noConflictingTerms'));
+  assert.equal(db.state.writes, 0);
+});
+
+test('apply creates only missing rows and leaves an existing correct term unchanged', async () => {
+  const db = database({ terms: [firstTerm, secondTerm] });
+  const result = await configureThreeTerms(db, { databaseName: 'osaahdaylightschool', clock: () => '2026-10-01T00:00:00.000Z' });
+  assert.deepEqual(result.inserted, ['Third Term']);
+  assert.equal(result.plannedWriteCount, 1);
+  assert.equal(db.state.writes, 1);
+  assert.equal(result.configurationComplete, true);
+  assert.deepEqual(db.state.terms.map(({ id, name, startsOn, endsOn }) => ({ id, name, startsOn, endsOn })), [
+    { id: firstTerm.id, name: firstTerm.name, startsOn: firstTerm.startsOn, endsOn: firstTerm.endsOn },
+    { id: secondTerm.id, name: secondTerm.name, startsOn: secondTerm.startsOn, endsOn: secondTerm.endsOn },
+    { id: thirdTerm.id, name: thirdTerm.name, startsOn: thirdTerm.startsOn, endsOn: thirdTerm.endsOn }
+  ]);
+});
+
+test('apply creates missing Second and Third terms using approved dates', async () => {
   const db = database({ terms: [firstTerm] });
   const result = await configureThreeTerms(db, { databaseName: 'osaahdaylightschool', clock: () => '2026-10-01T00:00:00.000Z' });
   assert.deepEqual(result.inserted, ['Second Term', 'Third Term']);
   assert.equal(db.state.writes, 2);
-  assert.deepEqual(db.state.terms.map(({ id, name, startsOn, endsOn }) => ({ id, name, startsOn, endsOn })), [
-    { id: 'term_2026_01', name: 'First Term', startsOn: '2026-09-01', endsOn: '2026-12-18' },
-    { id: 'term_2026_02', name: 'Second Term', startsOn: '2027-01-11', endsOn: '2027-04-09' },
-    { id: 'term_2026_03', name: 'Third Term', startsOn: '2027-05-03', endsOn: '2027-07-23' }
-  ]);
-  assert.equal(result.after.terms.length, 3);
+  assert.deepEqual(db.state.terms.map(({ id, name, startsOn, endsOn }) => ({ id, name, startsOn, endsOn })), [firstTerm, secondTerm, thirdTerm].map(({ id, name, startsOn, endsOn }) => ({ id, name, startsOn, endsOn })));
+  assert.equal(result.after.desiredState.configurationComplete, true);
   assert.deepEqual(THREE_TERM_CONFIGURATION.secondTerm, { id: 'term_2026_02', name: 'Second Term', startsOn: '2027-01-11', endsOn: '2027-04-09' });
 });
 
-test('rerunning the configuration is idempotent and writes no duplicates', async () => {
+test('reapplying is idempotent and writes no duplicates', async () => {
   const db = database({ terms: [firstTerm] });
   await configureThreeTerms(db, { databaseName: 'osaahdaylightschool' });
   const second = await configureThreeTerms(db, { databaseName: 'osaahdaylightschool' });
   assert.deepEqual(second.inserted, []);
+  assert.equal(second.plannedWriteCount, 0);
   assert.equal(db.state.writes, 2);
   assert.equal(db.state.terms.length, 3);
 });
 
-test('conflicting existing term data fails closed before any write', async () => {
-  const db = database({ terms: [firstTerm, { id: 'term_2026_02', academicYearId: 'ay_2026_01', name: 'Second Term', startsOn: '2027-01-12', endsOn: '2027-04-09' }] });
-  await assert.rejects(() => configureThreeTerms(db, { databaseName: 'osaahdaylightschool' }), (error) => error.code === 'TERM_CONFLICT');
-  assert.equal(db.state.writes, 0);
-});
-
-test('dry-run performs the complete preflight without writing', async () => {
+test('post-apply dry-run reports zero planned writes and performs no writes', async () => {
   const db = database({ terms: [firstTerm] });
+  await configureThreeTerms(db, { databaseName: 'osaahdaylightschool' });
+  const writesBeforeDryRun = db.state.writes;
   const result = await configureThreeTerms(db, { databaseName: 'osaahdaylightschool', dryRun: true });
-  assert.equal(result.mode, 'dry-run');
-  assert.deepEqual(result.inserted, []);
-  assert.equal(db.state.writes, 0);
+  assert.equal(result.configurationComplete, true);
+  assert.equal(result.plannedWriteCount, 0);
+  assert.deepEqual(result.plannedWrites, []);
+  assert.equal(db.state.writes, writesBeforeDryRun);
 });
