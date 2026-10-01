@@ -1,0 +1,67 @@
+name: Production assignment migration
+on:
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Exact reviewed release commit SHA containing migration 062
+        required: true
+        type: string
+      execution_token:
+        description: Use DRY_RUN_ONLY for preflight or APPLY_ASSIGNMENTS_062 for the approved apply
+        required: true
+        default: DRY_RUN_ONLY
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: production-assignment-migration
+  cancel-in-progress: false
+jobs:
+  migrate:
+    name: Preflight, apply, and verify migration 062
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      EXECUTION_TOKEN: ${{ inputs.execution_token }}
+    steps:
+      - name: Validate exact release ref
+        shell: bash
+        env:
+          RELEASE_REF: ${{ inputs.release_ref }}
+        run: [[ "$RELEASE_REF" =~ ^[0-9a-f]{40}$ ]]
+      - name: Check out reviewed release
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_ref }}
+          fetch-depth: 0
+      - name: Verify release is contained in protected main
+        shell: bash
+        env:
+          RELEASE_REF: ${{ inputs.release_ref }}
+        run: |
+          test "$(git rev-parse HEAD^{commit})" = "$RELEASE_REF"
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$RELEASE_REF" origin/main
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Confirm protected database secret and execution token
+        run: |
+          test -n "${DATABASE_URL:-}"
+          test "$EXECUTION_TOKEN" = 'DRY_RUN_ONLY' || test "$EXECUTION_TOKEN" = 'APPLY_ASSIGNMENTS_062'
+      - name: Read-only migration 062 preflight
+        run: node scripts/production-assignment-migration.mjs dry-run
+      - name: Apply only migration 062
+        if: ${{ inputs.execution_token == 'APPLY_ASSIGNMENTS_062' }}
+        run: node scripts/production-assignment-migration.mjs apply
+      - name: Verify migration inventory and focused contract
+        run: |
+          npm run migration:validate
+          node --test test/assignment-migration.test.js
+          node scripts/production-assignment-migration.mjs dry-run
