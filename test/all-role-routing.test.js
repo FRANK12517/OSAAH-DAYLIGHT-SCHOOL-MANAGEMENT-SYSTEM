@@ -37,7 +37,7 @@ test('administrative and academic oversight children use distinct canonical rout
     'school-profile': '/settings/profile', 'academic-calendar': '/academic-calendar',
     academics: '/academics', 'attendance-dashboard': '/attendance', examinations: '/examinations',
     'sporting-activities': '/sporting-activities', 'student-attendance': '/attendance/students',
-    'marks-entry': '/examinations/marks', 'staff-attendance': '/attendance/staff', results: '/results',
+    'staff-attendance': '/attendance/staff', results: '/results',
     'attendance-reports': '/attendance/reports', promotion: '/promotion', 'mock-score-entry': '/examinations/mock',
     'subject-management': '/academics/subjects', 'mock-results': '/results/mock', 'subject-register': '/academics/subject-register',
     'academic-years': '/academics/years', 'attendance-alerts': '/attendance/alerts', 'exam-timetable': '/examinations/timetable',

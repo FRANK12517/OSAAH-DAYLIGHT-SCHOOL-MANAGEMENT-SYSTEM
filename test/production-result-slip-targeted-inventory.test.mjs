@@ -66,8 +66,9 @@ test('query guard rejects writes, non-metadata reads, and multiple statements', 
   assert.doesNotThrow(() => assertReadOnlyMetadataQuery('SELECT DATABASE() AS inspected_database'));
 });
 
-test('scope includes every directly relevant 049/054 table and six 049 views', () => {
+test('scope includes score persistence candidates, identity mappings, and six 049 views', () => {
   for (const name of [
+    'academic_score_records', 'canonical_academic_scores', 'result_signatures',
     'student_fee_payments', 'student_profiles', 'student_enrollments', 'students',
     'class_subjects', 'subject_class_assignments', 'parent_student_links',
     'staff_attendance', 'fee_structures'
