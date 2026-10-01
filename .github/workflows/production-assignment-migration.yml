@@ -1,5 +1,5 @@
 name: Production assignment migration
-on:
+"on":
   workflow_dispatch:
     inputs:
       release_ref:
