@@ -1,6 +1,7 @@
 import { parentDashboardModules } from './sidebar-registry.js';
 import { isConfiguredTestParentActor, listConfiguredTestParentRelationships, isConfiguredTestStudentId, TEST_PARENT_SCHOOL_ID } from './test-parent-fixture.js';
 import { authorizeParentStudent } from './parent-authorization.js';
+import { isConfiguredSampleAcademicContext, listConfiguredSampleAcademicContexts } from './sample-academic-context.js';
 import { STUDENT_STATUSES } from './attendance.js';
 import { attendancePercentage, attendancePercentageDenominator } from './attendance-aggregation.js';
 
@@ -48,10 +49,12 @@ function academicYearOption(item) {
   return id && name ? { id, name, ...(item?.isCurrent !== undefined ? { isCurrent: Boolean(item.isCurrent) } : {}) } : null;
 }
 function termOption(item) {
-  if (typeof item === 'string') return { id: item, name: item };
+  const displayTerm = (value) => text(value).replace(/^First Term$/i, '1st Term').replace(/^Second Term$/i, '2nd Term').replace(/^Third Term$/i, '3rd Term');
+  if (typeof item === 'string') return { id: item, name: displayTerm(item), canonicalName: item };
   const id = text(item?.id ?? item?.name);
-  const name = text(item?.name ?? item?.id);
-  return id && name ? { id, name, ...(item?.academicYearId ? { academicYearId: String(item.academicYearId) } : {}), ...(item?.isCurrent !== undefined ? { isCurrent: Boolean(item.isCurrent) } : {}) } : null;
+  const canonicalName = text(item?.name ?? item?.id);
+  const name = displayTerm(canonicalName);
+  return id && name ? { id, name, canonicalName, ...(item?.academicYearId ? { academicYearId: String(item.academicYearId) } : {}), ...(item?.isCurrent !== undefined ? { isCurrent: Boolean(item.isCurrent) } : {}) } : null;
 }
 function studentName(student) {
   return text(student?.name) || [student?.firstName, student?.middleName, student?.surname ?? student?.lastName].map(text).filter(Boolean).join(' ');
@@ -230,7 +233,10 @@ export function createParentDashboardService({
         { id: 'completed-records', name: 'Completed / Graduated Records', available: Boolean(historicalRecords?.listCompletedRecords), requiresAcademicContext: false }
       ].filter((item) => item.available)
     ].filter((item) => item.available);
-    return { academicYears, terms, classes, recordTypes, components: componentCatalog(actor) };
+    const sampleContexts = isConfiguredTestParentActor(actor, testParentSchoolId)
+      ? Object.fromEntries((await listChildren(actor)).map((child) => [child.permanentStudentId, listConfiguredSampleAcademicContexts({ actor, permanentStudentId: child.permanentStudentId, academicYears, terms, classes, schoolId: testParentSchoolId })]))
+      : {};
+    return { academicYears, terms, classes, recordTypes, components: componentCatalog(actor), sampleContexts };
   }
 
   async function listChildren(actor) {
@@ -267,7 +273,7 @@ export function createParentDashboardService({
     const childIds = new Set(authorizedIds(student));
     try {
       if (recordType === 'attendance' && attendanceRepository?.listStudentRecords) {
-        const records = await attendanceRepository.listStudentRecords({ schoolId: actor.schoolId, academicYear: context.yearName, term: context.termName, classId: context.classId, studentId: text(student.studentProfileId ?? student.student_profile_id ?? student.id ?? student.student_id) });
+        const records = await attendanceRepository.listStudentRecords({ schoolId: actor.schoolId, academicYear: context.yearName, term: context.canonicalTermName ?? context.termName, classId: context.classId, studentId: text(student.studentProfileId ?? student.student_profile_id ?? student.id ?? student.student_id) });
         return rows(records).some((row) => childIds.has(text(row.studentId ?? row.student_id)));
       }
       if (recordType === 'published-results' && academicResults?.publicationFor && academicResults?.result) {
@@ -304,12 +310,13 @@ export function createParentDashboardService({
     if (student) {
       const enrolledClass = text(student.classId ?? student.class_id);
       const classMatchesCurrentEnrollment = enrolledClass && (classRecord.id === enrolledClass || classRecord.name === enrolledClass);
-      const classMatchesSelectedEnrollment = admissionEnrollment?.parentEnrolledInClass
-        ? await admissionEnrollment.parentEnrolledInClass({ parentUserId: actor.id, schoolId: actor.schoolId, permanentStudentId: text(student.permanentStudentId ?? student.permanent_student_id), academicYearId: year.id, termId: term.id, termName: term.name, classId: classRecord.id, recordType, legacyTermEvidence: (scope) => legacyTermEvidence(actor, student, { yearId: scope.academicYearId, yearName: year.name, termId: scope.termId, termName: scope.termName, classId: scope.classId }, recordType) })
-        : classMatchesCurrentEnrollment;
+      const sampleContextAuthorized = isConfiguredSampleAcademicContext({ actor, permanentStudentId: text(student.permanentStudentId ?? student.permanent_student_id), academicYearId: year.id, termId: term.id, classId: classRecord.id, academicYears: source.academicYears, terms: source.terms, classes: source.classes, schoolId: testParentSchoolId });
+      const classMatchesSelectedEnrollment = sampleContextAuthorized || (admissionEnrollment?.parentEnrolledInClass
+        ? await admissionEnrollment.parentEnrolledInClass({ parentUserId: actor.id, schoolId: actor.schoolId, permanentStudentId: text(student.permanentStudentId ?? student.permanent_student_id), academicYearId: year.id, termId: term.id, termName: term.canonicalName ?? term.name, classId: classRecord.id, recordType, legacyTermEvidence: (scope) => legacyTermEvidence(actor, student, { yearId: scope.academicYearId, yearName: year.name, termId: scope.termId, termName: scope.termName, classId: scope.classId }, recordType) })
+        : classMatchesCurrentEnrollment);
       if (!classMatchesSelectedEnrollment) fail('The selected class is not an authorized enrollment for this child and academic period.', 403, 'PARENT_CLASS_FORBIDDEN');
     }
-    return { yearId: year.id, yearName: year.name, termId: term.id, termName: term.name, classId: classRecord.id, className: classRecord.name };
+    return { yearId: year.id, yearName: year.name, termId: term.id, termName: term.name, canonicalTermName: term.canonicalName ?? term.name, classId: classRecord.id, className: classRecord.name };
   }
 
   async function loadRecord(actor, input = {}) {
