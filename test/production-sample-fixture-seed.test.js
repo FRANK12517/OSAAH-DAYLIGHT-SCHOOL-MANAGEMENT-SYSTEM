@@ -12,7 +12,7 @@ const canonicalTerms = [
   { id: 'term_2026_03', name: 'Third Term', academicYearId: canonicalYear.id }
 ];
 
-function database({ missingYear = false } = {}) {
+function database({ missingYear = false, existingFixtures = [] } = {}) {
   const calls = [];
   let writes = 0;
   return {
@@ -31,9 +31,9 @@ function database({ missingYear = false } = {}) {
       if (sql.includes('FROM terms')) {
         const [yearId, requestedName] = params;
         assert.equal(yearId, canonicalYear.id);
-        const wanted = String(requestedName).toLowerCase().replace(/^(1st|2nd|3rd) term$/, (_, ordinal) => ({ '1st': 'first', '2nd': 'second', '3rd': 'third' })[ordinal] + ' term');
-        return canonicalTerms.filter((term) => term.name.toLowerCase() === wanted).slice(0, 1);
+        return canonicalTerms.filter((term) => term.name.toLowerCase() === String(requestedName).toLowerCase()).slice(0, 1);
       }
+      if (sql.includes('FROM sample_data_fixtures')) return existingFixtures;
       if (sql.includes('FROM classes')) {
         assert.deepEqual(params, [schoolId]);
         return [{ id: 'class_primary_6', name: 'Primary 6' }];
@@ -54,6 +54,7 @@ test('production fixture dry-run resolves the verified canonical year ID despite
   assert.equal(plan.databaseName, databaseName);
   assert.deepEqual(plan.year, canonicalYear);
   assert.deepEqual(plan.terms, canonicalTerms);
+  assert.deepEqual(db.calls.filter(({ sql }) => sql.includes('FROM terms')).map(({ params }) => params[1]), canonicalTerms.map((term) => term.name));
   assert.equal(plan.rows.length, 6);
   assert.deepEqual([...new Set(plan.rows.map((row) => row.sampleStudentId))], TEST_PARENT_STUDENT_IDS);
   assert.deepEqual([...new Set(plan.rows.map((row) => row.academicYearId))], [canonicalYear.id]);
@@ -61,6 +62,9 @@ test('production fixture dry-run resolves the verified canonical year ID despite
   assert.deepEqual([...new Set(plan.rows.map((row) => row.termId))], canonicalTerms.map((term) => term.id));
   assert.ok(plan.rows.every((row) => row.academicYearName === canonicalYear.name && row.fixtureType === 'attendance' && row.fixturePayload.provenance === 'TEST'));
   assert.equal(new Set(plan.rows.map((row) => [row.schoolId, row.sampleStudentId, row.academicYearId, row.termId, row.classId, row.fixtureType, row.fixtureVersion].join('|'))).size, plan.rows.length);
+  assert.equal(plan.newRows.length, 6);
+  assert.equal(plan.existingFixtures.length, 0);
+  assert.deepEqual(plan.conflicts, []);
   assert.equal(db.writes, 0);
 });
 
@@ -70,6 +74,26 @@ test('fixture planning is repeatable and idempotent without executing writes', a
   const second = await buildPlan(db, { schoolId });
 
   assert.deepEqual(second, first);
+  assert.equal(db.writes, 0);
+});
+
+test('matching existing fixture rows are idempotent and produce zero planned inserts', async () => {
+  const baseline = await buildPlan(database(), { schoolId });
+  const db = database({ existingFixtures: baseline.rows });
+  const plan = await buildPlan(db, { schoolId });
+
+  assert.equal(plan.newRows.length, 0);
+  assert.equal(plan.existingFixtures.length, 6);
+  assert.deepEqual(plan.conflicts, []);
+  assert.equal(db.writes, 0);
+});
+
+test('conflicting existing fixture payloads fail closed without writes', async () => {
+  const baseline = await buildPlan(database(), { schoolId });
+  const conflict = { ...baseline.rows[0], fixturePayload: { label: 'unexpected' } };
+  const db = database({ existingFixtures: [conflict] });
+
+  await assert.rejects(() => buildPlan(db, { schoolId }), (error) => error.code === 'SAMPLE_FIXTURE_CONFLICT' && error.details.conflicts[0].reason === 'FIXTURE_PAYLOAD_MISMATCH');
   assert.equal(db.writes, 0);
 });
 
