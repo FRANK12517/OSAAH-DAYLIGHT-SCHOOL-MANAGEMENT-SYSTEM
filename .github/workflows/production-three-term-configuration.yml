@@ -1,0 +1,101 @@
+name: Production three-term configuration
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_sha:
+        description: Exact reviewed 40-character lowercase commit SHA containing the approved runner
+        required: true
+        type: string
+      mode:
+        description: Read-only dry-run or approved apply
+        required: true
+        default: dry-run
+        type: choice
+        options:
+          - dry-run
+          - apply
+      confirmation:
+        description: Type APPLY_THREE_TERM_CONFIGURATION only for apply mode
+        required: true
+        default: DRY_RUN_ONLY
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-three-term-configuration
+  cancel-in-progress: false
+
+jobs:
+  configure:
+    name: Configure approved 2026/2027 terms
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      RELEASE_SHA: ${{ inputs.release_sha }}
+      MODE: ${{ inputs.mode }}
+      CONFIRMATION: ${{ inputs.confirmation }}
+    steps:
+      - name: Validate immutable execution inputs
+        shell: bash
+        run: |
+          if ! [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "release_sha must be a full lowercase 40-character commit SHA."
+            exit 1
+          fi
+          if [ "$MODE" != "dry-run" ] && [ "$MODE" != "apply" ]; then
+            echo "mode must be dry-run or apply."
+            exit 1
+          fi
+          if [ "$MODE" = "apply" ] && [ "$CONFIRMATION" != "APPLY_THREE_TERM_CONFIGURATION" ]; then
+            echo "Apply confirmation phrase did not match."
+            exit 1
+          fi
+          if [ "$MODE" = "dry-run" ] && [ "$CONFIRMATION" != "DRY_RUN_ONLY" ]; then
+            echo "Dry-run confirmation must be DRY_RUN_ONLY."
+            exit 1
+          fi
+          test -n "${DATABASE_URL:-}" || { echo "Protected DATABASE_URL is unavailable."; exit 1; }
+
+      - name: Check out exact reviewed release
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_sha }}
+          fetch-depth: 0
+
+      - name: Verify release is on protected main
+        shell: bash
+        run: |
+          resolved="$(git rev-parse --verify HEAD^{commit})"
+          test "$resolved" = "$RELEASE_SHA" || { echo "Checked-out commit does not match release_sha."; exit 1; }
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$RELEASE_SHA" "origin/main" || { echo "release_sha is not contained in protected main."; exit 1; }
+          printf 'Verified reviewed release SHA: %s\n' "$resolved"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Validate migrations and focused configuration tests
+        run: |
+          npm run migration:validate
+          node --test test/production-three-term-config.test.js test/sample-academic-context.test.js test/parent-dashboard.test.js
+
+      - name: Execute approved three-term operation
+        shell: bash
+        run: npm run production:three-terms -- "$MODE"
+
+      - name: Confirm post-operation dry-run is clean
+        if: ${{ inputs.mode == 'apply' }}
+        shell: bash
+        run: npm run production:three-terms -- dry-run
