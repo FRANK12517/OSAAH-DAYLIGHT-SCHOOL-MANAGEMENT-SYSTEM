@@ -39,9 +39,17 @@ function unknownOptionalPaymentColumn(error, column) {
   return /unknown column/i.test(message) && new RegExp(String.raw`\bp\.${column}\b`, 'i').test(message);
 }
 
-function isSchemaCompatibilityError(error) {
-  return ['ER_BAD_FIELD_ERROR', 'ER_NO_SUCH_TABLE', 'ER_UNKNOWN_COLUMN'].includes(String(error?.code ?? '').toUpperCase())
-    || /unknown column|doesn't exist|does not exist|schema mismatch/i.test(String(error?.message ?? error?.sqlMessage ?? ''));
+const OPTIONAL_RECEIPT_COLUMNS = new Set(['payment_id', 'receipt_number', 'issued_by', 'status', 'previous_balance', 'new_balance']);
+
+function isMissingOptionalReceiptSchema(error) {
+  const code = String(error?.code ?? '').toUpperCase();
+  const message = String(error?.message ?? error?.sqlMessage ?? '');
+  if (code === 'ER_NO_SUCH_TABLE' || /table .*student_fee_receipts.*(?:doesn't|does not) exist/i.test(message)) {
+    return /student_fee_receipts/i.test(message);
+  }
+  if (!['ER_BAD_FIELD_ERROR', 'ER_UNKNOWN_COLUMN'].includes(code) || !/unknown column/i.test(message)) return false;
+  const match = message.match(/(?:['`]?)(r)\.([a-z_]+)(?:['`]?)/i);
+  return Boolean(match && OPTIONAL_RECEIPT_COLUMNS.has(match[2].toLowerCase()));
 }
 
 export function createDurableFeeReader({ adapter } = {}) {
@@ -119,8 +127,12 @@ export function createDurableFeeReader({ adapter } = {}) {
   async function listParentReceipts(actor) {
     if (!actor?.id || actor.portal !== 'parent') throw Object.assign(new Error('Parent access required.'), { status: 403 });
     let rows;
-    try {
-      rows = await adapter.query(`
+    while (true) {
+      const paymentAmountColumn = optionalPaymentColumns.amount ? 'p.amount' : 'p.amount_paid';
+      const createdAtColumn = optionalPaymentColumns.createdAt ? 'p.created_at' : 'p.payment_date';
+      const providerReferenceColumn = optionalPaymentColumns.providerReference ? 'p.provider_reference' : 'NULL';
+      try {
+        rows = await adapter.query(`
       SELECT p.id,
         p.payment_reference AS paymentReference,
         r.receipt_number AS receiptNumber,
@@ -137,13 +149,13 @@ export function createDurableFeeReader({ adapter } = {}) {
         p.class_id AS classId,
         p.academic_year_id AS academicYearId,
         p.term_id AS termId,
-        p.amount AS amount,
+        ${paymentAmountColumn} AS amount,
         p.payment_method AS method,
         p.status,
         p.payment_date AS paymentDate,
-        p.provider_reference AS providerReference,
+        ${providerReferenceColumn} AS providerReference,
         p.received_by AS enteredBy,
-        p.created_at AS createdAt,
+        ${createdAtColumn} AS createdAt,
         r.issued_by AS issuer,
         r.status AS receiptStatus,
         r.previous_balance AS previousBalance,
@@ -160,14 +172,25 @@ export function createDurableFeeReader({ adapter } = {}) {
       LEFT JOIN students s ON s.id=sp.student_master_id AND s.school_id=p.school_id
       WHERE p.school_id=? AND (r.status IS NULL OR r.status <> 'VOIDED')
         ORDER BY p.payment_date DESC, p.id DESC`, [actor.id, actor.schoolId]);
-    } catch (error) {
-      // A missing optional payment/receipt column means completion of this
-      // read cannot be proven from the deployed schema. Return a safe empty
-      // state rather than exposing a 5xx or inventing receipt data.
-      if (isSchemaCompatibilityError(error)) return [];
-      throw error;
+        break;
+      } catch (error) {
+        if (isMissingOptionalReceiptSchema(error)) return [];
+        if (optionalPaymentColumns.amount && unknownOptionalPaymentColumn(error, 'amount')) {
+          optionalPaymentColumns.amount = false;
+          continue;
+        }
+        if (optionalPaymentColumns.createdAt && unknownOptionalPaymentColumn(error, 'created_at')) {
+          optionalPaymentColumns.createdAt = false;
+          continue;
+        }
+        if (optionalPaymentColumns.providerReference && unknownOptionalPaymentColumn(error, 'provider_reference')) {
+          optionalPaymentColumns.providerReference = false;
+          continue;
+        }
+        throw error;
+      }
     }
-    return rows.map(paymentModel).filter((payment) => payment.receiptNumber);
+    return rows.filter((row) => row.receiptNumber).map(paymentModel);
   }
 
   async function listReceipts(filters = {}, actor) {
