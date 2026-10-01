@@ -31,6 +31,7 @@ test('canonical TiDB adapter uses strict TLS and retains the configured DATABASE
   assert.equal(options.uri, environment.DATABASE_URL);
   assert.deepEqual(options.ssl, { minVersion: 'TLSv1.2', rejectUnauthorized: true });
   assert.equal(options.waitForConnections, true);
+  assert.equal(options.connectTimeout, 15000);
   await adapter.close();
   assert.equal(closeCount, 1);
 });

@@ -115,7 +115,8 @@ export function createDatabaseAdapter({ environment, poolFactory = mysql.createP
     ssl: { minVersion: 'TLSv1.2', rejectUnauthorized: true },
     waitForConnections: true,
     connectionLimit: 10,
-    queueLimit: 0
+    queueLimit: 0,
+    connectTimeout: 15000
   });
   const metadataTables = ['schema_migrations', 'schema_migration_lock'];
 

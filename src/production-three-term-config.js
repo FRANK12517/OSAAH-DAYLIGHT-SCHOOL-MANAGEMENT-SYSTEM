@@ -103,17 +103,18 @@ export async function readThreeTermPreflight(database, { databaseName = null } =
   if (databaseName && databaseName !== EXPECTED_DATABASE) fail('DATABASE_TARGET_MISMATCH', 'Unexpected production database target.', { expected: EXPECTED_DATABASE, actual: databaseName });
   const config = THREE_TERM_CONFIGURATION;
   const schemaName = databaseName ?? EXPECTED_DATABASE;
-  const [schools, years, terms, targetIds, indexRows] = await Promise.all([
-    database.query('SELECT id,name FROM schools WHERE id=? LIMIT 1', [config.schoolId]),
-    database.query('SELECT id,school_id AS schoolId,name,starts_on AS startsOn,ends_on AS endsOn FROM academic_years WHERE id=? AND school_id=? LIMIT 1', [config.academicYearId, config.schoolId]),
-    database.query('SELECT id,school_id AS schoolId,academic_year_id AS academicYearId,term_number AS termNumber,name,starts_on AS startsOn,ends_on AS endsOn,is_current AS isCurrent FROM terms WHERE academic_year_id=? ORDER BY starts_on ASC,id', [config.academicYearId]),
-    database.query('SELECT id,school_id AS schoolId,academic_year_id AS academicYearId,term_number AS termNumber,name,starts_on AS startsOn,ends_on AS endsOn FROM terms WHERE id IN (?,?,?)', [config.firstTerm.id, config.secondTerm.id, config.thirdTerm.id]),
-    database.query(`SELECT TABLE_SCHEMA AS tableSchema, TABLE_NAME AS tableName, INDEX_NAME AS indexName,
-        NON_UNIQUE AS nonUnique, SEQ_IN_INDEX AS seqInIndex, COLUMN_NAME AS columnName, SUB_PART AS subPart
-      FROM INFORMATION_SCHEMA.STATISTICS
-      WHERE LOWER(TABLE_SCHEMA)=LOWER(?) AND LOWER(TABLE_NAME)=LOWER(?)
-      ORDER BY INDEX_NAME, SEQ_IN_INDEX`, [schemaName, 'terms'])
-  ]);
+  // Keep the preflight on one established adapter connection. Concurrent pool
+  // acquisition made the protected TiDB dry-run fail with ETIMEDOUT before
+  // any SQL or write was reached; Migration 060 uses this same pattern.
+  const schools = await database.query('SELECT id,name FROM schools WHERE id=? LIMIT 1', [config.schoolId]);
+  const years = await database.query('SELECT id,school_id AS schoolId,name,starts_on AS startsOn,ends_on AS endsOn FROM academic_years WHERE id=? AND school_id=? LIMIT 1', [config.academicYearId, config.schoolId]);
+  const terms = await database.query('SELECT id,school_id AS schoolId,academic_year_id AS academicYearId,term_number AS termNumber,name,starts_on AS startsOn,ends_on AS endsOn,is_current AS isCurrent FROM terms WHERE academic_year_id=? ORDER BY starts_on ASC,id', [config.academicYearId]);
+  const targetIds = await database.query('SELECT id,school_id AS schoolId,academic_year_id AS academicYearId,term_number AS termNumber,name,starts_on AS startsOn,ends_on AS endsOn FROM terms WHERE id IN (?,?,?)', [config.firstTerm.id, config.secondTerm.id, config.thirdTerm.id]);
+  const indexRows = await database.query(`SELECT TABLE_SCHEMA AS tableSchema, TABLE_NAME AS tableName, INDEX_NAME AS indexName,
+      NON_UNIQUE AS nonUnique, SEQ_IN_INDEX AS seqInIndex, COLUMN_NAME AS columnName, SUB_PART AS subPart
+    FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE LOWER(TABLE_SCHEMA)=LOWER(?) AND LOWER(TABLE_NAME)=LOWER(?)
+    ORDER BY INDEX_NAME, SEQ_IN_INDEX`, [schemaName, 'terms']);
   const school = rows(schools)[0] ?? null;
   const academicYear = rows(years)[0] ?? null;
   const relevantTerms = rows(terms).map(termSnapshot);
