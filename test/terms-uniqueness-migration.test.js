@@ -173,6 +173,32 @@ test('read-only production preflight reports normalized aliases without rewritin
   assert.equal(adapter.state.writes, 0);
 });
 
+test('production preflight awaits each read before issuing the next query', async () => {
+  const adapter = mockProductionAdapter();
+  const query = adapter.query.bind(adapter);
+  let activeQueries = 0;
+  let maximumConcurrentQueries = 0;
+  const issuedQueries = [];
+  adapter.query = async (sql) => {
+    activeQueries += 1;
+    maximumConcurrentQueries = Math.max(maximumConcurrentQueries, activeQueries);
+    issuedQueries.push(sql);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      return await query(sql);
+    } finally {
+      activeQueries -= 1;
+    }
+  };
+
+  const result = await inspectTermsUniquenessPreflight(adapter);
+
+  assert.equal(result.ok, true);
+  assert.equal(issuedQueries.length, 6);
+  assert.equal(maximumConcurrentQueries, 1);
+  assert.ok(issuedQueries.every((sql) => /^\s*SELECT\b/i.test(sql)));
+});
+
 test('preflight fails closed and reports same-year name conflicts using database equality', async () => {
   const duplicateRows = [
     { id: 'term_a', academicYearId: 'ay_2026_01', name: 'First Term', duplicateCount: 2 },
