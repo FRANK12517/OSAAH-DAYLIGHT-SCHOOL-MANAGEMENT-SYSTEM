@@ -2,6 +2,10 @@ function rows(value) {
   return Array.isArray(value) ? value : [];
 }
 
+function displayClassName(value) {
+  return String(value ?? '').trim().replace(/^Basic\s+([1-6])$/i, 'Primary $1').replace(/^KG([12])$/i, 'KG $1');
+}
+
 function isSchemaCompatibilityError(error) {
   return ['ER_BAD_FIELD_ERROR', 'ER_NO_SUCH_TABLE', 'ER_UNKNOWN_COLUMN'].includes(String(error?.code ?? '').toUpperCase())
     || /unknown column|doesn't exist|does not exist|schema mismatch/i.test(String(error?.message ?? ''));
@@ -70,7 +74,7 @@ export function createParentHistoricalRecordsService({ database } = {}) {
         termId: String(item.termId),
         termName: String(item.termName ?? item.termId),
         classId: String(item.classId),
-        className: String(item.className ?? item.classId)
+        className: displayClassName(item.className ?? item.classId)
       });
     }
     return [...unique.values()];
@@ -143,7 +147,7 @@ export function createParentHistoricalRecordsService({ database } = {}) {
         termId: item.termId == null ? null : String(item.termId),
         termName: item.termName ?? item.termId ?? null,
         classId: item.classId == null ? null : String(item.classId),
-        className: item.className ?? item.classId ?? null,
+        className: item.className == null && item.classId == null ? null : displayClassName(item.className ?? item.classId),
         completedAt: null
       };
     }).filter((item) => item.status);

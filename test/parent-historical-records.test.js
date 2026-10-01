@@ -73,6 +73,16 @@ test('historical contexts are exact stored enrollment tuples and remain scoped t
   assert.doesNotMatch(captured.sql, /is_current\s*=\s*1/i);
 });
 
+test('historical legacy Basic 6 labels render canonically while the stored class ID remains unchanged', async () => {
+  const database = { async query() {
+    return [{ academicYearId: 'year-2024', academicYearName: '2024/2025', termId: 'term-1', termName: '1st Term', classId: 'class-row-uuid-6', className: 'Basic 6' }];
+  } };
+  const service = createParentHistoricalRecordsService({ database });
+  const [context] = await service.listHistoricalContexts(actor, child);
+  assert.equal(context.classId, 'class-row-uuid-6');
+  assert.equal(context.className, 'Primary 6');
+});
+
 test('promotion history exposes only stored canonical decision, academic year, and decision date', async () => {
   let capturedSql = '';
   const service = createParentHistoricalRecordsService({ database: {
