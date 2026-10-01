@@ -47,7 +47,7 @@ async function buildPlan(database) {
   const table = await database.query("SELECT TABLE_NAME AS tableName FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='sample_data_fixtures'");
   if (table.length !== 1) throw Object.assign(new Error('Migration 061 fixture table is missing.'), { code: 'MIGRATION_061_SCHEMA_MISSING' });
   const ledger = await oneRow(database, 'SELECT version,name,checksum FROM schema_migrations WHERE version=?', [61], 'Migration 061 is not recorded.');
-  const year = await oneRow(database, 'SELECT id,name FROM academic_years WHERE school_id=? AND name=? LIMIT 1', [SCHOOL_ID, '2026/2027'], 'The approved academic year is not configured.');
+  const year = await oneRow(database, 'SELECT id,name FROM academic_years WHERE school_id=? AND name LIKE ? LIMIT 1', [SCHOOL_ID, '2026/2027%'], 'The approved academic year is not configured.');
   const terms = [];
   for (const name of termNames) {
     const rows = await database.query('SELECT id,name,academic_year_id AS academicYearId FROM terms WHERE academic_year_id=? AND LOWER(name)=LOWER(?) LIMIT 1', [year.id, name]);
