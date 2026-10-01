@@ -4,7 +4,7 @@ import test from 'node:test';
 import { discoverMigrations } from '../src/platform/migration-runner.js';
 
 const migration = await readFile(new URL('../schema/062_assignments.sql', import.meta.url), 'utf8');
-const workflow = await readFile(new URL('../.github/workflows/production-assignment-migration.yml', import.meta.url), 'utf8');
+const workflow = await readFile(new URL('../.github/workflows/production-assignment-migration-062.yml', import.meta.url), 'utf8');
 const preflight = await readFile(new URL('../scripts/production-assignment-migration.mjs', import.meta.url), 'utf8');
 
 test('assignment migration is discovered as additive migration 062', async () => {
