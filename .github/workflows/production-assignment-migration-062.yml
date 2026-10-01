@@ -30,7 +30,8 @@ jobs:
         shell: bash
         env:
           RELEASE_REF: ${{ inputs.release_ref }}
-        run: [[ "$RELEASE_REF" =~ ^[0-9a-f]{40}$ ]]
+        run: |
+          [[ "$RELEASE_REF" =~ ^[0-9a-f]{40}$ ]]
       - name: Check out reviewed release
         uses: actions/checkout@v4
         with:
