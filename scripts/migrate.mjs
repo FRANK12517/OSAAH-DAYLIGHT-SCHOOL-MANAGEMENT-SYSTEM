@@ -11,7 +11,7 @@ async function main() {
   const loaded = await import(pathToFileURL(resolve(modulePath))); const adapter = await loaded.createDatabaseAdapter?.({ environment: process.env });
   try {
     const runner = createMigrationRunner({ adapter, directory, baselineRequired: Boolean(process.env.DATABASE_URL) });
-    return command === 'apply' ? runner.apply() : command === 'validate' ? runner.validate() : runner.status();
+    return await (command === 'apply' ? runner.apply() : command === 'validate' ? runner.validate() : runner.status());
   } finally {
     await adapter?.close?.();
   }
