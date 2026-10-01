@@ -9,7 +9,7 @@ const EXPECTED_DATABASE = 'osaahdaylightschool';
 const CANONICAL_ACADEMIC_YEAR_ID = 'ay_2026_01';
 const SAMPLE_LABEL = 'SAMPLE DATA';
 const actorFor = (schoolId) => ({ id: 'production-sample-fixture-seeder', schoolId, portal: 'school', roleKey: 'HEADTEACHER', permissions: new Set(['sample.fixtures.write', 'sample.fixtures.read']) });
-const termNames = ['1st Term', '2nd Term', '3rd Term'];
+const termNames = ['First Term', 'Second Term', 'Third Term'];
 const statuses = [
   ['PRESENT', 'PRESENT', 'ABSENT'],
   ['PRESENT', 'LATE', 'PRESENT'],
@@ -36,6 +36,41 @@ async function oneRow(database, sql, params, message) {
   const rows = await database.query(sql, params);
   if (!rows[0]) throw Object.assign(new Error(message), { code: 'SAMPLE_FIXTURE_CONTEXT_MISSING' });
   return rows[0];
+}
+const identityFields = ['schoolId', 'sampleStudentId', 'academicYearId', 'termId', 'classId', 'fixtureType', 'fixtureVersion'];
+const identityKey = (row) => identityFields.map((field) => String(row[field] ?? '')).join('|');
+function stableJson(value) {
+  const parsed = Buffer.isBuffer(value) ? value.toString('utf8') : value;
+  const json = typeof parsed === 'string' ? JSON.parse(parsed) : parsed;
+  const sort = (item) => Array.isArray(item)
+    ? item.map(sort)
+    : item && typeof item === 'object'
+      ? Object.fromEntries(Object.keys(item).sort().map((key) => [key, sort(item[key])]))
+      : item;
+  return JSON.stringify(sort(json));
+}
+function payloadMatches(existing, planned) {
+  try { return stableJson(existing) === stableJson(planned); } catch { return false; }
+}
+async function classifyExistingFixtures(database, rows) {
+  const first = rows[0];
+  const sampleStudentIds = [...new Set(rows.map((row) => row.sampleStudentId))];
+  const termIds = [...new Set(rows.map((row) => row.termId))];
+  const studentSlots = sampleStudentIds.map(() => '?').join(',');
+  const termSlots = termIds.map(() => '?').join(',');
+  const existing = await database.query(`SELECT school_id AS schoolId,sample_student_id AS sampleStudentId,academic_year_id AS academicYearId,term_id AS termId,class_id AS classId,fixture_type AS fixtureType,fixture_payload AS fixturePayload,fixture_version AS fixtureVersion FROM sample_data_fixtures WHERE school_id=? AND academic_year_id=? AND class_id=? AND fixture_type=? AND fixture_version=? AND sample_student_id IN (${studentSlots}) AND term_id IN (${termSlots})`, [first.schoolId, first.academicYearId, first.classId, first.fixtureType, first.fixtureVersion, ...sampleStudentIds, ...termIds]);
+  const newRows = [];
+  const existingFixtures = [];
+  const conflicts = [];
+  for (const planned of rows) {
+    const matches = existing.filter((row) => identityKey(row) === identityKey(planned));
+    const identity = Object.fromEntries(identityFields.map((field) => [field, planned[field]]));
+    if (matches.length > 1) conflicts.push({ ...identity, reason: 'DUPLICATE_EXISTING_IDENTITY' });
+    else if (matches.length === 1 && !payloadMatches(matches[0].fixturePayload, planned.fixturePayload)) conflicts.push({ ...identity, reason: 'FIXTURE_PAYLOAD_MISMATCH' });
+    else if (matches.length === 1) existingFixtures.push(planned);
+    else newRows.push(planned);
+  }
+  return { newRows, existingFixtures, conflicts };
 }
 
 export async function buildPlan(database, { schoolId = DEFAULT_PRODUCTION_SCHOOL_ID } = {}) {
@@ -76,7 +111,9 @@ export async function buildPlan(database, { schoolId = DEFAULT_PRODUCTION_SCHOOL
       });
     }
   }
-  return { databaseName, ledger, year, terms, classRow, rows };
+  const fixtureDisposition = await classifyExistingFixtures(database, rows);
+  if (fixtureDisposition.conflicts.length) throw Object.assign(new Error('Existing sample fixtures conflict with the canonical read-only plan.'), { code: 'SAMPLE_FIXTURE_CONFLICT', details: { conflicts: fixtureDisposition.conflicts } });
+  return { databaseName, ledger, year, terms, classRow, rows, ...fixtureDisposition };
 }
 
 export async function runSeed({ mode = process.argv[2] ?? 'dry-run', environment = process.env, stdout = process.stdout, stderr = process.stderr } = {}) {
@@ -96,18 +133,29 @@ export async function runSeed({ mode = process.argv[2] ?? 'dry-run', environment
       migrationVersion: Number(plan.ledger.version),
       fixtureTable: 'sample_data_fixtures',
       rowCount: plan.rows.length,
+      plannedInsertCount: plan.newRows.length,
+      existingFixtureCount: plan.existingFixtures.length,
+      conflicts: plan.conflicts,
+      conflictCount: plan.conflicts.length,
       fixtureTypes: [...new Set(plan.rows.map((row) => row.fixtureType))],
       identities: plan.rows.map(({ sampleStudentId, academicYearId, termId, classId, fixtureType, fixtureVersion }) => ({ sampleStudentId, academicYearId, termId, classId, fixtureType, fixtureVersion })),
+      plannedFixtures: plan.newRows,
+      productionWrites: 'NONE',
+      actualWriteCount: 0,
+      unexpectedWriteCount: 0,
       applyExecuted: false
     };
     if (mode === 'apply') {
       const repository = createSampleFixtureRepository({ adapter: database, schoolId });
       const actor = actorFor(schoolId);
-      for (const row of plan.rows) await repository.ensureFixture(row, actor);
-      summary.applied = plan.rows.length;
+      for (const row of plan.newRows) await repository.ensureFixture(row, actor);
+      summary.applied = plan.newRows.length;
       summary.applyExecuted = true;
+      summary.actualWriteCount = plan.newRows.length;
+      summary.productionWrites = plan.newRows.length ? 'SAMPLE_FIXTURE_TABLE_ONLY' : 'NONE';
       const persisted = await repository.listFixtures({ schoolId, fixtureType: 'attendance' }, actor);
-      summary.persistedRowCount = persisted.filter((row) => row.fixtureVersion === 1).length;
+      const plannedKeys = new Set(plan.rows.map(identityKey));
+      summary.persistedRowCount = persisted.filter((row) => plannedKeys.has(identityKey(row))).length;
       if (summary.persistedRowCount < plan.rows.length) throw Object.assign(new Error('Fixture row verification failed.'), { code: 'SAMPLE_FIXTURE_VERIFY_FAILED' });
     }
     stdout.write(`${JSON.stringify(summary)}\n`);
