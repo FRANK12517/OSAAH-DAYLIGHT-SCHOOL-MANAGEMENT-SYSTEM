@@ -203,6 +203,37 @@ test('controlled Parent fixture follows the canonical production school while ot
   await assert.rejects(() => service.resolveChild(unrelatedParent, TEST_PARENT_STUDENT_IDS[0]), (error) => error.status === 403);
 });
 
+test('controlled Parent attendance reads use the isolated durable sample fixture for the selected term', async () => {
+  const productionSchoolId = 'sch_default_01';
+  const students = createStudentService({ schoolId: productionSchoolId });
+  students.seedSampleStudents();
+  const parent = createConfiguredTestParent(productionSchoolId);
+  const fixture = {
+    async getFixture(identity) {
+      assert.equal(identity.sampleStudentId, 'OSAAH-DEMO-001');
+      assert.equal(identity.academicYearId, 'year-2026');
+      assert.equal(identity.termId, 'term-2');
+      assert.equal(identity.classId, 'class-primary-6');
+      assert.equal(identity.fixtureType, 'attendance');
+      return { fixturePayload: { records: [{ date: '2026-10-01', status: 'PRESENT' }, { date: '2026-10-02', status: 'ABSENT' }] } };
+    }
+  };
+  const service = createParentDashboardService({
+    students,
+    attendance: { summary: () => ({ records: [] }) },
+    sampleFixtureRepository: fixture,
+    testParentSchoolId: productionSchoolId,
+    durableAcademic: { options: async () => ({ academicYears: [{ id: 'year-2026', name: '2026/2027' }], terms: [{ id: 'term-2', name: '2nd Term', academicYearId: 'year-2026' }], classes: [{ id: 'class-primary-6', name: 'Basic 6' }] }) }
+  });
+  const result = await service.loadRecord(parent, { permanentStudentId: 'OSAAH-DEMO-001', recordType: 'attendance', academicYear: 'year-2026', classId: 'class-primary-6', term: 'term-2' });
+  assert.deepEqual(result.records.map(({ studentId, term, status }) => ({ studentId, term, status })), [
+    { studentId: 'OSAAH-DEMO-001', term: '2nd Term', status: 'PRESENT' },
+    { studentId: 'OSAAH-DEMO-001', term: '2nd Term', status: 'ABSENT' }
+  ]);
+  assert.equal(result.attendanceSummary.present, 1);
+  assert.equal(result.attendanceSummary.absent, 1);
+});
+
 test('Parent announcements include school, parent, selected-class, and selected-student audiences only', async () => {
   const communication = createCommunicationService({ schoolId: 'school-1' });
   const schoolActor = { id: 'staff-1', roleKey: 'HEADTEACHER', schoolId: 'school-1' };

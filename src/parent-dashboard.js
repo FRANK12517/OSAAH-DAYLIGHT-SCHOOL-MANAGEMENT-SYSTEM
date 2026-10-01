@@ -127,6 +127,7 @@ export function createParentDashboardService({
   admissionEnrollment = null,
   attendance = null,
   attendanceRepository = null,
+  sampleFixtureRepository = null,
   academicResults = null,
   durableAcademic = null,
   fees = null,
@@ -349,6 +350,20 @@ export function createParentDashboardService({
       return { recordType: type, available: true, student: { name, permanentStudentId }, records: rows(records) };
     }
     if (type === 'attendance') {
+      const sampleFixture = isConfiguredTestParentActor(actor, testParentSchoolId) && sampleFixtureRepository
+        ? await sampleFixtureRepository.getFixture({ schoolId: actor.schoolId, sampleStudentId: permanentStudentId, academicYearId: context.yearId, termId: context.termId, classId: context.classId, fixtureType: 'attendance', fixtureVersion: 1 }, actor)
+        : null;
+      if (sampleFixture) {
+        const fixtureRecords = rows(sampleFixture.fixturePayload?.records).map((record) => ({
+          ...record,
+          schoolId: actor.schoolId,
+          studentId: permanentStudentId,
+          academicYear: context.yearName,
+          term: context.termName,
+          classId: context.classId
+        }));
+        return { recordType: type, available: true, student: { name, permanentStudentId }, context, attendanceSummary: attendanceSummary(fixtureRecords), records: fixtureRecords };
+      }
       let records;
       if (attendanceRepository?.listStudentRecords) {
         const attendanceStudentId = text(student.studentProfileId ?? student.student_profile_id ?? student.id ?? student.student_id);

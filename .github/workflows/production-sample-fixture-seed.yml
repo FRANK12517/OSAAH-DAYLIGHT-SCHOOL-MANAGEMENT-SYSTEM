@@ -1,0 +1,55 @@
+name: Production sample fixture seed
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Exact reviewed release commit SHA containing the fixture read path and seed script
+        required: true
+        type: string
+      execution_token:
+        description: Type APPLY_SAMPLE_FIXTURES_061_DATA to authorize additive fixture upserts
+        required: true
+        default: DRY_RUN_ONLY
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-sample-fixture-seed
+  cancel-in-progress: false
+
+jobs:
+  seed:
+    name: Preflight, plan, apply, and verify controlled fixtures
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - name: Check out reviewed release
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_ref }}
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Confirm protected database secret and execution token
+        run: |
+          test -n "${DATABASE_URL:-}"
+          test "${{ inputs.execution_token }}" = 'DRY_RUN_ONLY' || test "${{ inputs.execution_token }}" = 'APPLY_SAMPLE_FIXTURES_061_DATA'
+      - name: Read-only fixture plan
+        run: node scripts/production-sample-fixture-seed.mjs dry-run
+      - name: Apply only approved isolated fixture rows
+        if: ${{ inputs.execution_token == 'APPLY_SAMPLE_FIXTURES_061_DATA' }}
+        run: node scripts/production-sample-fixture-seed.mjs apply
+      - name: Verify idempotent fixture plan
+        run: node scripts/production-sample-fixture-seed.mjs dry-run
+      - name: Run focused fixture and Parent tests
+        run: node --test test/sample-fixture-repository.test.js test/parent-dashboard.test.js
