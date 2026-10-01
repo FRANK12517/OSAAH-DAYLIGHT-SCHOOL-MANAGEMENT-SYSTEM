@@ -34,7 +34,7 @@ test('academic results persist terminal and mock scores with native Osaah IDs', 
   signatures.upload({ signatoryRole: 'HEADTEACHER', mimeType: 'image/png', size: 100, storageKey: 'signatures/headteacher.png' }, manager);
   const report = results.result({ studentId: student.id, classId: 'Primary 1', academicYear: '2026/2027', term: 'First Term' }, teacher);
   assert.equal(report.studentIndexNumber, 'OSAAH/2026/0001');
-  assert.equal(report.subjects[0].grade, 'A');
+  assert.equal(report.subjects[0].grade, 1);
   assert.equal(report.signatures.length, 1);
   assert.equal(results.result({ studentId: mockStudent.id, classId: 'JHS 1', academicYear: '2026/2027', term: 'First Term', mockLabel: '1st Mock' }, mockTeacher, { mock: true }).resultType, 'MOCK');
   assert.throws(() => results.saveScore({ studentId: student.id, classId: 'JHS 1', subjectId: subject.id, academicYear: '2026/2027', term: 'First Term', caScore: 1, examScore: 1 }, teacher), /assignment|enrolled/);
