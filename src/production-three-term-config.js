@@ -5,21 +5,32 @@ export const THREE_TERM_CONFIGURATION = Object.freeze({
   academicYearName: '2026/2027 Academic Year',
   academicYearStartsOn: '2026-09-01',
   academicYearEndsOn: '2027-07-31',
-  firstTerm: Object.freeze({ id: 'term_2026_01', name: 'First Term', startsOn: '2026-09-01', endsOn: '2026-12-18' }),
-  secondTerm: Object.freeze({ id: 'term_2026_02', name: 'Second Term', startsOn: '2027-01-11', endsOn: '2027-04-09' }),
-  thirdTerm: Object.freeze({ id: 'term_2026_03', name: 'Third Term', startsOn: '2027-05-03', endsOn: '2027-07-23' })
+  firstTerm: Object.freeze({ id: 'term_2026_01', termNumber: 1, name: 'First Term', startsOn: '2026-09-01', endsOn: '2026-12-18' }),
+  secondTerm: Object.freeze({ id: 'term_2026_02', termNumber: 2, name: 'Second Term', startsOn: '2027-01-11', endsOn: '2027-04-09' }),
+  thirdTerm: Object.freeze({ id: 'term_2026_03', termNumber: 3, name: 'Third Term', startsOn: '2027-05-03', endsOn: '2027-07-23' })
 });
 
 const rows = (value) => Array.isArray(value) ? value : [];
 const same = (actual, expected) => String(actual ?? '') === String(expected ?? '');
-const normalize = (value) => String(value ?? '').trim().toLowerCase();
+const normalize = (value) => String(value ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+const canonicalTermName = (value) => {
+  const name = normalize(value);
+  const aliases = new Map([
+    ['first term', 'first term'], ['1st term', 'first term'],
+    ['second term', 'second term'], ['2nd term', 'second term'],
+    ['third term', 'third term'], ['3rd term', 'third term']
+  ]);
+  return aliases.get(name) ?? name;
+};
 const field = (row, camel, upper) => row?.[camel] ?? row?.[upper];
 const fail = (code, message, details = null) => { throw Object.assign(new Error(message), { code, details }); };
 
 function termSnapshot(term) {
   return term ? {
     id: term.id,
+    schoolId: term.schoolId ?? term.school_id,
     academicYearId: term.academicYearId ?? term.academic_year_id,
+    termNumber: Number(term.termNumber ?? term.term_number),
     name: term.name,
     startsOn: term.startsOn ?? term.starts_on,
     endsOn: term.endsOn ?? term.ends_on,
@@ -29,8 +40,11 @@ function termSnapshot(term) {
 
 function validateTerm(term, expected) {
   if (!term) return false;
-  return same(term.id, expected.id) && same(term.name, expected.name)
+  return same(term.id, expected.id)
+    && same(term.schoolId ?? term.school_id, THREE_TERM_CONFIGURATION.schoolId)
     && same(term.academicYearId ?? term.academic_year_id, THREE_TERM_CONFIGURATION.academicYearId)
+    && Number(term.termNumber ?? term.term_number) === expected.termNumber
+    && same(term.name, expected.name)
     && same(term.startsOn ?? term.starts_on, expected.startsOn)
     && same(term.endsOn ?? term.ends_on, expected.endsOn);
 }
@@ -79,7 +93,7 @@ export function detectAcademicYearNameUniqueIndexes(indexRows, {
 }
 
 function stateForTerm(terms, expected) {
-  const existing = terms.find((term) => term.id === expected.id || normalize(term.name) === normalize(expected.name)) ?? null;
+  const existing = terms.find((term) => term.id === expected.id || canonicalTermName(term.name) === canonicalTermName(expected.name)) ?? null;
   if (!existing) return { status: 'missing', term: null };
   return { status: validateTerm(existing, expected) ? 'correct' : 'conflict', term: existing };
 }
@@ -92,8 +106,8 @@ export async function readThreeTermPreflight(database, { databaseName = null } =
   const [schools, years, terms, targetIds, indexRows] = await Promise.all([
     database.query('SELECT id,name FROM schools WHERE id=? LIMIT 1', [config.schoolId]),
     database.query('SELECT id,school_id AS schoolId,name,starts_on AS startsOn,ends_on AS endsOn FROM academic_years WHERE id=? AND school_id=? LIMIT 1', [config.academicYearId, config.schoolId]),
-    database.query('SELECT id,academic_year_id AS academicYearId,name,starts_on AS startsOn,ends_on AS endsOn,is_current AS isCurrent FROM terms WHERE academic_year_id=? ORDER BY starts_on ASC,id', [config.academicYearId]),
-    database.query('SELECT id,academic_year_id AS academicYearId,name,starts_on AS startsOn,ends_on AS endsOn FROM terms WHERE id IN (?,?,?)', [config.firstTerm.id, config.secondTerm.id, config.thirdTerm.id]),
+    database.query('SELECT id,school_id AS schoolId,academic_year_id AS academicYearId,term_number AS termNumber,name,starts_on AS startsOn,ends_on AS endsOn,is_current AS isCurrent FROM terms WHERE academic_year_id=? ORDER BY starts_on ASC,id', [config.academicYearId]),
+    database.query('SELECT id,school_id AS schoolId,academic_year_id AS academicYearId,term_number AS termNumber,name,starts_on AS startsOn,ends_on AS endsOn FROM terms WHERE id IN (?,?,?)', [config.firstTerm.id, config.secondTerm.id, config.thirdTerm.id]),
     database.query(`SELECT TABLE_SCHEMA AS tableSchema, TABLE_NAME AS tableName, INDEX_NAME AS indexName,
         NON_UNIQUE AS nonUnique, SEQ_IN_INDEX AS seqInIndex, COLUMN_NAME AS columnName, SUB_PART AS subPart
       FROM INFORMATION_SCHEMA.STATISTICS
@@ -104,25 +118,28 @@ export async function readThreeTermPreflight(database, { databaseName = null } =
   const academicYear = rows(years)[0] ?? null;
   const relevantTerms = rows(terms).map(termSnapshot);
   const names = relevantTerms.map((term) => normalize(term.name));
+  const canonicalNames = relevantTerms.map((term) => canonicalTermName(term.name));
   const duplicateNames = [...new Set(names.filter((name, index) => names.indexOf(name) !== index))];
   const matchingUniqueIndexes = detectAcademicYearNameUniqueIndexes(indexRows, { schemaName });
-  const expectedNames = [config.firstTerm.name, config.secondTerm.name, config.thirdTerm.name].map(normalize);
+  const expectedNames = [config.firstTerm.name, config.secondTerm.name, config.thirdTerm.name].map(canonicalTermName);
   const secondTerm = stateForTerm(relevantTerms, config.secondTerm);
   const thirdTerm = stateForTerm(relevantTerms, config.thirdTerm);
   const conflicts = [secondTerm, thirdTerm].filter((state) => state.status === 'conflict').map((state) => state.term);
+  const termNumbers = relevantTerms.map((term) => term.termNumber);
   const checks = {
     school: same(school?.id, config.schoolId),
     academicYear: same(academicYear?.id, config.academicYearId) && same(academicYear?.schoolId, config.schoolId) && same(academicYear?.name, config.academicYearName) && same(academicYear?.startsOn, config.academicYearStartsOn) && same(academicYear?.endsOn, config.academicYearEndsOn),
     firstTerm: relevantTerms.some((term) => validateTerm(term, config.firstTerm)),
     secondTerm: secondTerm.status === 'correct',
     thirdTerm: thirdTerm.status === 'correct',
-    noEquivalentDuplicateNames: expectedNames.every((name) => names.filter((actual) => actual === name).length <= 1),
+    noEquivalentDuplicateNames: expectedNames.every((name) => canonicalNames.filter((actual) => actual === name).length <= 1),
     noDuplicateNames: duplicateNames.length === 0,
-    targetIdsAvailableOrOwned: rows(targetIds).every((row) => [config.firstTerm.id, config.secondTerm.id, config.thirdTerm.id].includes(row.id) && same(row.academicYearId, config.academicYearId)),
+    noDuplicateTermNumbers: new Set(termNumbers).size === termNumbers.length,
+    targetIdsAvailableOrOwned: rows(targetIds).every((row) => [config.firstTerm.id, config.secondTerm.id, config.thirdTerm.id].includes(row.id) && same(row.schoolId, config.schoolId) && same(row.academicYearId, config.academicYearId)),
     uniqueness: matchingUniqueIndexes.length > 0,
     noConflictingTerms: conflicts.length === 0
   };
-  const requiredSafetyChecks = ['school', 'academicYear', 'firstTerm', 'noEquivalentDuplicateNames', 'noDuplicateNames', 'targetIdsAvailableOrOwned', 'uniqueness', 'noConflictingTerms'];
+  const requiredSafetyChecks = ['school', 'academicYear', 'firstTerm', 'noEquivalentDuplicateNames', 'noDuplicateNames', 'noDuplicateTermNumbers', 'targetIdsAvailableOrOwned', 'uniqueness', 'noConflictingTerms'];
   const plannedWrites = [
     ...(secondTerm.status === 'missing' ? [config.secondTerm.name] : []),
     ...(thirdTerm.status === 'missing' ? [config.thirdTerm.name] : [])
@@ -133,7 +150,7 @@ export async function readThreeTermPreflight(database, { databaseName = null } =
     school: school ? { id: school.id, name: school.name } : null,
     academicYear,
     terms: relevantTerms,
-    targetIds: rows(targetIds).map((row) => row.id),
+    targetIds: rows(targetIds).map((row) => ({ id: row.id, schoolId: row.schoolId, academicYearId: row.academicYearId, termNumber: row.termNumber })),
     duplicateNames,
     uniqueness: { academicYearName: matchingUniqueIndexes.length > 0, matchingIndexes: matchingUniqueIndexes },
     desiredState: {
@@ -151,7 +168,7 @@ export async function readThreeTermPreflight(database, { databaseName = null } =
 }
 
 function assertSafePreflight(preflight) {
-  const required = ['school', 'academicYear', 'firstTerm', 'noEquivalentDuplicateNames', 'noDuplicateNames', 'targetIdsAvailableOrOwned', 'uniqueness', 'noConflictingTerms'];
+  const required = ['school', 'academicYear', 'firstTerm', 'noEquivalentDuplicateNames', 'noDuplicateNames', 'noDuplicateTermNumbers', 'targetIdsAvailableOrOwned', 'uniqueness', 'noConflictingTerms'];
   const failed = required.filter((key) => !preflight.checks[key]);
   if (failed.length) fail('THREE_TERM_PREFLIGHT_FAILED', 'Three-term configuration preflight failed; no data was written.', { failed, preflight });
 }
@@ -179,8 +196,8 @@ export async function configureThreeTerms(database, { databaseName = null, clock
       const state = stateForTerm(current.terms, term);
       if (state.status === 'correct') continue;
       if (state.status !== 'missing') fail('TERM_CONFLICT', `Existing ${term.name} conflicts with the approved configuration.`, { existing: state.term, expected: term });
-      await tx.execute(`INSERT INTO terms (id,academic_year_id,name,starts_on,ends_on,is_current,created_at,updated_at)
-        VALUES (?,?,?,?,?,?,?,?)`, [term.id, THREE_TERM_CONFIGURATION.academicYearId, term.name, term.startsOn, term.endsOn, 0, now, now]);
+      await tx.execute(`INSERT INTO terms (id,school_id,academic_year_id,name,term_number,starts_on,ends_on,is_current,created_at)
+        VALUES (?,?,?,?,?,?,?,?,?)`, [term.id, THREE_TERM_CONFIGURATION.schoolId, THREE_TERM_CONFIGURATION.academicYearId, term.name, term.termNumber, term.startsOn, term.endsOn, 0, now]);
       created.push(term.name);
     }
     return created;
