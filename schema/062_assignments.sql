@@ -2,7 +2,7 @@
 -- Additive durable teacher assignments. Production Apply requires explicit approval.
 CREATE TABLE IF NOT EXISTS assignments (
   id VARCHAR(64) NOT NULL,
-  school_id VARCHAR(64) NOT NULL,
+  school_id VARCHAR(191) NOT NULL,
   academic_year_id VARCHAR(64) NOT NULL,
   term_id VARCHAR(64) NOT NULL,
   class_id VARCHAR(64) NOT NULL,
@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS assignments (
 CREATE TABLE IF NOT EXISTS assignment_files (
   id VARCHAR(64) NOT NULL,
   assignment_id VARCHAR(64) NOT NULL,
-  school_id VARCHAR(64) NOT NULL,
+  school_id VARCHAR(191) NOT NULL,
   file_name VARCHAR(255) NOT NULL,
   mime_type VARCHAR(100) NOT NULL,
   file_size BIGINT NOT NULL,

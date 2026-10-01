@@ -18,7 +18,7 @@ test('assignment migration is discovered as additive migration 062', async () =>
 
 test('assignment migration preserves school isolation, publication state, recipients, and private file metadata', () => {
   assert.match(migration, /CREATE TABLE IF NOT EXISTS assignments/i);
-  assert.match(migration, /school_id VARCHAR\(64\) NOT NULL/);
+  assert.deepEqual([...migration.matchAll(/school_id VARCHAR\((\d+)\) NOT NULL/gi)].map((match) => match[1]), ['191', '191']);
   assert.match(migration, /recipient_student_ids JSON NOT NULL/);
   assert.match(migration, /status VARCHAR\(16\) NOT NULL DEFAULT 'DRAFT'/);
   assert.match(migration, /published_by VARCHAR\(64\) NULL/);
@@ -43,6 +43,9 @@ test('assignment production migration is manual, exact-SHA, read-only by default
   assert.match(preflight, /requiredAppliedVersions: \[61\]/);
   assert.match(preflight, /versions: \[VERSION\]/);
   assert.match(preflight, /productionWrites: 'NONE'/);
+  assert.match(preflight, /MIGRATION_062_SCHEMA_INCOMPATIBLE/);
+  assert.match(preflight, /information_schema\.COLUMNS/);
+  assert.match(preflight, /schoolIdCompatibility/);
   assert.match(preflight, /MIGRATION_APPROVAL_REQUIRED/);
   assert.doesNotMatch(preflight, /059|060|061/);
 });
