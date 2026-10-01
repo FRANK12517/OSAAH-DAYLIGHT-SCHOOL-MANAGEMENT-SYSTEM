@@ -86,12 +86,13 @@ import { createSingleSchoolOverviewService } from './single-school-overview.js';
 import { createSchoolProfileService } from './school-profile.js';
 import { authorizeParentStudent, PARENT_UNLINKED_MESSAGE } from './parent-authorization.js';
 import { isConfiguredTestStudentId } from './test-parent-fixture.js';
+import { createAssignmentService } from './assignments.js';
 
 const root = join(fileURLToPath(new URL('.', import.meta.url)), '..', 'public');
 const mime = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.svg': 'image/svg+xml' };
 const branding = { schoolName: 'OSAAH DAYLIGHT SCH. COM.', location: 'BOGOSO', motto: 'AIM HIGH, ACADEMIC IS OUR CORE VALUE', logoPath: '/assets/osaah-daylight-logo.png', colours: { navy: '#102a43', royalBlue: '#1769aa', gold: '#d4a72c', white: '#ffffff' } };
 
-export function createApp({ auth = null, students = null, attendance = null, attendanceRepository = null, examinations = null, fees = null, feeTypes = null, staff = null, communication = null, communicationEngine = null, operations = null, resources = null, compliance = null, reporting = null, generalFinance = null, cashbook = null, admissionForms = null, admissionProspectus = null, subjects = null, signatures = null, classDatabase = null, database = null, academicResults = null, transcripts = null, receiptBranding = null, prospectusPdf = createAdmissionProspectusPdfService(), resultPdf = createResultSlipPdfService(), sportingActivities = null, subjectRegister = null, shepActivities = null, aiGateway = null, aiConversation = null, capabilityRegistry = null, toolRegistry = null, providerRegistry = null, providerId = process.env.OSAAH_AI_PROVIDER_ID ?? 'openai', modelId = process.env.OSAAH_AI_MODEL_ID ?? 'unconfigured', financialIntelligence = null, academicAttendanceIntelligence = null, admissionsWorkforceIntelligence = null, schoolSettings = null, operationalIntelligence = null, schoolKnowledgeIntelligence = null, academicCalendar = null, executiveIntelligence = null, humanControlledActions = null, aiPersistence = null, aiEnabled = null, audit = () => {}, singleSchoolOverview = null, schoolProfile = null, sampleFixtureRepository = null } = {}) {
+export function createApp({ auth = null, students = null, attendance = null, attendanceRepository = null, examinations = null, fees = null, feeTypes = null, staff = null, communication = null, communicationEngine = null, operations = null, resources = null, compliance = null, reporting = null, generalFinance = null, cashbook = null, admissionForms = null, admissionProspectus = null, subjects = null, signatures = null, classDatabase = null, database = null, academicResults = null, transcripts = null, receiptBranding = null, prospectusPdf = createAdmissionProspectusPdfService(), resultPdf = createResultSlipPdfService(), sportingActivities = null, subjectRegister = null, shepActivities = null, assignments = null, aiGateway = null, aiConversation = null, capabilityRegistry = null, toolRegistry = null, providerRegistry = null, providerId = process.env.OSAAH_AI_PROVIDER_ID ?? 'openai', modelId = process.env.OSAAH_AI_MODEL_ID ?? 'unconfigured', financialIntelligence = null, academicAttendanceIntelligence = null, admissionsWorkforceIntelligence = null, schoolSettings = null, operationalIntelligence = null, schoolKnowledgeIntelligence = null, academicCalendar = null, executiveIntelligence = null, humanControlledActions = null, aiPersistence = null, aiEnabled = null, audit = () => {}, singleSchoolOverview = null, schoolProfile = null, sampleFixtureRepository = null } = {}) {
   const serviceSchoolId = process.env.OSAAH_SCHOOL_ID ?? (database ? DEFAULT_PRODUCTION_SCHOOL_ID : DEMO_SCHOOL_ID);
   auth ??= createAuthService({ database, testParentSchoolId: serviceSchoolId });
   schoolSettings ??= createSchoolSettingsService({ database, schoolProfile: branding });
@@ -110,6 +111,7 @@ export function createApp({ auth = null, students = null, attendance = null, att
   students ??= createStudentService({ schoolId: serviceSchoolId });
   examinations ??= createExaminationService({ students, classes: CORE_LEVELS, schoolId: serviceSchoolId });
   subjects ??= createSubjectService({ schoolId: serviceSchoolId });
+  assignments ??= createAssignmentService({ database, subjects, students, classes: CORE_LEVELS, schoolId: serviceSchoolId });
   signatures ??= createSignatureService({ staff, schoolId: serviceSchoolId });
   singleSchoolOverview ??= createSingleSchoolOverviewService({ database, schoolSettings, students, attendance, attendanceRepository, examinations, fees, staff, communication, audit, schoolId: serviceSchoolId });
   schoolProfile ??= createSchoolProfileService({ database, schoolSettings, singleSchoolOverview, staff, schoolId: serviceSchoolId });
@@ -164,7 +166,7 @@ export function createApp({ auth = null, students = null, attendance = null, att
   receiptBranding ??= createReceiptBrandingService({ fees, students, schoolId: serviceSchoolId });
   const parentHistoricalRecords = database?.query ? createParentHistoricalRecordsService({ database }) : null;
   sampleFixtureRepository ??= database?.query && database?.execute ? createSampleFixtureRepository({ adapter: database, schoolId: serviceSchoolId }) : null;
-  const parentDashboard = createParentDashboardService({ students, admissionEnrollment, attendance, attendanceRepository, sampleFixtureRepository, academicResults, durableAcademic, fees, parentFeeObligations, durableFeeReader, receiptBranding, examinations, historicalRecords: parentHistoricalRecords, communication, academicCalendar, operations, testParentSchoolId: serviceSchoolId });
+  const parentDashboard = createParentDashboardService({ students, admissionEnrollment, attendance, attendanceRepository, sampleFixtureRepository, academicResults, durableAcademic, fees, parentFeeObligations, durableFeeReader, receiptBranding, examinations, historicalRecords: parentHistoricalRecords, communication, academicCalendar, operations, assignments, testParentSchoolId: serviceSchoolId });
   async function parentStudentsForRequest(actor) {
     const linked = await parentDashboard.listChildren(actor);
     const settled = await Promise.allSettled(linked.map((child) => parentDashboard.resolveChild(actor, child.permanentStudentId)));
@@ -614,6 +616,18 @@ export function createApp({ auth = null, students = null, attendance = null, att
       if (pathname === '/api/admissions' && request.method === 'POST') { if (!canAccess(user, 'admissions.write')) return json(response, { error: 'Forbidden.' }, 403); const application = students.createAdmission(await readJson(request)); audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, action: 'CREATE', entity: 'AdmissionApplication', entityId: application.applicationNumber, newValue: application })); return json(response, application, 201); }
       if (pathname.startsWith('/api/admissions/') && pathname.endsWith('/decision') && request.method === 'POST') { if (!canAccess(user, 'admissions.review')) return json(response, { error: 'Forbidden.' }, 403); const applicationNumber = pathname.split('/')[3]; const body = await readJson(request); if ((body.decision === 'ACCEPTED' && !canAccess(user, 'admissions.accept')) || (body.decision === 'REJECTED' && !canAccess(user, 'admissions.reject'))) return json(response, { error: 'Forbidden.' }, 403); try { const application = students.decideAdmission(applicationNumber, body.decision, body.year); audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, action: body.decision === 'ACCEPTED' ? 'ADMISSION_ACCEPTED' : 'ADMISSION_REJECTED', entity: 'AdmissionApplication', entityId: applicationNumber, newValue: application })); return json(response, application); } catch (error) { return json(response, { error: error.message }, 400); } }
       if (pathname.startsWith('/api/admissions/') && pathname.endsWith('/advance') && request.method === 'POST') { if (!canAccess(user, 'admissions.write')) return json(response, { error: 'Forbidden.' }, 403); const applicationNumber = pathname.split('/')[3]; const application = students.advanceAdmission(applicationNumber, (await readJson(request)).stage); audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, action: 'ADVANCE', entity: 'AdmissionApplication', entityId: applicationNumber, newValue: application })); return json(response, application); }
+      if (pathname === '/api/assignments/options' && request.method === 'GET') {
+        if (user.portal !== 'school' || (!canAccess(user, 'academics.read') && !canAccess(user, 'marks.write'))) return json(response, { error: 'Forbidden.' }, 403);
+        try { return json(response, await assignments.options(user)); } catch (error) { return json(response, { error: error.message }, error.status ?? 400); }
+      }
+      if (pathname === '/api/assignments' && request.method === 'POST') {
+        if (user.portal !== 'school' || (!canAccess(user, 'marks.write') && !canAccess(user, 'academics.read'))) return json(response, { error: 'Forbidden.' }, 403);
+        try { const result = await assignments.create(await readJson(request), user); audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, action: 'ASSIGNMENT_CREATED', entity: 'Assignment', entityId: result.id, newValue: result })); return json(response, result, 201); } catch (error) { return json(response, { error: error.message }, error.status ?? 400); }
+      }
+      if (pathname.startsWith('/api/assignments/') && pathname.endsWith('/publish') && request.method === 'POST') {
+        if (user.portal !== 'school' || (!canAccess(user, 'marks.write') && !canAccess(user, 'academics.read'))) return json(response, { error: 'Forbidden.' }, 403);
+        try { const id = pathname.split('/')[3]; const result = await assignments.publish(id, user); audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, action: 'ASSIGNMENT_PUBLISHED', entity: 'Assignment', entityId: id, newValue: result })); return json(response, result); } catch (error) { return json(response, { error: error.message }, error.status ?? 400); }
+      }
       if (pathname === '/api/parent/options' && request.method === 'GET') {
         if (!user) return json(response, { error: 'UNAUTHENTICATED' }, 401); if (user.portal !== 'parent' || !canAccess(user, 'children.read')) return json(response, { error: 'Forbidden.' }, 403);
         try { return json(response, await parentDashboard.options(user)); }
@@ -628,6 +642,10 @@ export function createApp({ auth = null, students = null, attendance = null, att
         if (!user) return json(response, { error: 'UNAUTHENTICATED' }, 401); if (user.portal !== 'parent' || !canAccess(user, 'children.read')) return json(response, { error: 'Forbidden.' }, 403);
         try { return json(response, await parentDashboard.loadRecord(user, Object.fromEntries(new URL(request.url, 'http://localhost').searchParams))); }
         catch (error) { return parentApiError(response, error, 'records'); }
+      }
+      if (pathname === '/api/parent/assignments/pdf' && request.method === 'GET') {
+        if (!user) return json(response, { error: 'UNAUTHENTICATED' }, 401); if (user.portal !== 'parent' || !canAccess(user, 'children.read')) return json(response, { error: 'Forbidden.' }, 403);
+        try { const query = Object.fromEntries(new URL(request.url, 'http://localhost').searchParams); const student = await parentDashboard.resolveChild(user, query.permanentStudentId); const content = await assignments.pdf(query.assignmentId, user, { ...student, name: parentDashboard.childSummary(student).name }); response.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Disposition': 'attachment; filename="OSAAH_Assignment.pdf"', 'Cache-Control': 'private, no-store' }); return response.end(content); } catch (error) { return parentApiError(response, error, 'assignment-pdf'); }
       }
       if (pathname === '/api/parent/results/pdf' && request.method === 'GET') {
         if (!user) return json(response, { error: 'UNAUTHENTICATED' }, 401); if (user.portal !== 'parent' || !canAccess(user, 'children.read')) return json(response, { error: 'Forbidden.' }, 403);
