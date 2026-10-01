@@ -1,0 +1,53 @@
+name: Production three-term inventory
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_sha:
+        description: Exact reviewed 40-character lowercase commit SHA containing the fixed inventory script
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-three-term-inventory
+  cancel-in-progress: false
+
+jobs:
+  inventory:
+    name: Read-only canonical three-term inventory
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      RELEASE_SHA: ${{ inputs.release_sha }}
+    steps:
+      - name: Validate release and protected secret
+        shell: bash
+        run: |
+          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "release_sha must be a full lowercase 40-character SHA."; exit 1; }
+          test -n "${DATABASE_URL:-}" || { echo "Protected DATABASE_URL is unavailable."; exit 1; }
+      - name: Check out exact reviewed release
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_sha }}
+          fetch-depth: 0
+      - name: Verify release is contained in protected main
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD^{commit})" = "$RELEASE_SHA" || { echo "Checked-out release does not match release_sha."; exit 1; }
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$RELEASE_SHA" origin/main || { echo "release_sha is not contained in protected main."; exit 1; }
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Run fixed read-only term inventory
+        run: node scripts/production-three-term-inventory.mjs
