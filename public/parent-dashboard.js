@@ -339,6 +339,23 @@ export async function mountParentDashboard({ dashboard, user, sidebar } = {}) {
     classSelect.value = '';
   }
 
+  function applySampleContextOptions(child = selectedStudent) {
+    if (!options) return;
+    const contexts = options.sampleContexts?.[child?.permanentStudentId] ?? [];
+    const years = contexts.length ? options.academicYears.filter((year) => contexts.some((context) => context.academicYearId === year.id)) : options.academicYears;
+    const classes = contexts.length ? options.classes.filter((item) => contexts.some((context) => context.classId === item.id)) : options.classes;
+    const previousYear = yearSelect.value;
+    const previousClass = classSelect.value;
+    yearSelect.innerHTML = `<option value="">Select Academic Year</option>${years.map((year) => `<option value="${esc(year.id)}">${esc(year.name)}</option>`).join('')}`;
+    yearSelect.value = years.some((year) => year.id === previousYear) ? previousYear : years.find((year) => year.isCurrent)?.id ?? years[0]?.id ?? '';
+    classSelect.innerHTML = `<option value="">Select Class</option>${classes.map((item) => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join('')}`;
+    classSelect.value = classes.some((item) => item.id === previousClass) ? previousClass : classes[0]?.id ?? '';
+    fillTerms();
+    if (contexts.length && !contexts.some((context) => context.termId === termSelect.value && context.academicYearId === yearSelect.value)) {
+      termSelect.value = contexts.find((context) => context.academicYearId === yearSelect.value)?.termId ?? '';
+    }
+  }
+
   function applyChildContext(child) {
     const previousChildId = selectedStudent?.permanentStudentId ?? '';
     if (previousChildId && child?.permanentStudentId && previousChildId !== child.permanentStudentId) resetAcademicContext();
@@ -372,7 +389,10 @@ export async function mountParentDashboard({ dashboard, user, sidebar } = {}) {
         card?.classList.toggle('parent-card-unavailable', !component.available);
       }
       optionsStatus.textContent = '';
-      if (selectedStudent) applyChildContext(selectedStudent);
+      if (selectedStudent) {
+        applyChildContext(selectedStudent);
+        applySampleContextOptions(selectedStudent);
+      }
     } catch (error) {
       optionsStatus.textContent = error.message;
       optionsStatus.classList.add('error');
@@ -494,6 +514,7 @@ export async function mountParentDashboard({ dashboard, user, sidebar } = {}) {
 
   childSelect.addEventListener('change', () => {
     applyChildContext(currentChild());
+    applySampleContextOptions(currentChild());
     clearData();
     if (selectedStudent) ensureSelectedChild().then(() => {}).catch((error) => {
       selectedStudent = null;
@@ -509,7 +530,10 @@ export async function mountParentDashboard({ dashboard, user, sidebar } = {}) {
     const entered = permanentId.value.trim();
     const match = childList.find((child) => child.permanentStudentId === entered) ?? null;
     childSelect.value = match?.permanentStudentId ?? '';
-    if (match) applyChildContext(match);
+    if (match) {
+      applyChildContext(match);
+      applySampleContextOptions(match);
+    }
     else {
       selectedStudent = null;
       byId(overview, 'parent-child-summary').textContent = entered
@@ -527,6 +551,7 @@ export async function mountParentDashboard({ dashboard, user, sidebar } = {}) {
   if (childList.length) {
     childSelect.value = childList[0].permanentStudentId;
     applyChildContext(childList[0]);
+    applySampleContextOptions(childList[0]);
     ensureSelectedChild().catch((error) => { byId(overview, 'parent-child-summary').textContent = error.message; });
   }
   const requestedCard = new URLSearchParams(window.location.search).get('parentCard');
