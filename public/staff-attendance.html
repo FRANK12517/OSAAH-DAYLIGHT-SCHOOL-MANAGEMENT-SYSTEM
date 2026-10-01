@@ -1,6 +1,307 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Staff Attendance | OsaaH Daylight</title><link rel="stylesheet" href="/styles.css"><style>.status-counts{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:.7rem;margin:1rem 0}.status-count{padding:.7rem;border:1px solid #d9e0e7;border-radius:.35rem;background:#fff}.status-count strong{display:block;font-size:1.35rem}.status-count small{color:#526273}.attendance-report{margin-top:1.25rem}.attendance-report table{width:100%;border-collapse:collapse}.attendance-report th,.attendance-report td{padding:.55rem;border-bottom:1px solid #d9e0e7;text-align:left}.attendance-status{font-weight:700}.attendance-status.ON_LEAVE{color:#12633a}.attendance-status.ABSENT{color:#8c1d1d}.attendance-status.LATE{color:#765000}</style></head><body><main class="form-page"><a class="text-button" href="/">← Dashboard</a><p class="eyebrow">STAFF &amp; HR</p><h1>Staff Attendance</h1><p class="muted">Mark attendance for active school employees within the selected academic period. Approved leave is shown separately as <strong>On Leave</strong>, never as an unexplained absence.</p><section class="card"><label for="attendance-academic-year">Academic Year</label><select id="attendance-academic-year" required><option value="">Loading academic years…</option></select><label for="attendance-term">Term</label><select id="attendance-term" required><option value="">Choose a term</option></select><label for="attendance-date">Date</label><input id="attendance-date" type="date" required><div class="responsive-table"><table><thead><tr><th>Employee ID</th><th>Staff member</th><th>Role</th><th>Attendance</th></tr></thead><tbody id="staff-register"><tr><td colspan="4">Loading staff register…</td></tr></tbody></table></div><button id="save-attendance" type="button">Save staff attendance</button><p id="staff-status" class="muted" role="status"></p></section><section class="card attendance-report"><h2>Staff attendance report</h2><div id="status-counts" class="status-counts"></div><div class="responsive-table"><table><thead><tr><th>Date</th><th>Staff ID</th><th>Status</th><th>Source</th><th>Leave reference</th><th>Note</th></tr></thead><tbody id="attendance-report-rows"><tr><td colspan="6">Choose an academic period to load the report.</td></tr></tbody></table></div></section></main><script>
-const host=document.querySelector('#staff-register'),status=document.querySelector('#staff-status'),year=document.querySelector('#attendance-academic-year'),term=document.querySelector('#attendance-term'),date=document.querySelector('#attendance-date'),save=document.querySelector('#save-attendance'),counts=document.querySelector('#status-counts'),reportRows=document.querySelector('#attendance-report-rows');date.value=new Date().toISOString().slice(0,10);const esc=v=>{const e=document.createElement('span');e.textContent=v??'';return e.innerHTML};
-async function loadReport(){if(!year.value||!term.value)return;const query=new URLSearchParams({academicYear:year.value,term:term.value});if(date.value)query.set('date',date.value);const response=await fetch('/api/attendance/staff/report?'+query);const data=await response.json();if(!response.ok){reportRows.innerHTML=`<tr><td colspan="6">${esc(data.error||'Report unavailable.')}</td></tr>`;return}const labels=data.statuses||{};counts.innerHTML=Object.entries(labels).map(([key,label])=>`<div class="status-count"><strong>${Number(data.counts?.[key]||0)}</strong><small>${esc(label)}</small></div>`).join('');reportRows.innerHTML=data.records.length?data.records.map(row=>`<tr><td>${esc(row.date)}</td><td>${esc(row.staffId)}</td><td class="attendance-status ${esc(row.status)}">${esc(labels[row.status]||row.status)}</td><td>${esc(row.source||'MANUAL')}</td><td>${esc(row.leaveRequestId||'—')}</td><td>${esc(row.note||'—')}</td></tr>`).join(''):'<tr><td colspan="6">No attendance records match this scope.</td></tr>'}
-async function load(){const options=await fetch('/api/attendance/options'),optionData=await options.json();if(!options.ok){status.textContent=optionData.error??'Attendance options could not be loaded.';save.disabled=true;return}year.innerHTML='<option value="">Choose an academic year</option>'+optionData.academicYears.map(x=>`<option value="${esc(x.name??x.id)}">${esc(x.name??x.id)}</option>`).join('');term.innerHTML='<option value="">Choose a term</option>'+optionData.terms.map(x=>`<option value="${esc(x.name??x.id)}">${esc(x.name??x.id)}</option>`).join('');const r=await fetch('/api/attendance/staff'),data=await r.json();if(!r.ok){status.textContent=data.error??'Staff attendance could not be loaded.';save.disabled=true;return}host.innerHTML=data.staff.length?data.staff.map(s=>`<tr><td>${esc(s.employeeId)}</td><td>${esc(s.fullName)}</td><td>${esc(s.roleKey||'Staff')}</td><td><select data-staff="${esc(s.id)}"><option value="CHECK_IN">Present / check in</option><option value="LATE">Late</option><option value="ABSENT">Absent</option><option value="CHECK_OUT">Check out</option></select></td></tr>`).join(''):'<tr><td colspan="4">No active staff records found.</td></tr>';save.disabled=!data.staff.length;status.textContent=`${data.staff.length} active staff member${data.staff.length===1?'':'s'} loaded.`}
-year.addEventListener('change',loadReport);term.addEventListener('change',loadReport);date.addEventListener('change',loadReport);save.addEventListener('click',async()=>{if(!date.value||!year.value||!term.value){status.textContent='Select an Academic Year, Term, and date.';return}save.disabled=true;const rows=[...host.querySelectorAll('select[data-staff]')];try{const results=await Promise.all(rows.map(async select=>{const response=await fetch('/api/attendance/staff',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({staffId:select.dataset.staff,academicYear:year.value,term:term.value,date:date.value,type:select.value})});const data=await response.json();if(!response.ok)throw new Error(data.error??'Attendance could not be saved.');return data}));status.textContent=`Saved attendance for ${results.length} staff member${results.length===1?'':'s'}.`;await loadReport()}catch(error){status.textContent=error.message}finally{save.disabled=!rows.length}});load().then(loadReport).catch(()=>{status.textContent='Staff attendance workspace is temporarily unavailable.'});
-</script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Staff Attendance Register | OsaaH Daylight</title>
+  <link rel="stylesheet" href="/styles.css">
+  <style>
+    .attendance-filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;align-items:end}
+    .attendance-filters label,.staff-attendance-table label{display:flex;flex-direction:column;gap:.35rem}
+    .attendance-actions{display:flex;flex-wrap:wrap;gap:.65rem;margin-top:1rem}
+    .staff-attendance-table{width:100%;border-collapse:collapse;min-width:760px}
+    .staff-attendance-table th,.staff-attendance-table td{padding:.65rem;border-bottom:1px solid #d9e0e7;text-align:left;vertical-align:middle}
+    .staff-attendance-table input,.staff-attendance-table select{min-width:120px;max-width:100%}
+    .staff-attendance-table .reason-input{min-width:170px}
+    .status-counts{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:.7rem;margin:1rem 0}
+    .status-count{padding:.7rem;border:1px solid #d9e0e7;border-radius:.35rem;background:#fff}
+    .status-count strong{display:block;font-size:1.35rem}
+    .status-count small{color:#526273}
+    .attendance-report{margin-top:1.25rem}
+    .attendance-report table{width:100%;border-collapse:collapse;min-width:800px}
+    .attendance-report th,.attendance-report td{padding:.55rem;border-bottom:1px solid #d9e0e7;text-align:left;vertical-align:top}
+    .attendance-status{font-weight:700}
+    .attendance-status.ON_LEAVE{color:#12633a}
+    .attendance-status.ABSENT{color:#8c1d1d}
+    .attendance-status.LATE{color:#765000}
+    .muted{color:#526273}
+    @media(max-width:600px){.staff-attendance-table th,.staff-attendance-table td,.attendance-report th,.attendance-report td{padding:.45rem;font-size:.9rem}}
+  </style>
+</head>
+<body>
+  <main class="form-page">
+    <a class="text-button" href="/">← Dashboard</a>
+    <p class="eyebrow">STAFF MANAGEMENT</p>
+    <h1>Staff Attendance Register</h1>
+    <p class="muted">Load registered school staff and record daily attendance for the selected academic period. Approved leave is reconciled by Staff Leave and cannot be overwritten here.</p>
+
+    <section class="card" aria-labelledby="register-heading">
+      <h2 id="register-heading">Daily register</h2>
+      <div class="attendance-filters">
+        <label for="attendance-academic-year">Academic Year
+          <select id="attendance-academic-year" required><option value="">Loading academic years…</option></select>
+        </label>
+        <label for="attendance-term">Term
+          <select id="attendance-term" required><option value="">Loading terms…</option></select>
+        </label>
+        <label for="attendance-date">Date
+          <input id="attendance-date" type="date" required>
+        </label>
+      </div>
+      <div class="attendance-actions">
+        <button id="load-register" class="primary-button" type="button" disabled>Load Register</button>
+        <button id="save-attendance" class="primary-button" type="button" disabled>Save attendance</button>
+      </div>
+      <p id="staff-status" class="muted" role="status" aria-live="polite">Choose an Academic Year and Term, then load the register.</p>
+      <div class="responsive-table">
+        <table class="staff-attendance-table">
+          <thead><tr><th>Staff ID</th><th>Staff member</th><th>Position / Role</th><th>Attendance status</th><th>Reporting time</th><th>Reason / Remarks</th></tr></thead>
+          <tbody id="staff-register"><tr><td colspan="6">Choose an academic period and select Load Register.</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card attendance-report" aria-labelledby="report-heading">
+      <h2 id="report-heading">Staff attendance report</h2>
+      <div id="status-counts" class="status-counts" aria-live="polite"></div>
+      <div class="responsive-table">
+        <table>
+          <thead><tr><th>Date</th><th>Staff ID</th><th>Status</th><th>Source</th><th>Leave reference</th><th>Reason / Remarks</th><th>Recorded by / at</th><th>Last updated by / at</th></tr></thead>
+          <tbody id="attendance-report-rows"><tr><td colspan="8">Load a register to view attendance for the selected scope.</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const host = document.querySelector('#staff-register');
+    const statusMessage = document.querySelector('#staff-status');
+    const year = document.querySelector('#attendance-academic-year');
+    const term = document.querySelector('#attendance-term');
+    const date = document.querySelector('#attendance-date');
+    const loadButton = document.querySelector('#load-register');
+    const saveButton = document.querySelector('#save-attendance');
+    const counts = document.querySelector('#status-counts');
+    const reportRows = document.querySelector('#attendance-report-rows');
+    const state = { staff: [], records: [], attendanceOptions: [], context: null };
+    let optionCatalog = { academicYears: [], terms: [] };
+    const recordPriority = ['PRESENT', 'CHECKED_IN', 'LATE', 'ABSENT', 'ON_LEAVE', 'EXCUSED', 'CHECKED_OUT'];
+    const escapeHtml = (value) => { const element = document.createElement('span'); element.textContent = value ?? ''; return element.innerHTML; };
+    const localToday = () => { const today = new Date(); return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`; };
+    date.value = localToday();
+
+    async function getJson(url, options) {
+      let response;
+      try { response = await fetch(url, options); }
+      catch { throw new Error('The attendance service could not be reached. Check your connection and try again.'); }
+      let data;
+      try { data = await response.json(); }
+      catch { data = {}; }
+      if (!response.ok) {
+        if (response.status === 401) throw new Error('Your session has expired. Sign in again to continue.');
+        if (response.status === 403) throw new Error('You are not authorized to use the Staff Attendance Register.');
+        throw new Error(data.error || 'The attendance request could not be completed. Please try again.');
+      }
+      return data;
+    }
+
+    function scopeIsReady() { return Boolean(year.value && term.value && date.value); }
+    function updateLoadButton() { loadButton.disabled = !scopeIsReady(); }
+    function termDisplayLabel(value) {
+      const normalized = String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+      return ({ '1st term': '1st Term', 'first term': '1st Term', 'term 1': '1st Term', '2nd term': '2nd Term', 'second term': '2nd Term', 'term 2': '2nd Term', '3rd term': '3rd Term', 'third term': '3rd Term', 'term 3': '3rd Term' })[normalized] ?? String(value ?? '');
+    }
+    function populateTerms() {
+      const selectedYear = optionCatalog.academicYears.find((item) => String(item.name ?? item.id) === year.value);
+      if (!year.value) {
+        term.disabled = true;
+        term.innerHTML = '<option value="">Choose an academic year first</option>';
+        return;
+      }
+      term.disabled = false;
+      const matching = optionCatalog.terms.filter((item) => {
+        const yearId = item.academicYearId ?? item.academic_year_id ?? item.academicYear;
+        return !yearId || !selectedYear || String(yearId) === String(selectedYear.id) || String(yearId) === year.value || String(yearId) === String(selectedYear.name ?? '');
+      });
+      const unique = new Map();
+      for (const item of matching) {
+        const value = String(item.name ?? item.id ?? '');
+        if (value && !unique.has(value)) unique.set(value, { value, label: termDisplayLabel(item.name ?? item.id) });
+      }
+      const order = ['1st Term', '2nd Term', '3rd Term'];
+      const terms = [...unique.values()].sort((a, b) => {
+        const first = order.indexOf(a.label);
+        const second = order.indexOf(b.label);
+        return (first < 0 ? order.length : first) - (second < 0 ? order.length : second) || a.label.localeCompare(b.label);
+      });
+      term.innerHTML = '<option value="">Choose a term</option>' + terms.map((item) => `<option value="${escapeHtml(item.value)}">${escapeHtml(item.label)}</option>`).join('');
+    }
+    function clearRegister(message) {
+      state.staff = [];
+      state.records = [];
+      state.attendanceOptions = [];
+      state.context = null;
+      host.innerHTML = `<tr><td colspan="6">${escapeHtml(message)}</td></tr>`;
+      reportRows.innerHTML = '<tr><td colspan="8">Load a register to view attendance for the selected scope.</td></tr>';
+      counts.replaceChildren();
+      saveButton.disabled = true;
+    }
+
+    function recordForStaff(staffId) {
+      return state.records.filter((record) => record.staffId === staffId).sort((a, b) => {
+        const priority = recordPriority.indexOf(a.status) - recordPriority.indexOf(b.status);
+        return priority || String(b.updatedAt ?? b.recordedAt ?? '').localeCompare(String(a.updatedAt ?? a.recordedAt ?? ''));
+      })[0] ?? null;
+    }
+
+    function timeValue(value) {
+      const match = String(value ?? '').match(/^([01]\d|2[0-3]):[0-5]\d/);
+      return match ? match[0] : '';
+    }
+
+    function renderRegister() {
+      if (!state.staff.length) {
+        host.innerHTML = '<tr><td colspan="6">No registered staff were found for this school.</td></tr>';
+        saveButton.disabled = true;
+        return;
+      }
+      host.innerHTML = state.staff.map((member) => {
+        const record = recordForStaff(member.id);
+        const protectedLeave = record?.source === 'LEAVE_RECONCILIATION' && record.status === 'ON_LEAVE';
+        const options = state.attendanceOptions.map((option) => `<option value="${escapeHtml(option.status)}" data-type="${escapeHtml(option.type)}"${record?.status === option.status ? ' selected' : ''}>${escapeHtml(option.label)}</option>`).join('');
+        return `<tr data-staff-id="${escapeHtml(member.id)}" data-record-id="${escapeHtml(record?.id ?? '')}">
+          <td>${escapeHtml(member.employeeId ?? member.staffNumber ?? member.id)}</td>
+          <td>${escapeHtml(member.fullName)}</td>
+          <td>${escapeHtml(member.roleKey || 'Staff')}</td>
+          <td><label><span class="sr-only">Attendance status for ${escapeHtml(member.fullName)}</span><select data-status="${escapeHtml(member.id)}"${protectedLeave ? ' disabled' : ''}><option value="">Choose status</option>${options}</select></label>${protectedLeave ? '<small class="muted">Managed by approved Staff Leave</small>' : ''}</td>
+          <td><label><span class="sr-only">Reporting time for ${escapeHtml(member.fullName)}</span><input type="time" data-time="${escapeHtml(member.id)}" value="${escapeHtml(timeValue(record?.time))}"${protectedLeave ? ' disabled' : ''}></label></td>
+          <td><label><span class="sr-only">Reason or remarks for ${escapeHtml(member.fullName)}</span><input class="reason-input" type="text" data-note="${escapeHtml(member.id)}" value="${escapeHtml(record?.note ?? '')}" maxlength="500"${protectedLeave ? ' disabled' : ''}></label></td>
+        </tr>`;
+      }).join('');
+      saveButton.disabled = false;
+    }
+
+    function renderReport() {
+      const labels = Object.fromEntries(state.attendanceOptions.map((option) => [option.status, option.label]));
+      counts.innerHTML = state.attendanceOptions.map((option) => `<div class="status-count"><strong>${Number(state.records.filter((record) => record.status === option.status).length)}</strong><small>${escapeHtml(option.label)}</small></div>`).join('');
+      reportRows.innerHTML = state.records.length ? state.records.map((record) => `<tr>
+        <td>${escapeHtml(record.date)}</td>
+        <td>${escapeHtml(record.staffId)}</td>
+        <td class="attendance-status ${escapeHtml(record.status)}">${escapeHtml(labels[record.status] || record.status)}</td>
+        <td>${escapeHtml(record.source || 'MANUAL')}</td>
+        <td>${escapeHtml(record.leaveRequestId || '—')}</td>
+        <td>${escapeHtml(record.note || '—')}</td>
+        <td>${escapeHtml(record.recordedBy || record.enteredBy || '—')}<br><small>${escapeHtml(record.recordedAt || record.createdAt || '—')}</small></td>
+        <td>${escapeHtml(record.updatedBy || '—')}<br><small>${escapeHtml(record.updatedAt || '—')}</small></td>
+      </tr>`).join('') : '<tr><td colspan="8">No attendance records match this academic period and date.</td></tr>';
+    }
+
+    async function loadOptions() {
+      loadButton.disabled = true;
+      statusMessage.textContent = 'Loading academic years and terms…';
+      try {
+        const data = await getJson('/api/attendance/options');
+        optionCatalog = { academicYears: data.academicYears ?? [], terms: data.terms ?? [] };
+        year.innerHTML = '<option value="">Choose an academic year</option>' + optionCatalog.academicYears.map((item) => `<option value="${escapeHtml(item.name ?? item.id)}">${escapeHtml(item.name ?? item.id)}</option>`).join('');
+        populateTerms();
+        statusMessage.textContent = 'Choose an Academic Year and Term, then load the register.';
+        updateLoadButton();
+      } catch (error) {
+        year.innerHTML = '<option value="">Academic years unavailable</option>';
+        term.innerHTML = '<option value="">Terms unavailable</option>';
+        term.disabled = true;
+        statusMessage.textContent = error.message;
+      }
+    }
+
+    async function loadRegister() {
+      if (!scopeIsReady()) {
+        statusMessage.textContent = 'Select an Academic Year, Term, and date before loading the register.';
+        return;
+      }
+      loadButton.disabled = true;
+      saveButton.disabled = true;
+      statusMessage.textContent = 'Loading registered staff and attendance…';
+      const context = { academicYear: year.value, term: term.value, date: date.value };
+      const query = new URLSearchParams(context);
+      let loaded = false;
+      try {
+        const data = await getJson(`/api/attendance/staff?${query}`);
+        state.staff = Array.isArray(data.staff) ? data.staff : [];
+        state.records = Array.isArray(data.records) ? data.records : [];
+        state.attendanceOptions = Array.isArray(data.attendanceOptions) ? data.attendanceOptions.filter((option) => option.status && option.type) : [];
+        state.context = context;
+        if (!state.attendanceOptions.length) throw new Error('Attendance status options are unavailable. Refresh the page or contact the school administrator.');
+        renderRegister();
+        renderReport();
+        statusMessage.textContent = state.staff.length ? `${state.staff.length} registered staff member${state.staff.length === 1 ? '' : 's'} loaded.` : 'No registered staff were found for this school.';
+        loaded = true;
+      } catch (error) {
+        clearRegister('The register could not be loaded.');
+        statusMessage.textContent = error.message;
+      } finally {
+        loadButton.disabled = !scopeIsReady();
+        if (state.staff.length && state.context && state.context.academicYear === year.value && state.context.term === term.value && state.context.date === date.value) saveButton.disabled = false;
+      }
+      return loaded;
+    }
+
+    async function saveAttendance() {
+      if (!state.staff.length || !state.context || state.context.academicYear !== year.value || state.context.term !== term.value || state.context.date !== date.value) {
+        statusMessage.textContent = 'Load the register again before saving attendance.';
+        saveButton.disabled = true;
+        return;
+      }
+      const rows = [...host.querySelectorAll('tr[data-staff-id]')];
+      const entries = rows.filter((row) => {
+        const select = row.querySelector('select[data-status]');
+        return select && !select.disabled && select.value;
+      });
+      if (!entries.length) {
+        statusMessage.textContent = 'Choose an attendance status for at least one staff member.';
+        return;
+      }
+      saveButton.disabled = true;
+      loadButton.disabled = true;
+      statusMessage.textContent = `Saving attendance for ${entries.length} staff member${entries.length === 1 ? '' : 's'}…`;
+      const results = await Promise.allSettled(entries.map(async (row) => {
+        const staffId = row.dataset.staffId;
+        const select = row.querySelector('select[data-status]');
+        const option = select.selectedOptions[0];
+        const payload = {
+          staffId,
+          academicYear: state.context.academicYear,
+          term: state.context.term,
+          date: state.context.date,
+          type: option.dataset.type,
+          status: select.value,
+          time: row.querySelector('input[data-time]').value || null,
+          note: row.querySelector('input[data-note]').value.trim() || null
+        };
+        if (row.dataset.recordId) payload.id = row.dataset.recordId;
+        return getJson('/api/attendance/staff', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) });
+      }));
+      const saved = results.filter((result) => result.status === 'fulfilled').length;
+      const failed = results.length - saved;
+      let summary;
+      if (failed) {
+        const firstFailure = results.find((result) => result.status === 'rejected');
+        summary = `${saved} saved; ${failed} could not be saved. ${firstFailure?.reason?.message ?? 'Reload the register and try again.'}`;
+      } else {
+        summary = `Saved attendance for ${saved} staff member${saved === 1 ? '' : 's'}.`;
+      }
+      if (await loadRegister()) statusMessage.textContent = summary;
+    }
+
+    year.addEventListener('change', populateTerms);
+    for (const control of [year, term, date]) control.addEventListener('change', () => {
+      updateLoadButton();
+      clearRegister('The selected period changed. Load the register again.');
+      statusMessage.textContent = 'Selection changed. Load the register again to continue.';
+    });
+    loadButton.addEventListener('click', () => loadRegister());
+    saveButton.addEventListener('click', saveAttendance);
+    loadOptions();
+  </script>
+</body>
+</html>
