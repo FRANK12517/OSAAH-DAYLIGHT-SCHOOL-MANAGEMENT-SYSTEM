@@ -173,14 +173,14 @@ function normalizeIndexRows(rows) {
 
 export async function inspectTermsUniquenessPreflight(adapter, { expectedDatabase = EXPECTED_DATABASE } = {}) {
   if (!adapter?.query) fail('DATABASE_ADAPTER_REQUIRED', 'A durable database adapter is required.');
-  const [databaseRows, tableRows, columns, indexes, duplicateRows, termRows] = await Promise.all([
-    adapter.query('SELECT DATABASE() AS databaseName'),
-    adapter.query("SELECT TABLE_NAME AS tableName FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'terms'"),
-    adapter.query(columnDefinitionSql),
-    adapter.query(indexMetadataSql),
-    adapter.query(duplicateRowsSql),
-    adapter.query(allTermRowsSql)
-  ]);
+  // Reuse the canonical pool's established TLS connection instead of opening
+  // several concurrent connections during this read-only production preflight.
+  const databaseRows = await adapter.query('SELECT DATABASE() AS databaseName');
+  const tableRows = await adapter.query("SELECT TABLE_NAME AS tableName FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'terms'");
+  const columns = await adapter.query(columnDefinitionSql);
+  const indexes = await adapter.query(indexMetadataSql);
+  const duplicateRows = await adapter.query(duplicateRowsSql);
+  const termRows = await adapter.query(allTermRowsSql);
   const database = databaseRows[0]?.databaseName ?? databaseRows[0]?.database_name ?? null;
   const termsTablePresent = tableRows.some((row) => (row.tableName ?? row.TABLE_NAME) === 'terms');
   const uniqueIndexRows = normalizeIndexRows(indexes);

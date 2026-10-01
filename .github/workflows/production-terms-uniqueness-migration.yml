@@ -89,7 +89,7 @@ jobs:
 
       - name: Validate migration and focused regressions
         timeout-minutes: 10
-        run: node --test test/migrate-cli-lifecycle.test.js test/terms-uniqueness-migration.test.js test/production-three-term-config.test.js test/production-three-term-inventory.test.js test/sample-academic-context.test.js test/parent-dashboard.test.js
+        run: node --test test/migrate-cli-lifecycle.test.js test/terms-uniqueness-migration.test.js test/production-terms-uniqueness-connection.test.js test/production-three-term-config.test.js test/production-three-term-inventory.test.js test/sample-academic-context.test.js test/parent-dashboard.test.js
 
       - name: ${{ inputs.mode == 'dry-run' && 'Run read-only duplicate and column preflight' || 'Apply only migration 060 and verify' }}
         shell: bash
