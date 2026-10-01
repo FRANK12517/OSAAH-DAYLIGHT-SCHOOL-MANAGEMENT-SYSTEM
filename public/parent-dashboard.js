@@ -169,6 +169,13 @@ function renderCompletedRecords(body) {
   ], records)}`;
 }
 
+function renderAssignments(body) {
+  const records = body.records ?? [];
+  if (!records.length) return `<h4>Assignments</h4>${empty('No published assignments are available for this child in the selected context.')}`;
+  const permanentStudentId = body.student?.permanentStudentId ?? '';
+  return `<h4>Assignments</h4>${records.map((item) => `<article class="parent-assignment card"><div class="section-heading"><div><p class="eyebrow">${esc(item.subjectId ?? 'Subject')}</p><h5>${esc(item.title)}</h5></div><span class="parent-status-pill">PUBLISHED</span></div>${summaryCards([['Academic year', item.academicYearId], ['Term', item.termId], ['Assignment date', formatDate(item.assignmentDate)], ['Due date', formatDate(item.dueDate)], ['Teacher', item.teacherId]])}<p>${esc(item.instructions ?? 'No instructions provided.')}</p><p class="muted">${(item.files ?? []).length} uploaded image(s) are attached to this authorized assignment.</p><a class="primary-button" target="_blank" rel="noopener" href="/api/parent/assignments/pdf?assignmentId=${encodeURIComponent(item.id)}&permanentStudentId=${encodeURIComponent(permanentStudentId)}">Download Assignment PDF</a></article>`).join('')}`;
+}
+
 function renderRecord(body) {
   if (body.recordType === 'student-summary') {
     const student = body.student ?? {};
@@ -206,6 +213,7 @@ function renderRecord(body) {
     ], body.records ?? [])}`;
   }
   if (body.recordType === 'published-results') return renderResult(body);
+  if (body.recordType === 'assignments') return renderAssignments(body);
   if (body.recordType === 'fees') return renderFees(body);
   if (body.recordType === 'payments' || body.recordType === 'payment-receipts') return renderFees(body, { payments: true });
   if (body.recordType === 'timetable') return `<h4>Timetable</h4>${summaryCards([

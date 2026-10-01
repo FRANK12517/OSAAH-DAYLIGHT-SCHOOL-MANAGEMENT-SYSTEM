@@ -139,6 +139,7 @@ export function createParentDashboardService({
   communication = null,
   academicCalendar = null,
   operations = null,
+  assignments = null,
   cards = parentDashboardModules(),
   testParentSchoolId = TEST_PARENT_SCHOOL_ID
 } = {}) {
@@ -153,6 +154,7 @@ export function createParentDashboardService({
       case 'parent-calendar': return Boolean(academicCalendar?.list);
       case 'parent-messages': return Boolean(communication?.listMessages);
       case 'parent-transport': return Boolean(operations?.list);
+      case 'parent-assignments': return Boolean(assignments?.listForParent);
       default: return false;
     }
   }
@@ -186,7 +188,7 @@ export function createParentDashboardService({
     return cards.map((card) => {
       const configured = COMPONENTS.find((item) => item.moduleKey === card.moduleKey);
       const supported = componentSupport(card.moduleKey);
-      const explicitlyUnavailable = ['parent-homework', 'parent-assignments', 'parent-documents'].includes(card.moduleKey);
+      const explicitlyUnavailable = ['parent-homework', 'parent-documents'].includes(card.moduleKey);
       return {
         moduleKey: card.moduleKey,
         moduleName: card.moduleName,
@@ -225,7 +227,7 @@ export function createParentDashboardService({
         const labels = { 'published-results': 'Published Results', 'payment-receipts': 'Payment Receipts', 'promotion-history': 'Promotion History', 'completed-records': 'Completed / Graduated Records' };
         const sourceModule = ({ attendance: 'parent-attendance', 'published-results': 'parent-results', fees: 'parent-fees', payments: 'parent-payments', 'payment-receipts': 'parent-payments', timetable: 'parent-timetable', transport: 'parent-transport' })[id] ?? id;
         const support = available.get(sourceModule) ?? false;
-        const unsupported = UNSUPPORTED_RECORD_TYPES.find((item) => item.id === id);
+        const unsupported = id === 'assignments' && available.get('parent-assignments') ? null : UNSUPPORTED_RECORD_TYPES.find((item) => item.id === id);
         return { id, name: labels[id] ?? id.charAt(0).toUpperCase() + id.slice(1), available: unsupported ? false : support, scope: 'student', requiresAcademicContext: !['transport', 'documents', 'promotion-history', 'completed-records'].includes(id), ...(unsupported ? { message: unsupported.message } : !support ? { message: 'Not available yet.' } : {}) };
       }),
       ...[
@@ -408,6 +410,10 @@ export function createParentDashboardService({
       const timetables = examinations.listTimetables({ academicYearId: context.yearId, termId: context.termId, classId: context.classId }, selectedActor);
       return { recordType: type, available: true, student: { name, permanentStudentId }, context, records: rows(timetables) };
     }
+    if (type === 'assignments') {
+      const records = await assignments.listForParent(selectedActor, student, { academicYearId: context.yearId, termId: context.termId });
+      return { recordType: type, available: true, student: { name, permanentStudentId }, context, records };
+    }
     if (type === 'transport') {
       return { recordType: type, available: true, student: { name, permanentStudentId }, records: parentTransportRecords(student, selectedActor) };
     }
@@ -451,7 +457,7 @@ export function createParentDashboardService({
     if (moduleKey === 'parent-transport') {
       return { recordType: 'transport', available: true, student: { name: studentName(student), permanentStudentId }, records: parentTransportRecords(student, selectedActor) };
     }
-    if (moduleKey === 'parent-timetable' || moduleKey === 'parent-attendance' || moduleKey === 'parent-results' || moduleKey === 'parent-fees' || moduleKey === 'parent-payments') {
+    if (moduleKey === 'parent-timetable' || moduleKey === 'parent-attendance' || moduleKey === 'parent-results' || moduleKey === 'parent-fees' || moduleKey === 'parent-payments' || moduleKey === 'parent-assignments') {
       const recordType = definition.recordType;
       return await loadRecord(actor, { ...input, recordType, permanentStudentId });
     }
