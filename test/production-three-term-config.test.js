@@ -71,6 +71,21 @@ test('first term plus missing second and third passes dry-run with two planned w
   assert.equal(db.state.writes, 0);
 });
 
+test('preflight queries are serialized to avoid concurrent TiDB pool acquisition', async () => {
+  const db = database({ terms: [firstTerm] });
+  let active = 0;
+  let maximumActive = 0;
+  const query = db.query;
+  db.query = async (...args) => {
+    active += 1;
+    maximumActive = Math.max(maximumActive, active);
+    await new Promise((resolve) => setTimeout(resolve, 1));
+    try { return await query(...args); } finally { active -= 1; }
+  };
+  await configureThreeTerms(db, { databaseName: 'osaahdaylightschool', dryRun: true });
+  assert.equal(maximumActive, 1);
+});
+
 test('first and correct second term plus missing third passes with one planned write', async () => {
   const result = await configureThreeTerms(database({ terms: [firstTerm, secondTerm] }), { databaseName: 'osaahdaylightschool', dryRun: true });
   assert.equal(result.safeToApply, true);
