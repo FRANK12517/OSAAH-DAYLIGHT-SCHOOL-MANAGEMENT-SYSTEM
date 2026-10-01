@@ -302,7 +302,7 @@ export function createParentDashboardService({
         return rows(records).some((row) => childIds.has(text(row.studentId ?? row.student_id)));
       }
       if (recordType === 'published-results' && academicResults?.publicationFor && academicResults?.result) {
-        const publication = academicResults.publicationFor({ classId: context.classId, academicYear: context.yearId, term: context.termId, isSample: Boolean(student.isTestRecord ?? student.is_test_record) });
+        const publication = academicResults.publicationFor({ classId: context.classId, academicYear: context.yearId, term: context.termId, isSample: Boolean(student.isTestRecord ?? student.is_test_record), studentId: student.id ?? student.studentId ?? student.student_id });
         if (publication?.status !== 'PUBLISHED') return false;
         academicResults.result({ studentId: student.id ?? student.studentId ?? student.student_id, classId: context.classId, academicYear: context.yearId, term: context.termId, sample: Boolean(student.isTestRecord ?? student.is_test_record) }, { ...actor, children: [student], roleKey: 'HEADTEACHER', permissions: new Set(['*']) });
         return true;
@@ -403,7 +403,7 @@ export function createParentDashboardService({
       return { recordType: type, available: true, student: { name, permanentStudentId }, context, attendanceSummary: attendanceSummary(authorizedRecords), records: authorizedRecords };
     }
     if (type === 'published-results') {
-      const publication = academicResults.publicationFor({ classId: context.classId, academicYear: context.yearId, term: context.termId, isSample: Boolean(student.isTestRecord ?? student.is_test_record) });
+      const publication = academicResults.publicationFor({ classId: context.classId, academicYear: context.yearId, term: context.termId, isSample: Boolean(student.isTestRecord ?? student.is_test_record), studentId: student.id ?? student.studentId ?? student.student_id });
       if (publication?.status !== 'PUBLISHED') fail('No published result is available for this student and academic context.', 404, 'PARENT_RESULT_NOT_PUBLISHED');
       try {
         const result = academicResults.result({ studentId: student.id ?? student.studentId ?? student.student_id, classId: context.classId, academicYear: context.yearId, term: context.termId, sample: Boolean(student.isTestRecord ?? student.is_test_record) }, { ...selectedActor, roleKey: 'HEADTEACHER', permissions: new Set(['*']) });
