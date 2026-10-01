@@ -7,7 +7,7 @@ import { createCommunicationService } from '../src/communication.js';
 import { createOperationsService } from '../src/operations.js';
 import { parentDashboardModules } from '../src/sidebar-registry.js';
 import '../src/module-registry.js';
-import { createParentDashboardViewState, isCurrentParentChildResolution, parentContextAfterChildResolution } from '../public/parent-dashboard.js';
+import { createParentDashboardViewState, isCurrentParentChildResolution, parentClassOptions, parentContextAfterChildResolution } from '../public/parent-dashboard.js';
 
 const child = {
   id: 'student-1',
@@ -87,6 +87,15 @@ test('same-child re-resolution with a valid canonical class retains existing syn
   }), { ...context, classId: 'class-primary-1' });
 });
 
+test('a legacy Basic 6 child label resolves to the configured Primary 6 ID without changing the ID', () => {
+  const context = { academicYear: 'year-2026', classId: '', term: 'term-2' };
+  assert.deepEqual(parentContextAfterChildResolution(context, {
+    previousChildId: 'OSAAH-DEMO-001',
+    child: { permanentStudentId: 'OSAAH-DEMO-001', classId: 'student-class-uuid-6', className: 'Basic 6' },
+    classes: [{ id: 'student-class-uuid-6', name: 'Primary 6' }]
+  }), { ...context, classId: 'student-class-uuid-6' });
+});
+
 test('switching children clears a stale class when the new child has no recorded class', () => {
   const context = { academicYear: 'year-2026', classId: 'class-primary-1', term: 'term-1' };
   assert.deepEqual(parentContextAfterChildResolution(context, {
@@ -139,6 +148,19 @@ test('Student Summary returns canonical gender and status fields for only the au
   assert.equal(result.student.enrollmentStatus, 'ACTIVE');
   assert.equal(result.student.permanentStudentId, child.permanentStudentId);
   await assert.rejects(() => service.loadRecord(actor(), { permanentStudentId: 'OSAAH/2026/0002', recordType: 'student-summary' }), (error) => error.status === 403);
+});
+
+test('Parent student summary canonicalizes Basic 6 while retaining the stored class identifier', async () => {
+  const legacyChild = { ...child, classId: 'class-primary-6', className: 'Basic 6' };
+  const service = createParentDashboardService(dependencies({
+    admissionEnrollment: {
+      listParentStudents: async () => [legacyChild],
+      authorizeParentStudent: async () => legacyChild
+    }
+  }));
+  const result = await service.loadRecord(actor(), { permanentStudentId: child.permanentStudentId, recordType: 'student-summary' });
+  assert.equal(result.student.classId, 'class-primary-6');
+  assert.equal(result.student.className, 'Primary 6');
 });
 
 test('missing canonical gender and status remain absent rather than being fabricated', async () => {
@@ -225,6 +247,12 @@ test('controlled Parent attendance reads use the isolated durable sample fixture
     testParentSchoolId: productionSchoolId,
     durableAcademic: { options: async () => ({ academicYears: [{ id: 'year-2026', name: '2026/2027' }], terms: [{ id: 'term-2', name: '2nd Term', academicYearId: 'year-2026' }], classes: [{ id: 'class-primary-6', name: 'Basic 6' }] }) }
   });
+  const parentOptions = await service.options(parent);
+  assert.deepEqual(parentOptions.classes.slice(0, 13).map((item) => item.name), [
+    'Nursery 1', 'Nursery 2', 'KG 1', 'KG 2', 'Primary 1', 'Primary 2', 'Primary 3',
+    'Primary 4', 'Primary 5', 'Primary 6', 'JHS 1', 'JHS 2', 'JHS 3'
+  ]);
+  assert.ok(parentOptions.sampleContexts['OSAAH-DEMO-001'].every((context) => context.classId === 'class-primary-6' && context.provenance === 'TEST'));
   const result = await service.loadRecord(parent, { permanentStudentId: 'OSAAH-DEMO-001', recordType: 'attendance', academicYear: 'year-2026', classId: 'class-primary-6', term: 'term-2' });
   assert.deepEqual(result.records.map(({ studentId, term, status }) => ({ studentId, term, status })), [
     { studentId: 'OSAAH-DEMO-001', term: '2nd Term', status: 'PRESENT' },
@@ -265,14 +293,64 @@ test('Parent transport exposes only the selected child assignment and strips rou
   assert.ok(!('studentIds' in result.records.assignments[0]));
 });
 
-test('academic options are canonical and include only server-provided years, terms, and classes', async () => {
+test('Parent class options include all 13 canonical classes in order and preserve configured class IDs', async () => {
+  const service = createParentDashboardService(dependencies({ durableAcademic: { options: async () => ({
+    academicYears: [{ id: 'year-2026', name: '2026/2027' }],
+    terms: [{ id: 'term-2', name: '2nd Term', academicYearId: 'year-2026' }],
+    classes: [{ id: 'class-primary-6', name: 'Basic 6' }, { id: 'class-jhs-3', name: 'JHS 3' }]
+  }) } }));
+  const result = await service.options(actor());
+  assert.deepEqual(result.classes.slice(0, 13).map((item) => item.name), [
+    'Nursery 1', 'Nursery 2', 'KG 1', 'KG 2', 'Primary 1', 'Primary 2', 'Primary 3',
+    'Primary 4', 'Primary 5', 'Primary 6', 'JHS 1', 'JHS 2', 'JHS 3'
+  ]);
+  assert.equal(result.classes[9].id, 'class-primary-6');
+  assert.equal(result.classes[9].name, 'Primary 6');
+  assert.equal(result.classes[12].id, 'class-jhs-3');
+  assert.equal(result.classes.some((item) => item.name === 'Basic 6'), false);
+  assert.equal(result.classes.at(-1).name, 'Completed / Graduated');
+});
+
+test('sample context metadata does not narrow the Parent class dropdown', () => {
+  const classes = Array.from({ length: 13 }, (_, index) => ({ id: `class-${index}`, name: `Class ${index}` }));
+  assert.deepEqual(parentClassOptions({ classes, sampleContexts: { 'OSAAH-DEMO-001': [{ classId: 'class-9' }] } }), classes);
+});
+
+test('a class being present in the canonical dropdown does not authorize records without a matching enrollment', async () => {
+  const base = dependencies();
+  const service = createParentDashboardService({
+    ...base,
+    attendance: { summary: () => ({ records: [] }) },
+    admissionEnrollment: {
+      ...base.admissionEnrollment,
+      parentEnrolledInClass: async () => false
+    }
+  });
+  await assert.rejects(() => service.loadRecord(actor(), {
+    permanentStudentId: child.permanentStudentId,
+    recordType: 'attendance',
+    academicYear: 'year-2026',
+    classId: 'Primary 6',
+    term: 'term-1'
+  }), (error) => error.status === 403 && error.code === 'PARENT_CLASS_FORBIDDEN');
+});
+
+test('the Parent class selector remains a native single-select control', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(new URL('../public/parent-dashboard.js', import.meta.url), 'utf8');
+  assert.match(source, /field\('Class', 'parent-class', \[\], \{ required: false \}\)/);
+  assert.match(source, /<select id="\$\{esc\(id\)\}" name="\$\{esc\(id\)\}"/);
+  assert.doesNotMatch(source, /<select[^>]*multiple/);
+});
+
+test('academic options retain configured years, terms, and record views', async () => {
   const service = createParentDashboardService(dependencies({ attendance: { summary: () => ({ records: [] }) } }));
   const result = await service.options(actor());
   assert.deepEqual(result.academicYears.map((item) => item.name), ['2026/2027', '2027/2028']);
   assert.equal(result.terms.find((item) => item.id === 'term-next').academicYearId, 'year-2027');
   assert.ok(result.classes.some((item) => item.name === 'JHS 3'));
   assert.ok(result.classes.some((item) => item.name === 'Completed / Graduated'));
-  assert.ok(!result.classes.some((item) => item.name === 'JHS 4'));
+  assert.equal(result.classes.slice(0, 13).length, 13);
   assert.equal(result.recordTypes.find((item) => item.id === 'attendance').available, true);
   assert.ok(!result.recordTypes.some((item) => item.id === 'documents'));
 });

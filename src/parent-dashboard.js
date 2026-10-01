@@ -4,6 +4,7 @@ import { authorizeParentStudent } from './parent-authorization.js';
 import { isConfiguredSampleAcademicContext, listConfiguredSampleAcademicContexts } from './sample-academic-context.js';
 import { STUDENT_STATUSES } from './attendance.js';
 import { attendancePercentage, attendancePercentageDenominator } from './attendance-aggregation.js';
+import { CANONICAL_CLASS_IDS, canonicalClassId, displayClassName } from './student-classes.js';
 
 const text = (value) => String(value ?? '').trim();
 const rows = (value) => Array.isArray(value) ? value : [];
@@ -40,8 +41,26 @@ function parentActor(actor) {
 function classOption(item) {
   if (typeof item === 'string') return { id: item, name: item.replace(/^KG([12])$/, 'KG $1') };
   const id = text(item?.id ?? item?.classId ?? item?.name);
-  const name = text(item?.name ?? item?.className ?? id).replace(/^KG([12])$/, 'KG $1');
-  return id ? { id, name } : null;
+  const sourceName = text(item?.name ?? item?.className ?? id);
+  const canonical = canonicalClassId(sourceName) ?? canonicalClassId(id);
+  const name = canonical ? displayClassName(canonical) : sourceName.replace(/^KG([12])$/, 'KG $1');
+  return id ? { id, name, ...(item?.contextOnly ? { contextOnly: true } : {}) } : null;
+}
+function canonicalClassOptions(items) {
+  const configured = new Map();
+  const additional = [];
+  for (const raw of rows(items)) {
+    const option = classOption(raw);
+    if (!option) continue;
+    const canonical = canonicalClassId(option.name) ?? canonicalClassId(option.id);
+    if (canonical) {
+      if (!configured.has(canonical)) configured.set(canonical, { ...option, name: displayClassName(canonical) });
+    } else if (!additional.some((item) => item.id === option.id)) additional.push(option);
+  }
+  return [
+    ...CANONICAL_CLASS_IDS.map((id) => configured.get(id) ?? { id, name: displayClassName(id) }),
+    ...additional
+  ];
 }
 function academicYearOption(item) {
   const id = text(item?.id ?? item?.name);
@@ -65,11 +84,14 @@ function childSummary(student) {
   const gender = student?.gender ?? null;
   const studentStatus = student?.studentStatus ?? student?.student_status ?? student?.status ?? null;
   const enrollmentStatus = student?.enrollmentStatus ?? student?.enrollment_status ?? student?.profileEnrollmentStatus ?? student?.profile_enrollment_status ?? null;
+  const classId = student?.classId ?? student?.class_id ?? student?.currentClassId ?? null;
+  const rawClassName = student?.className ?? student?.class_name ?? classId ?? null;
+  const canonicalClass = canonicalClassId(rawClassName) ?? canonicalClassId(classId);
   return {
     permanentStudentId,
     name: studentName(student) || 'Authorized student',
-    classId: student?.classId ?? student?.class_id ?? student?.currentClassId ?? null,
-    className: student?.className ?? student?.class_name ?? student?.classId ?? student?.class_id ?? null,
+    classId,
+    className: canonicalClass ? displayClassName(canonicalClass) : rawClassName,
     ...(gender !== null && gender !== undefined ? { gender } : {}),
     ...(studentStatus !== null && studentStatus !== undefined ? { studentStatus } : {}),
     ...(enrollmentStatus !== null && enrollmentStatus !== undefined ? { enrollmentStatus } : {}),
@@ -215,7 +237,7 @@ export function createParentDashboardService({
     if (!source) fail('Academic options are not configured for this school.', 503, 'PARENT_ACADEMIC_OPTIONS_UNAVAILABLE');
     const academicYears = rows(source.academicYears).map(academicYearOption).filter(Boolean);
     const terms = rows(source.terms).map(termOption).filter(Boolean);
-    const classes = rows(source.classes).map(classOption).filter(Boolean);
+    const classes = canonicalClassOptions(source.classes);
     if (!academicYears.length) fail('No academic years are configured for this school. Configure an academic year in School Settings before loading student records.', 503, 'PARENT_ACADEMIC_YEARS_NOT_CONFIGURED');
     if (!terms.length) fail('No academic terms are configured for this school. Configure terms for an academic year before loading student records.', 503, 'PARENT_TERMS_NOT_CONFIGURED');
     if (!classes.length) fail('No classes are configured for this school. Configure classes before loading student records.', 503, 'PARENT_CLASSES_NOT_CONFIGURED');
@@ -307,12 +329,16 @@ export function createParentDashboardService({
     const term = source.terms.find((item) => (item.id === termInput || normalizeTermName(item.name) === normalizeTermName(termInput)) && (!item.academicYearId || item.academicYearId === year.id));
     if (!term) fail('Select a term configured for the academic year.', 400, 'INVALID_TERM');
     const classInput = text(input.classId);
-    const classRecord = source.classes.find((item) => item.id === classInput || item.name === classInput);
+    const selectedClass = canonicalClassId(classInput);
+    const classRecord = source.classes.find((item) => item.id === classInput || item.name === classInput)
+      ?? (selectedClass ? source.classes.find((item) => canonicalClassId(item.name) === selectedClass || canonicalClassId(item.id) === selectedClass) : null);
     if (!classRecord) fail('Select a class from the configured class list.', 400, 'INVALID_CLASS');
     if (classRecord.contextOnly) fail('Select a historical class from Historical Contexts. Completed records do not require a class selection.', 400, 'INVALID_CLASS');
     if (student) {
       const enrolledClass = text(student.classId ?? student.class_id);
-      const classMatchesCurrentEnrollment = enrolledClass && (classRecord.id === enrolledClass || classRecord.name === enrolledClass);
+      const selectedCanonicalClass = canonicalClassId(classRecord.name);
+      const enrolledCanonicalClass = canonicalClassId(enrolledClass);
+      const classMatchesCurrentEnrollment = enrolledClass && (classRecord.id === enrolledClass || classRecord.name === enrolledClass || (selectedCanonicalClass && selectedCanonicalClass === enrolledCanonicalClass));
       const sampleContextAuthorized = isConfiguredSampleAcademicContext({ actor, permanentStudentId: text(student.permanentStudentId ?? student.permanent_student_id), academicYearId: year.id, termId: term.id, classId: classRecord.id, academicYears: source.academicYears, terms: source.terms, classes: source.classes, schoolId: testParentSchoolId });
       const classMatchesSelectedEnrollment = sampleContextAuthorized || (admissionEnrollment?.parentEnrolledInClass
         ? await admissionEnrollment.parentEnrolledInClass({ parentUserId: actor.id, schoolId: actor.schoolId, permanentStudentId: text(student.permanentStudentId ?? student.permanent_student_id), academicYearId: year.id, termId: term.id, termName: term.canonicalName ?? term.name, classId: classRecord.id, recordType, legacyTermEvidence: (scope) => legacyTermEvidence(actor, student, { yearId: scope.academicYearId, yearName: year.name, termId: scope.termId, termName: scope.termName, classId: scope.classId }, recordType) })

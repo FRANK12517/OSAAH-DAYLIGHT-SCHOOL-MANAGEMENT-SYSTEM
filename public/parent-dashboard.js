@@ -2,6 +2,11 @@ const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '
 const display = (value) => value === null || value === undefined || value === '' ? '—' : String(value);
 const money = (value) => `GHS ${Number(value ?? 0).toLocaleString('en-GH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const byId = (root, id) => root.querySelector(`#${id}`);
+const canonicalClassName = (value) => String(value ?? '').trim().replace(/^Basic\s+([1-6])$/i, 'Primary $1').replace(/^KG([12])$/i, 'KG $1');
+
+export function parentClassOptions(options = {}) {
+  return Array.isArray(options.classes) ? options.classes : [];
+}
 
 export function isCurrentParentChildResolution(currentId, requestedId) {
   return String(currentId ?? '').trim() === String(requestedId ?? '').trim();
@@ -12,8 +17,9 @@ export function parentContextAfterChildResolution(context = {}, { previousChildI
   const nextId = String(child?.permanentStudentId ?? '').trim();
   const classId = String(child?.classId ?? child?.class_id ?? '').trim();
   const className = String(child?.className ?? child?.class_name ?? '').trim();
+  const normalizedClassName = canonicalClassName(className);
   const classMatch = (classId || className)
-    ? classes.find((item) => item.id === classId || item.name === className || item.id === className)
+    ? classes.find((item) => item.id === classId || item.name === className || item.id === className || (normalizedClassName && canonicalClassName(item.name) === normalizedClassName))
     : null;
   const sameChild = Boolean(previousId && nextId && previousId === nextId);
   return { ...context, classId: classMatch?.id ?? (sameChild ? context.classId : '') };
@@ -351,13 +357,16 @@ export async function mountParentDashboard({ dashboard, user, sidebar } = {}) {
     if (!options) return;
     const contexts = options.sampleContexts?.[child?.permanentStudentId] ?? [];
     const years = contexts.length ? options.academicYears.filter((year) => contexts.some((context) => context.academicYearId === year.id)) : options.academicYears;
-    const classes = contexts.length ? options.classes.filter((item) => contexts.some((context) => context.classId === item.id)) : options.classes;
+    const classes = parentClassOptions(options);
     const previousYear = yearSelect.value;
     const previousClass = classSelect.value;
     yearSelect.innerHTML = `<option value="">Select Academic Year</option>${years.map((year) => `<option value="${esc(year.id)}">${esc(year.name)}</option>`).join('')}`;
     yearSelect.value = years.some((year) => year.id === previousYear) ? previousYear : years.find((year) => year.isCurrent)?.id ?? years[0]?.id ?? '';
     classSelect.innerHTML = `<option value="">Select Class</option>${classes.map((item) => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join('')}`;
-    classSelect.value = classes.some((item) => item.id === previousClass) ? previousClass : classes[0]?.id ?? '';
+    const selectedSampleContext = contexts.find((context) => context.academicYearId === yearSelect.value && context.termId === termSelect.value) ?? contexts[0];
+    const sampleClassId = selectedSampleContext?.classId ?? '';
+    const previousClassIsAuthorizedSampleContext = !contexts.length || contexts.some((context) => context.classId === previousClass && context.academicYearId === yearSelect.value);
+    classSelect.value = previousClassIsAuthorizedSampleContext && classes.some((item) => item.id === previousClass) ? previousClass : sampleClassId;
     fillTerms();
     if (contexts.length && !contexts.some((context) => context.termId === termSelect.value && context.academicYearId === yearSelect.value)) {
       termSelect.value = contexts.find((context) => context.academicYearId === yearSelect.value)?.termId ?? '';
