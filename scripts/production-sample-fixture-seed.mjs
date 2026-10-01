@@ -15,18 +15,58 @@ const statuses = [
   ['PRESENT', 'LATE', 'PRESENT'],
   ['PRESENT', 'EXCUSED_ABSENCE', 'PRESENT']
 ];
-const dateFor = (termIndex, dayIndex) => `2026-${String(9 + termIndex).padStart(2, '0')}-${String(7 + dayIndex).padStart(2, '0')}`;
+function isCalendarDate(value) {
+  const result = String(value ?? '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(result)) return false;
+  const parsed = new Date(`${result}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === result;
+}
+function termDateRange(term) {
+  const startsOn = term?.startsOn ?? term?.starts_on;
+  const endsOn = term?.endsOn ?? term?.ends_on;
+  if (!isCalendarDate(startsOn) || !isCalendarDate(endsOn) || endsOn < startsOn) {
+    throw Object.assign(new Error('The canonical term date range is invalid.'), { code: 'SAMPLE_FIXTURE_TERM_DATES_INVALID', details: { termId: term?.id ?? null, startsOn: startsOn ?? null, endsOn: endsOn ?? null } });
+  }
+  return { startsOn, endsOn };
+}
+function addDays(value, days) {
+  const result = new Date(`${value}T00:00:00.000Z`);
+  result.setUTCDate(result.getUTCDate() + days);
+  return result.toISOString().slice(0, 10);
+}
+function sampleDatesForTerm(term, studentIndex) {
+  const { startsOn } = termDateRange(term);
+  // Choose synthetic weekday examples in the second week of each term. These
+  // are demonstrations, not claims of recorded or official student attendance.
+  const afterOpeningWeek = addDays(startsOn, 7);
+  const weekday = new Date(`${afterOpeningWeek}T00:00:00.000Z`).getUTCDay();
+  const monday = addDays(afterOpeningWeek, (1 - weekday + 7) % 7);
+  return [0, 2, 4].map((offset) => addDays(monday, studentIndex * 7 + offset));
+}
+export function validateAttendanceFixtureDates(records, term) {
+  const { startsOn, endsOn } = termDateRange(term);
+  if (!Array.isArray(records) || records.length === 0) {
+    throw Object.assign(new Error('Attendance fixture must contain dated records.'), { code: 'SAMPLE_FIXTURE_DATE_OUTSIDE_TERM', details: { termId: term?.id ?? null, startsOn, endsOn, date: null } });
+  }
+  for (const record of records) {
+    const date = String(record?.date ?? '').trim();
+    if (!isCalendarDate(date) || date < startsOn || date > endsOn) {
+      throw Object.assign(new Error('Attendance fixture date is outside its canonical term.'), { code: 'SAMPLE_FIXTURE_DATE_OUTSIDE_TERM', details: { termId: term?.id ?? null, startsOn, endsOn, date: date || null } });
+    }
+  }
+  return true;
+}
 
 function normalizeTerm(value) {
   return String(value ?? '').trim().toLowerCase().replace(/^first\s+term$/, '1st Term').replace(/^second\s+term$/, '2nd Term').replace(/^third\s+term$/, '3rd Term');
 }
-function payloadFor(studentIndex, termIndex) {
+function payloadFor(termIndex, dates) {
   return {
     label: SAMPLE_LABEL,
     provenance: 'TEST',
     fixtureVersion: 1,
     records: statuses[termIndex].map((status, dayIndex) => ({
-      date: dateFor(termIndex, dayIndex + studentIndex),
+      date: dates[dayIndex],
       status,
       subjectId: 'daily-attendance'
     }))
@@ -85,11 +125,16 @@ export async function buildPlan(database, { schoolId = DEFAULT_PRODUCTION_SCHOOL
   const year = await oneRow(database, 'SELECT id,name FROM academic_years WHERE id=? AND school_id=? LIMIT 1', [CANONICAL_ACADEMIC_YEAR_ID, schoolId], 'The approved academic year is not configured.');
   const terms = [];
   for (const name of termNames) {
-    const rows = await database.query('SELECT id,name,academic_year_id AS academicYearId FROM terms WHERE academic_year_id=? AND LOWER(name)=LOWER(?) LIMIT 1', [year.id, name]);
+    const rows = await database.query('SELECT id,name,academic_year_id AS academicYearId,starts_on AS startsOn,ends_on AS endsOn FROM terms WHERE academic_year_id=? AND LOWER(name)=LOWER(?) LIMIT 1', [year.id, name]);
     const row = rows[0];
     if (!row) throw Object.assign(new Error(`The approved term is not configured: ${name}`), { code: 'SAMPLE_FIXTURE_CONTEXT_MISSING' });
     terms.push(row);
   }
+  const plannedDates = terms.map((term) => TEST_PARENT_STUDENT_IDS.map((_, studentIndex) => {
+    const dates = sampleDatesForTerm(term, studentIndex);
+    validateAttendanceFixtureDates(dates.map((date) => ({ date })), term);
+    return dates;
+  }));
   const classes = await database.query("SELECT id,name FROM classes WHERE school_id=? AND LOWER(name) IN ('primary 6','basic 6') ORDER BY CASE WHEN LOWER(name)='primary 6' THEN 0 ELSE 1 END LIMIT 1", [schoolId]);
   const classRow = classes[0];
   if (!classRow) throw Object.assign(new Error('The approved Basic 6 / Primary 6 class is not configured.'), { code: 'SAMPLE_FIXTURE_CONTEXT_MISSING' });
@@ -107,7 +152,7 @@ export async function buildPlan(database, { schoolId = DEFAULT_PRODUCTION_SCHOOL
         className: classRow.name,
         fixtureType: 'attendance',
         fixtureVersion: 1,
-        fixturePayload: payloadFor(studentIndex, termIndex)
+        fixturePayload: payloadFor(termIndex, plannedDates[termIndex][studentIndex])
       });
     }
   }
@@ -129,7 +174,7 @@ export async function runSeed({ mode = process.argv[2] ?? 'dry-run', environment
       database: plan.databaseName,
       schoolId,
       academicYear: { id: plan.year.id, name: plan.year.name },
-      terms: plan.terms.map(({ id, name, academicYearId }) => ({ id, name, academicYearId })),
+      terms: plan.terms.map(({ id, name, academicYearId, startsOn, endsOn }) => ({ id, name, academicYearId, startsOn, endsOn })),
       migrationVersion: Number(plan.ledger.version),
       fixtureTable: 'sample_data_fixtures',
       rowCount: plan.rows.length,
