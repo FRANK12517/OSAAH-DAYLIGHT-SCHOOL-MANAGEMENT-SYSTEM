@@ -58,21 +58,40 @@ export function createDurableAcademicService({ database, schoolId, idFactory = r
     let yearClause = '';
     if (academicYearId) { yearClause = ' AND (a.academic_year_id IS NULL OR a.academic_year_id=?)'; params.push(academicYearId); }
     try {
-      const result = await database.query(`SELECT s.id,s.code,s.name,s.department_id AS departmentId,a.class_id AS classId,a.academic_year_id AS academicYearId
+      const assignments = rows(await database.query(`SELECT s.id,s.code,s.name,s.department_id AS departmentId,s.subject_type AS subjectType,s.is_scoring AS isScoring,a.class_id AS classId,a.academic_year_id AS academicYearId,a.active AS assignmentActive
         FROM subject_class_assignments a JOIN subjects s ON s.id=a.subject_id AND s.school_id=a.school_id
-        WHERE a.school_id=? AND a.class_id=? AND a.active=1${yearClause} ORDER BY s.name,s.id`, params);
-      return rows(result);
+        WHERE a.school_id=? AND a.class_id=?${yearClause} ORDER BY s.name,s.id`, params));
+      if (assignments.length) return assignments.filter((item) => Number(item.assignmentActive ?? 1) === 1).map(({ assignmentActive, ...subject }) => subject);
+      return legacySubjects();
     } catch (error) {
       if (!schemaCompatibilityError(error)) throw error;
       // Some production databases retain the original class_subjects mapping.
       // It is authoritative and already references canonical subject/class
       // records; do not create a second mapping table or duplicate assignments.
-      const result = await database.query(`SELECT s.id,s.code,s.name,s.department_id AS departmentId,cs.class_id AS classId
-        FROM class_subjects cs JOIN subjects s ON s.id=cs.subject_id AND s.school_id=?
-        JOIN classes c ON c.id=cs.class_id AND c.school_id=?
-        WHERE cs.class_id=? ORDER BY s.name,s.id`, [schoolId, schoolId, classId]);
-      return rows(result);
+      return legacySubjects();
     }
+    async function legacySubjects() {
+      try {
+        const result = await database.query(`SELECT s.id,s.code,s.name,s.department_id AS departmentId,s.subject_type AS subjectType,s.is_scoring AS isScoring,cs.class_id AS classId
+          FROM class_subjects cs JOIN subjects s ON s.id=cs.subject_id AND s.school_id=?
+          JOIN classes c ON c.id=cs.class_id AND c.school_id=?
+          WHERE cs.class_id=? ORDER BY s.name,s.id`, [schoolId, schoolId, classId]);
+        return rows(result);
+      } catch (error) {
+        if (!schemaCompatibilityError(error)) throw error;
+        const result = await database.query(`SELECT s.id,s.code,s.name,s.department_id AS departmentId,cs.class_id AS classId
+          FROM class_subjects cs JOIN subjects s ON s.id=cs.subject_id AND s.school_id=?
+          JOIN classes c ON c.id=cs.class_id AND c.school_id=?
+          WHERE cs.class_id=? ORDER BY s.name,s.id`, [schoolId, schoolId, classId]);
+        return rows(result);
+      }
+    }
+  }
+
+  async function subjectAssigned(input, actor) {
+    const subjectId = text(input.subjectId);
+    const configured = await listSubjects({ classId: input.classId, academicYearId: input.academicYearId || input.academicYear }, actor);
+    return configured.some((subject) => text(subject.id) === subjectId);
   }
 
   async function listAssignments(subjectId, actor) {
@@ -121,8 +140,7 @@ export function createDurableAcademicService({ database, schoolId, idFactory = r
     const classId = text(input.classId);
     if (!classId || !text(input.subjectId)) fail('Class and subject are required.');
     const period = await resolvePeriod(input);
-    const assigned = rows(await database.query('SELECT id FROM subject_class_assignments WHERE school_id=? AND subject_id=? AND class_id=? AND active=1 AND (academic_year_id IS NULL OR academic_year_id=?) LIMIT 1', [schoolId, text(input.subjectId), classId, period.yearId]))[0];
-    if (!assigned) return [];
+    if (!await subjectAssigned({ classId, subjectId: input.subjectId, academicYearId: period.yearId }, actor)) return [];
     const result = await database.query(`SELECT s.id AS studentId,s.permanent_student_id AS permanentStudentId,s.first_name AS firstName,s.middle_name AS middleName,s.last_name AS surname,
       e.class_id AS classId,r.ca_score AS caScore,r.examination_score AS examScore,r.total_score AS totalScore,r.grade,r.id AS scoreId
       FROM student_enrollments e JOIN students s ON s.id=e.student_id
@@ -155,8 +173,7 @@ export function createDurableAcademicService({ database, schoolId, idFactory = r
     const period = await resolvePeriod(input);
     const enrolled = rows(await database.query('SELECT e.student_id,s.permanent_student_id,c.name AS className FROM student_enrollments e JOIN students s ON s.id=e.student_id JOIN classes c ON c.id=e.class_id WHERE e.school_id=? AND e.student_id=? AND e.class_id=? AND e.academic_year_id=? AND COALESCE(e.enrollment_status,"ACTIVE")="ACTIVE" AND COALESCE(e.is_current,1)=1 LIMIT 1', [schoolId, studentId, classId, period.yearId]))[0];
     if (!enrolled) fail('Student is not enrolled in the selected class and academic year.', 400);
-    const assigned = rows(await database.query('SELECT id FROM subject_class_assignments WHERE school_id=? AND subject_id=? AND class_id=? AND active=1 AND (academic_year_id IS NULL OR academic_year_id=?) LIMIT 1', [schoolId, subjectId, classId, period.yearId]))[0];
-    if (!assigned) fail('Subject is not assigned to the selected class.', 400);
+    if (!await subjectAssigned({ classId, subjectId, academicYearId: period.yearId }, actor)) fail('Subject is not assigned to the selected class.', 400);
     const totalScore = caScore + examScore;
     const [grade, remark] = gradeForTotal(totalScore, { classId: enrolled.className, examination: 'TERMINAL' });
     const existing = rows(await database.query('SELECT id FROM academic_score_records WHERE school_id=? AND record_type="TERMINAL" AND mock_label IS NULL AND academic_year_id=? AND term_id=? AND class_id=? AND student_id IN (SELECT sp.id FROM student_profiles sp WHERE sp.student_master_id=? OR sp.student_id=?) AND subject_id=? LIMIT 1', [schoolId, period.yearId, period.termId, classId, studentId, enrolled.permanent_student_id, subjectId]))[0];
