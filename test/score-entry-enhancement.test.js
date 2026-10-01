@@ -13,13 +13,13 @@ const actor = { id: 'teacher-score', roleKey: 'TEACHER', schoolId, assignedClass
 test('score persistence recomputes total and rejects out-of-range CA or Exam values', () => {
   const students = createStudentService({ schoolId }); const student = students.createStudent({ firstName: 'Ama', surname: 'Score', classId: 'Primary 1', admissionYearId: '2026' }); const subjects = createSubjectService(); const subject = subjects.list({}, actor)[0]; const results = createAcademicResultsService({ schoolId, students, subjects, classes: ['Primary 1'] });
   const saved = results.saveScore({ studentId: student.id, classId: 'Primary 1', subjectId: subject.id, academicYear: '2026/2027', term: 'First Term', caScore: 45, examScore: 35, totalScore: 999 }, actor);
-  assert.equal(saved.totalScore, 80); assert.equal(saved.grade, 'A'); assert.throws(() => results.saveScore({ studentId: student.id, classId: 'Primary 1', subjectId: subject.id, academicYear: '2026/2027', term: 'First Term', caScore: 51, examScore: 0 }, actor), /between 0 and 50/);
+  assert.equal(saved.totalScore, 80); assert.equal(saved.grade, 1); assert.throws(() => results.saveScore({ studentId: student.id, classId: 'Primary 1', subjectId: subject.id, academicYear: '2026/2027', term: 'First Term', caScore: 51, examScore: 0 }, actor), /between 0 and 50/);
 });
 
 test('JHS terminal grading uses the single authoritative 1–9 scale', () => {
-  assert.deepEqual(gradeForTotal(80, { classId: 'JHS 1', examination: 'TERMINAL' }), [1, 'HIGHEST']);
-  assert.deepEqual(gradeForTotal(55, { classId: 'JHS 1', examination: 'TERMINAL' }), [4, 'HIGH AVERAGE']);
-  assert.deepEqual(gradeForTotal(34, { classId: 'JHS 1', examination: 'TERMINAL' }), [9, 'LOWEST']);
+  assert.deepEqual(gradeForTotal(80, { classId: 'JHS 1', examination: 'TERMINAL' }), [1, 'EXCELLENT / HIGHEST']);
+  assert.deepEqual(gradeForTotal(55, { classId: 'JHS 1', examination: 'TERMINAL' }), [4, 'CREDIT / HIGH AVERAGE']);
+  assert.deepEqual(gradeForTotal(34, { classId: 'JHS 1', examination: 'TERMINAL' }), [8, 'PASS / LOWER']);
 });
 
 test('sample generation seeds deterministic scores for every sample student in a configured class', () => {

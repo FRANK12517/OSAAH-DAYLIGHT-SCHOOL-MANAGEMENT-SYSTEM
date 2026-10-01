@@ -5,7 +5,7 @@ import { calculateAggregate, calculateStudentResult, calculateClassPositions } f
 import { gradeForTotal } from '../src/grading.js';
 
 test('JHS grade boundaries use the authoritative scale', () => {
-  const expected = [[100,1],[80,1],[79,2],[70,2],[69,3],[60,3],[59,4],[55,4],[54,5],[50,5],[49,6],[45,6],[44,7],[40,7],[39,8],[35,8],[34,9],[0,9]];
+  const expected = [[100,1],[80,1],[79,2],[70,2],[69,3],[60,3],[59,4],[55,4],[54,4],[50,4],[49,5],[45,5],[44,6],[40,6],[39,7],[35,7],[34,8],[25,8],[24,9],[0,9]];
   for (const [mark, grade] of expected) assert.equal(gradeForTotal(mark, { classId: 'JHS 1', examination: 'TERMINAL' })[0], grade);
 });
 
@@ -15,7 +15,7 @@ test('JHS aggregate includes Core Four and best two eligible electives', () => {
     ['RME', 1], ['Fantse', 2], ['Creative Arts', 4], ['Computing', 1],
   ].map(([subjectName, grade]) => ({ subjectId: subjectName, subjectName, grade, totalScore: 90 }));
   const result = calculateAggregate(rows, { classId: 'JHS 2' });
-  assert.equal(result.aggregate, 10); assert.deepEqual(result.aggregateSubjects.map((row) => row.subjectName), ['English Language', 'Mathematics', 'Science', 'Social Studies', 'RME', 'Fantse']);
+  assert.equal(result.aggregate, 9); assert.deepEqual(result.aggregateSubjects.map((row) => row.subjectName), ['English Language', 'Mathematics', 'Science', 'Social Studies', 'RME', 'Computing']);
 });
 
 test('KG has no aggregate and ranks by raw total score', () => {
