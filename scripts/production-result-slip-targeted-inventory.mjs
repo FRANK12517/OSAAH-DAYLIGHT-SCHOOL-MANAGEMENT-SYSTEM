@@ -3,9 +3,10 @@ import { pathToFileURL } from 'node:url';
 
 export const EXPECTED_DATABASE = 'osaahdaylightschool';
 
-// Bounded to tables directly changed by migrations 049/054 or needed to verify
-// the Result Slip student and subject-mapping contracts.
+// Bounded to tables directly used by the current Score Entry/Result Slip
+// writer, the forward canonical score migration, or their identity mappings.
 export const TARGET_TABLES = Object.freeze([
+  'academic_score_records', 'canonical_academic_scores', 'result_signatures',
   'student_attendance', 'staff_attendance', 'staff_leave',
   'attendance_audit_history', 'staff_attendance_reconciliation_audit',
   'fee_obligations', 'fee_collection_records', 'fee_collection_corrections',

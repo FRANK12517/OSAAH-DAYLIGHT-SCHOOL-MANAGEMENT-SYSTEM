@@ -19,8 +19,8 @@ export const PROPRIETOR_SIDEBAR_ROUTES = Object.freeze([
   })[item.moduleKey] ?? item.page })),
   ...group('ACADEMICS', '/subjects.html', [
     ['academics', 'Academics', '/academics'], ['attendance-dashboard', 'Attendance Dashboard', '/attendance'],
-    ['examinations', 'Examinations', '/examinations'], ['sporting-activities', 'Sporting Activities', '/sporting-activities'],
-    ['student-attendance', 'Student Attendance', '/attendance/students'], ['marks-entry', 'Marks Entry', '/examinations/marks'],
+    ['examinations', 'Score Entry', '/examinations'], ['sporting-activities', 'Sporting Activities', '/sporting-activities'],
+    ['student-attendance', 'Student Attendance', '/attendance/students'],
     ['staff-attendance', 'Staff Attendance', '/attendance/staff'], ['results', 'Results & Reports', '/results'],
     ['attendance-reports', 'Attendance Reports', '/attendance/reports'], ['promotion', 'Promotion', '/promotion'],
     ['mock-score-entry', 'Mock Score Entry', '/examinations/mock'], ['subject-management', 'Subject Management', '/academics/subjects'],
