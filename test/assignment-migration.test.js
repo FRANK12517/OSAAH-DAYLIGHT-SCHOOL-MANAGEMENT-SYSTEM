@@ -13,7 +13,7 @@ test('assignment migration is discovered as additive migration 062', async () =>
   const current = migrations.find((item) => item.version === 62);
   assert.ok(current);
   assert.equal(current.name, '062_assignments.sql');
-  assert.equal(migrations.at(-1).version, 62);
+  assert.equal(migrations.find((item) => item.version === 62)?.name, '062_assignments.sql');
   assert.match(current.checksum, /^[a-f0-9]{64}$/);
 });
 

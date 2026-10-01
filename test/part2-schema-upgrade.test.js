@@ -43,7 +43,7 @@ test('Part 2 prepares the canonical staff role identifiers without hard-coding u
 
 test('migration inventory remains uniquely versioned after the terms uniqueness contract', async () => {
   const migrations = await discoverMigrations(new URL('../schema', import.meta.url));
-  assert.equal(migrations.length, 61);
+  assert.equal(migrations.length, 62);
   assert.equal(new Set(migrations.map((item) => item.version)).size, migrations.length);
-  assert.equal(migrations.at(-1).name, '062_assignments.sql');
+  assert.equal(migrations.at(-1).name, '063_subject_classification.sql');
 });

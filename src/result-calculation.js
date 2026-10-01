@@ -8,7 +8,13 @@ const JHS_EXCLUDED = new Set(['computing', 'french']);
 const NON_SCORING = new Set(['physical education', 'pe']);
 const nameOf = (row) => String(row.subjectName ?? row.name ?? row.subjectId ?? '').trim().toLowerCase();
 const levelOf = (classId) => { const value = String(classId ?? '').toUpperCase(); if (value.startsWith('JHS')) return 'JHS'; if (value.startsWith('KG')) return 'KG'; if (/^(PRIMARY|BASIC)\s*[1-3]$/.test(value)) return 'LOWER_PRIMARY'; return value.startsWith('PRIMARY') || value.startsWith('BASIC') ? 'UPPER_PRIMARY' : 'OTHER'; };
-const scoring = (rows) => validSubjectRows(rows).filter((row) => !NON_SCORING.has(nameOf(row)));
+const scoring = (rows) => validSubjectRows(rows).filter((row) => {
+  const subjectType = String(row.subjectType ?? row.subject_type ?? '').trim().toUpperCase();
+  if (row.isScoring === false || Number(row.isScoring) === 0 || subjectType === 'NON_SCORING') return false;
+  // Legacy result rows predate subject metadata; preserve their behavior only
+  // when the canonical classification fields are absent.
+  return subjectType || row.isScoring !== undefined ? true : !NON_SCORING.has(nameOf(row));
+});
 const numericGrade = (row, classId, examination) => { const value = Number(row.grade); return Number.isFinite(value) ? value : Number(gradeForTotal(row.totalScore, { classId, examination })[0]); };
 
 export function calculateAggregate(rows, { classId = '', examination = 'TERMINAL' } = {}) {

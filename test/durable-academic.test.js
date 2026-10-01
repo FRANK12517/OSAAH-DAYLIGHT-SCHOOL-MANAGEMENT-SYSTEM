@@ -121,3 +121,28 @@ test('legacy class_subjects mapping remains an authoritative subject source when
   const service = createDurableAcademicService({ database, schoolId });
   assert.deepEqual(await service.listSubjects({ classId: 'class-basic-1' }, manager), [{ id: 'subject-math', code: 'MATH', name: 'Mathematics', departmentId: null, classId: 'class-basic-1' }]);
 });
+
+test('legacy class_subjects mapping is used when normalized assignments exist but contain no active rows', async () => {
+  const database = {
+    async query(sql) {
+      if (sql.includes('subject_class_assignments')) return [];
+      if (sql.includes('class_subjects')) return [{ id: 'subject-english', code: 'ENG', name: 'English Language', departmentId: null, classId: 'class-basic-1' }];
+      return [];
+    },
+    async execute() { return { affectedRows: 1 }; }
+  };
+  const service = createDurableAcademicService({ database, schoolId });
+  assert.deepEqual(await service.listSubjects({ classId: 'class-basic-1', academicYearId: 'year-2026' }, manager), [{ id: 'subject-english', code: 'ENG', name: 'English Language', departmentId: null, classId: 'class-basic-1' }]);
+});
+test('inactive normalized assignments do not leak back through legacy class_subjects rows', async () => {
+  const database = {
+    async query(sql) {
+      if (sql.includes('subject_class_assignments')) return [{ id: 'subject-math', code: 'MATH', name: 'Mathematics', departmentId: null, classId: 'class-basic-1', assignmentActive: 0 }];
+      if (sql.includes('class_subjects')) return [{ id: 'subject-math', code: 'MATH', name: 'Mathematics', departmentId: null, classId: 'class-basic-1' }];
+      return [];
+    },
+    async execute() { return { affectedRows: 1 }; }
+  };
+  const service = createDurableAcademicService({ database, schoolId });
+  assert.deepEqual(await service.listSubjects({ classId: 'class-basic-1' }, manager), []);
+});

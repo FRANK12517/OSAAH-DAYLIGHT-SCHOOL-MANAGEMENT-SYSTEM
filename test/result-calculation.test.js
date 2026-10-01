@@ -24,6 +24,15 @@ test('KG has no aggregate and ranks by raw total score', () => {
   assert.equal(positions.get('a'), '1st'); assert.equal(positions.get('c'), '3rd');
 });
 
+test('canonical subject metadata excludes non-scoring subjects without relying on display names', () => {
+  const result = calculateStudentResult([
+    { subjectId: 'sports', subjectName: 'Sports and Wellness', subjectType: 'NON_SCORING', isScoring: 0, totalScore: 100 },
+    { subjectId: 'english', subjectName: 'English Language', subjectType: 'CORE', isScoring: 1, totalScore: 80 }
+  ], { classId: 'Primary 4' });
+  assert.equal(result.subjectsSat, 1);
+  assert.equal(result.totalScore, 80);
+});
+
 test('JHS class position ranks by lower aggregate, then higher selected-six total', () => {
   const positions = calculateClassPositions([{ studentId: 'a', aggregate: 10, aggregateTotal: 500, aggregateCoreGradeSum: 7, totalScore: 600 }, { studentId: 'b', aggregate: 10, aggregateTotal: 490, aggregateCoreGradeSum: 7, totalScore: 610 }, { studentId: 'c', aggregate: 12, aggregateTotal: 600, aggregateCoreGradeSum: 8, totalScore: 700 }], { classId: 'JHS 1' });
   assert.equal(positions.get('a'), '1st'); assert.equal(positions.get('b'), '2nd'); assert.equal(positions.get('c'), '3rd');
