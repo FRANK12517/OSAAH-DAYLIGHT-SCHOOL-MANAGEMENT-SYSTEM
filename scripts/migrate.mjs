@@ -9,6 +9,11 @@ async function main() {
   const modulePath = process.env.OSAAH_DATABASE_ADAPTER_MODULE || (process.env.DATABASE_URL ? resolve(process.cwd(), 'src/ai/tidb-database-adapter.js') : null);
   if (!modulePath) throw Object.assign(new Error('A durable production database adapter module is required.'), { code: 'DATABASE_ADAPTER_REQUIRED' });
   const loaded = await import(pathToFileURL(resolve(modulePath))); const adapter = await loaded.createDatabaseAdapter?.({ environment: process.env });
-  const runner = createMigrationRunner({ adapter, directory, baselineRequired: Boolean(process.env.DATABASE_URL) }); return command === 'apply' ? runner.apply() : command === 'validate' ? runner.validate() : runner.status();
+  try {
+    const runner = createMigrationRunner({ adapter, directory, baselineRequired: Boolean(process.env.DATABASE_URL) });
+    return command === 'apply' ? runner.apply() : command === 'validate' ? runner.validate() : runner.status();
+  } finally {
+    await adapter?.close?.();
+  }
 }
 try { process.stdout.write(`${JSON.stringify(await main())}\n`); } catch (cause) { const payload = { error: cause.code ?? 'MIGRATION_COMMAND_FAILED', message: cause.code ? cause.message : 'Migration command failed safely.' }; if (cause.details) payload.details = cause.details; process.stderr.write(`${JSON.stringify(payload)}\n`); process.exitCode = 1; }
