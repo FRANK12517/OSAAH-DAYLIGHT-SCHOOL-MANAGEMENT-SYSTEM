@@ -5,6 +5,8 @@ const rows = (value) => Array.isArray(value) ? value : [];
 const text = (value) => String(value ?? '').trim();
 const fail = (message, status = 400, code = 'ACADEMIC_DATA_ERROR') => { throw Object.assign(new Error(message), { status, code }); };
 const schemaCompatibilityError = (error) => /unknown column|doesn'?t exist|no such table|table .* does not exist/i.test(String(error?.message ?? error));
+const MOCK_TYPES = Object.freeze(Array.from({ length: 10 }, (_, index) => `${index + 1}${index === 0 ? 'st' : index === 1 ? 'nd' : index === 2 ? 'rd' : 'th'} Mock`));
+const JHS_CLASSES = new Set(['JHS 1', 'JHS 2', 'JHS 3']);
 
 function authorized(actor, permission) {
   return actor?.permissions?.has?.('*') || actor?.permissions?.has?.(permission) || actor?.roleKey === 'PROPRIETOR';
@@ -46,7 +48,7 @@ export function createDurableAcademicService({ database, schoolId, idFactory = r
       }
     }
     const allowedClasses = rows(classes).filter((item) => !actor?.assignedClassIds?.length || actor.assignedClassIds.includes(item.id));
-    return { academicYears: rows(academicYears), terms: rows(terms), classes: allowedClasses };
+    return { academicYears: rows(academicYears), terms: rows(terms), classes: allowedClasses, mockTypes: [...MOCK_TYPES] };
   }
 
   async function listSubjects(filters = {}, actor) {
@@ -134,6 +136,12 @@ export function createDurableAcademicService({ database, schoolId, idFactory = r
     return { yearId: yearRow.id, yearName: yearRow.name, termId: termRow.id, termName: termRow.name };
   }
 
+  async function assertMockClass(classId) {
+    if (JHS_CLASSES.has(classId)) return;
+    const classRow = rows(await database.query('SELECT id,name FROM classes WHERE school_id=? AND id=? LIMIT 1', [schoolId, classId]))[0];
+    if (!JHS_CLASSES.has(text(classRow?.name))) fail('Mock examinations are available for JHS 1, JHS 2, and JHS 3 only.');
+  }
+
   async function roster(input = {}, actor) {
     assertActor(actor);
     if (!authorized(actor, 'marks.write') && !authorized(actor, 'results.read')) fail('Forbidden.', 403, 'ACADEMIC_PERMISSION_REQUIRED');
@@ -187,7 +195,48 @@ export function createDurableAcademicService({ database, schoolId, idFactory = r
     return { id: scoreId, schoolId, studentId, permanentStudentId: enrolled.permanent_student_id, classId, subjectId, academicYear: period.yearName, term: period.termName, caScore, examScore, totalScore, grade, remark, saved: true };
   }
 
-  return Object.freeze({ options, listSubjects, listAssignments, assignSubject, roster, resultStudents, saveScore, resolvePeriod });
+  async function mockRoster(input = {}, actor) {
+    assertActor(actor);
+    if (!authorized(actor, 'mock.scores.read') && !authorized(actor, 'mock.scores.write')) fail('Forbidden.', 403, 'ACADEMIC_PERMISSION_REQUIRED');
+    const classId = text(input.classId), subjectId = text(input.subjectId), mockLabel = text(input.mockLabel);
+    await assertMockClass(classId);
+    if (!subjectId || !MOCK_TYPES.includes(mockLabel)) fail('Class, subject, and Mock Examination are required.');
+    const period = await resolvePeriod(input);
+    if (!await subjectAssigned({ classId, subjectId, academicYearId: period.yearId }, actor)) return [];
+    const result = await database.query(`SELECT s.id AS studentId,s.permanent_student_id AS permanentStudentId,s.first_name AS firstName,s.middle_name AS middleName,s.last_name AS surname,
+      r.total_score AS totalScore,r.grade,r.id AS scoreId
+      FROM student_enrollments e JOIN students s ON s.id=e.student_id
+      LEFT JOIN academic_score_records r ON r.school_id=e.school_id AND r.student_id IN (SELECT sp.id FROM student_profiles sp WHERE sp.student_master_id=s.id OR sp.student_id=s.permanent_student_id) AND r.subject_id=? AND r.class_id=e.class_id AND r.academic_year_id=? AND r.term_id=? AND r.record_type='MOCK' AND r.mock_label=?
+      WHERE e.school_id=? AND e.class_id=? AND e.academic_year_id=? AND COALESCE(e.enrollment_status,'ACTIVE')='ACTIVE' AND COALESCE(e.is_current,1)=1 AND s.school_id=? AND COALESCE(s.student_status,'ACTIVE')='ACTIVE' AND COALESCE(s.is_test_record,0)=0
+      ORDER BY s.last_name,s.first_name,s.id`, [subjectId, period.yearId, period.termId, mockLabel, schoolId, classId, period.yearId, schoolId]);
+    return rows(result).map((item) => ({ studentId: item.studentId, permanentStudentId: item.permanentStudentId, studentName: [item.firstName, item.middleName, item.surname].filter(Boolean).join(' '), classId, subjectId, totalScore: item.totalScore == null ? null : Number(item.totalScore), grade: item.grade ?? null, saved: Boolean(item.scoreId) }));
+  }
+
+  async function saveMockScore(input = {}, actor) {
+    assertActor(actor, 'mock.scores.write');
+    const classId = text(input.classId), subjectId = text(input.subjectId), studentId = text(input.studentId), mockLabel = text(input.mockLabel);
+    const totalScore = Number(input.totalScore);
+    if (!classId || !subjectId || !studentId || !MOCK_TYPES.includes(mockLabel)) fail('Student, class, subject, Mock Examination, and Total Score are required.');
+    await assertMockClass(classId);
+    if (input.caScore !== undefined || input.examScore !== undefined) fail('Mock scores accept Total Score / 100 only.');
+    if (!Number.isFinite(totalScore) || totalScore < 0 || totalScore > 100) fail('Score must be between 0 and 100.');
+    const period = await resolvePeriod(input);
+    const enrolled = rows(await database.query('SELECT e.student_id,s.permanent_student_id,c.name AS className FROM student_enrollments e JOIN students s ON s.id=e.student_id JOIN classes c ON c.id=e.class_id WHERE e.school_id=? AND e.student_id=? AND e.class_id=? AND e.academic_year_id=? AND COALESCE(e.enrollment_status,"ACTIVE")="ACTIVE" AND COALESCE(e.is_current,1)=1 LIMIT 1', [schoolId, studentId, classId, period.yearId]))[0];
+    if (!enrolled) fail('Student is not enrolled in the selected class and academic year.', 400);
+    if (!await subjectAssigned({ classId, subjectId, academicYearId: period.yearId }, actor)) fail('Subject is not assigned to the selected class.', 400);
+    const [grade, remark] = gradeForTotal(totalScore, { classId: enrolled.className, examination: 'MOCK' });
+    const existing = rows(await database.query('SELECT id FROM academic_score_records WHERE school_id=? AND record_type="MOCK" AND mock_label=? AND academic_year_id=? AND term_id=? AND class_id=? AND student_id IN (SELECT sp.id FROM student_profiles sp WHERE sp.student_master_id=? OR sp.student_id=?) AND subject_id=? LIMIT 1', [schoolId, mockLabel, period.yearId, period.termId, classId, studentId, enrolled.permanent_student_id, subjectId]))[0];
+    const scoreId = existing?.id ?? idFactory();
+    if (existing) await database.execute('UPDATE academic_score_records SET ca_score=0,ca_max=0,examination_score=?,examination_max=100,total_score=?,grade=?,remark=?,entered_by=?,updated_at=? WHERE id=? AND school_id=?', [totalScore, totalScore, grade, remark, actor.id, clock(), scoreId, schoolId]);
+    else {
+      const profile = rows(await database.query('SELECT id FROM student_profiles WHERE school_id=? AND (student_master_id=? OR student_id=?) LIMIT 1', [schoolId, studentId, enrolled.permanent_student_id]))[0];
+      if (!profile) fail('Student profile is unavailable for score persistence.', 409);
+      await database.execute('INSERT INTO academic_score_records (id,school_id,record_type,mock_label,academic_year_id,term_id,class_id,student_id,subject_id,ca_score,ca_max,examination_score,examination_max,total_score,grade,remark,entered_by,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [scoreId, schoolId, 'MOCK', mockLabel, period.yearId, period.termId, classId, profile.id, subjectId, 0, 0, totalScore, 100, totalScore, grade, remark, actor.id, clock()]);
+    }
+    return { id: scoreId, schoolId, studentId, permanentStudentId: enrolled.permanent_student_id, classId, subjectId, mockLabel, academicYear: period.yearName, term: period.termName, caScore: null, examScore: null, totalScore, grade, remark, saved: true };
+  }
+
+  return Object.freeze({ options, listSubjects, listAssignments, assignSubject, roster, resultStudents, saveScore, mockRoster, saveMockScore, resolvePeriod });
 }
 
 export default createDurableAcademicService;
