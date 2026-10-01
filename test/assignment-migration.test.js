@@ -37,6 +37,8 @@ test('assignment production migration is manual, exact-SHA, read-only by default
   assert.match(workflow, /DRY_RUN_ONLY/);
   assert.match(workflow, /APPLY_ASSIGNMENTS_062/);
   assert.match(workflow, /merge-base --is-ancestor/);
+  assert.match(workflow, /run: \|\n\s+\[\[ "\$RELEASE_REF" =~ \^\[0-9a-f\]\{40\}\$ \]\]/);
+  assert.doesNotMatch(workflow, /run:\s+\[\[/);
   assert.match(workflow, /production-assignment-migration\.mjs dry-run/);
   assert.match(workflow, /inputs\.execution_token == 'APPLY_ASSIGNMENTS_062'/);
   assert.doesNotMatch(workflow, /059|060|061/);
