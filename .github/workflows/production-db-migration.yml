@@ -51,4 +51,6 @@ jobs:
         run: node scripts/production-admission-migrate.mjs
 
       - name: Run complete repository test suite
+        env:
+          DATABASE_URL: ''
         run: npm test
