@@ -1,0 +1,93 @@
+name: Production terms uniqueness migration
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_sha:
+        description: Exact reviewed main SHA containing migration 060
+        required: true
+        type: string
+      mode:
+        description: Read-only duplicate preflight or approved migration apply
+        required: true
+        default: dry-run
+        type: choice
+        options:
+          - dry-run
+          - apply
+      confirmation:
+        description: Type APPLY_TERMS_UNIQUENESS_060 only for apply mode
+        required: true
+        default: DRY_RUN_ONLY
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-terms-uniqueness-migration
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    name: Preflight and apply only migration 060
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      RELEASE_SHA: ${{ inputs.release_sha }}
+      MODE: ${{ inputs.mode }}
+      CONFIRMATION: ${{ inputs.confirmation }}
+    steps:
+      - name: Validate immutable execution inputs
+        shell: bash
+        run: |
+          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "release_sha must be a full lowercase 40-character commit SHA."; exit 1; }
+          if [ "$MODE" != "dry-run" ] && [ "$MODE" != "apply" ]; then
+            echo "mode must be dry-run or apply."
+            exit 1
+          fi
+          if [ "$MODE" = "apply" ] && [ "$CONFIRMATION" != "APPLY_TERMS_UNIQUENESS_060" ]; then
+            echo "Apply confirmation phrase did not match."
+            exit 1
+          fi
+          if [ "$MODE" = "dry-run" ] && [ "$CONFIRMATION" != "DRY_RUN_ONLY" ]; then
+            echo "Dry-run confirmation must be DRY_RUN_ONLY."
+            exit 1
+          fi
+          test -n "${DATABASE_URL:-}" || { echo "Protected DATABASE_URL is unavailable."; exit 1; }
+
+      - name: Check out exact reviewed release
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_sha }}
+          fetch-depth: 0
+
+      - name: Verify release is on protected main
+        shell: bash
+        run: |
+          resolved="$(git rev-parse --verify HEAD^{commit})"
+          test "$resolved" = "$RELEASE_SHA" || { echo "Checked-out commit does not match release_sha."; exit 1; }
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$RELEASE_SHA" origin/main || { echo "release_sha is not contained in protected main."; exit 1; }
+          printf 'Verified reviewed release SHA: %s\n' "$resolved"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Validate migration and focused regressions
+        run: |
+          npm run migration:validate
+          node --test test/terms-uniqueness-migration.test.js test/production-three-term-config.test.js test/production-three-term-inventory.test.js test/sample-academic-context.test.js test/parent-dashboard.test.js
+
+      - name: ${{ inputs.mode == 'dry-run' && 'Run read-only duplicate and column preflight' || 'Apply only migration 060 and verify' }}
+        shell: bash
+        run: node scripts/production-terms-uniqueness-migrate.mjs "$MODE"

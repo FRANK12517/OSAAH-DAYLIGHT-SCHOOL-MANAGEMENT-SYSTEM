@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { inspectProductionTerms } from '../scripts/production-three-term-inventory.mjs';
 
 const expected = [
-  { id: 'term_2026_01', academicYearId: 'ay_2026_01', name: 'First Term', startsOn: '2026-09-01', endsOn: '2026-12-18', isCurrent: 1 },
-  { id: 'term_2026_02', academicYearId: 'ay_2026_01', name: 'Second Term', startsOn: '2027-01-11', endsOn: '2027-04-09', isCurrent: 0 },
-  { id: 'term_2026_03', academicYearId: 'ay_2026_01', name: 'Third Term', startsOn: '2027-05-03', endsOn: '2027-07-23', isCurrent: 0 }
+  { id: 'term_2026_01', schoolId: 'sch_default_01', academicYearId: 'ay_2026_01', termNumber: 1, name: 'First Term', startsOn: '2026-09-01', endsOn: '2026-12-18', isCurrent: 1 },
+  { id: 'term_2026_02', schoolId: 'sch_default_01', academicYearId: 'ay_2026_01', termNumber: 2, name: 'Second Term', startsOn: '2027-01-11', endsOn: '2027-04-09', isCurrent: 0 },
+  { id: 'term_2026_03', schoolId: 'sch_default_01', academicYearId: 'ay_2026_01', termNumber: 3, name: 'Third Term', startsOn: '2027-05-03', endsOn: '2027-07-23', isCurrent: 0 }
 ];
 const indexRows = [
   { TABLE_SCHEMA: 'osaahdaylightschool', TABLE_NAME: 'terms', INDEX_NAME: 'PRIMARY', NON_UNIQUE: 0, SEQ_IN_INDEX: 1, COLUMN_NAME: 'academic_year_id', SUB_PART: null },
@@ -35,6 +35,7 @@ test('read-only inventory reports ordered TiDB index rows and certifies the sema
   assert.equal(result.checks.expectedDatabase, true);
   assert.equal(result.checks.exactApprovedConfiguration, true);
   assert.equal(result.checks.exactlyThreeRows, true);
+  assert.equal(result.checks.correctTermNumbers, true);
   assert.equal(result.checks.duplicateNames, true);
   assert.equal(result.checks.duplicateIds, true);
   assert.equal(result.checks.uniqueness, true);
@@ -66,6 +67,7 @@ test('inventory marks a non-unique index as insufficient without hiding its meta
   const result = await inspectProductionTerms({ databaseUrl: 'protected', poolFactory: nonUniquePool });
   assert.equal(result.ok, true);
   assert.equal(result.checks.uniqueness, false);
+  assert.equal(result.checks.correctTermNumbers, true);
   assert.equal(result.uniqueness.academicYearName, false);
   assert.equal(result.indexes[0].nonUnique, 1);
 });

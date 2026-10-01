@@ -7,9 +7,9 @@ import {
   THREE_TERM_CONFIGURATION
 } from '../src/production-three-term-config.js';
 
-const firstTerm = { id: 'term_2026_01', academicYearId: 'ay_2026_01', name: 'First Term', startsOn: '2026-09-01', endsOn: '2026-12-18', isCurrent: 1 };
-const secondTerm = { id: 'term_2026_02', academicYearId: 'ay_2026_01', name: 'Second Term', startsOn: '2027-01-11', endsOn: '2027-04-09', isCurrent: 0 };
-const thirdTerm = { id: 'term_2026_03', academicYearId: 'ay_2026_01', name: 'Third Term', startsOn: '2027-05-03', endsOn: '2027-07-23', isCurrent: 0 };
+const firstTerm = { id: 'term_2026_01', schoolId: 'sch_default_01', academicYearId: 'ay_2026_01', termNumber: 1, name: 'First Term', startsOn: '2026-09-01', endsOn: '2026-12-18', isCurrent: 1 };
+const secondTerm = { id: 'term_2026_02', schoolId: 'sch_default_01', academicYearId: 'ay_2026_01', termNumber: 2, name: 'Second Term', startsOn: '2027-01-11', endsOn: '2027-04-09', isCurrent: 0 };
+const thirdTerm = { id: 'term_2026_03', schoolId: 'sch_default_01', academicYearId: 'ay_2026_01', termNumber: 3, name: 'Third Term', startsOn: '2027-05-03', endsOn: '2027-07-23', isCurrent: 0 };
 const uniqueIndexRows = [
   { tableSchema: 'osaahdaylightschool', tableName: 'terms', indexName: 'terms_year_term_name_unique', nonUnique: 0, seqInIndex: 1, columnName: 'academic_year_id', subPart: null },
   { tableSchema: 'osaahdaylightschool', tableName: 'terms', indexName: 'terms_year_term_name_unique', nonUnique: 0, seqInIndex: 2, columnName: 'name', subPart: null }
@@ -27,9 +27,11 @@ function database({ terms = [firstTerm], indexRows = uniqueIndexRows } = {}) {
   };
   const execute = async (sql, params) => {
     assert.match(sql, /INSERT INTO terms/);
+    assert.match(sql, /id,school_id,academic_year_id,name,term_number,starts_on,ends_on,is_current,created_at/);
+    assert.doesNotMatch(sql, /updated_at/i);
     state.writes += 1;
-    const [id, academicYearId, name, startsOn, endsOn, isCurrent, createdAt, updatedAt] = params;
-    state.terms.push({ id, academicYearId, name, startsOn, endsOn, isCurrent, createdAt, updatedAt });
+    const [id, schoolId, academicYearId, name, termNumber, startsOn, endsOn, isCurrent, createdAt] = params;
+    state.terms.push({ id, schoolId, academicYearId, name, termNumber, startsOn, endsOn, isCurrent, createdAt });
     return { affectedRows: 1 };
   };
   return {
@@ -137,6 +139,18 @@ test('equivalent duplicate desired-term name fails before any write', async () =
   assert.equal(db.state.writes, 0);
 });
 
+test('legacy ordinal aliases are treated as equivalent conflicts and never silently duplicated', async () => {
+  const db = database({ terms: [{ ...firstTerm, name: '1st Term' }] });
+  await assert.rejects(() => configureThreeTerms(db, { databaseName: 'osaahdaylightschool' }), (error) => error.code === 'THREE_TERM_PREFLIGHT_FAILED' && (error.details.failed.includes('firstTerm') || error.details.failed.includes('noEquivalentDuplicateNames')));
+  assert.equal(db.state.writes, 0);
+});
+
+test('duplicate production term_number conflicts fail before any write', async () => {
+  const db = database({ terms: [firstTerm, { ...secondTerm, termNumber: 1, name: 'Midterm' }] });
+  await assert.rejects(() => configureThreeTerms(db, { databaseName: 'osaahdaylightschool' }), (error) => error.code === 'THREE_TERM_PREFLIGHT_FAILED' && error.details.failed.includes('noDuplicateTermNumbers'));
+  assert.equal(db.state.writes, 0);
+});
+
 test('target ID owned by another academic year fails before any write', async () => {
   const db = database({ terms: [firstTerm, { ...secondTerm, academicYearId: 'ay_other' }] });
   await assert.rejects(() => configureThreeTerms(db, { databaseName: 'osaahdaylightschool' }), (error) => error.code === 'THREE_TERM_PREFLIGHT_FAILED' && error.details.failed.includes('targetIdsAvailableOrOwned'));
@@ -176,7 +190,7 @@ test('apply creates missing Second and Third terms using approved dates', async 
   assert.equal(db.state.writes, 2);
   assert.deepEqual(db.state.terms.map(({ id, name, startsOn, endsOn }) => ({ id, name, startsOn, endsOn })), [firstTerm, secondTerm, thirdTerm].map(({ id, name, startsOn, endsOn }) => ({ id, name, startsOn, endsOn })));
   assert.equal(result.after.desiredState.configurationComplete, true);
-  assert.deepEqual(THREE_TERM_CONFIGURATION.secondTerm, { id: 'term_2026_02', name: 'Second Term', startsOn: '2027-01-11', endsOn: '2027-04-09' });
+  assert.deepEqual(THREE_TERM_CONFIGURATION.secondTerm, { id: 'term_2026_02', termNumber: 2, name: 'Second Term', startsOn: '2027-01-11', endsOn: '2027-04-09' });
 });
 
 test('reapplying is idempotent and writes no duplicates', async () => {
