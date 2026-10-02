@@ -1,97 +1,38 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Attendance Overview | OsaaH Daylight</title>
-  <link rel="stylesheet" href="/styles.css">
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Attendance Overview | OsaaH Daylight</title><link rel="stylesheet" href="/styles.css">
   <style>
-    .overview-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;margin:1.25rem 0}
-    .overview-card{padding:1rem;border:1px solid #d9e0e7;border-radius:.5rem;background:#fff}
-    .overview-card h3{margin:0 0 .4rem;font-size:1rem}
-    .overview-card p{margin:0;color:#526273}
-    .overview-section{margin:1.25rem 0;padding:1.1rem;border:1px solid #d9e0e7;border-radius:.5rem;background:#fff}
-    .overview-section h2{margin-top:0}
-    .overview-filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;align-items:end}
-    .overview-filters label{display:flex;flex-direction:column;gap:.35rem}
-    .state{color:#526273;margin:.4rem 0 0}
-    .state.error{color:#8c1d1d}
-    .section-heading{display:flex;justify-content:space-between;gap:1rem;align-items:baseline;flex-wrap:wrap}
+    .overview-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;margin:1.25rem 0}.overview-card{padding:1rem;border:1px solid #d9e0e7;border-radius:.5rem;background:#fff}.overview-card h3{margin:0 0 .4rem;font-size:1rem}.overview-card p{margin:0;color:#526273}.overview-section{margin:1.25rem 0;padding:1.1rem;border:1px solid #d9e0e7;border-radius:.5rem;background:#fff}.overview-section h2{margin-top:0}.overview-filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;align-items:end}.overview-filters label{display:flex;flex-direction:column;gap:.35rem}.state{color:#526273;margin:.4rem 0 0}.state.error{color:#8c1d1d}.section-heading{display:flex;justify-content:space-between;gap:1rem;align-items:baseline;flex-wrap:wrap}.table-wrap{overflow:auto}.table-wrap table{width:100%;border-collapse:collapse}.table-wrap th,.table-wrap td{padding:.6rem;border-bottom:1px solid #d9e0e7;text-align:left;white-space:nowrap}
   </style>
 </head>
 <body>
   <main class="form-page">
-    <a class="text-button" href="/">← Dashboard</a>
-    <p class="eyebrow">ATTENDANCE MANAGEMENT</p>
-    <h1>Attendance Overview</h1>
+    <a class="text-button" href="/">← Dashboard</a><p class="eyebrow">ATTENDANCE MANAGEMENT</p><h1>Attendance Overview</h1>
     <p class="muted">Historical attendance summaries and analytics for the school scope authorized to your account.</p>
-
     <section class="overview-section" aria-labelledby="filters-heading">
-      <div class="section-heading"><h2 id="filters-heading">Attendance Filters</h2><span class="muted">Part 1 navigation and reporting shell</span></div>
+      <div class="section-heading"><h2 id="filters-heading">Attendance Filters</h2><span class="muted">Server-generated statistics</span></div>
       <form id="overview-filters" class="overview-filters">
-        <label>Academic Year<select id="overview-academic-year"><option value="">All academic years</option></select></label>
+        <label>Academic Year<select id="overview-academic-year"><option value="">Current/available scope</option></select></label>
         <label>Term<select id="overview-term"><option value="">All terms</option></select></label>
-        <label>Class<select id="overview-class"><option value="">All classes</option><option value="Nursery 1">Nursery 1</option><option value="Nursery 2">Nursery 2</option><option value="KG1">KG 1</option><option value="KG2">KG 2</option><option value="Primary 1">Primary 1</option><option value="Primary 2">Primary 2</option><option value="Primary 3">Primary 3</option><option value="Primary 4">Primary 4</option><option value="Primary 5">Primary 5</option><option value="Primary 6">Primary 6</option><option value="JHS 1">JHS 1</option><option value="JHS 2">JHS 2</option><option value="JHS 3">JHS 3</option></select></label>
-        <label>Date<input id="overview-date" type="date"></label>
+        <label>Week<input id="overview-week" type="week"></label><label>Month<input id="overview-month" type="month"></label>
+        <label>Staff Role<input id="overview-role" type="text" placeholder="All roles"></label>
+        <label>Status<select id="overview-status-filter"><option value="">All statuses</option><option>PRESENT</option><option>ABSENT</option><option>LATE</option><option>ON_LEAVE</option><option>EXCUSED</option></select></label>
         <button class="primary-button" type="submit">Load Overview</button>
       </form>
       <p id="overview-status" class="state" role="status" aria-live="polite">Choose filters and load the authorized attendance overview.</p>
     </section>
-
-    <section class="overview-section" aria-labelledby="summary-heading">
-      <div class="section-heading"><h2 id="summary-heading">Attendance Summary</h2><span class="muted">Verified data only</span></div>
-      <div class="overview-grid" id="summary-cards">
-        <article class="overview-card"><h3>Student Attendance</h3><p>Unavailable until the historical aggregation service is loaded.</p></article>
-        <article class="overview-card"><h3>Staff Attendance</h3><p>Shown only when your existing staff attendance permission authorizes it.</p></article>
-        <article class="overview-card"><h3>Attendance Percentage</h3><p>Awaiting an authorized report response.</p></article>
-      </div>
-    </section>
-
-    <section class="overview-section" aria-labelledby="staff-heading"><h2 id="staff-heading">Staff Attendance Overview</h2><p id="staff-state" class="state">Historical staff summaries are unavailable in Part 1 and remain protected by the existing staff attendance authorization.</p></section>
-    <section class="overview-section" aria-labelledby="students-heading"><h2 id="students-heading">Student Attendance Overview</h2><p id="students-state" class="state">Historical student summaries are unavailable until the Part 2 aggregation service is connected.</p></section>
-    <section class="overview-section" aria-labelledby="analytics-heading"><h2 id="analytics-heading">Attendance Analytics</h2><p class="state">Trend and comparison analytics will be connected in Part 3. No production statistics are invented on this page.</p></section>
-    <section class="overview-section" aria-labelledby="reports-heading"><h2 id="reports-heading">Historical Attendance Reports</h2><p class="state">Historical report exports and detailed calculations will be connected in Parts 2 and 3.</p><p><a class="text-button" href="/attendance/reports">Open existing Attendance Reports</a></p></section>
+    <section class="overview-section" aria-labelledby="summary-heading"><div class="section-heading"><h2 id="summary-heading">Attendance Summary</h2><span class="muted">Verified data only</span></div><div class="overview-grid" id="summary-cards"><article class="overview-card"><h3>Staff Present</h3><p>—</p></article><article class="overview-card"><h3>Staff Absent</h3><p>—</p></article><article class="overview-card"><h3>Approved Leave</h3><p>—</p></article><article class="overview-card"><h3>Attendance Percentage</h3><p>—</p></article></div></section>
+    <section class="overview-section" aria-labelledby="staff-heading"><h2 id="staff-heading">STAFF ATTENDANCE OVERVIEW</h2><p id="staff-state" class="state">Loading is available to authorized staff attendance users only.</p><div class="table-wrap"><table><thead><tr><th>Staff/Teacher Name</th><th>Registered Phone Number</th><th>Staff Role</th><th>Present Week</th><th>Present Month</th><th>Absent Week</th><th>Absent Month</th><th>Present Term</th><th>Absent Term</th><th>Present Academic Year</th><th>Absent Academic Year</th><th>Approved Leave</th><th>Attendance Percentage</th></tr></thead><tbody id="staff-rows"><tr><td colspan="13">No report loaded.</td></tr></tbody></table></div></section>
+    <section class="overview-section" aria-labelledby="students-heading"><h2 id="students-heading">Student Attendance Overview</h2><p id="students-state" class="state">Historical student aggregation is unavailable pending Part 3. Today's Attendance remains available.</p></section>
+    <section class="overview-section" aria-labelledby="reports-heading"><h2 id="reports-heading">Historical Attendance Reports</h2><p class="state">Student historical report calculations remain unavailable until Part 3.</p><p><a class="text-button" href="/attendance/reports">Open existing Attendance Reports</a></p></section>
   </main>
-  <script>
-    const form = document.querySelector('#overview-filters');
-    const year = document.querySelector('#overview-academic-year');
-    const term = document.querySelector('#overview-term');
-    const date = document.querySelector('#overview-date');
-    const status = document.querySelector('#overview-status');
-    const studentsState = document.querySelector('#students-state');
-    const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[character]));
-    date.value = new Date().toISOString().slice(0, 10);
-    async function loadOptions() {
-      try {
-        const response = await fetch('/api/attendance/options', { credentials: 'same-origin', cache: 'no-store' });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Attendance options are unavailable.');
-        year.innerHTML += (data.academicYears || []).map((item) => `<option value="${esc(item.name ?? item.id)}">${esc(item.name ?? item.id)}</option>`).join('');
-        term.innerHTML += (data.terms || []).map((item) => `<option value="${esc(item.name ?? item.id)}">${esc(item.name ?? item.id)}</option>`).join('');
-      } catch (error) {
-        status.textContent = error.message;
-        status.classList.add('error');
-      }
-    }
-    form.addEventListener('submit', async (event) => {
-      event.preventDefault();
-      status.classList.remove('error');
-      status.textContent = 'Loading authorized attendance data…';
-      const query = new URLSearchParams(Object.fromEntries([['academicYear', year.value], ['term', term.value], ['classId', document.querySelector('#overview-class').value], ['date', date.value]].filter(([, value]) => value)));
-      try {
-        const response = await fetch(`/api/attendance/students?${query}`, { credentials: 'same-origin', cache: 'no-store' });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Attendance overview is unavailable.');
-        const total = Number(data.total || 0);
-        studentsState.textContent = total ? `${total} authorized student attendance record${total === 1 ? '' : 's'} returned. Detailed historical calculations remain scheduled for Part 2.` : 'No authorized student attendance records match these filters.';
-        status.textContent = 'Authorized student attendance data loaded. Staff, analytics, and report sections remain explicitly unavailable until their planned parts are deployed.';
-      } catch (error) {
-        studentsState.textContent = error.message;
-        status.textContent = error.message;
-        status.classList.add('error');
-      }
-    });
-    loadOptions();
-  </script>
-</body>
-</html>
+<script>
+const form=document.querySelector('#overview-filters'),year=document.querySelector('#overview-academic-year'),term=document.querySelector('#overview-term'),status=document.querySelector('#overview-status'),staffState=document.querySelector('#staff-state'),rows=document.querySelector('#staff-rows'),esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+async function loadOptions(){try{const r=await fetch('/api/attendance/options',{credentials:'same-origin',cache:'no-store'}),d=await r.json();if(!r.ok)throw Error(d.error||'Attendance options are unavailable.');year.innerHTML+=$(d.academicYears);term.innerHTML+=$(d.terms)}catch(e){status.textContent=e.message;status.classList.add('error')}}
+function $(items){return(items||[]).map(x=>`<option value="${esc(x.name??x.id)}">${esc(x.name??x.id)}</option>`).join('')}
+function cell(v){return esc(v??0)}
+function render(d){const s=d.summary||{};document.querySelector('#summary-cards').innerHTML=[['Staff Present',s.present],['Staff Absent',s.absent],['Approved Leave',s.leave],['Attendance Percentage',`${s.attendancePercentage??0}%`]].map(([h,v])=>`<article class="overview-card"><h3>${h}</h3><p>${cell(v)}</p></article>`).join('');rows.innerHTML=d.staff?.length?d.staff.map(x=>`<tr><td>${esc(x.staffName)}</td><td>${esc(x.registeredPhoneNumber||'Not recorded')}</td><td>${esc(x.staffRole)}</td><td>${cell(x.totalPresentInWeek)}</td><td>${cell(x.totalPresentInMonth)}</td><td>${cell(x.totalAbsentInWeek)}</td><td>${cell(x.totalAbsentInMonth)}</td><td>${cell(x.totalPresentInTerm)}</td><td>${cell(x.totalAbsentInTerm)}</td><td>${cell(x.totalPresentInAcademicYear)}</td><td>${cell(x.totalAbsentInAcademicYear)}</td><td>${cell(x.approvedLeave)}</td><td>${cell(x.attendancePercentage)}%</td></tr>`).join(''):'<tr><td colspan="13">No authorized staff records match these filters.</td></tr>';staffState.textContent=`${d.staff?.length||0} authorized staff record${d.staff?.length===1?'':'s'} loaded from ${d.source}. Missing or unmarked days are not counted as confirmed absences.`}
+form.addEventListener('submit',async e=>{e.preventDefault();status.classList.remove('error');status.textContent='Loading server-side attendance overview…';staffState.textContent='Loading…';rows.innerHTML='<tr><td colspan="13">Loading…</td></tr>';const q=new URLSearchParams(Object.entries({academicYear:year.value,term:term.value,week:document.querySelector('#overview-week').value,month:document.querySelector('#overview-month').value,role:document.querySelector('#overview-role').value,status:document.querySelector('#overview-status-filter').value}).filter(([,v])=>v));try{const r=await fetch(`/api/attendance/staff/overview?${q}`,{credentials:'same-origin',cache:'no-store'}),d=await r.json();if(r.status===401)throw Error('Your session has expired. Please sign in again.');if(!r.ok)throw Error(d.error||'Staff attendance overview is unavailable.');render(d);status.textContent='Authoritative staff attendance statistics loaded.'}catch(e){status.textContent=e.message;status.classList.add('error');staffState.textContent=e.message;rows.innerHTML='<tr><td colspan="13">No report available.</td></tr>'}});loadOptions();
+</script></body></html>
