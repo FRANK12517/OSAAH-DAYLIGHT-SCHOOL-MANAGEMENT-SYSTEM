@@ -1,5 +1,6 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { gradeForTotal } from './grading.js';
+import { canonicalAcademicClass, defaultSubjectForClass, defaultSubjectsForClass, DEFAULT_SUBJECT_CONFIGURATION_VERSION } from './default-subject-catalog.js';
 
 const rows = (value) => Array.isArray(value) ? value : [];
 const text = (value) => String(value ?? '').trim();
@@ -18,6 +19,21 @@ export function createDurableAcademicService({ database, schoolId, idFactory = r
   function assertActor(actor, permission = null) {
     if (!actor?.schoolId || actor.schoolId !== schoolId) fail('Forbidden.', 403, 'TENANT_SCOPE_VIOLATION');
     if (permission && !authorized(actor, permission)) fail('Forbidden.', 403, 'ACADEMIC_PERMISSION_REQUIRED');
+  }
+
+  function assertClassScope(classId, actor) {
+    if (!classId) fail('Class is required.');
+    if (actor?.assignedClassIds?.length && !actor.assignedClassIds.includes(classId)) fail('Class is outside your assignment.', 403, 'CLASS_SCOPE_DENIED');
+  }
+
+  async function classFor(classId) {
+    const item = rows(await database.query('SELECT id,name FROM classes WHERE school_id=? AND id=? LIMIT 1', [schoolId, classId]))[0];
+    if (!item) fail('Class not found.', 404, 'CLASS_NOT_FOUND');
+    return item;
+  }
+
+  function stableId(prefix, ...parts) {
+    return `${prefix}-${createHash('sha256').update(parts.join('\u001f')).digest('hex').slice(0, 32)}`;
   }
 
   async function options(actor) {
@@ -51,19 +67,166 @@ export function createDurableAcademicService({ database, schoolId, idFactory = r
     return { academicYears: rows(academicYears), terms: rows(terms), classes: allowedClasses, mockTypes: [...MOCK_TYPES] };
   }
 
+  function decorateSubject(subject, classId) {
+    const configured = defaultSubjectForClass(subject.className ?? classId, subject.name);
+    if (!configured) return subject;
+    return {
+      ...subject,
+      subjectType: configured?.subjectType ?? subject.subjectType ?? 'ELECTIVE',
+      isScoring: configured ? configured.isScoring : Number(subject.isScoring ?? 1) !== 0,
+      mandatory: Boolean(configured?.mandatory),
+      optional: Boolean(configured?.optional),
+      maximumMarks: configured?.maximumMarks ?? 100,
+      configurationVersion: configured?.configurationVersion ?? null,
+      assessmentComponents: configured?.assessmentComponents ?? []
+    };
+  }
+
+  async function configureDefaultSubjects(actor) {
+    assertActor(actor, 'subjects.manage');
+    const classes = rows(await database.query('SELECT c.id,c.name FROM classes c WHERE c.school_id=? ORDER BY c.id', [schoolId]));
+    let classesConfigured = 0, subjectsCreated = 0, assignmentsCreated = 0, mandatoryAssignmentsRestored = 0;
+    for (const classRow of classes) {
+      const classId = canonicalAcademicClass(classRow.name);
+      if (!classId || classId.startsWith('Nursery')) continue;
+      const defaults = defaultSubjectsForClass(classId);
+      if (!defaults.length) continue;
+      classesConfigured += 1;
+      for (const definition of defaults) {
+        let subject = rows(await database.query('SELECT id,code,name,subject_type AS subjectType,is_scoring AS isScoring,is_active AS isActive FROM subjects WHERE school_id=? AND LOWER(name)=LOWER(?) LIMIT 1', [schoolId, definition.name]))[0];
+        if (!subject) {
+          const codeStem = `CFG_${definition.name.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_|_$/g, '')}`.slice(0, 28);
+          let code = codeStem, suffix = 1;
+          while (rows(await database.query('SELECT id FROM subjects WHERE school_id=? AND code=? LIMIT 1', [schoolId, code])).length) {
+            suffix += 1;
+            code = `${codeStem.slice(0, 27 - String(suffix).length)}_${suffix}`;
+          }
+          const subjectId = stableId('default-subject', schoolId, definition.name.toLowerCase());
+          await database.execute('INSERT INTO subjects (id,school_id,department_id,code,name,subject_type,is_scoring,assessment_components_json,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE id=id', [subjectId, schoolId, null, code, definition.name, definition.subjectType, definition.isScoring ? 1 : 0, JSON.stringify(definition.assessmentComponents), clock(), clock()]);
+          subject = rows(await database.query('SELECT id,code,name,subject_type AS subjectType,is_scoring AS isScoring,is_active AS isActive FROM subjects WHERE school_id=? AND LOWER(name)=LOWER(?) LIMIT 1', [schoolId, definition.name]))[0];
+          if (!subject) fail(`Unable to create the configured subject ${definition.name}.`, 409, 'SUBJECT_CONFIGURATION_CONFLICT');
+          subjectsCreated += 1;
+        }
+        if (definition.mandatory && Number(subject.isActive ?? 1) === 0) await database.execute('UPDATE subjects SET is_active=1,updated_at=? WHERE id=? AND school_id=?', [clock(), subject.id, schoolId]);
+        if (definition.activeByDefault === false) continue;
+        const existing = rows(await database.query('SELECT id,active FROM subject_class_assignments WHERE school_id=? AND subject_id=? AND class_id=? AND academic_year_id IS NULL LIMIT 1', [schoolId, subject.id, classRow.id]))[0];
+        if (existing) {
+          const shouldRestore = definition.mandatory && Number(existing.active) === 0;
+          await database.execute('UPDATE subject_class_assignments SET active=?,configuration_version=?,updated_at=? WHERE id=? AND school_id=?', [shouldRestore ? 1 : existing.active, String(DEFAULT_SUBJECT_CONFIGURATION_VERSION), clock(), existing.id, schoolId]);
+          if (shouldRestore) mandatoryAssignmentsRestored += 1;
+          continue;
+        }
+        await database.execute('INSERT INTO subject_class_assignments (id,school_id,subject_id,class_id,academic_year_id,active,configuration_version,created_at,updated_at) VALUES (?,?,?,?,NULL,1,?,?,?) ON DUPLICATE KEY UPDATE id=id', [stableId('default-assignment', schoolId, classRow.id, subject.id), schoolId, subject.id, classRow.id, String(DEFAULT_SUBJECT_CONFIGURATION_VERSION), clock(), clock()]);
+        assignmentsCreated += 1;
+      }
+    }
+    return { schoolId, configurationVersion: DEFAULT_SUBJECT_CONFIGURATION_VERSION, classesConfigured, subjectsCreated, assignmentsCreated, mandatoryAssignmentsRestored, nurseryPreserved: true };
+  }
+
+  async function subjectCatalog(actor, { includeInactive = false } = {}) {
+    assertActor(actor);
+    const subjectRows = rows(await database.query('SELECT id,code,name,department_id AS departmentId,subject_type AS subjectType,is_scoring AS isScoring,is_active AS isActive,assessment_components_json AS assessmentComponentsJson FROM subjects WHERE school_id=? ORDER BY name,id', [schoolId]));
+    let assignmentRows = [];
+    try {
+      assignmentRows = rows(await database.query('SELECT a.subject_id AS subjectId,a.class_id AS classId,a.active,c.name AS className FROM subject_class_assignments a JOIN classes c ON c.id=a.class_id AND c.school_id=a.school_id WHERE a.school_id=? ORDER BY c.id', [schoolId]));
+    } catch (error) {
+      if (!schemaCompatibilityError(error)) throw error;
+      try {
+        assignmentRows = rows(await database.query('SELECT cs.subject_id AS subjectId,cs.class_id AS classId,c.name AS className,1 AS active FROM class_subjects cs JOIN classes c ON c.id=cs.class_id AND c.school_id=? WHERE c.school_id=? ORDER BY c.id', [schoolId, schoolId]));
+      } catch (legacyError) { if (!schemaCompatibilityError(legacyError)) throw legacyError; }
+    }
+    const result = subjectRows.map((subject) => {
+      const assignments = assignmentRows.filter((item) => item.subjectId === subject.id);
+      const active = Number(subject.isActive ?? 1) === 1 && (!assignments.length || assignments.some((item) => Number(item.active ?? 1) === 1));
+      let assessmentComponents = subject.assessmentComponentsJson ?? [];
+      if (typeof assessmentComponents === 'string') { try { assessmentComponents = JSON.parse(assessmentComponents); } catch { assessmentComponents = []; } }
+      return { id: subject.id, code: subject.code, name: subject.name, departmentId: subject.departmentId ?? null, subjectType: subject.subjectType ?? 'ELECTIVE', isScoring: Number(subject.isScoring ?? 1) !== 0, active, classIds: [...new Set(assignments.map((item) => item.classId))], classNames: [...new Set(assignments.map((item) => item.className ?? item.classId))], assessmentComponents: Array.isArray(assessmentComponents) ? assessmentComponents : [] };
+    });
+    const scoped = actor?.assignedClassIds?.length
+      ? result.map((subject) => {
+        const allowedAssignments = assignmentRows.filter((item) => item.subjectId === subject.id && actor.assignedClassIds.includes(item.classId));
+        return { ...subject, classIds: [...new Set(allowedAssignments.map((item) => item.classId))], classNames: [...new Set(allowedAssignments.map((item) => item.className ?? item.classId))] };
+      }).filter((subject) => subject.classIds.length > 0)
+      : result;
+    return includeInactive ? scoped : scoped.filter((subject) => subject.active);
+  }
+
+  async function createSubject(input = {}, actor) {
+    assertActor(actor, 'subjects.manage');
+    const name = text(input.name);
+    if (!name) fail('Subject name is required.');
+    const duplicate = rows(await database.query('SELECT id FROM subjects WHERE school_id=? AND LOWER(name)=LOWER(?) LIMIT 1', [schoolId, name]))[0];
+    if (duplicate) fail('Subject already exists.', 409, 'SUBJECT_ALREADY_EXISTS');
+    const codeBase = text(input.code).toUpperCase() || `CUSTOM_${name.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_|_$/g, '')}`.slice(0, 32);
+    let code = codeBase, suffix = 1;
+    while (rows(await database.query('SELECT id FROM subjects WHERE school_id=? AND code=? LIMIT 1', [schoolId, code])).length) {
+      suffix += 1;
+      code = `${codeBase.slice(0, 31 - String(suffix).length)}_${suffix}`;
+    }
+    const subjectType = text(input.subjectType).toUpperCase() || 'ELECTIVE';
+    if (!['CORE', 'ELECTIVE', 'NON_SCORING'].includes(subjectType)) fail('Subject type must be CORE, ELECTIVE, or NON_SCORING.');
+    const isScoring = subjectType !== 'NON_SCORING' && input.isScoring !== false && Number(input.isScoring) !== 0;
+    const id = idFactory();
+    await database.execute('INSERT INTO subjects (id,school_id,department_id,code,name,subject_type,is_scoring,assessment_components_json,is_active,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)', [id, schoolId, input.departmentId ?? null, code, name, subjectType, isScoring ? 1 : 0, JSON.stringify(Array.isArray(input.assessmentComponents) ? input.assessmentComponents : []), 1, clock(), clock()]);
+    return { id, schoolId, departmentId: input.departmentId ?? null, code, name, subjectType, isScoring, mandatory: false, active: true, classIds: [], assessmentComponents: Array.isArray(input.assessmentComponents) ? input.assessmentComponents : [] };
+  }
+
+  async function updateSubject(subjectId, input = {}, actor) {
+    assertActor(actor, 'subjects.manage');
+    const current = rows(await database.query('SELECT id,code,name,subject_type AS subjectType,is_scoring AS isScoring FROM subjects WHERE id=? AND school_id=? LIMIT 1', [text(subjectId), schoolId]))[0];
+    if (!current) fail('Subject not found.', 404, 'SUBJECT_NOT_FOUND');
+    const assignments = rows(await database.query('SELECT a.active,c.name AS className FROM subject_class_assignments a JOIN classes c ON c.id=a.class_id AND c.school_id=a.school_id WHERE a.school_id=? AND a.subject_id=?', [schoolId, text(subjectId)]));
+    const protectsMandatory = assignments.some((assignment) => defaultSubjectForClass(assignment.className, current.name)?.mandatory);
+    if (protectsMandatory && (input.name !== undefined && text(input.name).toLowerCase() !== current.name.toLowerCase() || input.isScoring === false || Number(input.isScoring) === 0 || String(input.subjectType ?? current.subjectType).toUpperCase() === 'NON_SCORING')) fail('Mandatory core subjects cannot be renamed or made non-scoring.');
+    const name = input.name === undefined ? current.name : text(input.name);
+    if (!name) fail('Subject name is required.');
+    if (name.toLowerCase() !== current.name.toLowerCase() && rows(await database.query('SELECT id FROM subjects WHERE school_id=? AND LOWER(name)=LOWER(?) AND id<>? LIMIT 1', [schoolId, name, text(subjectId)])).length) fail('Subject already exists.', 409, 'SUBJECT_ALREADY_EXISTS');
+    const code = input.code === undefined ? current.code : text(input.code).toUpperCase();
+    const subjectType = input.subjectType === undefined ? current.subjectType : text(input.subjectType).toUpperCase();
+    if (!['CORE', 'ELECTIVE', 'NON_SCORING'].includes(subjectType)) fail('Subject type must be CORE, ELECTIVE, or NON_SCORING.');
+    const isScoring = input.isScoring === undefined ? Number(current.isScoring ?? 1) !== 0 : input.isScoring !== false && Number(input.isScoring) !== 0;
+    await database.execute('UPDATE subjects SET name=?,code=?,subject_type=?,is_scoring=?,updated_at=? WHERE id=? AND school_id=?', [name, code, subjectType, isScoring ? 1 : 0, clock(), text(subjectId), schoolId]);
+    return { ...current, name, code, subjectType, isScoring, updatedAt: clock() };
+  }
+
+  async function deactivateSubject(subjectId, actor) {
+    assertActor(actor, 'subjects.manage');
+    const subject = rows(await database.query('SELECT id,name FROM subjects WHERE id=? AND school_id=? LIMIT 1', [text(subjectId), schoolId]))[0];
+    if (!subject) fail('Subject not found.', 404, 'SUBJECT_NOT_FOUND');
+    const assignments = rows(await database.query('SELECT a.id,a.class_id AS classId,c.name AS className FROM subject_class_assignments a JOIN classes c ON c.id=a.class_id AND c.school_id=a.school_id WHERE a.school_id=? AND a.subject_id=?', [schoolId, text(subjectId)]));
+    if (assignments.some((assignment) => defaultSubjectForClass(assignment.className, subject.name)?.mandatory)) fail('Mandatory core subjects cannot be deactivated.');
+    await database.execute('UPDATE subjects SET is_active=0,updated_at=? WHERE id=? AND school_id=?', [clock(), text(subjectId), schoolId]);
+    await database.execute('UPDATE subject_class_assignments SET active=0,updated_at=? WHERE school_id=? AND subject_id=?', [clock(), schoolId, text(subjectId)]);
+    return { id: text(subjectId), schoolId, active: false, archived: true, historicalRecordsPreserved: true };
+  }
+
   async function listSubjects(filters = {}, actor) {
     assertActor(actor);
     const classId = text(filters.classId);
-    if (!classId) return [];
+    if (classId) assertClassScope(classId, actor);
+    if (!classId) return subjectCatalog(actor, { includeInactive: filters.includeInactive === true || String(filters.includeInactive).toLowerCase() === 'true' });
     const academicYearId = text(filters.academicYearId || filters.academicYear);
     const params = [schoolId, classId];
     let yearClause = '';
     if (academicYearId) { yearClause = ' AND (a.academic_year_id IS NULL OR a.academic_year_id=?)'; params.push(academicYearId); }
     try {
-      const assignments = rows(await database.query(`SELECT s.id,s.code,s.name,s.department_id AS departmentId,s.subject_type AS subjectType,s.is_scoring AS isScoring,a.class_id AS classId,a.academic_year_id AS academicYearId,a.active AS assignmentActive
+      const assignments = rows(await database.query(`SELECT s.id,s.code,s.name,s.department_id AS departmentId,s.subject_type AS subjectType,s.is_scoring AS isScoring,a.class_id AS classId,c.name AS className,a.academic_year_id AS academicYearId,a.active AS assignmentActive,a.configuration_version AS configurationVersion
         FROM subject_class_assignments a JOIN subjects s ON s.id=a.subject_id AND s.school_id=a.school_id
-        WHERE a.school_id=? AND a.class_id=?${yearClause} ORDER BY s.name,s.id`, params));
-      if (assignments.length) return assignments.filter((item) => Number(item.assignmentActive ?? 1) === 1).map(({ assignmentActive, ...subject }) => subject);
+        JOIN classes c ON c.id=a.class_id AND c.school_id=a.school_id
+        WHERE a.school_id=? AND a.class_id=? AND s.is_active=1${yearClause} ORDER BY s.name,s.id`, params));
+      if (assignments.length) {
+        const bySubject = new Map();
+        for (const item of assignments) {
+          const key = text(item.id);
+          const isYearOverride = Boolean(academicYearId && item.academicYearId && text(item.academicYearId) === academicYearId);
+          const previous = bySubject.get(key);
+          if (!previous || (isYearOverride && !previous.isYearOverride)) bySubject.set(key, { item, isYearOverride });
+        }
+        return [...bySubject.values()].filter(({ item }) => Number(item.assignmentActive ?? 1) === 1).map(({ item }) => {
+          const { assignmentActive, ...subject } = item;
+          return decorateSubject(subject, classId);
+        });
+      }
       return legacySubjects();
     } catch (error) {
       if (!schemaCompatibilityError(error)) throw error;
@@ -74,18 +237,18 @@ export function createDurableAcademicService({ database, schoolId, idFactory = r
     }
     async function legacySubjects() {
       try {
-        const result = await database.query(`SELECT s.id,s.code,s.name,s.department_id AS departmentId,s.subject_type AS subjectType,s.is_scoring AS isScoring,cs.class_id AS classId
+        const result = await database.query(`SELECT s.id,s.code,s.name,s.department_id AS departmentId,s.subject_type AS subjectType,s.is_scoring AS isScoring,cs.class_id AS classId,c.name AS className
           FROM class_subjects cs JOIN subjects s ON s.id=cs.subject_id AND s.school_id=?
           JOIN classes c ON c.id=cs.class_id AND c.school_id=?
           WHERE cs.class_id=? ORDER BY s.name,s.id`, [schoolId, schoolId, classId]);
-        return rows(result);
+        return rows(result).map((subject) => decorateSubject(subject, classId));
       } catch (error) {
         if (!schemaCompatibilityError(error)) throw error;
-        const result = await database.query(`SELECT s.id,s.code,s.name,s.department_id AS departmentId,cs.class_id AS classId
+        const result = await database.query(`SELECT s.id,s.code,s.name,s.department_id AS departmentId,cs.class_id AS classId,c.name AS className
           FROM class_subjects cs JOIN subjects s ON s.id=cs.subject_id AND s.school_id=?
           JOIN classes c ON c.id=cs.class_id AND c.school_id=?
           WHERE cs.class_id=? ORDER BY s.name,s.id`, [schoolId, schoolId, classId]);
-        return rows(result);
+        return rows(result).map((subject) => decorateSubject(subject, classId));
       }
     }
   }
@@ -96,33 +259,82 @@ export function createDurableAcademicService({ database, schoolId, idFactory = r
     return configured.some((subject) => text(subject.id) === subjectId);
   }
 
+  async function subjectCascade(input = {}, actor) {
+    assertActor(actor);
+    const classId = text(input.classId);
+    assertClassScope(classId, actor);
+    const period = await resolvePeriod(input);
+    await classFor(classId);
+    const configuredSubjects = await listSubjects({ classId, academicYearId: period.yearId }, actor);
+    return { academicYearId: period.yearId, academicYear: period.yearName, termId: period.termId, term: period.termName, classId, subjects: configuredSubjects.filter((subject) => subject.isScoring !== false && Number(subject.isScoring) !== 0) };
+  }
+
+  async function scoringSubjectAssigned(input, actor) {
+    if (!await subjectAssigned(input, actor)) return false;
+    const configured = await listSubjects({ classId: input.classId, academicYearId: input.academicYearId || input.academicYear }, actor);
+    const subject = configured.find((item) => text(item.id) === text(input.subjectId));
+    return Boolean(subject && subject.isScoring !== false && Number(subject.isScoring) !== 0);
+  }
+
   async function listAssignments(subjectId, actor) {
     assertActor(actor);
-    const result = await database.query(`SELECT a.id,a.subject_id AS subjectId,a.class_id AS classId,a.academic_year_id AS academicYearId,a.active,c.name AS className,l.name AS levelName
+    const result = await database.query(`SELECT a.id,a.subject_id AS subjectId,a.class_id AS classId,a.academic_year_id AS academicYearId,a.configuration_version AS configurationVersion,a.active,c.name AS className
       FROM subject_class_assignments a JOIN subjects s ON s.id=a.subject_id AND s.school_id=a.school_id
-      JOIN classes c ON c.id=a.class_id JOIN levels l ON l.id=c.level_id
-      WHERE a.school_id=? AND a.subject_id=? ORDER BY l.display_order,c.display_order,c.id`, [schoolId, text(subjectId)]);
-    return rows(result);
+      JOIN classes c ON c.id=a.class_id AND c.school_id=a.school_id
+      WHERE a.school_id=? AND a.subject_id=? ORDER BY c.id`, [schoolId, text(subjectId)]);
+    return rows(result).filter((assignment) => !actor?.assignedClassIds?.length || actor.assignedClassIds.includes(assignment.classId));
   }
 
   async function assignSubject(input = {}, actor) {
     assertActor(actor, 'subjects.manage');
     const subjectId = text(input.subjectId || input.subject_id);
     const classId = text(input.classId || input.class_id);
-    const academicYearId = text(input.academicYearId || input.academic_year_id) || null;
+    let academicYearId = text(input.academicYearId || input.academic_year_id) || null;
     if (!subjectId || !classId) fail('Subject and class are required.');
+    assertClassScope(classId, actor);
+    await classFor(classId);
+    if (academicYearId) {
+      const academicYear = rows(await database.query('SELECT id FROM academic_years WHERE school_id=? AND (id=? OR name=?) LIMIT 1', [schoolId, academicYearId, academicYearId]))[0];
+      if (!academicYear) fail('Academic year not found.', 404, 'ACADEMIC_YEAR_NOT_FOUND');
+      academicYearId = text(academicYear.id);
+    }
     const subject = rows(await database.query('SELECT id,name FROM subjects WHERE id=? AND school_id=? LIMIT 1', [subjectId, schoolId]))[0];
     if (!subject) fail('Subject not found.', 404);
-    const classRow = rows(await database.query('SELECT c.id,c.name FROM classes c JOIN levels l ON l.id=c.level_id WHERE c.id=? AND l.school_id=? LIMIT 1', [classId, schoolId]))[0];
-    if (!classRow) fail('Class not found.', 404);
+    await database.execute('UPDATE subjects SET is_active=1,updated_at=? WHERE id=? AND school_id=?', [clock(), subjectId, schoolId]);
     const existing = rows(await database.query('SELECT id,active FROM subject_class_assignments WHERE school_id=? AND subject_id=? AND class_id=? AND ((academic_year_id IS NULL AND ? IS NULL) OR academic_year_id=?) LIMIT 1', [schoolId, subjectId, classId, academicYearId, academicYearId]))[0];
     if (existing) {
-      if (!Number(existing.active)) await database.execute('UPDATE subject_class_assignments SET active=1,updated_at=? WHERE id=? AND school_id=?', [clock(), existing.id, schoolId]);
-      return { id: existing.id, schoolId, subjectId, classId, academicYearId, active: true, created: false };
+      await database.execute('UPDATE subject_class_assignments SET active=1,configuration_version=?,updated_at=? WHERE id=? AND school_id=?', [String(DEFAULT_SUBJECT_CONFIGURATION_VERSION), clock(), existing.id, schoolId]);
+      return { id: existing.id, schoolId, subjectId, classId, academicYearId, configurationVersion: DEFAULT_SUBJECT_CONFIGURATION_VERSION, active: true, created: false };
     }
     const id = idFactory();
-    await database.execute('INSERT INTO subject_class_assignments (id,school_id,subject_id,class_id,academic_year_id,active,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)', [id, schoolId, subjectId, classId, academicYearId, 1, clock(), clock()]);
-    return { id, schoolId, subjectId, classId, academicYearId, active: true, created: true };
+    await database.execute('INSERT INTO subject_class_assignments (id,school_id,subject_id,class_id,academic_year_id,active,configuration_version,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)', [id, schoolId, subjectId, classId, academicYearId, 1, String(DEFAULT_SUBJECT_CONFIGURATION_VERSION), clock(), clock()]);
+    return { id, schoolId, subjectId, classId, academicYearId, configurationVersion: DEFAULT_SUBJECT_CONFIGURATION_VERSION, active: true, created: true };
+  }
+
+  async function deactivateSubjectAssignment(input = {}, actor) {
+    assertActor(actor, 'subjects.manage');
+    const subjectId = text(input.subjectId || input.subject_id);
+    const classId = text(input.classId || input.class_id);
+    let academicYearId = text(input.academicYearId || input.academic_year_id) || null;
+    if (!subjectId || !classId) fail('Subject and class are required.');
+    assertClassScope(classId, actor);
+    const classRow = await classFor(classId);
+    if (academicYearId) {
+      const year = rows(await database.query('SELECT id FROM academic_years WHERE school_id=? AND (id=? OR name=?) LIMIT 1', [schoolId, academicYearId, academicYearId]))[0];
+      if (!year) fail('Academic year not found.', 404, 'ACADEMIC_YEAR_NOT_FOUND');
+      academicYearId = text(year.id);
+    }
+    const subject = rows(await database.query('SELECT id,name FROM subjects WHERE id=? AND school_id=? LIMIT 1', [subjectId, schoolId]))[0];
+    if (!subject) fail('Subject not found.', 404, 'SUBJECT_NOT_FOUND');
+    if (defaultSubjectForClass(classRow.name, subject.name)?.mandatory) fail('Mandatory core subjects cannot be deactivated.');
+    const existing = rows(await database.query('SELECT id FROM subject_class_assignments WHERE school_id=? AND subject_id=? AND class_id=? AND ((academic_year_id IS NULL AND ? IS NULL) OR academic_year_id=?) LIMIT 1', [schoolId, subjectId, classId, academicYearId, academicYearId]))[0];
+    if (existing) {
+      await database.execute('UPDATE subject_class_assignments SET active=0,configuration_version=?,updated_at=? WHERE id=? AND school_id=?', [String(DEFAULT_SUBJECT_CONFIGURATION_VERSION), clock(), existing.id, schoolId]);
+      return { id: existing.id, schoolId, subjectId, classId, academicYearId, configurationVersion: DEFAULT_SUBJECT_CONFIGURATION_VERSION, active: false, created: false, historicalRecordsPreserved: true };
+    }
+    const id = idFactory();
+    await database.execute('INSERT INTO subject_class_assignments (id,school_id,subject_id,class_id,academic_year_id,active,configuration_version,created_at,updated_at) VALUES (?,?,?,?,?,0,?,?,?)', [id, schoolId, subjectId, classId, academicYearId, String(DEFAULT_SUBJECT_CONFIGURATION_VERSION), clock(), clock()]);
+    return { id, schoolId, subjectId, classId, academicYearId, configurationVersion: DEFAULT_SUBJECT_CONFIGURATION_VERSION, active: false, created: true, historicalRecordsPreserved: true };
   }
 
   async function resolvePeriod(input = {}) {
@@ -147,8 +359,10 @@ export function createDurableAcademicService({ database, schoolId, idFactory = r
     if (!authorized(actor, 'marks.write') && !authorized(actor, 'results.read')) fail('Forbidden.', 403, 'ACADEMIC_PERMISSION_REQUIRED');
     const classId = text(input.classId);
     if (!classId || !text(input.subjectId)) fail('Class and subject are required.');
+    assertClassScope(classId, actor);
     const period = await resolvePeriod(input);
-    if (!await subjectAssigned({ classId, subjectId: input.subjectId, academicYearId: period.yearId }, actor)) return [];
+    await classFor(classId);
+    if (!await scoringSubjectAssigned({ classId, subjectId: input.subjectId, academicYearId: period.yearId }, actor)) return [];
     const result = await database.query(`SELECT s.id AS studentId,s.permanent_student_id AS permanentStudentId,s.first_name AS firstName,s.middle_name AS middleName,s.last_name AS surname,
       e.class_id AS classId,r.ca_score AS caScore,r.examination_score AS examScore,r.total_score AS totalScore,r.grade,r.id AS scoreId
       FROM student_enrollments e JOIN students s ON s.id=e.student_id
@@ -163,7 +377,9 @@ export function createDurableAcademicService({ database, schoolId, idFactory = r
     if (!authorized(actor, 'results.read') && !authorized(actor, 'results.generate') && !authorized(actor, 'examinations.read')) fail('Forbidden.', 403, 'ACADEMIC_PERMISSION_REQUIRED');
     const classId = text(input.classId);
     if (!classId) return [];
+    assertClassScope(classId, actor);
     const period = await resolvePeriod(input);
+    await classFor(classId);
     const result = await database.query(`SELECT s.id AS studentId,s.permanent_student_id AS permanentStudentId,s.first_name AS firstName,s.middle_name AS middleName,s.last_name AS surname,e.class_id AS classId
       FROM student_enrollments e JOIN students s ON s.id=e.student_id
       WHERE e.school_id=? AND e.class_id=? AND e.academic_year_id=? AND e.term_id=? AND COALESCE(e.enrollment_status,'ACTIVE')='ACTIVE' AND COALESCE(e.is_current,1)=1 AND s.school_id=? AND COALESCE(s.student_status,'ACTIVE')='ACTIVE' AND COALESCE(s.is_test_record,0)=0
@@ -178,10 +394,12 @@ export function createDurableAcademicService({ database, schoolId, idFactory = r
     if (!classId || !subjectId || !studentId || !Number.isFinite(caScore) || !Number.isFinite(examScore)) fail('Student, class, subject, CA, and Exam are required.');
     if (caScore < 0 || caScore > 50) fail('CA score must be between 0 and 50.');
     if (examScore < 0 || examScore > 50) fail('Exam score must be between 0 and 50.');
+    assertClassScope(classId, actor);
     const period = await resolvePeriod(input);
+    await classFor(classId);
     const enrolled = rows(await database.query('SELECT e.student_id,s.permanent_student_id,c.name AS className FROM student_enrollments e JOIN students s ON s.id=e.student_id JOIN classes c ON c.id=e.class_id WHERE e.school_id=? AND e.student_id=? AND e.class_id=? AND e.academic_year_id=? AND COALESCE(e.enrollment_status,"ACTIVE")="ACTIVE" AND COALESCE(e.is_current,1)=1 LIMIT 1', [schoolId, studentId, classId, period.yearId]))[0];
     if (!enrolled) fail('Student is not enrolled in the selected class and academic year.', 400);
-    if (!await subjectAssigned({ classId, subjectId, academicYearId: period.yearId }, actor)) fail('Subject is not assigned to the selected class.', 400);
+    if (!await scoringSubjectAssigned({ classId, subjectId, academicYearId: period.yearId }, actor)) fail('Subject is not assigned as a scoring subject for the selected class.', 400);
     const totalScore = caScore + examScore;
     const [grade, remark] = gradeForTotal(totalScore, { classId: enrolled.className, examination: 'TERMINAL' });
     const existing = rows(await database.query('SELECT id FROM academic_score_records WHERE school_id=? AND record_type="TERMINAL" AND mock_label IS NULL AND academic_year_id=? AND term_id=? AND class_id=? AND student_id IN (SELECT sp.id FROM student_profiles sp WHERE sp.student_master_id=? OR sp.student_id=?) AND subject_id=? LIMIT 1', [schoolId, period.yearId, period.termId, classId, studentId, enrolled.permanent_student_id, subjectId]))[0];
@@ -201,8 +419,10 @@ export function createDurableAcademicService({ database, schoolId, idFactory = r
     const classId = text(input.classId), subjectId = text(input.subjectId), mockLabel = text(input.mockLabel);
     await assertMockClass(classId);
     if (!subjectId || !MOCK_TYPES.includes(mockLabel)) fail('Class, subject, and Mock Examination are required.');
+    assertClassScope(classId, actor);
     const period = await resolvePeriod(input);
-    if (!await subjectAssigned({ classId, subjectId, academicYearId: period.yearId }, actor)) return [];
+    await classFor(classId);
+    if (!await scoringSubjectAssigned({ classId, subjectId, academicYearId: period.yearId }, actor)) return [];
     const result = await database.query(`SELECT s.id AS studentId,s.permanent_student_id AS permanentStudentId,s.first_name AS firstName,s.middle_name AS middleName,s.last_name AS surname,
       r.total_score AS totalScore,r.grade,r.id AS scoreId
       FROM student_enrollments e JOIN students s ON s.id=e.student_id
@@ -220,10 +440,12 @@ export function createDurableAcademicService({ database, schoolId, idFactory = r
     await assertMockClass(classId);
     if (input.caScore !== undefined || input.examScore !== undefined) fail('Mock scores accept Total Score / 100 only.');
     if (!Number.isFinite(totalScore) || totalScore < 0 || totalScore > 100) fail('Score must be between 0 and 100.');
+    assertClassScope(classId, actor);
     const period = await resolvePeriod(input);
+    await classFor(classId);
     const enrolled = rows(await database.query('SELECT e.student_id,s.permanent_student_id,c.name AS className FROM student_enrollments e JOIN students s ON s.id=e.student_id JOIN classes c ON c.id=e.class_id WHERE e.school_id=? AND e.student_id=? AND e.class_id=? AND e.academic_year_id=? AND COALESCE(e.enrollment_status,"ACTIVE")="ACTIVE" AND COALESCE(e.is_current,1)=1 LIMIT 1', [schoolId, studentId, classId, period.yearId]))[0];
     if (!enrolled) fail('Student is not enrolled in the selected class and academic year.', 400);
-    if (!await subjectAssigned({ classId, subjectId, academicYearId: period.yearId }, actor)) fail('Subject is not assigned to the selected class.', 400);
+    if (!await scoringSubjectAssigned({ classId, subjectId, academicYearId: period.yearId }, actor)) fail('Subject is not assigned as a scoring subject for the selected class.', 400);
     const [grade, remark] = gradeForTotal(totalScore, { classId: enrolled.className, examination: 'MOCK' });
     const existing = rows(await database.query('SELECT id FROM academic_score_records WHERE school_id=? AND record_type="MOCK" AND mock_label=? AND academic_year_id=? AND term_id=? AND class_id=? AND student_id IN (SELECT sp.id FROM student_profiles sp WHERE sp.student_master_id=? OR sp.student_id=?) AND subject_id=? LIMIT 1', [schoolId, mockLabel, period.yearId, period.termId, classId, studentId, enrolled.permanent_student_id, subjectId]))[0];
     const scoreId = existing?.id ?? idFactory();
@@ -236,7 +458,7 @@ export function createDurableAcademicService({ database, schoolId, idFactory = r
     return { id: scoreId, schoolId, studentId, permanentStudentId: enrolled.permanent_student_id, classId, subjectId, mockLabel, academicYear: period.yearName, term: period.termName, caScore: null, examScore: null, totalScore, grade, remark, saved: true };
   }
 
-  return Object.freeze({ options, listSubjects, listAssignments, assignSubject, roster, resultStudents, saveScore, mockRoster, saveMockScore, resolvePeriod });
+  return Object.freeze({ options, listSubjects, subjectCatalog, createSubject, updateSubject, deactivateSubject, subjectCascade, configureDefaultSubjects, listAssignments, assignSubject, deactivateSubjectAssignment, roster, resultStudents, saveScore, mockRoster, saveMockScore, resolvePeriod });
 }
 
 export default createDurableAcademicService;
