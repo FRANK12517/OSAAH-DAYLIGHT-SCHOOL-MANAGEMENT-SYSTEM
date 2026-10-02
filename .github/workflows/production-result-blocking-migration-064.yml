@@ -1,0 +1,72 @@
+name: Production academic result blocking migration 064
+"on":
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Exact reviewed release commit SHA containing migration 064
+        required: true
+        type: string
+      execution_token:
+        description: Use DRY_RUN_ONLY for preflight or APPLY_RESULT_BLOCKING_064 for the approved apply
+        required: true
+        default: DRY_RUN_ONLY
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: production-result-blocking-migration-064
+  cancel-in-progress: false
+jobs:
+  migrate:
+    name: Preflight, apply, and verify migration 064
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      EXECUTION_TOKEN: ${{ inputs.execution_token }}
+    steps:
+      - name: Validate exact release ref and token
+        shell: bash
+        env:
+          RELEASE_REF: ${{ inputs.release_ref }}
+        run: |
+          [[ "$RELEASE_REF" =~ ^[0-9a-f]{40}$ ]] || { echo 'release_ref must be a full lowercase 40-character SHA.'; exit 1; }
+          test "$EXECUTION_TOKEN" = 'DRY_RUN_ONLY' || test "$EXECUTION_TOKEN" = 'APPLY_RESULT_BLOCKING_064' || { echo 'Invalid migration execution token.'; exit 1; }
+      - name: Check out reviewed release
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_ref }}
+          fetch-depth: 0
+      - name: Verify release is contained in protected main
+        shell: bash
+        env:
+          RELEASE_REF: ${{ inputs.release_ref }}
+        run: |
+          test "$(git rev-parse HEAD^{commit})" = "$RELEASE_REF"
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$RELEASE_REF" origin/main
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Confirm protected database secret and execution token
+        run: |
+          test -n "${DATABASE_URL:-}" || { echo 'Protected DATABASE_URL is unavailable.'; exit 1; }
+          test "$EXECUTION_TOKEN" = 'DRY_RUN_ONLY' || test "$EXECUTION_TOKEN" = 'APPLY_RESULT_BLOCKING_064'
+      - name: Validate migration inventory and focused contracts
+        run: |
+          npm run migration:validate
+          node --test test/production-result-blocking-migration.test.js test/part8-result-blocking.test.js
+      - name: Read-only migration 064 preflight
+        run: node scripts/production-result-blocking-migrate.mjs dry-run
+      - name: Apply only migration 064
+        if: ${{ inputs.execution_token == 'APPLY_RESULT_BLOCKING_064' }}
+        run: node scripts/production-result-blocking-migrate.mjs apply
+      - name: Verify migration 064 ledger and schema
+        run: |
+          node scripts/production-result-blocking-migrate.mjs dry-run
+          npm run migration:validate
