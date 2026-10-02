@@ -31,6 +31,9 @@ function componentFor(module) {
 
 function apiFor(module) {
   const route = module.route ?? '';
+  if (module.moduleKey === 'student-attendance') return ['/api/attendance/register'];
+  if (module.moduleKey === 'staff-attendance' || module.moduleKey === 'staff-attendance-hr') return ['/api/attendance/staff'];
+  if (module.moduleKey === 'attendance-alerts') return ['/api/attendance/alerts'];
   if (module.moduleKey === 'single-school-panel') return ['/api/single-school/overview'];
   if (module.moduleKey === 'academic-calendar') return ['/api/academic-calendar', '/api/academic-calendar/options'];
   if (module.moduleKey === 'class-database') return ['/api/class-database/options', '/api/class-database'];
