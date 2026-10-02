@@ -26,3 +26,9 @@ Run `npm run migration:status` again. Confirm no unexpected pending migration, i
 ## 5. Rollback and recovery
 
 Existing migrations are forward-only and are not automatically reversed. If an apply fails, the current migration transaction rolls back. If the database cannot recover transactionally or a committed migration causes a critical failure, disable AI with `OSAAH_AI_ENABLED=false`, stop further deploys, restore the approved backup according to the database provider's recovery procedure, and redeploy the last known-good commit. Never edit the checksum or contents of an already-applied migration to simulate rollback; create a reviewed forward repair migration instead.
+
+## Migration 065: subject assessment metadata
+
+Migration 065 adds assessment-component metadata and active/version fields to the existing TiDB subject tables. It is additive and must not change subject, registration, mark, score, result, assessment, or student record counts. Do not use the generic all-pending `migration:apply` command for this production change.
+
+Release it schema-first: merge the migration-only change, then run **Production subject assessment migration 065** from the protected GitHub Actions workflow against the exact full SHA on `main`. Run `DRY_RUN_ONLY` first and review its target, verified Migration 064 predecessor, baseline, existing-column state, and pending status. For apply, use the exact `APPLY_SUBJECT_ASSESSMENT_065` token and `BACKUP_CONFIRMED`; the protected `Production` environment reviewer remains mandatory. The workflow verifies the TiDB target, migration checksum/ledger, required schema columns, and unchanged historical record counts. Only after it reports success and a matching ledger entry may the application change that depends on these columns be merged/deployed.
