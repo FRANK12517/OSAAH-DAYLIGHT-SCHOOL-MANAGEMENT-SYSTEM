@@ -1,0 +1,78 @@
+name: Production subject assessment migration 065
+"on":
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Exact reviewed release commit SHA containing Migration 065
+        required: true
+        type: string
+      execution_token:
+        description: Use DRY_RUN_ONLY for preflight or APPLY_SUBJECT_ASSESSMENT_065 for the approved apply
+        required: true
+        default: DRY_RUN_ONLY
+        type: string
+      backup_confirmation:
+        description: For apply only, enter BACKUP_CONFIRMED after verifying a recent recoverable backup
+        required: false
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: production-subject-assessment-migration-065
+  cancel-in-progress: false
+jobs:
+  migrate:
+    name: Preflight, apply, and verify migration 065
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 30
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      EXECUTION_TOKEN: ${{ inputs.execution_token }}
+    steps:
+      - name: Validate exact release ref and approval inputs
+        shell: bash
+        env:
+          RELEASE_REF: ${{ inputs.release_ref }}
+          BACKUP_CONFIRMATION: ${{ inputs.backup_confirmation }}
+        run: |
+          [[ "$RELEASE_REF" =~ ^[0-9a-f]{40}$ ]] || { echo 'release_ref must be a full lowercase 40-character SHA.'; exit 1; }
+          test "$EXECUTION_TOKEN" = 'DRY_RUN_ONLY' || test "$EXECUTION_TOKEN" = 'APPLY_SUBJECT_ASSESSMENT_065' || { echo 'Invalid migration execution token.'; exit 1; }
+          if [ "$EXECUTION_TOKEN" = 'APPLY_SUBJECT_ASSESSMENT_065' ]; then
+            test "$BACKUP_CONFIRMATION" = 'BACKUP_CONFIRMED' || { echo 'A recent recoverable backup confirmation is required for apply.'; exit 1; }
+          fi
+      - name: Check out reviewed release
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_ref }}
+          fetch-depth: 0
+      - name: Verify release is contained in protected main
+        shell: bash
+        env:
+          RELEASE_REF: ${{ inputs.release_ref }}
+        run: |
+          test "$(git rev-parse HEAD^{commit})" = "$RELEASE_REF"
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$RELEASE_REF" origin/main
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Confirm protected database secret is available
+        run: test -n "${DATABASE_URL:-}" || { echo 'Protected DATABASE_URL is unavailable.'; exit 1; }
+      - name: Validate migration inventory and focused contracts
+        run: |
+          npm run migration:validate
+          node --test test/production-subject-assessment-migration.test.js test/migration-runner.test.js
+      - name: Read-only Migration 065 preflight
+        run: node scripts/production-subject-assessment-migrate.mjs dry-run
+      - name: Apply only Migration 065
+        if: ${{ inputs.execution_token == 'APPLY_SUBJECT_ASSESSMENT_065' }}
+        run: node scripts/production-subject-assessment-migrate.mjs apply
+      - name: Verify Migration 065 ledger and schema
+        run: |
+          node scripts/production-subject-assessment-migrate.mjs dry-run
+          npm run migration:validate
