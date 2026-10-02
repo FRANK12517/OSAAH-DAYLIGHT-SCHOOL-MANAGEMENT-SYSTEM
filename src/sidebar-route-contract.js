@@ -14,6 +14,7 @@ function componentFor(module) {
   if (key === 'academic-calendar') return '/academic-calendar.html';
   if (key === 'class-database') return '/class-database.html';
   if (key === 'completed-class-database') return '/completed-class-database.html';
+  if (key === 'attendance-dashboard') return '/attendance-overview.html';
   if (key === 'student-attendance') return '/attendance.html';
   if (key === 'staff-attendance' || key === 'staff-attendance-hr') return '/staff-attendance.html';
   if (key === 'attendance-reports' || key === 'attendance-reports-management') return '/reports-academic.html';

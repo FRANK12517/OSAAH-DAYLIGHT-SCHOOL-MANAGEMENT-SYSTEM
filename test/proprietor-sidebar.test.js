@@ -139,7 +139,7 @@ test('every requested proprietor component opens its mapped implementation', asy
       const response = await request(item.route);
       assert.equal(response.status, 200, `${item.moduleName} (${item.route}) should render`);
       assert.match(response.body, /<!doctype html>/i, `${item.moduleName} should render a page, not a redirect or blank response`);
-      const titleLabel = item.moduleName.replace(/&/g, '&amp;');
+      const titleLabel = item.moduleName.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
       assert.ok(response.body.includes(`<title>${titleLabel} | OsaaH Daylight</title>`), `${item.moduleName} should identify itself in the page title`);
     }
   } finally { await new Promise((resolve) => server.close(resolve)); }

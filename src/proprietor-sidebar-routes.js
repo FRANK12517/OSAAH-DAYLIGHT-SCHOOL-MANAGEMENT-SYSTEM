@@ -18,9 +18,9 @@ export const PROPRIETOR_SIDEBAR_ROUTES = Object.freeze([
     'users': '/users-and-roles.html', 'academic-calendar': '/academic-calendar.html', 'single-school-panel': '/single-school-panel.html', 'administrator-management': '/administrator-management.html', 'signature-management': '/result-signatures.html'
   })[item.moduleKey] ?? item.page })),
   ...group('ACADEMICS', '/subjects.html', [
-    ['academics', 'Academics', '/academics'], ['attendance-dashboard', 'Attendance Dashboard', '/attendance'],
+    ['academics', 'Academics', '/academics'], ['attendance-dashboard', 'Attendance Overview', '/attendance'],
     ['examinations', 'Score Entry', '/examinations'], ['sporting-activities', 'Sporting Activities', '/sporting-activities'],
-    ['student-attendance', 'Student Attendance', '/attendance/students'],
+    ['student-attendance', "Today's Attendance", '/attendance/students'],
     ['staff-attendance', 'Staff Attendance', '/attendance/staff'], ['results', 'Results & Reports', '/results'],
     ['attendance-reports', 'Attendance Reports', '/attendance/reports'], ['promotion', 'Promotion', '/promotion'],
     ['mock-score-entry', 'Mock Score Entry', '/examinations/mock'], ['subject-management', 'Subject Management', '/academics/subjects'],
@@ -34,7 +34,7 @@ export const PROPRIETOR_SIDEBAR_ROUTES = Object.freeze([
     ['curriculum', 'Curriculum', '/academics/curriculum'], ['lesson-plans', 'Lesson Plans', '/academics/lesson-plans'],
     ['academic-assignments', 'Assignments', '/academics/assignments'], ['timetable', 'Timetable', '/academics/timetable']
   ]).map((item) => ({ ...item, page: ({
-    'exam-timetable': '/exam-timetable.html', 'staff-attendance': '/staff-attendance.html', 'broadsheets': '/academic-modules.html', 'attendance-reports': '/reports-academic.html', 'attendance-alerts': '/attendance-alerts.html',
+    'exam-timetable': '/exam-timetable.html', 'attendance-dashboard': '/attendance-overview.html', 'student-attendance': '/attendance.html', 'staff-attendance': '/staff-attendance.html', 'broadsheets': '/academic-modules.html', 'attendance-reports': '/reports-academic.html', 'attendance-alerts': '/attendance-alerts.html',
     'academic-classes': '/academic-modules.html', 'academic-subjects': '/subjects.html',
     'promotion': '/promotion.html', 'report-cards': '/results.html', 'promotion-results': '/promotion-results.html',
     'curriculum': '/academic-modules.html', 'lesson-plans': '/academic-modules.html',
