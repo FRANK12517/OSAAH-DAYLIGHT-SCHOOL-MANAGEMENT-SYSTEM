@@ -133,7 +133,7 @@ export function createStaffAttendanceOverviewService({ database = null, attendan
       return item;
     }).filter(Boolean);
     const summary = rowsOut.reduce((acc, row) => { acc.present += row.totalPresentInTerm; acc.absent += row.totalAbsentInTerm; acc.leave += row.approvedLeave; return acc; }, { present: 0, absent: 0, leave: 0 });
-    return { filters: { ...filters, startDate: base.start, endDate: base.end }, staff: rowsOut, summary: { ...summary, attendancePercentage: summary.present + summary.absent ? Math.round(summary.present / (summary.present + summary.absent) * 10000) / 100 : 0 }, source: 'TiDB/staff_attendance', authoritative: true, studentAggregation: 'UNAVAILABLE_PENDING_PART_3' };
+    return { filters: { ...filters, startDate: base.start, endDate: base.end }, staff: rowsOut, summary: { ...summary, attendancePercentage: summary.present + summary.absent ? Math.round(summary.present / (summary.present + summary.absent) * 10000) / 100 : 0 }, source: 'TiDB/staff_attendance', authoritative: true, studentAggregation: 'AVAILABLE_SERVER_SIDE' };
   }
   return { overview };
 }
