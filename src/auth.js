@@ -3,6 +3,7 @@ import { createHash, createHmac, randomBytes, randomUUID, scryptSync, timingSafe
 import { normalizeGhanaPhone } from './ghana-phone.js';
 import { createConfiguredTestParent, isConfiguredTestParentPhone, TEST_PARENT_ID, TEST_PARENT_SCHOOL_ID } from './test-parent-fixture.js';
 import { createDurableStaffProvisioning } from './durable-staff-provisioning.js';
+import { createDurableAdministratorCredentialReset } from './durable-administrator-credential-reset.js';
 
 const SESSION_TTL_MS = 30 * 60 * 1000;
 const RESET_TTL_MS = 15 * 60 * 1000;
@@ -48,6 +49,11 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
   const sessions = new Map(); const durableSessionIds = new Set(); const revokedSessionIds = new Set(); const attempts = new Map(); const resetTokens = new Map();
   const administratorAssignments = [];
   const durableStaff = database?.query && database?.execute && database?.transaction ? createDurableStaffProvisioning({ database, passwordHash, verifyLogin: (credentials) => loginFromDatabase(credentials), revokeSession: (token) => logoutSession(token), now }) : null;
+  const durableAdministratorCredentialReset = database?.supportsDurableAuthSessions && database?.query && database?.execute && database?.transaction ? createDurableAdministratorCredentialReset({ database, passwordHash, now }) : null;
+  async function resetAdministratorCredentialsByEmail(email, newPassword, schoolId) {
+    if (!durableAdministratorCredentialReset) { const error = new Error('Durable Administrator credential reset is unavailable.'); error.status = 503; error.code = 'PERSISTENCE_UNAVAILABLE'; throw error; }
+    return durableAdministratorCredentialReset.resetByEmail(email, newPassword, schoolId);
+  }
   const signingKey = typeof sessionSecret === 'string' && sessionSecret.length >= 32 ? sessionSecret : null;
   const durableSessionStore = Boolean(database?.supportsDurableAuthSessions && database?.query && database?.execute);
   const tokenHash = (token) => createHash('sha256').update(String(token)).digest('hex');
@@ -293,7 +299,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
   function resetStaffCredentials(userId, schoolId) { if (database?.query) { if (!durableStaff) throw new Error('Durable staff management is unavailable.'); return durableStaff.resetCredentials(userId, schoolId); } const user = users.find((candidate) => candidate.id === userId && candidate.schoolId === schoolId && candidate.staffId); if (!user) return null; const temporaryPassword = randomBytes(18).toString('base64url'); user.passwordHash = passwordHash(temporaryPassword); user.must_change_password = true; for (const [token, session] of sessions) if (session.userId === userId) revokeLocalSession(token, session); revokeDurableSessionsBestEffort(userId); return { username: user.username, temporaryPassword }; }
   function requestPasswordReset(username) { const user = users.find((candidate) => candidate.username.toLowerCase() === username.trim().toLowerCase()); if (!user) return { ok: true }; const token = randomUUID(); resetTokens.set(token, { userId: user.id, expiresAt: now() + RESET_TTL_MS }); return { ok: true, token }; }
   function completePasswordReset(token, newPassword) { const reset = resetTokens.get(token); if (!reset || reset.expiresAt <= now() || typeof newPassword !== 'string' || newPassword.length < 10) return { ok: false, error: 'Invalid or expired reset request.' }; const user = users.find((candidate) => candidate.id === reset.userId); if (!user) return { ok: false, error: 'Invalid or expired reset request.' }; user.passwordHash = passwordHash(newPassword); resetTokens.delete(token); for (const [sessionToken, session] of sessions) if (session.userId === user.id) revokeLocalSession(sessionToken, session); revokeDurableSessionsBestEffort(user.id); return { ok: true }; }
-  return { login, loginByPhone, loginByPhoneFromDatabase, loginFromDatabase, authenticate, authenticateAsync, logout, logoutSession, requestPasswordReset, completePasswordReset, setAccountStatus, revokeAccount, createAdministrator, listAdministrators, getAdministrator, updateAdministrator, resetAdministratorCredentials, registerStaff, listStaff, getStaff, updateStaff, changeStaffRole, assignStaff, resetStaffCredentials, sessionTtlMs: SESSION_TTL_MS, genericLoginError: GENERIC_LOGIN_ERROR };
+  return { login, loginByPhone, loginByPhoneFromDatabase, loginFromDatabase, authenticate, authenticateAsync, logout, logoutSession, requestPasswordReset, completePasswordReset, setAccountStatus, revokeAccount, createAdministrator, listAdministrators, getAdministrator, updateAdministrator, resetAdministratorCredentials, resetAdministratorCredentialsByEmail, registerStaff, listStaff, getStaff, updateStaff, changeStaffRole, assignStaff, resetStaffCredentials, sessionTtlMs: SESSION_TTL_MS, genericLoginError: GENERIC_LOGIN_ERROR };
 }
 
 export function canAccess(user, permission) { return Boolean(user && (user.permissions.has('*') || user.permissions.has(permission))); }
