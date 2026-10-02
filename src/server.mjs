@@ -13,6 +13,7 @@ import { createClassDatabaseService } from './class-database.js';
 import { ACADEMIC_YEAR_OPTIONS, STUDENT_STATUSES, TERM_OPTIONS, createAttendanceService } from './attendance.js';
 import { createAttendanceRepository } from './attendance-repository.js';
 import { createAttendanceAggregationService } from './attendance-aggregation.js';
+import { createStaffAttendanceOverviewService } from './staff-attendance-overview.js';
 import { createExaminationService } from './examinations.js';
 import { createFeeService } from './fees.js';
 import { createFeeCollectionsRepository } from './fee-collections-repository.js';
@@ -94,7 +95,7 @@ const root = join(fileURLToPath(new URL('.', import.meta.url)), '..', 'public');
 const mime = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.svg': 'image/svg+xml' };
 const branding = { schoolName: 'OSAAH DAYLIGHT SCH. COM.', location: 'BOGOSO', motto: 'AIM HIGH, ACADEMIC IS OUR CORE VALUE', logoPath: '/assets/osaah-daylight-logo.png', colours: { navy: '#102a43', royalBlue: '#1769aa', gold: '#d4a72c', white: '#ffffff' } };
 
-export function createApp({ auth = null, students = null, attendance = null, attendanceRepository = null, examinations = null, fees = null, feeTypes = null, staff = null, communication = null, communicationEngine = null, operations = null, resources = null, compliance = null, reporting = null, generalFinance = null, cashbook = null, admissionForms = null, admissionProspectus = null, subjects = null, signatures = null, classDatabase = null, database = null, academicResults = null, transcripts = null, receiptBranding = null, prospectusPdf = createAdmissionProspectusPdfService(), resultPdf = createResultSlipPdfService(), sportingActivities = null, subjectRegister = null, shepActivities = null, assignments = null, aiGateway = null, aiConversation = null, capabilityRegistry = null, toolRegistry = null, providerRegistry = null, providerId = process.env.OSAAH_AI_PROVIDER_ID ?? 'openai', modelId = process.env.OSAAH_AI_MODEL_ID ?? 'unconfigured', financialIntelligence = null, academicAttendanceIntelligence = null, admissionsWorkforceIntelligence = null, schoolSettings = null, operationalIntelligence = null, schoolKnowledgeIntelligence = null, academicCalendar = null, executiveIntelligence = null, humanControlledActions = null, aiPersistence = null, aiEnabled = null, audit = () => {}, singleSchoolOverview = null, schoolProfile = null, sampleFixtureRepository = null, resultBlocking = null } = {}) {
+export function createApp({ auth = null, students = null, attendance = null, attendanceRepository = null, staffAttendanceOverview = null, examinations = null, fees = null, feeTypes = null, staff = null, communication = null, communicationEngine = null, operations = null, resources = null, compliance = null, reporting = null, generalFinance = null, cashbook = null, admissionForms = null, admissionProspectus = null, subjects = null, signatures = null, classDatabase = null, database = null, academicResults = null, transcripts = null, receiptBranding = null, prospectusPdf = createAdmissionProspectusPdfService(), resultPdf = createResultSlipPdfService(), sportingActivities = null, subjectRegister = null, shepActivities = null, assignments = null, aiGateway = null, aiConversation = null, capabilityRegistry = null, toolRegistry = null, providerRegistry = null, providerId = process.env.OSAAH_AI_PROVIDER_ID ?? 'openai', modelId = process.env.OSAAH_AI_MODEL_ID ?? 'unconfigured', financialIntelligence = null, academicAttendanceIntelligence = null, admissionsWorkforceIntelligence = null, schoolSettings = null, operationalIntelligence = null, schoolKnowledgeIntelligence = null, academicCalendar = null, executiveIntelligence = null, humanControlledActions = null, aiPersistence = null, aiEnabled = null, audit = () => {}, singleSchoolOverview = null, schoolProfile = null, sampleFixtureRepository = null, resultBlocking = null } = {}) {
   const serviceSchoolId = process.env.OSAAH_SCHOOL_ID ?? (database ? DEFAULT_PRODUCTION_SCHOOL_ID : DEMO_SCHOOL_ID);
   auth ??= createAuthService({ database, testParentSchoolId: serviceSchoolId });
   schoolSettings ??= createSchoolSettingsService({ database, schoolProfile: branding });
@@ -153,6 +154,7 @@ export function createApp({ auth = null, students = null, attendance = null, att
   generalFinance ??= database?.query && database?.execute && database?.transaction ? createGeneralFinanceService({ adapter: database, budgets, audit }) : null;
   cashbook ??= database?.query ? createCashbookService({ adapter: database, students }) : null;
   attendanceRepository ??= database?.query && database?.execute ? createAttendanceRepository({ adapter: database }) : null;
+  staffAttendanceOverview ??= createStaffAttendanceOverviewService({ database, attendanceRepository, attendance, schoolId: serviceSchoolId });
   const staffLeaveReconciler = createStaffLeaveReconciler({ attendance: attendanceRepository ?? attendance, schoolId: serviceSchoolId, audit });
   const parentFeeObligations = database?.query ? createParentFeeObligationsRepository(database) : null;
   const proprietorAuthentication = database ? createProprietorAuthenticationController({ database }) : null;
@@ -603,6 +605,16 @@ export function createApp({ auth = null, students = null, attendance = null, att
           return json(response, { staff: staffMembers, records, total: records.length, counts, statuses: statusLabels, attendanceOptions });
         } catch {
           return json(response, { error: 'Staff attendance register is unavailable. Please try again.' }, 503);
+        }
+      }
+      if (pathname === '/api/attendance/staff/overview' && request.method === 'GET') {
+        if (!canAccess(user, 'staff.attendance.read')) return json(response, { error: 'Forbidden.' }, 403);
+        const query = new URL(request.url, 'http://localhost').searchParams;
+        const filters = Object.fromEntries(['academicYear', 'term', 'week', 'month', 'startDate', 'endDate', 'role', 'status', 'asOfDate'].map((key) => [key, query.get(key) ?? undefined]));
+        try {
+          return json(response, await staffAttendanceOverview.overview(filters, user));
+        } catch (error) {
+          return json(response, { error: error.message ?? 'Staff attendance overview is unavailable.' }, error.status ?? 400);
         }
       }
       if (pathname === '/api/attendance/notifications' && request.method === 'POST') { if (user.portal !== 'parent') return json(response, { error: 'Forbidden.' }, 403); return json(response, attendance.setNotificationSettings(user.id, await readJson(request))); }
