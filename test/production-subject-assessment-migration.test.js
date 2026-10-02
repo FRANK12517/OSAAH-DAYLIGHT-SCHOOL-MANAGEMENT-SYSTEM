@@ -46,4 +46,7 @@ test('Migration 065 workflow requires the protected Production environment, exac
   assert.match(workflow, /production-subject-assessment-migrate\.mjs apply/);
   assert.match(workflow, /Apply only Migration 065/);
   assert.doesNotMatch(workflow, /npm run migration:apply/);
+  assert.doesNotMatch(workflow, /^      DATABASE_URL:/m);
+  assert.match(workflow, /Run focused migration contracts without production credentials/);
+  assert.match(workflow, /DATABASE_URL: ''/);
 });
