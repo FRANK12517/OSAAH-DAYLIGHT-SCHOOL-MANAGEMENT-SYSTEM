@@ -290,7 +290,7 @@
       } else {
         summary = `Saved attendance for ${saved} staff member${saved === 1 ? '' : 's'}.`;
       }
-      if (await loadRegister()) statusMessage.textContent = summary;
+      if (await loadRegister()) { statusMessage.textContent = summary; if (!failed && saved) window.dispatchEvent(new CustomEvent('attendance:save-confirmed', { detail: { kind: 'staff', count: saved } })); }
     }
 
     year.addEventListener('change', populateTerms);
