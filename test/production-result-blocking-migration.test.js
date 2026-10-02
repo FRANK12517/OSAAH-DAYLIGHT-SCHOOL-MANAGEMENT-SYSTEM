@@ -21,6 +21,10 @@ test('protected migration 064 runner requires exact production target, predecess
   assert.match(script, /requiredAppliedVersions: \[63\]/);
   assert.match(script, /APPLY_RESULT_BLOCKING_064/);
   assert.match(script, /MIGRATION_064_PREEXISTING_OBJECTS/);
+  assert.match(script, /MIGRATION_064_PARTIAL_SCHEMA/);
+  assert.match(script, /MIGRATION_064_PREREQUISITE_MISSING/);
+  assert.match(script, /status: recorded \? 'ALREADY_APPLIED' : 'PENDING'/);
+  assert.match(script, /if \(result\.tables\.includes\(table\)\)/);
   assert.match(script, /MIGRATION_064_ACADEMIC_RECORD_COUNT_CHANGED/);
   assert.match(script, /information_schema\.STATISTICS/);
   assert.doesNotMatch(script, /migrationRunner\.apply\(|npm run migration:apply/i);
