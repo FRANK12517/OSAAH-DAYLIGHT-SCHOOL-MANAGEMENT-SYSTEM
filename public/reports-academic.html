@@ -6,11 +6,14 @@
   <title>Academic Reports | OsaaH Daylight</title>
   <link rel="stylesheet" href="/styles.css">
   <style>
-    #output .gender-summary{display:flex;gap:1rem;flex-wrap:wrap;margin:1rem 0;font-weight:700}
-    #output .gender-summary span{padding:.55rem .75rem;border:1px solid #d6b15a;border-radius:.35rem;background:#fffdf4}
+    #output .gender-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1rem;margin:1rem 0;font-weight:700}
+    #output .gender-summary span{min-width:0;padding:.75rem;border:1px solid #d6b15a;border-radius:.35rem;background:#fffdf4;overflow-wrap:anywhere}
     #output .table-scroll{overflow-x:auto}
     #output table{min-width:980px}
-    @media print{body{background:#fff}.form-page>form,.text-button,#reports-nav{display:none!important}#output{border:0;box-shadow:none}}
+    #output .report-actions{display:flex;flex-wrap:wrap;gap:.6rem;margin:1rem 0}
+    #output .report-actions>*{flex:1 1 150px}
+    @media(max-width:599px){#output .gender-summary{grid-template-columns:1fr}#output .report-actions{display:grid;grid-template-columns:1fr}#output .report-actions>*{width:100%}}
+    @media print{body{background:#fff}.form-page>form,.text-button,#reports-nav,.report-actions{display:none!important}#output{border:0;box-shadow:none}.table-scroll{overflow:visible!important}#output table{min-width:0;font-size:9pt}#output th,#output td{white-space:normal;padding:5px}}
   </style>
 </head>
 <body>
@@ -38,7 +41,10 @@
     const render = (j) => {
       const summary = j.genderDistribution ?? { totalBoys: j.summary?.totalBoys ?? 0, totalGirls: j.summary?.totalGirls ?? 0, totalStudents: j.summary?.totalStudents ?? 0 };
       const rows = (j.studentPerformance ?? []).map((student) => `<tr><td>${escapeHtml(student.permanentStudentId || student.studentIndexNumber || '—')}</td><td>${escapeHtml(student.studentName || '—')}</td><td>${escapeHtml(student.gender || 'Not Recorded')}</td><td>${escapeHtml(student.classId || '')}</td><td>${student.totalScore ?? 'N/A'}</td><td>${student.aggregate ?? 'N/A'}</td><td>${escapeHtml(student.classPosition || student.position || '—')}</td><td>${student.averageScore ?? 'N/A'}</td><td>${escapeHtml(student.grade || 'N/A')}</td></tr>`).join('');
-      output.innerHTML = `<h2>${escapeHtml(j.title)}</h2><p>${escapeHtml(j.academicYear || '')} ${escapeHtml(j.term || '')} ${escapeHtml(j.scope || '')}</p><div class="gender-summary"><span>TOTAL BOYS IN CLASS: ${summary.totalBoys}</span><span>TOTAL GIRLS IN CLASS: ${summary.totalGirls}</span><span>TOTAL STUDENTS IN CLASS: ${summary.totalStudents}</span></div><div class="ops-grid"><article class="card"><strong>${j.summary.totalStudents}</strong><span>Total students</span></article><article class="card"><strong>${j.summary.totalAssessed}</strong><span>Assessed</span></article><article class="card"><strong>${j.summary.overallAverage ?? 'N/A'}</strong><span>Overall average</span></article><article class="card"><strong>${j.summary.passRate}%</strong><span>Pass rate</span></article></div><div class="table-scroll"><table><thead><tr><th>OSAAH STUDENT INDEX</th><th>STUDENT NAME</th><th>GENDER</th><th>Class</th><th>TOTAL SCORE</th><th>AGGREGATE</th><th>CLASS POSITION</th><th>Average</th><th>Grade</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+      output.innerHTML = `<h2>${escapeHtml(j.title)}</h2><p>${escapeHtml(j.academicYear || '')} ${escapeHtml(j.term || '')} ${escapeHtml(j.scope || '')}</p><div class="gender-summary"><span>TOTAL BOYS IN CLASS: ${summary.totalBoys}</span><span>TOTAL GIRLS IN CLASS: ${summary.totalGirls}</span><span>TOTAL STUDENTS IN CLASS: ${summary.totalStudents}</span></div><div class="report-actions"><button class="text-button" id="output-print" type="button">Print Broadsheet</button><button class="text-button" id="output-export-csv" type="button">Export CSV</button><button class="text-button" id="output-export-pdf" type="button">Export PDF</button></div><div class="ops-grid"><article class="card"><strong>${j.summary.totalStudents}</strong><span>Total students</span></article><article class="card"><strong>${j.summary.totalAssessed}</strong><span>Assessed</span></article><article class="card"><strong>${j.summary.overallAverage ?? 'N/A'}</strong><span>Overall average</span></article><article class="card"><strong>${j.summary.passRate}%</strong><span>Pass rate</span></article></div><div class="table-scroll"><table><thead><tr><th>OSAAH STUDENT INDEX</th><th>STUDENT NAME</th><th>GENDER</th><th>Class</th><th>TOTAL SCORE</th><th>AGGREGATE</th><th>CLASS POSITION</th><th>Average</th><th>Grade</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+      output.querySelector('#output-print')?.addEventListener('click', () => window.print());
+      output.querySelector('#output-export-csv')?.addEventListener('click', () => exportReport('csv'));
+      output.querySelector('#output-export-pdf')?.addEventListener('click', () => exportReport('pdf'));
     };
     form.addEventListener('submit', async (event) => { event.preventDefault(); const response = await fetch(`/api/reports/academic?${new URLSearchParams(filters())}`); const data = await response.json(); if (response.ok) render(data); else output.innerHTML = `<p class="error">${escapeHtml(data.error || 'Unable to load report.')}</p>`; });
     const exportReport = async (format) => { const response = await fetch(`/api/reports/academic/export?${new URLSearchParams({...filters(), format})}`); const data = await response.json(); if (!response.ok) { output.innerHTML = `<p class="error">${escapeHtml(data.error || 'Unable to export report.')}</p>`; return; } const blob = new Blob([data.content], { type: data.mimeType || 'text/plain' }); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = data.filename || `academic-performance.${format}`; link.click(); URL.revokeObjectURL(link.href); };
