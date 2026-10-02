@@ -21,7 +21,6 @@ function createFakeDatabase({ failAt = null } = {}) {
   function queryFor(store, sql, params = []) {
     if (sql.includes('FROM schools')) return store.schools.filter((row) => row.id === params[0]);
     if (sql.includes('FROM users WHERE LOWER(COALESCE(email')) return store.users.filter((row) => row.email.toLowerCase() === params[0]);
-    if (sql.includes('FROM users WHERE school_id=? AND LOWER(username)')) return store.users.filter((row) => row.school_id === params[0] && row.username.toLowerCase() === params[1]);
     if (sql.includes('FROM staff WHERE school_id=? AND staff_number=?')) return store.staff.filter((row) => row.school_id === params[0] && row.staff_number === params[1]).map((row) => ({ id: row.id, userId: row.user_id }));
     if (sql.includes('FROM staff_profiles WHERE staff_id=? OR employee_id=?')) return store.profiles.filter((row) => row.staff_id === params[0] || row.employee_id === params[1]).map((row) => ({ id: row.id }));
     if (sql.includes('FROM roles') && sql.includes('WHERE role_key=?')) return store.roles.filter((row) => row.role_key === params[0] && (row.school_id === params[1] || row.school_id == null)).sort((a, b) => (a.school_id === params[1] ? -1 : 1) - (b.school_id === params[1] ? -1 : 1)).map((row) => ({ id: row.id, roleKey: row.role_key })).slice(0, 1);
@@ -37,12 +36,12 @@ function createFakeDatabase({ failAt = null } = {}) {
       });
     }
     if (sql.includes('FROM users u') && sql.includes('LEFT JOIN user_roles ur')) {
-      const [email, username] = params;
-      return store.users.filter((user) => user.email.toLowerCase() === email || user.username.toLowerCase() === username).flatMap((user) => {
+      const [email] = params;
+      return store.users.filter((user) => user.email.toLowerCase() === email).flatMap((user) => {
         const links = store.userRoles.filter((link) => link.user_id === user.id);
         return links.flatMap((link) => {
           const role = store.roles.find((item) => item.id === link.role_id);
-          return role ? [{ id: user.id, schoolId: user.school_id, username: user.username, email: user.email, passwordHash: user.password_hash, status: user.status, roleKey: role.role_key, oversightRank: role.oversight_rank, permissionKey: null }] : [];
+          return role ? [{ id: user.id, schoolId: user.school_id, username: user.email, email: user.email, passwordHash: user.password_hash, status: user.status, roleKey: role.role_key, oversightRank: role.oversight_rank, permissionKey: null }] : [];
         });
       });
     }
@@ -71,14 +70,14 @@ function createFakeDatabase({ failAt = null } = {}) {
         const assignments = store.assignments.filter((row) => row.staff_id === staff.id);
         return roleLinks.flatMap((link) => {
           const role = store.roles.find((row) => row.id === link.role_id && row.school_id === staff.school_id && ['TEACHER', 'HEADTEACHER', 'ASSISTANT_HEADTEACHER', 'ACCOUNTANT_BURSAR'].includes(row.role_key));
-          return role ? (assignments.length ? assignments.map((assignment) => ({ id: staff.id, staffId: staff.staff_number, firstName: staff.first_name, lastName: staff.last_name, username: user.username, email: user.email, accountStatus: user.status, createdAt: user.created_at, fullName: profile.full_name, phone: profile.phone, roleKey: role.role_key, assignedClassId: assignment.class_id, assignedSubjectId: assignment.subject_id })) : [{ id: staff.id, staffId: staff.staff_number, firstName: staff.first_name, lastName: staff.last_name, username: user.username, email: user.email, accountStatus: user.status, createdAt: user.created_at, fullName: profile.full_name, phone: profile.phone, roleKey: role.role_key, assignedClassId: null, assignedSubjectId: null }]) : [];
+          return role ? (assignments.length ? assignments.map((assignment) => ({ id: staff.id, staffId: staff.staff_number, firstName: staff.first_name, lastName: staff.last_name, username: user.email, email: user.email, accountStatus: user.status, createdAt: user.created_at, fullName: profile.full_name, phone: profile.phone, roleKey: role.role_key, assignedClassId: assignment.class_id, assignedSubjectId: assignment.subject_id })) : [{ id: staff.id, staffId: staff.staff_number, firstName: staff.first_name, lastName: staff.last_name, username: user.email, email: user.email, accountStatus: user.status, createdAt: user.created_at, fullName: profile.full_name, phone: profile.phone, roleKey: role.role_key, assignedClassId: null, assignedSubjectId: null }]) : [];
         });
       });
     }
     if (sql.includes('FROM staff s JOIN users u ON u.id=s.user_id AND u.school_id=s.school_id') && sql.includes('WHERE s.user_id=?')) return store.staff.filter((row) => row.user_id === params[0] && row.school_id === params[1] && store.users.some((user) => user.id === row.user_id && user.school_id === row.school_id)).map((row) => ({ id: row.id }));
     if (sql.includes('SELECT id FROM staff WHERE user_id=? AND school_id=?')) return store.staff.filter((row) => row.user_id === params[0] && row.school_id === params[1]).map((row) => ({ id: row.id }));
     if (sql.includes('SELECT r.role_key AS roleKey FROM user_roles')) return store.userRoles.filter((row) => row.user_id === params[0]).map((link) => store.roles.find((role) => role.id === link.role_id)).filter(Boolean).map((role) => ({ roleKey: role.role_key }));
-    if (sql.includes('SELECT u.username FROM staff s JOIN users u')) return store.staff.filter((row) => row.user_id === params[0] && row.school_id === params[1]).map((staff) => ({ username: store.users.find((user) => user.id === staff.user_id)?.username }));
+    if (sql.includes('SELECT u.email AS username FROM staff s JOIN users u')) return store.staff.filter((row) => row.user_id === params[0] && row.school_id === params[1]).map((staff) => ({ username: store.users.find((user) => user.id === staff.user_id)?.email }));
     if (sql.includes('SELECT u.id,u.school_id AS schoolId')) return [];
     return [];
   }
@@ -86,8 +85,8 @@ function createFakeDatabase({ failAt = null } = {}) {
   function executeFor(store, sql, params = []) {
     if (failAt && sql.startsWith(failAt)) throw new Error('injected persistence failure');
     if (sql.startsWith('INSERT INTO users')) {
-      const [id, school_id, username, email, password_hash, status, created_at, updated_at] = params;
-      store.users.push({ id, school_id, username, email, password_hash, status, created_at, updated_at });
+      const [id, school_id, email, password_hash, full_name, phone, role, status, created_at] = params;
+      store.users.push({ id, school_id, email, password_hash, full_name, phone, role, status, created_at });
       return { affectedRows: 1 };
     }
     if (sql.startsWith('INSERT INTO staff (')) {
@@ -127,13 +126,18 @@ function createFakeDatabase({ failAt = null } = {}) {
       return { affectedRows: profile ? 1 : 0 };
     }
     if (sql.startsWith('UPDATE users SET status=')) {
-      const user = store.users.find((row) => row.id === params[2] && row.school_id === params[3]);
-      if (user) { user.status = params[0]; user.updated_at = params[1]; return { affectedRows: 1 }; }
+      const user = store.users.find((row) => row.id === params[1] && row.school_id === params[2]);
+      if (user) { user.status = params[0]; return { affectedRows: 1 }; }
+      return { affectedRows: 0 };
+    }
+    if (sql.startsWith('UPDATE users SET email=')) {
+      const user = store.users.find((row) => row.id === params[1] && row.school_id === params[2]);
+      if (user) { user.email = params[0]; return { affectedRows: 1 }; }
       return { affectedRows: 0 };
     }
     if (sql.startsWith('UPDATE users SET password_hash=')) {
-      const user = store.users.find((row) => row.id === params[2] && row.school_id === params[3]);
-      if (user) { user.password_hash = params[0]; user.updated_at = params[1]; return { affectedRows: 1 }; }
+      const user = store.users.find((row) => row.id === params[1] && row.school_id === params[2]);
+      if (user) { user.password_hash = params[0]; return { affectedRows: 1 }; }
       return { affectedRows: 0 };
     }
     if (sql.startsWith('UPDATE auth_sessions SET last_used_at=')) {
@@ -234,13 +238,11 @@ test('durable staff provisioning rolls back all related inserts when a later wri
   assert.equal(stored.assignments.length, 0);
 });
 
-test('durable login accepts the stored username as well as the email address', async () => {
+test('durable login uses the canonical users.email identifier', async () => {
   const database = createFakeDatabase();
   const auth = createAuthService({ database });
   const created = await auth.registerStaff(newTeacher, actor);
-  const user = database.snapshot().users[0];
-  database.setUsername(user.id, 'OSAAH-STAFF-0042');
-  const login = await createAuthService({ database }).loginFromDatabase({ username: 'OSAAH-STAFF-0042', password: created.temporaryPassword, portal: 'school' });
+  const login = await createAuthService({ database }).loginFromDatabase({ username: newTeacher.email, password: created.temporaryPassword, portal: 'school' });
   assert.equal(login.ok, true);
   assert.equal(login.user.roleKey, 'TEACHER');
 });
@@ -258,7 +260,7 @@ test('durable staff disable and credential reset persist status and replace the 
   assert.ok(replacement.temporaryPassword);
   const restartedAuth = createAuthService({ database });
   assert.equal((await restartedAuth.loginFromDatabase({ username: newTeacher.email, password: created.temporaryPassword, portal: 'school' })).ok, false);
-  assert.equal((await restartedAuth.loginFromDatabase({ username: replacement.username, password: replacement.temporaryPassword, portal: 'school' })).ok, true);
+  assert.equal((await restartedAuth.loginFromDatabase({ username: newTeacher.email, password: replacement.temporaryPassword, portal: 'school' })).ok, true);
 });
 
 

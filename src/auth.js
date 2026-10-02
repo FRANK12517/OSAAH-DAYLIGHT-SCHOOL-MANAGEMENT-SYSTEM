@@ -177,12 +177,12 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     }
     let rows = [];
     try {
-      rows = await database.query(`SELECT DISTINCT u.id,u.school_id AS schoolId,u.username,u.email,u.status,psl.telephone AS parentPhone
+      rows = await database.query(`SELECT DISTINCT u.id,u.school_id AS schoolId,u.email AS username,u.email,u.status,psl.telephone AS parentPhone
         FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id
         JOIN parent_student_links psl ON psl.parent_user_id=u.id
         WHERE r.role_key='PARENT' AND UPPER(COALESCE(u.status,'ACTIVE'))='ACTIVE' AND COALESCE(psl.link_status,'ACTIVE')='ACTIVE'`, []);
     } catch {
-      try { rows = await database.query(`SELECT DISTINCT u.id,u.school_id AS schoolId,u.username,u.email,u.status,psl.telephone AS parentPhone
+      try { rows = await database.query(`SELECT DISTINCT u.id,u.school_id AS schoolId,u.email AS username,u.email,u.status,psl.telephone AS parentPhone
         FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id JOIN parent_student_links psl ON psl.parent_user_id=u.id
         WHERE r.role_key='PARENT' AND UPPER(COALESCE(u.status,'ACTIVE'))='ACTIVE'`, []); } catch { rows = []; }
     }
@@ -198,13 +198,13 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     if (portal !== 'school' || !database?.query) return login({ username, password, portal, role });
     let rows;
     try {
-      rows = await database.query(`SELECT u.id,u.school_id AS schoolId,u.username,u.email,u.password_hash AS passwordHash,u.status,r.role_key AS roleKey,r.oversight_rank AS oversightRank,p.permission_key AS permissionKey
+      rows = await database.query(`SELECT u.id,u.school_id AS schoolId,u.email AS username,u.email,u.password_hash AS passwordHash,u.status,r.role_key AS roleKey,r.oversight_rank AS oversightRank,p.permission_key AS permissionKey
         FROM users u
         LEFT JOIN user_roles ur ON ur.user_id=u.id
         LEFT JOIN roles r ON r.id=ur.role_id
         LEFT JOIN role_permissions rp ON rp.role_id=r.id
         LEFT JOIN permissions p ON p.id=rp.permission_id
-        WHERE LOWER(COALESCE(u.email,''))=? OR LOWER(COALESCE(u.username,''))=? ORDER BY COALESCE(r.oversight_rank,0) DESC,r.role_key,p.permission_key`, [key, key]);
+        WHERE LOWER(COALESCE(u.email,''))=? ORDER BY COALESCE(r.oversight_rank,0) DESC,r.role_key,p.permission_key`, [key]);
     } catch (error) {
       const tableMatch = String(error?.message ?? '').match(/Table ['`]([^'`]+)['`] doesn't exist/i);
       const tableName = tableMatch?.[1]?.split('.').pop() || null;
