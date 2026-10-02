@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Attendance Overview | OsaaH Daylight</title>
+  <link rel="stylesheet" href="/styles.css">
+  <style>
+    .overview-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;margin:1.25rem 0}
+    .overview-card{padding:1rem;border:1px solid #d9e0e7;border-radius:.5rem;background:#fff}
+    .overview-card h3{margin:0 0 .4rem;font-size:1rem}
+    .overview-card p{margin:0;color:#526273}
+    .overview-section{margin:1.25rem 0;padding:1.1rem;border:1px solid #d9e0e7;border-radius:.5rem;background:#fff}
+    .overview-section h2{margin-top:0}
+    .overview-filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;align-items:end}
+    .overview-filters label{display:flex;flex-direction:column;gap:.35rem}
+    .state{color:#526273;margin:.4rem 0 0}
+    .state.error{color:#8c1d1d}
+    .section-heading{display:flex;justify-content:space-between;gap:1rem;align-items:baseline;flex-wrap:wrap}
+  </style>
+</head>
+<body>
+  <main class="form-page">
+    <a class="text-button" href="/">← Dashboard</a>
+    <p class="eyebrow">ATTENDANCE MANAGEMENT</p>
+    <h1>Attendance Overview</h1>
+    <p class="muted">Historical attendance summaries and analytics for the school scope authorized to your account.</p>
+
+    <section class="overview-section" aria-labelledby="filters-heading">
+      <div class="section-heading"><h2 id="filters-heading">Attendance Filters</h2><span class="muted">Part 1 navigation and reporting shell</span></div>
+      <form id="overview-filters" class="overview-filters">
+        <label>Academic Year<select id="overview-academic-year"><option value="">All academic years</option></select></label>
+        <label>Term<select id="overview-term"><option value="">All terms</option></select></label>
+        <label>Class<select id="overview-class"><option value="">All classes</option><option value="Nursery 1">Nursery 1</option><option value="Nursery 2">Nursery 2</option><option value="KG1">KG 1</option><option value="KG2">KG 2</option><option value="Primary 1">Primary 1</option><option value="Primary 2">Primary 2</option><option value="Primary 3">Primary 3</option><option value="Primary 4">Primary 4</option><option value="Primary 5">Primary 5</option><option value="Primary 6">Primary 6</option><option value="JHS 1">JHS 1</option><option value="JHS 2">JHS 2</option><option value="JHS 3">JHS 3</option></select></label>
+        <label>Date<input id="overview-date" type="date"></label>
+        <button class="primary-button" type="submit">Load Overview</button>
+      </form>
+      <p id="overview-status" class="state" role="status" aria-live="polite">Choose filters and load the authorized attendance overview.</p>
+    </section>
+
+    <section class="overview-section" aria-labelledby="summary-heading">
+      <div class="section-heading"><h2 id="summary-heading">Attendance Summary</h2><span class="muted">Verified data only</span></div>
+      <div class="overview-grid" id="summary-cards">
+        <article class="overview-card"><h3>Student Attendance</h3><p>Unavailable until the historical aggregation service is loaded.</p></article>
+        <article class="overview-card"><h3>Staff Attendance</h3><p>Shown only when your existing staff attendance permission authorizes it.</p></article>
+        <article class="overview-card"><h3>Attendance Percentage</h3><p>Awaiting an authorized report response.</p></article>
+      </div>
+    </section>
+
+    <section class="overview-section" aria-labelledby="staff-heading"><h2 id="staff-heading">Staff Attendance Overview</h2><p id="staff-state" class="state">Historical staff summaries are unavailable in Part 1 and remain protected by the existing staff attendance authorization.</p></section>
+    <section class="overview-section" aria-labelledby="students-heading"><h2 id="students-heading">Student Attendance Overview</h2><p id="students-state" class="state">Historical student summaries are unavailable until the Part 2 aggregation service is connected.</p></section>
+    <section class="overview-section" aria-labelledby="analytics-heading"><h2 id="analytics-heading">Attendance Analytics</h2><p class="state">Trend and comparison analytics will be connected in Part 3. No production statistics are invented on this page.</p></section>
+    <section class="overview-section" aria-labelledby="reports-heading"><h2 id="reports-heading">Historical Attendance Reports</h2><p class="state">Historical report exports and detailed calculations will be connected in Parts 2 and 3.</p><p><a class="text-button" href="/attendance/reports">Open existing Attendance Reports</a></p></section>
+  </main>
+  <script>
+    const form = document.querySelector('#overview-filters');
+    const year = document.querySelector('#overview-academic-year');
+    const term = document.querySelector('#overview-term');
+    const date = document.querySelector('#overview-date');
+    const status = document.querySelector('#overview-status');
+    const studentsState = document.querySelector('#students-state');
+    const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[character]));
+    date.value = new Date().toISOString().slice(0, 10);
+    async function loadOptions() {
+      try {
+        const response = await fetch('/api/attendance/options', { credentials: 'same-origin', cache: 'no-store' });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Attendance options are unavailable.');
+        year.innerHTML += (data.academicYears || []).map((item) => `<option value="${esc(item.name ?? item.id)}">${esc(item.name ?? item.id)}</option>`).join('');
+        term.innerHTML += (data.terms || []).map((item) => `<option value="${esc(item.name ?? item.id)}">${esc(item.name ?? item.id)}</option>`).join('');
+      } catch (error) {
+        status.textContent = error.message;
+        status.classList.add('error');
+      }
+    }
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      status.classList.remove('error');
+      status.textContent = 'Loading authorized attendance data…';
+      const query = new URLSearchParams(Object.fromEntries([['academicYear', year.value], ['term', term.value], ['classId', document.querySelector('#overview-class').value], ['date', date.value]].filter(([, value]) => value)));
+      try {
+        const response = await fetch(`/api/attendance/students?${query}`, { credentials: 'same-origin', cache: 'no-store' });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Attendance overview is unavailable.');
+        const total = Number(data.total || 0);
+        studentsState.textContent = total ? `${total} authorized student attendance record${total === 1 ? '' : 's'} returned. Detailed historical calculations remain scheduled for Part 2.` : 'No authorized student attendance records match these filters.';
+        status.textContent = 'Authorized student attendance data loaded. Staff, analytics, and report sections remain explicitly unavailable until their planned parts are deployed.';
+      } catch (error) {
+        studentsState.textContent = error.message;
+        status.textContent = error.message;
+        status.classList.add('error');
+      }
+    });
+    loadOptions();
+  </script>
+</body>
+</html>
