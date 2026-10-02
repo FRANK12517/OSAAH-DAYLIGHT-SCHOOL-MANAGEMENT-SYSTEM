@@ -151,6 +151,7 @@ export function createParentDashboardService({
   attendanceRepository = null,
   sampleFixtureRepository = null,
   academicResults = null,
+  resultBlocking = null,
   durableAcademic = null,
   fees = null,
   parentFeeObligations = null,
@@ -302,6 +303,7 @@ export function createParentDashboardService({
         return rows(records).some((row) => childIds.has(text(row.studentId ?? row.student_id)));
       }
       if (recordType === 'published-results' && academicResults?.publicationFor && academicResults?.result) {
+        if (resultBlocking?.assertReadable) await resultBlocking.assertReadable({ classId: context.classId, academicYear: context.yearId, term: context.termId, studentId: student.id ?? student.studentId ?? student.student_id }, actor); else if (academicResults?.blockFor?.({ classId: context.classId, academicYear: context.yearId, term: context.termId, studentId: student.id ?? student.studentId ?? student.student_id })?.status === 'BLOCKED') fail('This result is temporarily blocked by the school. Please contact the school office.', 403, 'PARENT_RESULT_BLOCKED');
         const publication = academicResults.publicationFor({ classId: context.classId, academicYear: context.yearId, term: context.termId, isSample: Boolean(student.isTestRecord ?? student.is_test_record), studentId: student.id ?? student.studentId ?? student.student_id });
         if (publication?.status !== 'PUBLISHED') return false;
         academicResults.result({ studentId: student.id ?? student.studentId ?? student.student_id, classId: context.classId, academicYear: context.yearId, term: context.termId, sample: Boolean(student.isTestRecord ?? student.is_test_record) }, { ...actor, children: [student], roleKey: 'HEADTEACHER', permissions: new Set(['*']) });
@@ -403,6 +405,7 @@ export function createParentDashboardService({
       return { recordType: type, available: true, student: { name, permanentStudentId }, context, attendanceSummary: attendanceSummary(authorizedRecords), records: authorizedRecords };
     }
     if (type === 'published-results') {
+      if (resultBlocking?.assertReadable) await resultBlocking.assertReadable({ classId: context.classId, academicYear: context.yearId, term: context.termId, studentId: student.id ?? student.studentId ?? student.student_id }, actor); else if (academicResults?.blockFor?.({ classId: context.classId, academicYear: context.yearId, term: context.termId, studentId: student.id ?? student.studentId ?? student.student_id })?.status === 'BLOCKED') fail('This result is temporarily blocked by the school. Please contact the school office.', 403, 'PARENT_RESULT_BLOCKED');
       const publication = academicResults.publicationFor({ classId: context.classId, academicYear: context.yearId, term: context.termId, isSample: Boolean(student.isTestRecord ?? student.is_test_record), studentId: student.id ?? student.studentId ?? student.student_id });
       if (publication?.status !== 'PUBLISHED') fail('No published result is available for this student and academic context.', 404, 'PARENT_RESULT_NOT_PUBLISHED');
       try {
