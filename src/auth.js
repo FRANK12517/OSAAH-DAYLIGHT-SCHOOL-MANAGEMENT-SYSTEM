@@ -81,13 +81,31 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
   function isActive(user) { return user.is_active !== false && user.isActive !== false && !['DISABLED', 'REVOKED', 'REMOVED', 'SUSPENDED', 'DEACTIVATED'].includes(String(user.accountStatus ?? '').toUpperCase()); }
   function securityEvent(action, user, sessionId = null) { audit({ action, entity: 'Authentication', entityId: user?.id ?? null, userId: user?.id ?? null, roleId: canonicalRoleKey(user?.roleKey), sessionId }); }
   function sanitize(user, sessionId = null) { const roleKey = canonicalRoleKey(user.roleKey); return { id: user.id, username: user.username, portal: user.portal, roleKey, role: roleKey, accountStatus: isActive(user) ? 'ACTIVE' : String(user.accountStatus ?? 'DISABLED').toUpperCase(), schoolId: user.schoolId, sessionId, dashboard: SCHOOL_PORTAL_DASHBOARDS[roleKey] ?? '/', schoolType: user.schoolType, subscription: user.subscription, entitlements: user.entitlements ?? [], featureAvailability: user.featureAvailability ?? [], ...(roleKey === 'PARENT' ? {} : { children: user.children ?? [], authorizedStaffIds: user.authorizedStaffIds ?? [], assignedStudentIds: user.assignedStudentIds ?? [], assignedParentIds: user.assignedParentIds ?? [], assignedClassIds: user.assignedClassIds ?? [], assignedSubjectIds: user.assignedSubjectIds ?? [], assignedDepartmentIds: user.assignedDepartmentIds ?? [] }) }; }
+  function selectAuthorizedRoleRows(rows, requestedRole = null) {
+    const normalizedRequested = requestedRole ? canonicalRoleKey(requestedRole) : null;
+    const grouped = new Map();
+    for (const row of rows ?? []) {
+      const roleKey = canonicalRoleKey(row.roleKey);
+      if (!roleKey) continue;
+      if (!grouped.has(roleKey)) grouped.set(roleKey, []);
+      grouped.get(roleKey).push(row);
+    }
+    const available = [...grouped.keys()].sort((left, right) => {
+      const rank = (key) => Math.max(...(grouped.get(key) ?? []).map((row) => Number(row.oversightRank ?? 0)));
+      return rank(right) - rank(left) || left.localeCompare(right);
+    });
+    const selectedRole = normalizedRequested
+      ? available.find((roleKey) => roleKey === normalizedRequested)
+      : available[0];
+    return { roleKey: selectedRole ?? null, rows: selectedRole ? grouped.get(selectedRole) : [], availableRoles: available };
+  }
   function createSessionResult(user) {
     // In-memory sessions are not portable across serverless instances. In
     // production, fail closed unless a stable HMAC signing key is configured.
     if (process.env.NODE_ENV === 'production' && !signingKey) return { ok: false, status: 503, error: 'Authentication service unavailable.' };
     attempts.delete(user.id);
     const sessionId = randomUUID(); const expiresAt = now() + SESSION_TTL_MS;
-    const session = { userId: user.id, sessionId, expiresAt, ...(user.id === TEST_PARENT_ID && user.isTestFixture === true ? { testParentFixture: true } : {}) };
+    const session = { userId: user.id, roleKey: canonicalRoleKey(user.roleKey), sessionId, expiresAt, ...(user.id === TEST_PARENT_ID && user.isTestFixture === true ? { testParentFixture: true } : {}) };
     const token = signingKey ? signSession(session) : randomBytes(32).toString('hex');
     sessions.set(token, session); securityEvent('LOGIN_SUCCESS', user, sessionId);
     return { ok: true, token, user: sanitize(user, sessionId), redirectTo: SCHOOL_PORTAL_DASHBOARDS[canonicalRoleKey(user.roleKey)] ?? '/', expiresAt };
@@ -96,7 +114,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     if (process.env.NODE_ENV === 'production' && !durableSessionStore) return { ok: false, status: 503, error: 'Authentication service unavailable.' };
     attempts.delete(user.id);
     const sessionId = randomUUID(); const expiresAt = now() + SESSION_TTL_MS;
-    const session = { userId: user.id, sessionId, expiresAt, ...(user.id === TEST_PARENT_ID && user.isTestFixture === true ? { testParentFixture: true } : {}) };
+    const session = { userId: user.id, roleKey: canonicalRoleKey(user.roleKey), sessionId, expiresAt, ...(user.id === TEST_PARENT_ID && user.isTestFixture === true ? { testParentFixture: true } : {}) };
     const token = signingKey ? signSession(session) : randomBytes(32).toString('hex');
     sessions.set(token, session);
     await persistDurableSession(user, session, token);
@@ -162,13 +180,13 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     if (portal !== 'school' || !database?.query) return login({ username, password, portal, role });
     let rows;
     try {
-      rows = await database.query(`SELECT u.id,u.school_id AS schoolId,u.email AS username,u.email,u.password_hash AS passwordHash,u.status,r.role_key AS roleKey,p.permission_key AS permissionKey
+      rows = await database.query(`SELECT u.id,u.school_id AS schoolId,u.email AS username,u.email,u.password_hash AS passwordHash,u.status,r.role_key AS roleKey,r.oversight_rank AS oversightRank,p.permission_key AS permissionKey
         FROM users u
         LEFT JOIN user_roles ur ON ur.user_id=u.id
         LEFT JOIN roles r ON r.id=ur.role_id
         LEFT JOIN role_permissions rp ON rp.role_id=r.id
         LEFT JOIN permissions p ON p.id=rp.permission_id
-        WHERE LOWER(COALESCE(u.email,''))=?`, [key]);
+        WHERE LOWER(COALESCE(u.email,''))=? ORDER BY COALESCE(r.oversight_rank,0) DESC,r.role_key,p.permission_key`, [key]);
     } catch (error) {
       const tableMatch = String(error?.message ?? '').match(/Table ['`]([^'`]+)['`] doesn't exist/i);
       const tableName = tableMatch?.[1]?.split('.').pop() || null;
@@ -176,8 +194,13 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
       securityEvent('LOGIN_DATABASE_ERROR', null);
       return { ok: false, status: 503, error: 'Authentication service unavailable.' };
     }
-    const row = rows?.[0];
-    const userRows = rows?.filter((candidate) => candidate.id === row?.id) ?? [];
+    const identityRows = rows ?? [];
+    const identity = identityRows[0];
+    const selected = selectAuthorizedRoleRows(identityRows, role);
+    const row = selected.rows[0] ?? identity;
+    const userRows = selected.rows;
+    const roleKey = selected.roleKey;
+    const scopedRows = userRows.filter((candidate) => canonicalRoleKey(candidate.roleKey) === roleKey);
     const active = row && String(row.status ?? 'ACTIVE').toUpperCase() === 'ACTIVE';
     let passwordValid = false;
     if (row && typeof password === 'string' && typeof row.passwordHash === 'string') {
@@ -185,14 +208,13 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
         passwordValid = row.passwordHash.includes(':') ? passwordMatches(password, row.passwordHash) : await bcrypt.compare(password, row.passwordHash);
       } catch { passwordValid = false; }
     }
-    const roleKey = canonicalRoleKey(row?.roleKey);
-    if (row && role && roleKey !== canonicalRoleKey(role)) return { ok: false, status: 401, error: 'The selected role does not match this account.' };
+    if (row && role && !roleKey) return { ok: false, status: 401, error: 'The selected role does not match this account.' };
     if (!row || !active || !passwordValid || !roleKey) {
       const next = throttle ?? { count: 0 }; next.count += 1; if (next.count >= MAX_ATTEMPTS) next.lockedUntil = now() + LOCKOUT_MS; attempts.set(key, next); securityEvent('LOGIN_FAILED', row ? { ...row, roleKey } : null); return { ok: false, status: 401, error: GENERIC_LOGIN_ERROR };
     }
-    const user = addStaffAttendanceRoleGrants({ id: row.id, username: row.username ?? row.email, email: row.email, portal: 'school', roleKey, schoolId: row.schoolId, accountStatus: 'ACTIVE', is_active: true, permissions: new Set(userRows.map((candidate) => candidate.permissionKey).filter(Boolean)) });
+    const user = addStaffAttendanceRoleGrants({ id: row.id, username: row.username ?? row.email, email: row.email, portal: 'school', roleKey, schoolId: row.schoolId, accountStatus: 'ACTIVE', is_active: true, permissions: new Set(scopedRows.map((candidate) => candidate.permissionKey).filter(Boolean)) });
     if (!user.permissions.size) for (const permission of ROLE_PERMISSIONS[roleKey] ?? []) user.permissions.add(permission);
-    attempts.delete(key); const sessionId = randomUUID(); const expiresAt = now() + SESSION_TTL_MS; const session = { userId: user.id, sessionId, expiresAt }; const token = randomBytes(32).toString('hex'); sessions.set(token, session); users.push(user); await persistDurableSession(user, session, token); if (durableSessionStore) durableSessionIds.add(sessionId); securityEvent('LOGIN_SUCCESS', user, sessionId); return { ok: true, token, user: sanitize(user, sessionId), redirectTo: SCHOOL_PORTAL_DASHBOARDS[roleKey] ?? '/', expiresAt };
+    attempts.delete(key); users.push(user); return await createDurableSessionResult(user);
   }
   function authenticate(token) {
     const session = verifiedSession(token);
@@ -200,7 +222,8 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     const isTestParentFixtureSession = session.userId === TEST_PARENT_ID && session.testParentFixture === true;
     const user = isTestParentFixtureSession
       ? (process.env.OSAAH_ENABLE_SAMPLE_FIXTURES === 'false' ? null : createConfiguredTestParent(testParentSchoolId))
-      : users.find((candidate) => candidate.id === session.userId);
+      : users.find((candidate) => candidate.id === session.userId && (!session.roleKey || canonicalRoleKey(candidate.roleKey) === canonicalRoleKey(session.roleKey)))
+        ?? users.find((candidate) => candidate.id === session.userId);
     if (!user) { if (token) sessions.delete(token); return null; }
     if (!isActive(user)) { revokeLocalSession(token, session); securityEvent('SESSION_REVOKED', user, session.sessionId); return null; }
     return { ...sanitize(user, session.sessionId), permissions: user.permissions };
@@ -209,12 +232,14 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     const local = authenticate(token);
     const session = verifiedSession(token);
     if (!durableSessionStore || typeof token !== 'string' || !token || local && (!session || !durableSessionIds.has(session.sessionId))) return local;
-    const rows = await database.query(`SELECT s.id AS sessionId,s.user_id AS userId,s.school_id AS schoolId,s.expires_at AS expiresAt,u.email AS username,u.email,u.status,r.role_key AS roleKey,p.permission_key AS permissionKey FROM auth_sessions s JOIN users u ON u.id=s.user_id LEFT JOIN user_roles ur ON ur.user_id=u.id LEFT JOIN roles r ON r.id=ur.role_id LEFT JOIN role_permissions rp ON rp.role_id=r.id LEFT JOIN permissions p ON p.id=rp.permission_id WHERE s.token_hash=? AND s.revoked_at IS NULL AND s.expires_at>? AND u.status='ACTIVE'`, [tokenHash(token), nowIso()]);
+    const rows = await database.query(`SELECT s.id AS sessionId,s.user_id AS userId,s.school_id AS schoolId,s.expires_at AS expiresAt,u.email AS username,u.email,u.status,r.role_key AS roleKey,r.oversight_rank AS oversightRank,p.permission_key AS permissionKey FROM auth_sessions s JOIN users u ON u.id=s.user_id LEFT JOIN user_roles ur ON ur.user_id=u.id LEFT JOIN roles r ON r.id=ur.role_id LEFT JOIN role_permissions rp ON rp.role_id=r.id LEFT JOIN permissions p ON p.id=rp.permission_id WHERE s.token_hash=? AND s.revoked_at IS NULL AND s.expires_at>? AND u.status='ACTIVE' ORDER BY COALESCE(r.oversight_rank,0) DESC,r.role_key,p.permission_key`, [tokenHash(token), nowIso()]);
     const row = rows?.[0];
     if (!row) { if (session) revokeLocalSession(token, session); else sessions.delete(token); return null; }
     const userRows = rows.filter((candidate) => candidate.userId === row.userId);
-    const roleKey = canonicalRoleKey(row.roleKey);
-    const user = addStaffAttendanceRoleGrants({ id: row.userId, username: row.username, email: row.email, portal: roleKey === 'PARENT' ? 'parent' : 'school', roleKey, schoolId: row.schoolId, accountStatus: 'ACTIVE', is_active: true, permissions: new Set(userRows.map((candidate) => candidate.permissionKey).filter(Boolean)) });
+    const selectedRoleKey = canonicalRoleKey(session?.roleKey ?? row.roleKey);
+    const roleKey = userRows.some((candidate) => canonicalRoleKey(candidate.roleKey) === selectedRoleKey) ? selectedRoleKey : canonicalRoleKey(row.roleKey);
+    const scopedRows = userRows.filter((candidate) => canonicalRoleKey(candidate.roleKey) === roleKey);
+    const user = addStaffAttendanceRoleGrants({ id: row.userId, username: row.username, email: row.email, portal: roleKey === 'PARENT' ? 'parent' : 'school', roleKey, schoolId: row.schoolId, accountStatus: 'ACTIVE', is_active: true, permissions: new Set(scopedRows.map((candidate) => candidate.permissionKey).filter(Boolean)) });
     if (user.roleKey === 'PARENT') for (const permission of PARENT_PERMISSIONS) user.permissions.add(permission);
     if (!user.permissions.size) for (const permission of ROLE_PERMISSIONS[user.roleKey] ?? []) user.permissions.add(permission);
     await database.execute('UPDATE auth_sessions SET last_used_at=? WHERE id=? AND revoked_at IS NULL', [nowIso(), row.sessionId]);
