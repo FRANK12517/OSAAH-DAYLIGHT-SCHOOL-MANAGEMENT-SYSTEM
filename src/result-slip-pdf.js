@@ -37,7 +37,7 @@ export function createResultSlipPdfService() {
       drawRow(columns.map((item) => item[0]), true);
       for (const subject of result.subjects ?? []) drawRow([subject.subjectName ?? subject.subjectId, subject.totalScore, subject.grade ?? '—', subject.subjectPosition ?? '—', subject.remark ?? 'Not recorded']);
       section('RESULT SUMMARY');
-      line('Total Score', result.totalScore); line('Aggregate', result.aggregate ?? 'N/A'); line('Class Position', result.classPosition ?? result.position ?? '—'); line('Subjects Sat', result.subjectsSat ?? (result.subjects ?? []).length); line('Average Score', Number(result.average ?? 0).toFixed(2));
+      line('Total Score', result.totalMaximum ? `${result.totalScore} / ${result.totalMaximum}` : result.totalScore); line('Aggregate', result.aggregate ?? 'N/A'); line('Class Position', result.classPosition ?? result.position ?? '—'); line('Subjects Sat', result.subjectsSat ?? (result.subjects ?? []).length); line('Average Score', Number(result.average ?? 0).toFixed(2));
       section('GES TEACHER ASSESSMENT');
       const assessment = result.assessment ?? {}; line('Conduct', assessment.conduct ?? 'Not recorded'); line('Attitude', assessment.attitude ?? 'Not recorded'); line('Interest', assessment.interest ?? 'Not recorded'); line('Class Teacher Remarks', assessment.classTeacherRemarks ?? 'Not recorded'); line('Headteacher Remarks', assessment.headteacherRemarks ?? 'Not recorded');
       section('ATTENDANCE');

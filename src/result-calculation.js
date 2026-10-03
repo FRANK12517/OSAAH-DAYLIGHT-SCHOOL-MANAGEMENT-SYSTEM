@@ -1,39 +1,83 @@
-import { gradeForTotal } from './grading.js';
+import { gradeForTotal, KG_TOTAL_MAXIMUM, validateScore } from './grading.js';
 import { ordinalPosition, subjectPositions, validSubjectRows } from './result-slip.js';
 
-const JHS_CORE = [['english language'], ['mathematics'], ['integrated science', 'science'], ['social studies']];
-const PRIMARY_CORE = [['english language'], ['mathematics'], ['integrated science', 'science'], ['history']];
+const CORE_BY_LEVEL = Object.freeze({
+  JHS: [['english language'], ['mathematics'], ['integrated science', 'science'], ['social studies']],
+  LOWER_PRIMARY: [['english language'], ['mathematics'], ['science'], ['history']],
+  UPPER_PRIMARY: [['english language'], ['mathematics'], ['integrated science'], ['history']]
+});
 const NON_SCORING = new Set(['physical education', 'pe']);
 const nameOf = (row) => String(row.subjectName ?? row.name ?? row.subjectId ?? '').trim().toLowerCase().replace(/[&/]/g, ' ').replace(/\s+/g, ' ');
-const levelOf = (classId) => { const value = String(classId ?? '').toUpperCase(); if (value.startsWith('JHS')) return 'JHS'; if (value.startsWith('KG')) return 'KG'; if (/^(PRIMARY|BASIC)\s*[1-3]$/.test(value)) return 'LOWER_PRIMARY'; return value.startsWith('PRIMARY') || value.startsWith('BASIC') ? 'UPPER_PRIMARY' : 'OTHER'; };
+const levelOf = (classId) => {
+  const value = String(classId ?? '').toUpperCase().trim();
+  if (value.startsWith('JHS')) return 'JHS';
+  if (value.startsWith('KG')) return 'KG';
+  if (/^(PRIMARY|BASIC)\s*[1-3]$/.test(value)) return 'LOWER_PRIMARY';
+  if (/^(PRIMARY|BASIC)\s*[4-6]$/.test(value)) return 'UPPER_PRIMARY';
+  return 'OTHER';
+};
 const scoring = (rows) => validSubjectRows(rows).filter((row) => {
   const subjectType = String(row.subjectType ?? row.subject_type ?? '').trim().toUpperCase();
   if (row.active === false || Number(row.active) === 0 || row.isScoring === false || Number(row.isScoring) === 0 || subjectType === 'NON_SCORING' || NON_SCORING.has(nameOf(row))) return false;
-  // Legacy result rows predate subject metadata; preserve their behavior only
-  // when the canonical classification fields are absent.
   return subjectType || row.isScoring !== undefined ? true : !NON_SCORING.has(nameOf(row));
 });
-const numericGrade = (row, classId, examination) => { const value = Number(row.grade); return Number.isFinite(value) ? value : Number(gradeForTotal(row.totalScore, { classId, examination })[0]); };
+const numericGrade = (row, classId, examination) => {
+  const supplied = Number(row.grade);
+  if (Number.isInteger(supplied) && supplied >= 1 && supplied <= 9) return supplied;
+  return Number(gradeForTotal(validateScore(row.totalScore), { classId, examination })[0]);
+};
+const stableId = (item) => String(item.studentId ?? item.id ?? '');
 
 export function calculateAggregate(rows, { classId = '', examination = 'TERMINAL' } = {}) {
-  const level = levelOf(classId); if (level === 'KG' || level === 'OTHER') return { aggregate: null, aggregateSubjects: [], qualifying: false };
-  const eligible = scoring(rows); const coreSpecs = level === 'JHS' ? JHS_CORE : PRIMARY_CORE; const core = coreSpecs.map((names) => eligible.find((row) => names.includes(nameOf(row)))); const coreNames = coreSpecs.flat();
-  if (core.some((row) => !row)) return { aggregate: null, aggregateSubjects: core.filter(Boolean), qualifying: false };
+  const level = levelOf(classId);
+  if (level === 'KG') return { aggregate: null, aggregateSubjects: [], aggregateTotal: null, aggregateMaximum: KG_TOTAL_MAXIMUM, qualifying: true, aggregateStatus: 'KG_TOTAL' };
+  if (!CORE_BY_LEVEL[level]) return { aggregate: null, aggregateSubjects: [], qualifying: false, aggregateStatus: 'INCOMPLETE' };
+  const eligible = scoring(rows);
+  const coreSpecs = CORE_BY_LEVEL[level];
+  const core = coreSpecs.map((names) => eligible.find((row) => names.includes(nameOf(row))));
+  const coreNames = coreSpecs.flat();
+  if (core.some((row) => !row)) return { aggregate: null, aggregateSubjects: core.filter(Boolean), qualifying: false, aggregateStatus: 'INCOMPLETE' };
   const electives = eligible.filter((row) => !coreNames.includes(nameOf(row)));
-  if (electives.length < 2) return { aggregate: null, aggregateSubjects: core, qualifying: false };
+  if (electives.length < 2) return { aggregate: null, aggregateSubjects: core, qualifying: false, aggregateStatus: 'INCOMPLETE' };
+  // Modern JavaScript sorting is stable: equal grade points retain the
+  // configured subject order, which is the school’s existing tie rule.
   const best = [...electives].sort((a, b) => numericGrade(a, classId, examination) - numericGrade(b, classId, examination)).slice(0, 2);
-  const selected = [...core, ...best]; return { aggregate: selected.reduce((sum, row) => sum + numericGrade(row, classId, examination), 0), aggregateSubjects: selected, aggregateTotal: selected.reduce((sum, row) => sum + Number(row.totalScore || 0), 0), aggregateCoreGradeSum: core.reduce((sum, row) => sum + numericGrade(row, classId, examination), 0), qualifying: true };
+  const selected = [...core, ...best];
+  const aggregate = selected.reduce((sum, row) => sum + numericGrade(row, classId, examination), 0);
+  const aggregateTotal = selected.reduce((sum, row) => sum + validateScore(row.totalScore), 0);
+  return { aggregate, aggregateSubjects: selected, aggregateTotal, aggregateCoreGradeSum: core.reduce((sum, row) => sum + numericGrade(row, classId, examination), 0), aggregateMaximum: 54, qualifying: true, aggregateStatus: 'COMPLETE' };
 }
 
 export function calculateStudentResult(rows = [], options = {}) {
-  const valid = scoring(rows); const totalScore = valid.reduce((sum, row) => sum + Number(row.totalScore), 0); const average = valid.length ? Number((totalScore / valid.length).toFixed(2)) : null; const aggregate = calculateAggregate(rows, options); return { totalScore, average, subjectsSat: valid.length, ...aggregate };
+  const valid = scoring(rows);
+  const totalScore = valid.reduce((sum, row) => sum + validateScore(row.totalScore), 0);
+  const average = valid.length ? Number((totalScore / valid.length).toFixed(2)) : null;
+  const aggregate = calculateAggregate(rows, options);
+  const level = levelOf(options.classId);
+  return { totalScore, totalMaximum: level === 'KG' ? KG_TOTAL_MAXIMUM : null, average, subjectsSat: valid.length, ...aggregate };
 }
 
 export function calculateClassPositions(studentResults = [], { classId = '' } = {}) {
-  const level = levelOf(classId); const aggregateRanking = level === 'JHS' || level === 'LOWER_PRIMARY' || level === 'UPPER_PRIMARY'; const sorted = [...studentResults].sort((a, b) => { if (aggregateRanking && a.aggregate != null && b.aggregate != null && a.aggregate !== b.aggregate) return a.aggregate - b.aggregate; if (aggregateRanking && a.aggregate != null && b.aggregate != null && a.aggregate === b.aggregate && a.aggregateTotal !== b.aggregateTotal) return b.aggregateTotal - a.aggregateTotal; if (aggregateRanking && a.aggregateCoreGradeSum != null && b.aggregateCoreGradeSum != null && a.aggregateCoreGradeSum !== b.aggregateCoreGradeSum) return a.aggregateCoreGradeSum - b.aggregateCoreGradeSum; return Number(b.totalScore || 0) - Number(a.totalScore || 0); });
-  const positionFor = (index) => { if (index === 0) return 1; const previous = sorted[index - 1]; const current = sorted[index]; const same = aggregateRanking && previous.aggregate != null && previous.aggregate === current.aggregate ? previous.aggregateTotal === current.aggregateTotal && previous.aggregateCoreGradeSum === current.aggregateCoreGradeSum : Number(previous.totalScore || 0) === Number(current.totalScore || 0); return same ? sorted.findIndex((item) => item === previous) + 1 : index + 1; };
+  const level = levelOf(classId);
+  const aggregateRanking = level === 'JHS' || level === 'LOWER_PRIMARY' || level === 'UPPER_PRIMARY';
+  const sorted = [...studentResults].sort((a, b) => {
+    if (aggregateRanking && a.aggregate != null && b.aggregate != null && a.aggregate !== b.aggregate) return a.aggregate - b.aggregate;
+    if (aggregateRanking && a.aggregate != null && b.aggregate != null && a.aggregate === b.aggregate && a.aggregateTotal !== b.aggregateTotal) return b.aggregateTotal - a.aggregateTotal;
+    if (aggregateRanking && a.aggregateCoreGradeSum != null && b.aggregateCoreGradeSum != null && a.aggregateCoreGradeSum !== b.aggregateCoreGradeSum) return a.aggregateCoreGradeSum - b.aggregateCoreGradeSum;
+    return Number(b.totalScore || 0) - Number(a.totalScore || 0) || stableId(a).localeCompare(stableId(b));
+  });
+  const positionFor = (index) => {
+    if (index === 0) return 1;
+    const previous = sorted[index - 1]; const current = sorted[index];
+    const same = aggregateRanking && previous.aggregate != null && previous.aggregate === current.aggregate
+      ? previous.aggregateTotal === current.aggregateTotal && previous.aggregateCoreGradeSum === current.aggregateCoreGradeSum
+      : Number(previous.totalScore || 0) === Number(current.totalScore || 0);
+    return same ? sorted.findIndex((item) => item === previous) + 1 : index + 1;
+  };
   return new Map(sorted.map((item, index) => [item.studentId, ordinalPosition(positionFor(index))]));
 }
-
-export function calculateCanonicalResult(rows, options = {}) { const result = calculateStudentResult(rows, options); const positionedSubjects = subjectPositions(rows, options.cohortRows ?? []); return { ...result, subjects: positionedSubjects }; }
+export function calculateCanonicalResult(rows, options = {}) {
+  const result = calculateStudentResult(rows, options);
+  return { ...result, subjects: subjectPositions(rows, options.cohortRows ?? []) };
+}
 export { levelOf, nameOf };
