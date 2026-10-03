@@ -15,6 +15,7 @@ function fakeDatabase() {
       calls.push({ sql, params });
       if (sql.includes('FROM academic_years')) return [{ id: 'year-2026', name: '2026/2027', startsOn: '2026-09-01', endsOn: '2027-07-31', isCurrent: 1 }];
       if (sql.includes('FROM terms')) return [{ id: 'term-1', academicYearId: 'year-2026', name: 'First Term' }];
+      if (sql.includes('FROM classes WHERE school_id')) return [{ id: 'class-basic-1', name: 'Basic 1' }];
       if (sql.includes('FROM classes c JOIN levels')) return [{ id: 'class-basic-1', name: 'Basic 1', displayOrder: 1, levelName: 'LOWER_PRIMARY' }];
       if (sql.includes('FROM subjects WHERE')) return [{ id: 'subject-math', name: 'Mathematics' }];
       if (sql.includes('SELECT c.id,c.name FROM classes')) return [{ id: 'class-basic-1', name: 'Basic 1' }];
