@@ -27,7 +27,6 @@ jobs:
     environment: Production
     timeout-minutes: 30
     env:
-      DATABASE_URL: ${{ secrets.DATABASE_URL }}
       EXECUTION_TOKEN: ${{ inputs.execution_token }}
     steps:
       - name: Validate exact release ref and approval inputs
@@ -62,17 +61,30 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
       - name: Confirm protected database secret is available
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: test -n "${DATABASE_URL:-}" || { echo 'Protected DATABASE_URL is unavailable.'; exit 1; }
-      - name: Validate migration inventory and focused contracts
-        run: |
-          npm run migration:validate
-          node --test test/production-subject-assessment-migration.test.js test/migration-runner.test.js
+      - name: Validate migration inventory against production ledger
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: npm run migration:validate
+      - name: Run focused migration contracts without production credentials
+        env:
+          DATABASE_URL: ''
+          OSAAH_DATABASE_ADAPTER_MODULE: ''
+        run: node --test test/production-subject-assessment-migration.test.js test/migration-runner.test.js
       - name: Read-only Migration 065 preflight
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: node scripts/production-subject-assessment-migrate.mjs dry-run
       - name: Apply only Migration 065
         if: ${{ inputs.execution_token == 'APPLY_SUBJECT_ASSESSMENT_065' }}
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: node scripts/production-subject-assessment-migrate.mjs apply
       - name: Verify Migration 065 ledger and schema
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           node scripts/production-subject-assessment-migrate.mjs dry-run
           npm run migration:validate

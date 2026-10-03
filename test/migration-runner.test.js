@@ -24,5 +24,10 @@ test('production migration runner', async (t) => {
   await t.test('preserves history across adapter restarts', async () => { const storage = {}, directory = await make(); await createMigrationRunner({ adapter: createInMemoryMigrationAdapter(storage), directory }).apply(); const restarted = createMigrationRunner({ adapter: createInMemoryMigrationAdapter(storage), directory }); assert.equal((await restarted.status()).pending.length, 0); });
   await t.test('validates the existing ordered schema including AI migrations', async () => { const directory = new URL('../schema', import.meta.url), migrations = await discoverMigrations(directory); assert.ok(migrations.some((item) => item.name === '018_ai_audit_logs.sql')); assert.ok(migrations.some((item) => item.name === '022_ai_human_controlled_actions.sql')); assert.equal(new Set(migrations.map((item) => item.version)).size, migrations.length); });
   await t.test('fails closed when database health is unavailable', async () => { const base = createInMemoryMigrationAdapter(), adapter = { ...base, healthCheck: async () => ({ healthy: false }) }, runner = createMigrationRunner({ adapter, directory: await make() }); await assert.rejects(() => runner.status(), (error) => error.code === 'DATABASE_UNAVAILABLE'); });
-  await t.test('CLI status fails safely without a durable adapter', async () => { const run = promisify(execFile), script = fileURLToPath(new URL('../scripts/migrate.mjs', import.meta.url)); await assert.rejects(() => run(process.execPath, [script, 'status'], { env: { ...process.env, OSAAH_DATABASE_ADAPTER_MODULE: '' } }), (failure) => { const result = JSON.parse(failure.stderr.trim()); return result.error === 'DATABASE_ADAPTER_REQUIRED' && !failure.stderr.includes('at file:'); }); });
+  await t.test('CLI status fails safely without a durable adapter', async () => {
+    const run = promisify(execFile), script = fileURLToPath(new URL('../scripts/migrate.mjs', import.meta.url));
+    const env = { ...process.env, OSAAH_DATABASE_ADAPTER_MODULE: '' };
+    delete env.DATABASE_URL;
+    await assert.rejects(() => run(process.execPath, [script, 'status'], { env }), (failure) => { const result = JSON.parse(failure.stderr.trim()); return result.error === 'DATABASE_ADAPTER_REQUIRED' && !failure.stderr.includes('at file:'); });
+  });
 });
