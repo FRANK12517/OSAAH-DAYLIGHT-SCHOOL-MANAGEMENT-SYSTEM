@@ -1,9 +1,12 @@
 # Part 2 — Subject Configuration and Result Calculations
 
-**Date:** 2026-10-03  
+**Date:** 2026-10-03
+
 **Branch:** `codex/part2-nursery-kg-lower-primary`  
-**Base revision:** `5e1a8cf5f7dd594304816afd23baf9a4850948c1` (PR #270 merged to `main`)  
-**Release status:** implementation prepared for review; production deployment is blocked by the protected migration predecessor gate.
+**Base revision:** `5e1a8cf5f7dd594304816afd23baf9a4850948c1` (PR #270 merged to `main`)
+**Implementation commit:** `a74d2f8110b4c30e6229d60771907a6d8da27a69`
+**Pull request:** [Draft PR #272](https://github.com/FRANK12517/OSAAH-DAYLIGHT-SCHOOL-MANAGEMENT-SYSTEM/pull/272)
+**Release status:** implementation prepared for review; production release is blocked by the protected migration chain and the existing TiDB-score/in-memory-result integration gap.
 
 ## Nursery 1–2: approval pending
 
