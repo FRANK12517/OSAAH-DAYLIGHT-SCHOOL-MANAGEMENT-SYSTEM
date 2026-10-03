@@ -1,0 +1,48 @@
+name: Production Migration 063 recovery inventory
+on:
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Exact reviewed release commit containing the inventory script
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: production-migration-063-inventory
+  cancel-in-progress: false
+jobs:
+  inventory:
+    name: Read-only Migration 063 production inventory
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - name: Check out requested release
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_ref }}
+      - name: Verify exact reviewed release ref
+        shell: bash
+        env:
+          RELEASE_REF: ${{ inputs.release_ref }}
+        run: |
+          [[ "$RELEASE_REF" =~ ^[0-9a-f]{40}$ ]] || { echo 'release_ref must be a full lowercase 40-character SHA.'; exit 1; }
+          test "$(git rev-parse HEAD^{commit})" = "$RELEASE_REF"
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Confirm protected database secret is available
+        run: test -n "${DATABASE_URL:-}" || { echo 'Protected DATABASE_URL is unavailable.'; exit 1; }
+      - name: Prove inventory source is read-only
+        shell: bash
+        run: |
+          ! grep -Eiq '\b(INSERT|UPDATE|DELETE|ALTER|CREATE|DROP|TRUNCATE|REPLACE|CALL|SET|GRANT|REVOKE)\b[[:space:]]' scripts/production-migration-063-inventory.mjs
+      - name: Run read-only Migration 063 inventory
+        run: node scripts/production-migration-063-inventory.mjs
