@@ -212,3 +212,38 @@ test('Score Entry terminates academic-option loading with an actionable retry st
   assert.match(js, /'Term 1': '1st Term'/);
   assert.match(js, /'TERM_3': '3rd Term'/);
 });
+
+
+test('score-entry roster adapter supports explicitly injected legacy services but fails closed in production', async () => {
+  const previousNodeEnv = process.env.NODE_ENV;
+  const students = createStudentService({ schoolId });
+  const subjects = createSubjectService({ schoolId });
+  const legacyService = createAcademicResultsService({ schoolId, students, subjects });
+  const actor = { ...teacher, roleKey: 'PROPRIETOR', assignedClassIds: [], permissions: new Set(['*']) };
+  const auth = { authenticateAsync: async (token) => token === 'authorized' ? actor : null };
+  const query = new URLSearchParams({ academicYear: '2026/2027', term: 'First Term', classId: 'Primary 1', subjectId: subjects.list({ classId: 'Primary 1' }, actor)[0].id });
+  const request = async (app) => {
+    const server = http.createServer(app);
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    try {
+      return await fetch(`http://127.0.0.1:${server.address().port}/api/academic/score-entry/roster?${query}`, { headers: { Authorization: 'Bearer authorized' } });
+    } finally {
+      await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
+  };
+  try {
+    delete process.env.NODE_ENV;
+    const isolatedResponse = await request(createApp({ auth, students, subjects, academicResults: legacyService }));
+    assert.equal(isolatedResponse.status, 200);
+    assert.ok(Array.isArray((await isolatedResponse.json()).students));
+
+    process.env.NODE_ENV = 'production';
+    assert.throws(
+      () => createApp({ auth, students, subjects, academicResults: legacyService }),
+      /Production AI requires durable audit and action persistence/
+    );
+  } finally {
+    if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousNodeEnv;
+  }
+});
