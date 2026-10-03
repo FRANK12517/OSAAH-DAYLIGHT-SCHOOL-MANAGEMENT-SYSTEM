@@ -17,7 +17,7 @@ const academicYearSelect = context.elements.academicYear;
 const termSelect = context.elements.term;
 
 const esc = (value) => String(value ?? '').replace(/[&<>'"]/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;' }[c]));
-const grade = (total, classId) => String(classId).toUpperCase().startsWith('JHS') ? (total >= 80 ? '1' : total >= 70 ? '2' : total >= 60 ? '3' : total >= 55 ? '4' : total >= 50 ? '5' : total >= 45 ? '6' : total >= 40 ? '7' : total >= 35 ? '8' : '9') : (total >= 80 ? 'A' : total >= 70 ? 'B' : total >= 60 ? 'C' : total >= 50 ? 'D' : 'F');
+const grade = (total, classId) => String(classId).toUpperCase().startsWith('JHS') ? (total >= 80 ? '1' : total >= 70 ? '2' : total >= 60 ? '3' : total >= 50 ? '4' : total >= 45 ? '5' : total >= 40 ? '6' : total >= 35 ? '7' : total >= 25 ? '8' : '9') : (total >= 80 ? 'A' : total >= 70 ? 'B' : total >= 60 ? 'C' : total >= 50 ? 'D' : 'F');
 
 async function api(url, init) {
   const response = await fetch(url, init);
