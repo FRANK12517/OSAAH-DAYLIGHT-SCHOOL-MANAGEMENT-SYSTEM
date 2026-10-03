@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { gradeForTotal } from './grading.js';
 import { canonicalAcademicClass, defaultSubjectForClass, defaultSubjectsForClass, DEFAULT_SUBJECT_CONFIGURATION_VERSION } from './default-subject-catalog.js';
+import { calculateStudentResult, calculateClassPositions } from './result-calculation.js';
 
 const rows = (value) => Array.isArray(value) ? value : [];
 const text = (value) => String(value ?? '').trim();
@@ -469,7 +470,75 @@ export function createDurableAcademicService({ database, schoolId, idFactory = r
     return { id: scoreId, schoolId, studentId, permanentStudentId: enrolled.permanent_student_id, classId, subjectId, mockLabel, academicYear: period.yearName, term: period.termName, caScore: null, examScore: null, totalScore, grade, remark, saved: true };
   }
 
-  return Object.freeze({ options, listSubjects, subjectCatalog, createSubject, updateSubject, deactivateSubject, subjectCascade, configureDefaultSubjects, listAssignments, assignSubject, deactivateSubjectAssignment, roster, resultStudents, saveScore, mockRoster, saveMockScore, resolvePeriod });
+  async function canonicalResult(input = {}, actor, { mock = false } = {}) {
+    assertActor(actor);
+    if (!authorized(actor, mock ? 'mock.results.read' : 'results.read') && !authorized(actor, mock ? 'mock.results.generate' : 'results.generate')) fail('Forbidden.', 403, 'ACADEMIC_PERMISSION_REQUIRED');
+    const classId = text(input.classId), studentId = text(input.studentId), mockLabel = mock ? text(input.mockLabel) : null;
+    if (!classId || !studentId) fail('Class and student are required.');
+    if (mock) await assertMockClass(classId);
+    const period = await resolvePeriod(input);
+    await classFor(classId);
+    const student = rows(await database.query(`SELECT s.id,s.permanent_student_id AS permanentStudentId,s.first_name AS firstName,s.middle_name AS middleName,s.last_name AS surname,s.gender,e.class_id AS classId
+      FROM students s JOIN student_enrollments e ON e.student_id=s.id AND e.school_id=s.school_id
+      WHERE s.school_id=? AND s.id=? AND e.class_id=? AND e.academic_year_id=? AND e.term_id=? AND COALESCE(e.enrollment_status,'ACTIVE')='ACTIVE' AND COALESCE(e.is_current,1)=1 LIMIT 1`, [schoolId, studentId, classId, period.yearId, period.termId]))[0];
+    if (!student) fail('Student is not enrolled in the selected academic context.', 404);
+    const scoreRows = rows(await database.query(`SELECT cs.subject_id AS subjectId,sub.name AS subjectName,cs.class_score AS caScore,cs.exam_score AS examScore,cs.total_score AS totalScore,cs.updated_at AS updatedAt
+      FROM canonical_academic_scores cs JOIN subjects sub ON sub.id=cs.subject_id AND sub.school_id=cs.school_id
+      WHERE cs.school_id=? AND cs.student_id=? AND cs.class_id=? AND cs.academic_year_id=? AND cs.term_id=? ORDER BY sub.name,sub.id`, [schoolId, student.id, classId, period.yearId, period.termId]));
+    const subjects = scoreRows.map((row) => { const totalScore = Number(row.totalScore); const [grade, remark] = gradeForTotal(totalScore, { classId, examination: mock ? 'MOCK' : 'TERMINAL' }); return { ...row, caScore: Number(row.caScore), examScore: Number(row.examScore), totalScore, grade, remark, submitted: true }; });
+    const canonical = calculateStudentResult(subjects, { classId, examination: mock ? 'MOCK' : 'TERMINAL' });
+    const lifecycle = rows(await database.query(`SELECT id,attendance_json AS attendanceJson,assessment_json AS assessmentJson,status,version,saved_at AS savedAt,updated_at AS updatedAt,published_at AS publishedAt
+      FROM academic_result_records WHERE school_id=? AND student_id=? AND class_id=? AND academic_year_id=? AND term_id=? AND examination=? AND ((mock_label IS NULL AND ? IS NULL) OR mock_label=?) LIMIT 1`, [schoolId, student.id, classId, period.yearId, period.termId, mock ? 'MOCK' : 'TERMINAL', mockLabel, mockLabel]))[0];
+    const decode = (value) => { if (!value) return null; if (typeof value === 'object') return value; try { return JSON.parse(value); } catch { return null; } };
+    return { resultType: mock ? 'MOCK' : 'TERMINAL', studentId: student.id, studentIndexNumber: student.permanentStudentId, studentName: [student.firstName, student.middleName, student.surname].filter(Boolean).join(' '), classId, academicYear: period.yearName, term: period.termName, mockLabel, subjects, totalScore: canonical.totalScore, average: canonical.average ?? 0, percentage: canonical.percentage, subjectsSat: canonical.subjectsSat, totalMaximum: canonical.totalMaximum, aggregateMaximum: canonical.aggregateMaximum, aggregateStatus: canonical.aggregateStatus, aggregate: canonical.aggregate, aggregateSubjects: canonical.aggregateSubjects.map((row) => row.subjectId), grade: gradeForTotal(canonical.average ?? 0, { classId, examination: mock ? 'MOCK' : 'TERMINAL' })[0], remark: gradeForTotal(canonical.average ?? 0, { classId, examination: mock ? 'MOCK' : 'TERMINAL' })[1], attendance: decode(lifecycle?.attendanceJson), assessment: decode(lifecycle?.assessmentJson), lifecycle: lifecycle ? { status: lifecycle.status, dirty: false, version: Number(lifecycle.version), savedAt: lifecycle.savedAt, publishedAt: lifecycle.publishedAt } : { status: 'UNSAVED/INCOMPLETE', dirty: true, version: 0, savedAt: null }, isSample: false };
+  }
+
+  async function saveResult(input = {}, actor) {
+    assertActor(actor);
+    if (!authorized(actor, 'results.write') && !authorized(actor, 'marks.write')) fail('Forbidden.', 403, 'ACADEMIC_PERMISSION_REQUIRED');
+    const result = await canonicalResult(input, { ...actor, permissions: new Set(['results.read', 'results.generate']) });
+    const attendance = input.attendance ?? {}, assessment = input.assessment ?? {};
+    for (const key of ['timesPresent', 'timesAbsent', 'totalSchoolDays']) if (!Number.isFinite(Number(attendance[key])) || Number(attendance[key]) < 0) fail(`${key} has not been captured.`);
+    for (const key of ['conduct', 'attitude', 'interest', 'classTeacherRemarks', 'headteacherRemarks']) if (!text(assessment[key])) fail(`${key} has not been selected.`);
+    const existing = rows(await database.query(`SELECT id,version FROM academic_result_records WHERE school_id=? AND student_id=? AND class_id=? AND academic_year_id=? AND term_id=? AND examination=? AND ((mock_label IS NULL AND ? IS NULL) OR mock_label=?) LIMIT 1`, [schoolId, result.studentId, result.classId, (await resolvePeriod(input)).yearId, (await resolvePeriod(input)).termId, result.resultType, result.mockLabel, result.mockLabel]))[0];
+    const period = await resolvePeriod(input), id = existing?.id ?? idFactory(), now = clock(), version = Number(existing?.version ?? 0) + 1;
+    if (existing) await database.execute('UPDATE academic_result_records SET attendance_json=?,assessment_json=?,status="SAVED",version=?,saved_by=?,saved_at=?,updated_at=? WHERE id=? AND school_id=?', [JSON.stringify(attendance), JSON.stringify(assessment), version, actor.id, now, now, id, schoolId]);
+    else await database.execute('INSERT INTO academic_result_records (id,school_id,student_id,class_id,academic_year_id,term_id,examination,mock_label,attendance_json,assessment_json,status,version,saved_by,saved_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [id, schoolId, result.studentId, result.classId, period.yearId, period.termId, result.resultType, result.mockLabel, JSON.stringify(attendance), JSON.stringify(assessment), 'SAVED', version, actor.id, now, now]);
+    return { ...result, attendance, assessment, lifecycle: { status: 'SAVED', dirty: false, version, savedAt: now } };
+  }
+
+  async function publishResult(input = {}, actor) {
+    assertActor(actor, 'results.publish');
+    const period = await resolvePeriod(input);
+    const result = await canonicalResult(input, { ...actor, permissions: new Set(['results.read', 'results.generate']) });
+    const record = rows(await database.query('SELECT id,status,version FROM academic_result_records WHERE school_id=? AND student_id=? AND class_id=? AND academic_year_id=? AND term_id=? AND examination=? AND ((mock_label IS NULL AND ? IS NULL) OR mock_label=?) LIMIT 1', [schoolId, result.studentId, result.classId, period.yearId, period.termId, result.resultType, result.mockLabel, result.mockLabel]))[0];
+    if (!record || record.status !== 'SAVED') fail('Save this result before publishing.');
+    await database.execute('UPDATE academic_result_records SET status="PUBLISHED",published_by=?,published_at=?,updated_at=? WHERE id=? AND school_id=?', [actor.id, clock(), clock(), record.id, schoolId]);
+    return { id: record.id, schoolId, classId: result.classId, academicYear: result.academicYear, term: result.term, examination: result.resultType, mockLabel: result.mockLabel, status: 'PUBLISHED', studentId: result.studentId, isSample: false };
+  }
+
+  async function publicationFor(input = {}, actor) {
+    assertActor(actor);
+    const period = await resolvePeriod(input);
+    return rows(await database.query('SELECT id,school_id AS schoolId,class_id AS classId,academic_year_id AS academicYearId,term_id AS termId,examination,mock_label AS mockLabel,status,student_id AS studentId,published_at AS publishedAt FROM academic_result_records WHERE school_id=? AND student_id=? AND class_id=? AND academic_year_id=? AND term_id=? AND examination=? AND status="PUBLISHED" AND ((mock_label IS NULL AND ? IS NULL) OR mock_label=?) LIMIT 1', [schoolId, input.studentId, input.classId, period.yearId, period.termId, input.examination === 'MOCK' ? 'MOCK' : 'TERMINAL', input.mockLabel ?? null, input.mockLabel ?? null]))[0] ?? null;
+  }
+
+  async function broadsheet(input = {}, actor, { mock = false } = {}) {
+    assertActor(actor);
+    if (!authorized(actor, mock ? 'mock.results.read' : 'results.read')) fail('Forbidden.', 403, 'ACADEMIC_PERMISSION_REQUIRED');
+    const classId = text(input.classId);
+    const period = await resolvePeriod(input);
+    const students = rows(await database.query(`SELECT DISTINCT s.id AS studentId,s.permanent_student_id AS permanentStudentId,s.first_name AS firstName,s.middle_name AS middleName,s.last_name AS surname
+      FROM students s JOIN student_enrollments e ON e.student_id=s.id AND e.school_id=s.school_id
+      WHERE s.school_id=? AND e.class_id=? AND e.academic_year_id=? AND e.term_id=? AND COALESCE(e.enrollment_status,'ACTIVE')='ACTIVE' AND COALESCE(e.is_current,1)=1 AND COALESCE(s.is_test_record,0)=0 ORDER BY s.last_name,s.first_name,s.id`, [schoolId, classId, period.yearId, period.termId]));
+    return Promise.all(students.map(async (student) => {
+      const result = await canonicalResult({ ...input, studentId: student.studentId, classId, academicYear: period.yearId, term: period.termId }, actor, { mock });
+      const subjectTotals = Object.fromEntries(result.subjects.map((row) => [row.subjectName, row.totalScore]));
+      return { studentId: result.studentId, permanentStudentId: result.studentIndexNumber, studentName: result.studentName, classId, subjectTotals, totalScore: result.totalScore, aggregate: result.aggregate, averageScore: result.average, percentage: result.percentage, classPosition: result.classPosition ?? '—', isSample: false };
+    }));
+  }
+
+  return Object.freeze({ options, listSubjects, subjectCatalog, createSubject, updateSubject, deactivateSubject, subjectCascade, configureDefaultSubjects, listAssignments, assignSubject, deactivateSubjectAssignment, roster, resultStudents, saveScore, mockRoster, saveMockScore, resolvePeriod, result: canonicalResult, saveResult, publishResults: publishResult, publicationFor, savedResultFor: async (input, actor) => canonicalResult(input, actor), broadsheet });
 }
 
 export default createDurableAcademicService;
