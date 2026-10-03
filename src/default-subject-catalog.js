@@ -14,10 +14,10 @@ const nurserySubjects = Object.freeze([
 ]);
 
 const kgSubjects = Object.freeze([
-  { name: 'Language and Literacy', subjectType: 'CORE', mandatory: true, assessmentComponents: ['Phonics & Word Building', 'Oral Language & Listening', 'Pre-Writing & Penmanship'] },
-  { name: 'Numeracy', subjectType: 'CORE', mandatory: true, assessmentComponents: ['Number Operations', 'Geometry & Spatial Awareness', 'Data & Sorting'] },
-  { name: 'Our World, Our People', subjectType: 'CORE', mandatory: true, assessmentComponents: ['Personal & Social Development', 'Ghanaian Values & Science'] },
-  { name: 'Creative Arts', subjectType: 'CORE', mandatory: true, assessmentComponents: ['Visual Arts', 'Performing Arts & Movement'] }
+  { name: 'Language and Literacy', subjectType: 'CORE', mandatory: true, assessmentComponents: ['Phonics and Word Building', 'Oral Language and Listening', 'Pre-Writing and Penmanship'] },
+  { name: 'Numeracy', subjectType: 'CORE', mandatory: true, assessmentComponents: ['Number Operations', 'Geometry and Spatial Awareness', 'Data and Sorting'] },
+  { name: 'Our World, Our People', subjectType: 'CORE', mandatory: true, assessmentComponents: ['Personal and Social Development', 'Ghanaian Values and Science'] },
+  { name: 'Creative Arts', subjectType: 'CORE', mandatory: true, assessmentComponents: ['Visual Arts', 'Performing Arts and Movement'] }
 ]);
 
 const lowerPrimary = Object.freeze([

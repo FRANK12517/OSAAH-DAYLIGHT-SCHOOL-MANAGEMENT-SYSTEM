@@ -88,12 +88,14 @@ export function createDurableAcademicService({ database, schoolId, idFactory = r
     let classesConfigured = 0, subjectsCreated = 0, assignmentsCreated = 0, mandatoryAssignmentsRestored = 0;
     for (const classRow of classes) {
       const classId = canonicalAcademicClass(classRow.name);
+      // Nursery's eight entries remain a provisional catalog only. Until the
+      // school approves its curriculum, do not create or enforce assignments.
       if (!classId || classId.startsWith('Nursery')) continue;
       const defaults = defaultSubjectsForClass(classId);
       if (!defaults.length) continue;
       classesConfigured += 1;
       for (const definition of defaults) {
-        let subject = rows(await database.query('SELECT id,code,name,subject_type AS subjectType,is_scoring AS isScoring,is_active AS isActive FROM subjects WHERE school_id=? AND LOWER(name)=LOWER(?) LIMIT 1', [schoolId, definition.name]))[0];
+        let subject = rows(await database.query('SELECT id,code,name,subject_type AS subjectType,is_scoring AS isScoring,is_active AS isActive,assessment_components_json AS assessmentComponentsJson FROM subjects WHERE school_id=? AND LOWER(name)=LOWER(?) LIMIT 1', [schoolId, definition.name]))[0];
         if (!subject) {
           const codeStem = `CFG_${definition.name.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_|_$/g, '')}`.slice(0, 28);
           let code = codeStem, suffix = 1;
@@ -103,9 +105,18 @@ export function createDurableAcademicService({ database, schoolId, idFactory = r
           }
           const subjectId = stableId('default-subject', schoolId, definition.name.toLowerCase());
           await database.execute('INSERT INTO subjects (id,school_id,department_id,code,name,subject_type,is_scoring,assessment_components_json,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE id=id', [subjectId, schoolId, null, code, definition.name, definition.subjectType, definition.isScoring ? 1 : 0, JSON.stringify(definition.assessmentComponents), clock(), clock()]);
-          subject = rows(await database.query('SELECT id,code,name,subject_type AS subjectType,is_scoring AS isScoring,is_active AS isActive FROM subjects WHERE school_id=? AND LOWER(name)=LOWER(?) LIMIT 1', [schoolId, definition.name]))[0];
+          subject = rows(await database.query('SELECT id,code,name,subject_type AS subjectType,is_scoring AS isScoring,is_active AS isActive,assessment_components_json AS assessmentComponentsJson FROM subjects WHERE school_id=? AND LOWER(name)=LOWER(?) LIMIT 1', [schoolId, definition.name]))[0];
           if (!subject) fail(`Unable to create the configured subject ${definition.name}.`, 409, 'SUBJECT_CONFIGURATION_CONFLICT');
           subjectsCreated += 1;
+        }
+        if (definition.assessmentComponents?.length) {
+          let storedComponents = subject.assessmentComponentsJson ?? [];
+          if (typeof storedComponents === 'string') { try { storedComponents = JSON.parse(storedComponents); } catch { storedComponents = []; } }
+          if (!Array.isArray(storedComponents) || JSON.stringify(storedComponents) !== JSON.stringify(definition.assessmentComponents)) {
+            const componentJson = JSON.stringify(definition.assessmentComponents);
+            await database.execute('UPDATE subjects SET assessment_components_json=?,updated_at=? WHERE id=? AND school_id=?', [componentJson, clock(), subject.id, schoolId]);
+            subject.assessmentComponentsJson = componentJson;
+          }
         }
         if (definition.mandatory && Number(subject.isActive ?? 1) === 0) await database.execute('UPDATE subjects SET is_active=1,updated_at=? WHERE id=? AND school_id=?', [clock(), subject.id, schoolId]);
         if (definition.activeByDefault === false) continue;
@@ -120,7 +131,7 @@ export function createDurableAcademicService({ database, schoolId, idFactory = r
         assignmentsCreated += 1;
       }
     }
-    return { schoolId, configurationVersion: DEFAULT_SUBJECT_CONFIGURATION_VERSION, classesConfigured, subjectsCreated, assignmentsCreated, mandatoryAssignmentsRestored, nurseryPreserved: true };
+    return { schoolId, configurationVersion: DEFAULT_SUBJECT_CONFIGURATION_VERSION, classesConfigured, subjectsCreated, assignmentsCreated, mandatoryAssignmentsRestored, nurseryPreserved: true, nurseryCurriculumApproval: 'PENDING' };
   }
 
   async function subjectCatalog(actor, { includeInactive = false } = {}) {

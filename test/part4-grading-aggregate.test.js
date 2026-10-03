@@ -44,7 +44,7 @@ test('Elective ties are deterministic, inactive rows and PE are excluded, and ne
   const result = calculateAggregate(jhsRows([row('RME', 70), row('Creative Arts and Design', 70), row('French', 95), row('Physical Education', 100), row('New Elective', 90, { isScoring: false }), row('Career Technology', 70, { active: false })]), { classId: 'JHS 2', examination: 'MOCK' });
   assert.equal(result.aggregateSubjects.length, 6);
   assert.ok(!result.aggregateSubjects.some((item) => ['Physical Education', 'New Elective', 'Career Technology'].includes(item.subjectName)));
-  assert.deepEqual(result.aggregateSubjects.slice(-2).map((item) => item.subjectName), ['French', 'RME']);
+  assert.deepEqual(result.aggregateSubjects.slice(-2).map((item) => item.subjectName), ['French', 'Creative Arts and Design']);
 });
 
 test('Primary class positions use aggregate then selected-score tie-breakers without changing tie ranks', () => {

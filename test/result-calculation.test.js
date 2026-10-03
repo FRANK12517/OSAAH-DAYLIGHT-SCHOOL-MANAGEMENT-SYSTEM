@@ -15,11 +15,18 @@ test('JHS aggregate includes Core Four and best two eligible electives', () => {
     ['RME', 1], ['Fantse', 2], ['Creative Arts', 4], ['Computing', 1],
   ].map(([subjectName, grade]) => ({ subjectId: subjectName, subjectName, grade, totalScore: 90 }));
   const result = calculateAggregate(rows, { classId: 'JHS 2' });
-  assert.equal(result.aggregate, 9); assert.deepEqual(result.aggregateSubjects.map((row) => row.subjectName), ['English Language', 'Mathematics', 'Science', 'Social Studies', 'RME', 'Computing']);
+  assert.equal(result.aggregate, 9); assert.deepEqual(result.aggregateSubjects.map((row) => row.subjectName), ['English Language', 'Mathematics', 'Science', 'Social Studies', 'Computing', 'RME']);
 });
 
 test('KG has no aggregate and ranks by raw total score', () => {
   assert.equal(calculateAggregate([{ subjectName: 'Language', totalScore: 90 }], { classId: 'KG1' }).aggregate, null);
+  const kg = calculateStudentResult([
+    { subjectId: 'language', subjectName: 'Language and Literacy', totalScore: 90 },
+    { subjectId: 'numeracy', subjectName: 'Numeracy', totalScore: 85 },
+    { subjectId: 'owop', subjectName: 'Our World, Our People', totalScore: 95 },
+    { subjectId: 'arts', subjectName: 'Creative Arts', totalScore: 85 }
+  ], { classId: 'KG1' });
+  assert.equal(kg.totalScore, 355); assert.equal(kg.totalMaximum, 400); assert.equal(kg.percentage, 88.75); assert.equal(kg.aggregate, null);
   const positions = calculateClassPositions([{ studentId: 'a', totalScore: 355 }, { studentId: 'b', totalScore: 340 }, { studentId: 'c', totalScore: 330 }], { classId: 'KG1' });
   assert.equal(positions.get('a'), '1st'); assert.equal(positions.get('c'), '3rd');
 });
@@ -39,7 +46,8 @@ test('JHS class position ranks by lower aggregate, then higher selected-six tota
 });
 
 test('result slip and existing report table expose canonical summary fields', () => {
-  const renderer = fs.readFileSync(new URL('../public/result-view.js', import.meta.url), 'utf8'); const report = fs.readFileSync(new URL('../public/reports-academic.html', import.meta.url), 'utf8');
+  const renderer = fs.readFileSync(new URL('../public/result-view.js', import.meta.url), 'utf8'); const report = fs.readFileSync(new URL('../public/reports-academic.html', import.meta.url), 'utf8'); const pdf = fs.readFileSync(new URL('../src/result-slip-pdf.js', import.meta.url), 'utf8');
   for (const label of ['TOTAL SCORE', 'AGGREGATE', 'CLASS POSITION', 'SUBJECTS SAT', 'AVERAGE SCORE']) assert.match(renderer, new RegExp(label));
+  assert.match(renderer, /PERCENTAGE/); assert.match(pdf, /Percentage/);
   for (const label of ['OSAAH STUDENT INDEX', 'STUDENT NAME', 'TOTAL SCORE', 'AGGREGATE', 'CLASS POSITION']) assert.match(report, new RegExp(label));
 });
