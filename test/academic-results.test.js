@@ -43,6 +43,29 @@ test('academic results persist terminal and mock scores with native Osaah IDs', 
   assert.match(resultPage, /result-header/);
 });
 
+test('KG result slips calculate four parent subjects out of 400 and position students by their actual totals', () => {
+  const students = createStudentService();
+  const subjects = createSubjectService();
+  const results = createAcademicResultsService({ students, subjects, classes: ['KG1'] });
+  const manager = { id: 'head-kg', roleKey: 'HEADTEACHER', schoolId: 'school-osaah-daylight', permissions: new Set(['*']) };
+  const higher = students.createStudent({ firstName: 'Ama', surname: 'Higher', classId: 'KG1', admissionYearId: '2026' });
+  const lower = students.createStudent({ firstName: 'Kojo', surname: 'Lower', classId: 'KG1', admissionYearId: '2026' });
+  const kgSubjects = subjects.list({ classId: 'KG1' }, manager).filter((subject) => subject.active);
+  assert.deepEqual(kgSubjects.map((subject) => subject.name), ['Language and Literacy', 'Numeracy', 'Our World, Our People', 'Creative Arts']);
+  const scores = [90, 85, 95, 85];
+  kgSubjects.forEach((subject, index) => {
+    assert.throws(() => results.saveScore({ studentId: higher.id, classId: 'KG1', subjectId: subject.id, academicYear: '2026/2027', term: 'First Term', caScore: 50.01, examScore: 50 }, manager), /between 0 and 50/);
+    assert.throws(() => results.saveScore({ studentId: higher.id, classId: 'KG1', subjectId: subject.id, academicYear: '2026/2027', term: 'First Term', caScore: 51, examScore: 50, caMax: 100, examMax: 100 }, manager), /between 0 and 50/);
+    results.saveScore({ studentId: higher.id, classId: 'KG1', subjectId: subject.id, academicYear: '2026/2027', term: 'First Term', caScore: scores[index] / 2, examScore: scores[index] / 2 }, manager);
+    results.saveScore({ studentId: lower.id, classId: 'KG1', subjectId: subject.id, academicYear: '2026/2027', term: 'First Term', caScore: 40, examScore: 40 }, manager);
+  });
+  const report = results.result({ studentId: higher.id, classId: 'KG1', academicYear: '2026/2027', term: 'First Term' }, manager);
+  const lowerReport = results.result({ studentId: lower.id, classId: 'KG1', academicYear: '2026/2027', term: 'First Term' }, manager);
+  assert.equal(report.totalScore, 355); assert.equal(report.totalMaximum, 400); assert.equal(report.percentage, 88.75);
+  assert.equal(report.aggregate, null); assert.equal(report.subjectsSat, 4);
+  assert.equal(report.classPosition, '1st'); assert.equal(lowerReport.classPosition, '2nd');
+});
+
 
 test('result signatures resolve by assigned class, academic context, and school scope', () => {
   const staff = createStaffService();

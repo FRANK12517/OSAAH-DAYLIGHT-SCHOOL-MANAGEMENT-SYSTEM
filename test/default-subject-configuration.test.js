@@ -39,7 +39,7 @@ function fakeDatabase() {
       if (sql.includes('SELECT id FROM subjects WHERE school_id=? AND code=?')) return subjects.filter((row) => row.schoolId === p[0] && row.code === p[1]).map(({ id }) => ({ id }));
       if (sql.includes('SELECT id FROM subjects WHERE school_id=? AND LOWER(name)=LOWER(?) AND id<>?')) return subjects.filter((row) => row.schoolId === p[0] && row.name.toLowerCase() === p[1].toLowerCase() && row.id !== p[2]).map(({ id }) => ({ id }));
       if (sql.includes('SELECT id FROM subjects WHERE school_id=? AND LOWER(name)=LOWER(?)')) return subjects.filter((row) => row.schoolId === p[0] && row.name.toLowerCase() === p[1].toLowerCase()).map(({ id }) => ({ id }));
-      if (sql.includes('SELECT id,code,name,subject_type AS subjectType,is_scoring AS isScoring,is_active AS isActive FROM subjects WHERE school_id=? AND LOWER(name)=LOWER(?)')) return subjects.filter((row) => row.schoolId === p[0] && row.name.toLowerCase() === p[1].toLowerCase());
+      if (sql.includes('SELECT id,code,name,subject_type AS subjectType,is_scoring AS isScoring,is_active AS isActive') && sql.includes('FROM subjects WHERE school_id=? AND LOWER(name)=LOWER(?)')) return subjects.filter((row) => row.schoolId === p[0] && row.name.toLowerCase() === p[1].toLowerCase()).map((row) => ({ ...row, assessmentComponentsJson: row.assessmentComponentsJson ?? null }));
       if (sql.includes('SELECT id,code,name,subject_type AS subjectType,is_scoring AS isScoring FROM subjects WHERE id=?')) return subjects.filter((row) => row.id === p[0] && row.schoolId === p[1]);
       if (sql.includes('SELECT id,code,name,department_id AS departmentId,subject_type AS subjectType,is_scoring AS isScoring,is_active AS isActive,assessment_components_json AS assessmentComponentsJson FROM subjects')) return subjects.filter((row) => row.schoolId === p[0]).map((row) => ({ ...row, isActive: row.isActive ?? 1 }));
       if (sql.includes('SELECT a.subject_id AS subjectId,a.class_id AS classId,a.active,c.name AS className')) return assignments.filter((row) => row.schoolId === p[0]).map((row) => ({ subjectId: row.subjectId, classId: row.classId, className: className(row.classId), active: row.active }));
@@ -68,6 +68,11 @@ function fakeDatabase() {
         if (row) row.isActive = sql.includes('is_active=0') ? 0 : 1;
         return { affectedRows: row ? 1 : 0 };
       }
+      if (sql.startsWith('UPDATE subjects SET assessment_components_json=?')) {
+        const row = subjects.find((subject) => subject.id === p[2] && subject.schoolId === p[3]);
+        if (row) row.assessmentComponentsJson = p[0];
+        return { affectedRows: row ? 1 : 0 };
+      }
       if (sql.startsWith('UPDATE subjects SET name=')) {
         const row = subjects.find((subject) => subject.id === p[5] && subject.schoolId === p[6]);
         if (row) Object.assign(row, { name: p[0], code: p[1], subjectType: p[2], isScoring: p[3] });
@@ -92,7 +97,11 @@ function fakeDatabase() {
 
 test('catalog defines the requested subjects for KG, both Primary bands, and JHS while preserving Nursery', () => {
   const nursery = ['English Language', 'Mathematics', 'Science', 'Social Studies', 'Religious and Moral Education', 'Computing', 'Creative Arts', 'French'];
-  for (const cls of ['Nursery 1', 'Nursery 2']) assert.deepEqual(defaultSubjectsForClass(cls).map((s) => s.name), nursery);
+  for (const cls of ['Nursery 1', 'Nursery 2']) {
+    const subjects = defaultSubjectsForClass(cls);
+    assert.deepEqual(subjects.map((s) => s.name), nursery);
+    assert.ok(subjects.every((subject) => subject.mandatory !== true));
+  }
   assert.deepEqual(defaultSubjectsForClass('KG1').map((s) => s.name), ['Language and Literacy', 'Numeracy', 'Our World, Our People', 'Creative Arts']);
   assert.deepEqual(defaultSubjectsForClass('Basic 1').filter((s) => s.mandatory).map((s) => s.name), ['English Language', 'Mathematics', 'Science', 'History']);
   assert.deepEqual(defaultSubjectsForClass('Basic 4').filter((s) => s.mandatory).map((s) => s.name), ['English Language', 'Mathematics', 'Integrated Science', 'History']);
@@ -102,7 +111,7 @@ test('catalog defines the requested subjects for KG, both Primary bands, and JHS
 
 test('KG has four 100-mark parent subjects, component labels, and highest-total ranking without Best Six', () => {
   const subjects = defaultSubjectsForClass('KG1');
-  assert.deepEqual(subjects.map((s) => s.assessmentComponents), [['Phonics & Word Building', 'Oral Language & Listening', 'Pre-Writing & Penmanship'], ['Number Operations', 'Geometry & Spatial Awareness', 'Data & Sorting'], ['Personal & Social Development', 'Ghanaian Values & Science'], ['Visual Arts', 'Performing Arts & Movement']]);
+  assert.deepEqual(subjects.map((s) => s.assessmentComponents), [['Phonics and Word Building', 'Oral Language and Listening', 'Pre-Writing and Penmanship'], ['Number Operations', 'Geometry and Spatial Awareness', 'Data and Sorting'], ['Personal and Social Development', 'Ghanaian Values and Science'], ['Visual Arts', 'Performing Arts and Movement']]);
   assert.ok(subjects.every((s) => s.maximumMarks === 100 && s.mandatory && s.isScoring));
   const result = calculateStudentResult(subjects.map((s, i) => ({ subjectId: `${i}`, subjectName: s.name, totalScore: [100, 80, 70, 60][i], subjectType: 'CORE', isScoring: true })), { classId: 'KG1' });
   assert.equal(result.totalScore, 310); assert.equal(result.aggregate, null);
@@ -124,7 +133,7 @@ test('memory configuration protects mandatory subjects and marks lower/upper PE 
 test('TiDB defaults are idempotent, preserve Nursery, and cascade across all 13 classes, three terms and future years', async () => {
   const db = fakeDatabase(); const service = createDurableAcademicService({ database: db, schoolId });
   const first = await service.configureDefaultSubjects(manager); const second = await service.configureDefaultSubjects(manager);
-  assert.equal(first.classesConfigured, 11); assert.equal(first.nurseryPreserved, true); assert.ok(first.assignmentsCreated > 0); assert.equal(second.assignmentsCreated, 0); assert.deepEqual(db.assignments.filter((a) => a.classId.includes('nursery')), db.nurseryBefore);
+  assert.equal(first.classesConfigured, 11); assert.equal(first.nurseryPreserved, true); assert.equal(first.nurseryCurriculumApproval, 'PENDING'); assert.ok(first.assignmentsCreated > 0); assert.equal(second.assignmentsCreated, 0); assert.deepEqual(db.assignments.filter((a) => a.classId.includes('nursery')), db.nurseryBefore);
   assert.ok(db.assignments.filter((a) => !a.classId.includes('nursery')).every((a) => a.configurationVersion === '1'));
   for (const cls of classes) for (const termNo of [1, 2, 3]) {
     const response = await service.subjectCascade({ academicYearId: 'year-2026', termId: `year-2026-term-${termNo}`, classId: cls.id }, manager);
@@ -141,6 +150,24 @@ test('TiDB defaults are idempotent, preserve Nursery, and cascade across all 13 
   await service.assignSubject({ subjectId: french.id, classId: 'class-basic-4', academicYearId: 'year-2026' }, manager);
   assert.ok((await service.subjectCascade({ academicYearId: 'year-2026', termId: 'year-2026-term-1', classId: 'class-basic-4' }, manager)).subjects.some((s) => s.id === french.id));
   assert.ok(!(await service.subjectCascade({ academicYearId: 'year-2027', termId: 'year-2027-term-1', classId: 'class-basic-4' }, manager)).subjects.some((s) => s.id === french.id));
+});
+
+test('configured KG component labels are durably refreshed without changing or deleting saved score rows', async () => {
+  const db = fakeDatabase();
+  const existing = { id: 'existing-kg-language', schoolId, code: 'LANG-LIT', name: 'Language and Literacy', subjectType: 'CORE', isScoring: 1, isActive: 1, assessmentComponentsJson: null };
+  db.subjects.push(existing);
+  const service = createDurableAcademicService({ database: db, schoolId });
+  await service.configureDefaultSubjects(manager);
+  assert.deepEqual(JSON.parse(existing.assessmentComponentsJson), ['Phonics and Word Building', 'Oral Language and Listening', 'Pre-Writing and Penmanship']);
+  assert.ok(!db.calls.some(({ sql }) => /\bDELETE\s+(FROM\s+)?(subjects|academic_score_records)/i.test(sql)));
+});
+
+test('Nursery configuration stays editable for authorized managers and is not enforced for other roles', async () => {
+  const db = fakeDatabase(); const service = createDurableAcademicService({ database: db, schoolId });
+  const french = db.subjects.find((subject) => subject.name === 'French');
+  await assert.rejects(() => service.updateSubject(french.id, { name: 'French Language' }, teacher), /Forbidden/);
+  assert.equal((await service.updateSubject(french.id, { name: 'French Language' }, manager)).name, 'French Language');
+  assert.ok(db.assignments.some((assignment) => assignment.subjectId === french.id && assignment.classId === 'class-nursery-1'));
 });
 
 test('server-side cascade rejects invalid years/terms and out-of-scope classes; defaults require manager permission', async () => {

@@ -7,7 +7,9 @@ const CORE_BY_LEVEL = Object.freeze({
   UPPER_PRIMARY: [['english language'], ['mathematics'], ['integrated science'], ['history']]
 });
 const NON_SCORING = new Set(['physical education', 'pe']);
+const KG_PARENT_SUBJECTS = new Set(['language and literacy', 'numeracy', 'our world, our people', 'creative arts']);
 const nameOf = (row) => String(row.subjectName ?? row.name ?? row.subjectId ?? '').trim().toLowerCase().replace(/[&/]/g, ' ').replace(/\s+/g, ' ');
+const compareText = (a, b) => a < b ? -1 : a > b ? 1 : 0;
 const levelOf = (classId) => {
   const value = String(classId ?? '').toUpperCase().trim();
   if (value.startsWith('JHS')) return 'JHS';
@@ -39,9 +41,12 @@ export function calculateAggregate(rows, { classId = '', examination = 'TERMINAL
   if (core.some((row) => !row)) return { aggregate: null, aggregateSubjects: core.filter(Boolean), qualifying: false, aggregateStatus: 'INCOMPLETE' };
   const electives = eligible.filter((row) => !coreNames.includes(nameOf(row)));
   if (electives.length < 2) return { aggregate: null, aggregateSubjects: core, qualifying: false, aggregateStatus: 'INCOMPLETE' };
-  // Modern JavaScript sorting is stable: equal grade points retain the
-  // configured subject order, which is the school’s existing tie rule.
-  const best = [...electives].sort((a, b) => numericGrade(a, classId, examination) - numericGrade(b, classId, examination)).slice(0, 2);
+  // Grade points decide first. Only when grade points tie do higher raw marks
+  // win; exact ties resolve by normalized subject name, then canonical ID.
+  const best = [...electives].sort((a, b) => numericGrade(a, classId, examination) - numericGrade(b, classId, examination)
+    || validateScore(b.totalScore) - validateScore(a.totalScore)
+    || compareText(nameOf(a), nameOf(b))
+    || compareText(String(a.subjectId ?? a.id ?? ''), String(b.subjectId ?? b.id ?? ''))).slice(0, 2);
   const selected = [...core, ...best];
   const aggregate = selected.reduce((sum, row) => sum + numericGrade(row, classId, examination), 0);
   const aggregateTotal = selected.reduce((sum, row) => sum + validateScore(row.totalScore), 0);
@@ -49,12 +54,20 @@ export function calculateAggregate(rows, { classId = '', examination = 'TERMINAL
 }
 
 export function calculateStudentResult(rows = [], options = {}) {
-  const valid = scoring(rows);
+  const level = levelOf(options.classId);
+  const allScoring = scoring(rows);
+  const seenKgSubjects = new Set();
+  const valid = level === 'KG' ? allScoring.filter((row) => {
+    const name = nameOf(row);
+    if (!KG_PARENT_SUBJECTS.has(name) || seenKgSubjects.has(name)) return false;
+    seenKgSubjects.add(name);
+    return true;
+  }) : allScoring;
   const totalScore = valid.reduce((sum, row) => sum + validateScore(row.totalScore), 0);
   const average = valid.length ? Number((totalScore / valid.length).toFixed(2)) : null;
   const aggregate = calculateAggregate(rows, options);
-  const level = levelOf(options.classId);
-  return { totalScore, totalMaximum: level === 'KG' ? KG_TOTAL_MAXIMUM : null, average, subjectsSat: valid.length, ...aggregate };
+  const percentage = level === 'KG' && valid.length === KG_PARENT_SUBJECTS.size ? Number(((totalScore / KG_TOTAL_MAXIMUM) * 100).toFixed(2)) : null;
+  return { totalScore, totalMaximum: level === 'KG' ? KG_TOTAL_MAXIMUM : null, percentage, average, subjectsSat: valid.length, ...aggregate };
 }
 
 export function calculateClassPositions(studentResults = [], { classId = '' } = {}) {

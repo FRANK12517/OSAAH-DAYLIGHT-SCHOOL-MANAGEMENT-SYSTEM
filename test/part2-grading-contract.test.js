@@ -16,11 +16,24 @@ test('central score validation rejects missing, negative, and above-maximum mark
 });
 
 test('KG totals four subjects out of 400 and never use Best Six', () => {
-  const result = calculateStudentResult([row('Language and Literacy', 90), row('Numeracy', 85), row('Our World, Our People', 95), row('Creative Arts', 85)], { classId: 'KG2' });
+  const subjects = [row('Language and Literacy', 90), row('Numeracy', 85), row('Our World, Our People', 95), row('Creative Arts', 85)];
+  const result = calculateStudentResult(subjects, { classId: 'KG2' });
   assert.equal(result.totalScore, 355);
   assert.equal(result.totalMaximum, KG_TOTAL_MAXIMUM);
+  assert.equal(result.percentage, 88.75);
   assert.equal(result.aggregate, null);
   assert.equal(result.aggregateStatus, 'KG_TOTAL');
+  const withComponent = calculateStudentResult([...subjects, row('Phonics and Word Building', 100)], { classId: 'KG2' });
+  assert.equal(withComponent.totalScore, 355);
+  assert.equal(withComponent.totalMaximum, 400);
+  assert.equal(withComponent.subjectsSat, 4);
+  assert.equal(calculateStudentResult(subjects.slice(0, 3), { classId: 'KG2' }).percentage, null);
+});
+
+test('Lower Primary grade boundaries include decimals and preserve the missing Grade 7', () => {
+  const boundaries = [[100,1],[80,1],[79.99,2],[70,2],[69.99,3],[60,3],[59.99,4],[55,4],[54.99,5],[50,5],[49.99,6],[40,6],[39.99,8],[35,8],[34.99,9],[0,9]];
+  for (const [score, expected] of boundaries) assert.equal(Number(gradeForTotal(score, { classId: 'Primary 2' })[0]), expected, `score ${score}`);
+  assert.ok(!boundaries.some(([, grade]) => grade === 7));
 });
 
 test('lower and upper primary require their configured core subjects and exactly two electives', () => {
@@ -38,8 +51,15 @@ test('JHS boundaries include every supplied threshold and decimal scores are con
 });
 
 test('equal elective grades use deterministic subject ordering and class ties remain stable', () => {
-  const result = calculateAggregate([...jhsCore, row('RME', 70), row('Computing', 70), row('French', 70)], { classId: 'JHS 1' });
-  assert.deepEqual(result.aggregateSubjects.slice(-2).map((item) => item.subjectName), ['RME', 'Computing']);
+  const electives = [row('RME', 50), row('Computing', 70), row('French', 70)];
+  const result = calculateAggregate([...jhsCore, ...electives], { classId: 'JHS 1' });
+  const reordered = calculateAggregate([...jhsCore, ...electives.reverse()], { classId: 'JHS 1' });
+  assert.deepEqual(result.aggregateSubjects.slice(-2).map((item) => item.subjectName), ['Computing', 'French']);
+  assert.deepEqual(reordered.aggregateSubjects.slice(-2).map((item) => item.subjectName), ['Computing', 'French']);
+  const primary = calculateAggregate([...lowerCore, row('RME', 70, { grade: 1 }), row('Creative Arts', 99, { grade: 2 }), row('Fantse', 100, { grade: 3 })], { classId: 'Primary 1' });
+  assert.deepEqual(primary.aggregateSubjects.slice(-2).map((item) => item.subjectName), ['RME', 'Creative Arts']);
+  const withPe = calculateAggregate([...lowerCore, row('RME', 80), row('Fantse', 75), row('Physical Education', 100, { subjectType: 'NON_SCORING', isScoring: false })], { classId: 'Primary 1' });
+  assert.ok(!withPe.aggregateSubjects.some((item) => item.subjectName === 'Physical Education'));
   const positions = calculateClassPositions([
     { studentId: 'student-b', totalScore: 90 },
     { studentId: 'student-a', totalScore: 90 }
