@@ -470,6 +470,26 @@ export function createDurableAcademicService({ database, schoolId, idFactory = r
     return { id: scoreId, schoolId, studentId, permanentStudentId: enrolled.permanent_student_id, classId, subjectId, mockLabel, academicYear: period.yearName, term: period.termName, caScore: null, examScore: null, totalScore, grade, remark, saved: true };
   }
 
+  async function listScores(input = {}, actor, { mock = false } = {}) {
+    assertActor(actor);
+    if (!authorized(actor, mock ? 'mock.scores.read' : 'results.read') && !authorized(actor, mock ? 'mock.scores.write' : 'marks.write')) fail('Forbidden.', 403, 'ACADEMIC_PERMISSION_REQUIRED');
+    const classId = text(input.classId), studentId = text(input.studentId), subjectId = text(input.subjectId);
+    const academicYear = text(input.academicYearId || input.academicYear), term = text(input.termId || input.term);
+    if (!academicYear || !term) return [];
+    const period = await resolvePeriod(input);
+    const conditions = ['r.school_id=?', 'r.record_type=?', 'r.academic_year_id=?', 'r.term_id=?'];
+    const params = [schoolId, mock ? 'MOCK' : 'TERMINAL', period.yearId, period.termId];
+    if (classId) { conditions.push('r.class_id=?'); params.push(classId); }
+    if (studentId) { conditions.push('(s.id=? OR s.permanent_student_id=? OR sp.student_master_id=?)'); params.push(studentId, studentId, studentId); }
+    if (subjectId) { conditions.push('r.subject_id=?'); params.push(subjectId); }
+    if (mock) { conditions.push('r.mock_label=?'); params.push(text(input.mockLabel)); }
+    else conditions.push('r.mock_label IS NULL');
+    const result = await database.query(`SELECT r.id,r.school_id AS schoolId,sp.student_master_id AS studentId,s.permanent_student_id AS permanentStudentId,r.class_id AS classId,r.subject_id AS subjectId,r.record_type AS recordType,r.mock_label AS mockLabel,r.ca_score AS caScore,r.examination_score AS examScore,r.total_score AS totalScore,r.grade,r.remark,r.updated_at AS updatedAt
+      FROM academic_score_records r JOIN student_profiles sp ON sp.id=r.student_id AND sp.school_id=r.school_id JOIN students s ON (sp.student_master_id=s.id OR sp.student_id=s.permanent_student_id) AND s.school_id=r.school_id
+      WHERE ${conditions.join(' AND ')} ORDER BY s.last_name,s.first_name,s.id,r.subject_id`, params);
+    return rows(result).map((item) => ({ ...item, caScore: item.caScore == null ? null : Number(item.caScore), examScore: item.examScore == null ? null : Number(item.examScore), totalScore: item.totalScore == null ? null : Number(item.totalScore) }));
+  }
+
   async function canonicalResult(input = {}, actor, { mock = false } = {}) {
     assertActor(actor);
     if (!authorized(actor, mock ? 'mock.results.read' : 'results.read') && !authorized(actor, mock ? 'mock.results.generate' : 'results.generate')) fail('Forbidden.', 403, 'ACADEMIC_PERMISSION_REQUIRED');
@@ -482,9 +502,9 @@ export function createDurableAcademicService({ database, schoolId, idFactory = r
       FROM students s JOIN student_enrollments e ON e.student_id=s.id AND e.school_id=s.school_id
       WHERE s.school_id=? AND s.id=? AND e.class_id=? AND e.academic_year_id=? AND e.term_id=? AND COALESCE(e.enrollment_status,'ACTIVE')='ACTIVE' AND COALESCE(e.is_current,1)=1 LIMIT 1`, [schoolId, studentId, classId, period.yearId, period.termId]))[0];
     if (!student) fail('Student is not enrolled in the selected academic context.', 404);
-    const scoreRows = rows(await database.query(`SELECT cs.subject_id AS subjectId,sub.name AS subjectName,cs.class_score AS caScore,cs.exam_score AS examScore,cs.total_score AS totalScore,cs.updated_at AS updatedAt
-      FROM canonical_academic_scores cs JOIN subjects sub ON sub.id=cs.subject_id AND sub.school_id=cs.school_id
-      WHERE cs.school_id=? AND cs.student_id=? AND cs.class_id=? AND cs.academic_year_id=? AND cs.term_id=? ORDER BY sub.name,sub.id`, [schoolId, student.id, classId, period.yearId, period.termId]));
+    const scoreRows = rows(await database.query(`SELECT r.subject_id AS subjectId,sub.name AS subjectName,r.ca_score AS caScore,r.examination_score AS examScore,r.total_score AS totalScore,r.updated_at AS updatedAt
+      FROM academic_score_records r JOIN student_profiles sp ON sp.id=r.student_id AND sp.school_id=r.school_id JOIN subjects sub ON sub.id=r.subject_id AND sub.school_id=r.school_id
+      WHERE r.school_id=? AND (sp.student_master_id=? OR sp.student_id=?) AND r.class_id=? AND r.academic_year_id=? AND r.term_id=? AND r.record_type=? AND ((r.mock_label IS NULL AND ? IS NULL) OR r.mock_label=?) ORDER BY sub.name,sub.id`, [schoolId, student.id, student.permanentStudentId, classId, period.yearId, period.termId, mock ? 'MOCK' : 'TERMINAL', mockLabel, mockLabel]));
     const subjects = scoreRows.map((row) => { const totalScore = Number(row.totalScore); const [grade, remark] = gradeForTotal(totalScore, { classId, examination: mock ? 'MOCK' : 'TERMINAL' }); return { ...row, caScore: Number(row.caScore), examScore: Number(row.examScore), totalScore, grade, remark, submitted: true }; });
     const canonical = calculateStudentResult(subjects, { classId, examination: mock ? 'MOCK' : 'TERMINAL' });
     const lifecycle = rows(await database.query(`SELECT id,attendance_json AS attendanceJson,assessment_json AS assessmentJson,status,version,saved_at AS savedAt,updated_at AS updatedAt,published_at AS publishedAt
@@ -538,7 +558,7 @@ export function createDurableAcademicService({ database, schoolId, idFactory = r
     }));
   }
 
-  return Object.freeze({ options, listSubjects, subjectCatalog, createSubject, updateSubject, deactivateSubject, subjectCascade, configureDefaultSubjects, listAssignments, assignSubject, deactivateSubjectAssignment, roster, resultStudents, saveScore, mockRoster, saveMockScore, resolvePeriod, result: canonicalResult, saveResult, publishResults: publishResult, publicationFor, savedResultFor: async (input, actor) => canonicalResult(input, actor), broadsheet });
+  return Object.freeze({ options, listSubjects, subjectCatalog, createSubject, updateSubject, deactivateSubject, subjectCascade, configureDefaultSubjects, listAssignments, assignSubject, deactivateSubjectAssignment, roster, resultStudents, saveScore, mockRoster, saveMockScore, listScores, resolvePeriod, result: canonicalResult, saveResult, publishResults: publishResult, publicationFor, savedResultFor: async (input, actor) => canonicalResult(input, actor), broadsheet });
 }
 
 export default createDurableAcademicService;
