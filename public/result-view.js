@@ -1,11 +1,59 @@
-const form = document.querySelector('#result-context'); const status = document.querySelector('#status'); const host = document.querySelector('#result'); let options = { academicYears: [], terms: [], classes: [], students: [] };
+const form = document.querySelector('#result-context'); const status = document.querySelector('#status'); const host = document.querySelector('#result'); let options = { academicYears: [], terms: [], classes: [], students: [] }; let studentLoadVersion = 0; let studentLoadController = null;
 const esc = (v) => String(v ?? '').replace(/[&<>'"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 const ordinal = (n) => { n = Number(n); if (!Number.isFinite(n) || n < 1) return '—'; const s = n % 100 >= 11 && n % 100 <= 13 ? 'th' : ({1:'st',2:'nd',3:'rd'}[n % 10] || 'th'); return `${n}${s}`; };
 async function api(url, init = {}) { const r = await fetch(url, init); const b = await r.json().catch(() => ({error:'Request failed.'})); if (!r.ok) throw Error(b.error || 'Request failed.'); return b; }
 const optionId = (item) => String(item?.id ?? item?.name ?? item ?? ''); const optionName = (item) => String(item?.name ?? item?.label ?? item ?? '');
-function renderContextOptions() { const year = form.elements.academicYear.value; const currentTerm = form.elements.term.value; const years = options.academicYears || []; const terms = (options.terms || []).filter((term) => !term.academicYearId || !year || String(term.academicYearId) === year); form.elements.academicYear.innerHTML = '<option value="">Select academic year</option>' + years.map((item) => `<option value="${esc(optionId(item))}">${esc(optionName(item))}</option>`).join(''); form.elements.academicYear.value = year || optionId(years.find((item) => item.isCurrent) || years[0]); form.elements.term.innerHTML = '<option value="">Select term</option>' + terms.map((item) => `<option value="${esc(optionId(item))}">${esc(optionName(item))}</option>`).join(''); form.elements.term.value = terms.some((item) => optionId(item) === currentTerm) ? currentTerm : optionId(terms.find((item) => item.isCurrent) || terms[0]); form.elements.classId.innerHTML = '<option value="">Select class</option>' + (options.classes || []).map((item) => `<option value="${esc(optionId(item))}">${esc(optionName(item))}</option>`).join(''); }
-async function syncStudents() { const { academicYear, term, classId, sampleMode, studentId } = form.elements; options.students = []; studentId.innerHTML = '<option value="">Loading students…</option>'; if (!academicYear.value || !term.value || !classId.value) { studentId.innerHTML = '<option value="">Select academic year, term, and class first</option>'; return; } const query = new URLSearchParams({ academicYear: academicYear.value, term: term.value, classId: classId.value, sampleMode: sampleMode.checked ? 'true' : 'false' }); const body = await api('/api/academic/result-students?' + query); options.students = body.students || []; studentId.innerHTML = '<option value="">Select student</option>' + options.students.map((student) => `<option value="${esc(student.id)}">${esc(student.name)} · ${esc(student.permanentStudentId || student.indexNumber)}${student.isTestRecord ? ' (SAMPLE DATA)' : ''}</option>`).join(''); if (options.students.length === 1) studentId.value = options.students[0].id; }
-async function load() { options = await api('/api/academic/options'); renderContextOptions(); await syncStudents(); }
+function renderContextOptions() {
+  const yearField = form.elements.academicYear;
+  const termField = form.elements.term;
+  const classField = form.elements.classId;
+  const selectedYear = yearField.value;
+  const selectedTerm = termField.value;
+  const selectedClass = classField.value;
+  const years = options.academicYears || [];
+  yearField.innerHTML = '<option value="">Select academic year</option>' + years.map((item) => `<option value="${esc(optionId(item))}">${esc(optionName(item))}</option>`).join('');
+  yearField.value = years.some((item) => optionId(item) === selectedYear) ? selectedYear : optionId(years.find((item) => item.isCurrent) || years[0]);
+  const terms = (options.terms || []).filter((term) => !term.academicYearId || !yearField.value || String(term.academicYearId) === yearField.value);
+  termField.innerHTML = '<option value="">Select term</option>' + terms.map((item) => `<option value="${esc(optionId(item))}">${esc(optionName(item))}</option>`).join('');
+  termField.value = terms.some((item) => optionId(item) === selectedTerm) ? selectedTerm : optionId(terms.find((item) => item.isCurrent) || terms[0]);
+  const classes = options.classes || [];
+  classField.innerHTML = '<option value="">Select class</option>' + classes.map((item) => `<option value="${esc(optionId(item))}">${esc(optionName(item))}</option>`).join('');
+  classField.value = classes.some((item) => optionId(item) === selectedClass) ? selectedClass : optionId(classes.find((item) => item.isCurrent) || classes[0]);
+}
+function studentState(label, value = '') { status.textContent = `Students: ${label}`; if (value) status.dataset.studentState = value; }
+async function syncStudents() {
+  const requestVersion = ++studentLoadVersion;
+  studentLoadController?.abort();
+  studentLoadController = new AbortController();
+  const { academicYear, term, classId, sampleMode, studentId } = form.elements;
+  options.students = [];
+  studentId.innerHTML = '<option value="">Loading students…</option>';
+  studentState('Loading…', 'loading');
+  if (!academicYear.value || !term.value || !classId.value) {
+    studentId.innerHTML = '<option value="">Select academic context first</option>';
+    studentState('Select an academic year, term, and class.', 'initializing');
+    return;
+  }
+  const query = new URLSearchParams({ academicYear: academicYear.value, term: term.value, classId: classId.value, sampleMode: sampleMode.checked ? 'true' : 'false' });
+  try {
+    const body = await api('/api/academic/result-students?' + query, { signal: studentLoadController.signal });
+    if (requestVersion !== studentLoadVersion) return;
+    options.students = body.students || [];
+    studentId.innerHTML = options.students.length ? '<option value="">Select student</option>' + options.students.map((student) => `<option value="${esc(student.id)}">${esc(student.name)} — ${esc(student.permanentStudentId || student.indexNumber)}${student.isTestRecord ? ' (SAMPLE DATA)' : ''}</option>`).join('') : '<option value="">No eligible students enrolled</option>';
+    if (options.students.some((student) => student.id === studentId.value)) studentId.value = studentId.value;
+    if (options.students.length === 1) studentId.value = options.students[0].id;
+    studentState(options.students.length ? `${options.students.length} eligible student${options.students.length === 1 ? '' : 's'} ready.` : 'No eligible students enrolled.', options.students.length ? 'ready' : 'empty');
+  } catch (error) {
+    if (error.name === 'AbortError' || requestVersion !== studentLoadVersion) return;
+    studentId.innerHTML = '<option value="">Students could not be loaded</option>';
+    studentState(error.message || 'Unable to load students.', 'error');
+  }
+}
+async function load() {
+  studentState('Initializing…', 'initializing');
+  try { options = await api('/api/academic/options'); renderContextOptions(); await syncStudents(); }
+  catch (error) { studentState(error.message || 'Unable to load academic options.', 'error'); form.elements.studentId.innerHTML = '<option value="">Academic options could not be loaded</option>'; }
+}
 function storageKey(x) { return ['osaah-assessment', x.schoolId || '', x.studentId || '', x.academicYear || '', x.term || '', x.classId || '', 'TERMINAL'].join(':'); }
 function savedAssessment(x) { try { return JSON.parse(localStorage.getItem(storageKey(x)) || '{}'); } catch { return {}; } }
 function assessmentField(label, key, saved) { const library = (window.OSAAH_GES_ASSESSMENT_LIBRARIES || {})[key] || { positive: [], negative: [] }; const selected = saved[key] || ''; const options = (sentiment) => ['<option value="">Not recorded</option>'].concat((library[sentiment] || []).map((text) => `<option value="${esc(text)}"${text === selected ? ' selected' : ''}>${esc(text)}</option>`)).join(''); return `<div class="assessment-card"><label>${label}</label><div class="no-print" style="display:flex;gap:.35rem;margin-bottom:.35rem"><button type="button" class="assessment-sentiment" data-assessment-sentiment="positive" data-assessment-key="${key}">Positive</button><button type="button" class="assessment-sentiment" data-assessment-sentiment="negative" data-assessment-key="${key}">Negative</button></div><select id="assessment-${key}" data-assessment="${key}" data-assessment-sentiment="positive"><option value="">Choose a statement</option></select><div class="static-value" data-static="${key}">${esc(selected || 'Not recorded')}</div><select class="no-print" hidden data-assessment-source="positive">${options('positive')}</select><select class="no-print" hidden data-assessment-source="negative">${options('negative')}</select></div>`; }

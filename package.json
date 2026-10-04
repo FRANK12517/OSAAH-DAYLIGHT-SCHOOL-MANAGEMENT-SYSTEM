@@ -14,7 +14,8 @@
     "production:three-terms": "node scripts/production-three-term-configure.mjs",
     "reconciliation:preflight": "node scripts/production-reconciliation-preflight.mjs",
     "migration:baseline": "node scripts/record-production-baseline.mjs",
-    "migration:forward-reconciliation": "node scripts/production-forward-reconciliation.mjs"
+    "migration:forward-reconciliation": "node scripts/production-forward-reconciliation.mjs",
+    "protection:verify": "node scripts/verify-protected-components.mjs"
   },
   "engines": {
     "node": ">=20"

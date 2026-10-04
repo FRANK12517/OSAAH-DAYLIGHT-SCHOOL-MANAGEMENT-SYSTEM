@@ -88,7 +88,7 @@ export function createDurableAcademicService({ database, schoolId, idFactory = r
     let classesConfigured = 0, subjectsCreated = 0, assignmentsCreated = 0, mandatoryAssignmentsRestored = 0;
     for (const classRow of classes) {
       const classId = canonicalAcademicClass(classRow.name);
-      if (!classId || classId.startsWith('Nursery')) continue;
+      if (!classId) continue;
       const defaults = defaultSubjectsForClass(classId);
       if (!defaults.length) continue;
       classesConfigured += 1;
@@ -112,8 +112,15 @@ export function createDurableAcademicService({ database, schoolId, idFactory = r
         const existing = rows(await database.query('SELECT id,active FROM subject_class_assignments WHERE school_id=? AND subject_id=? AND class_id=? AND academic_year_id IS NULL LIMIT 1', [schoolId, subject.id, classRow.id]))[0];
         if (existing) {
           const shouldRestore = definition.mandatory && Number(existing.active) === 0;
-          await database.execute('UPDATE subject_class_assignments SET active=?,configuration_version=?,updated_at=? WHERE id=? AND school_id=?', [shouldRestore ? 1 : existing.active, String(DEFAULT_SUBJECT_CONFIGURATION_VERSION), clock(), existing.id, schoolId]);
-          if (shouldRestore) mandatoryAssignmentsRestored += 1;
+          // Existing Nursery assignments are an approved historical setup. Keep
+          // active rows byte-for-byte unchanged; only repair an inactive CORE
+          // default so it cannot remain absent from the required catalogue.
+          if (shouldRestore) {
+            await database.execute('UPDATE subject_class_assignments SET active=1,configuration_version=?,updated_at=? WHERE id=? AND school_id=?', [String(DEFAULT_SUBJECT_CONFIGURATION_VERSION), clock(), existing.id, schoolId]);
+            mandatoryAssignmentsRestored += 1;
+          } else if (!classId.startsWith('Nursery')) {
+            await database.execute('UPDATE subject_class_assignments SET active=?,configuration_version=?,updated_at=? WHERE id=? AND school_id=?', [existing.active, String(DEFAULT_SUBJECT_CONFIGURATION_VERSION), clock(), existing.id, schoolId]);
+          }
           continue;
         }
         await database.execute('INSERT INTO subject_class_assignments (id,school_id,subject_id,class_id,academic_year_id,active,configuration_version,created_at,updated_at) VALUES (?,?,?,?,NULL,1,?,?,?) ON DUPLICATE KEY UPDATE id=id', [stableId('default-assignment', schoolId, classRow.id, subject.id), schoolId, subject.id, classRow.id, String(DEFAULT_SUBJECT_CONFIGURATION_VERSION), clock(), clock()]);
