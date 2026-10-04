@@ -56,3 +56,31 @@ test('Migration 063 inventory is target-bound and reports subject and dependency
   assert.equal(result.dependentCounts.class_subjects, 0);
   assert.ok(statements.every((sql) => /^\s*SELECT\b/i.test(sql)));
 });
+
+test('Migration 063 inventory reports an absent or partial schema without querying missing columns', async () => {
+  const statements = [];
+  const pool = {
+    async query(sql) {
+      statements.push(sql);
+      if (sql.includes('SELECT DATABASE()')) return [[{ database_name: 'osaahdaylightschool' }]];
+      if (sql.includes('information_schema.TABLES')) return [[
+        { table_name: 'subjects', table_type: 'BASE TABLE' }
+      ]];
+      if (sql.includes('information_schema.COLUMNS')) return [[
+        { table_name: 'subjects', column_name: 'id', column_type: 'varchar(64)', is_nullable: 'NO' }
+      ]];
+      if (sql.includes('information_schema.STATISTICS')) return [[]];
+      if (sql.includes('COUNT(*) AS row_count FROM subjects')) return [[{ row_count: 0 }]];
+      throw new Error(`Unexpected query: ${sql}`);
+    }
+  };
+
+  const result = await collectMigration063Inventory(pool);
+  assert.equal(result.migration063SchemaState, 'CLASSIFICATION_COLUMNS_MISSING_OR_PARTIAL');
+  assert.deepEqual(result.subjectClassification, []);
+  assert.equal(result.subjectCount, 0);
+  assert.deepEqual(result.migrationRows, []);
+  assert.deepEqual(result.baselineRows, []);
+  assert.ok(statements.every((sql) => /^\s*SELECT\b/i.test(sql)));
+  assert.ok(!statements.some((sql) => sql.includes('GROUP BY subject_type')));
+});
