@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createDatabaseAdapter } from '../src/ai/tidb-database-adapter.js';
 import { createMigrationRunner } from '../src/platform/migration-runner.js';
+import { assertProductionAcademicMigrationAllowed } from '../src/platform/academic-migration-guard.js';
 import { assertExpectedDatabase, verifyResultSlipSchema } from '../src/platform/result-slip-migration-preflight.js';
 import {
   assertFinalProductionDatabase,
@@ -23,6 +24,7 @@ const digest = (value) => createHash('sha256').update(value).digest('hex');
 
 export async function applyFinalResultSlipReconciliation({ environment = process.env, adapterFactory = createDatabaseAdapter, runnerFactory = createMigrationRunner, output = process.stdout } = {}) {
   validateFinalReleaseInputs({ confirmation: environment.CONFIRMATION, releaseSha: environment.RELEASE_SHA, databaseUrl: environment.DATABASE_URL });
+  assertProductionAcademicMigrationAllowed({ version: 55, name: '055_canonical_academic_scores.sql' });
   let adapter;
   const executed049 = [];
   let created049Tables = [];

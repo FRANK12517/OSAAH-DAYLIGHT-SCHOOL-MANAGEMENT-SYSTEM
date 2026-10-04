@@ -2,13 +2,15 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { discoverMigrations, createInMemoryMigrationAdapter, createMigrationRunner } from '../src/platform/migration-runner.js';
+import { discoverMigrations } from '../src/platform/migration-runner.js';
+import { assertProductionAcademicMigrationAllowed } from '../src/platform/academic-migration-guard.js';
 
 const lifecycle = await readFile(new URL('../schema/067_academic_result_lifecycle.sql', import.meta.url), 'utf8');
 const legacy = await readFile(new URL('../schema/055_canonical_academic_scores.sql', import.meta.url), 'utf8');
 const academic = await readFile(new URL('../src/durable-academic.js', import.meta.url), 'utf8');
+const lifecycleWorkflow = await readFile(new URL('../scripts/production-academic-result-lifecycle-migrate.mjs', import.meta.url), 'utf8');
 
-test('Migration 067 is the uniquely numbered additive lifecycle migration', async () => {
+test('Migration 067 remains uniquely numbered and checksum-stable within the reviewed definition', async () => {
   const migrations = await discoverMigrations(new URL('../schema', import.meta.url));
   const current = migrations.find((item) => item.version === 67);
   assert.ok(current);
@@ -17,7 +19,7 @@ test('Migration 067 is the uniquely numbered additive lifecycle migration', asyn
   assert.equal(new Set(migrations.map((item) => item.version)).size, migrations.length);
 });
 
-test('lifecycle metadata is scoped, durable, and does not define score columns', () => {
+test('lifecycle metadata remains isolated and does not define a score store', () => {
   assert.match(lifecycle, /CREATE TABLE IF NOT EXISTS academic_result_records/i);
   assert.match(lifecycle, /UNIQUE KEY uq_academic_result_record_scope/i);
   assert.match(lifecycle, /idx_academic_result_record_context/i);
@@ -27,17 +29,18 @@ test('lifecycle metadata is scoped, durable, and does not define score columns',
   assert.match(academic, /academic_score_records/);
 });
 
-test('legacy competing score migration remains historical but is blocked by the runner', async () => {
+test('legacy Migration 055 is permanently blocked at the production boundary', async () => {
   assert.match(legacy, /CREATE TABLE IF NOT EXISTS canonical_academic_scores/i);
-  const adapter = createInMemoryMigrationAdapter();
-  const runner = createMigrationRunner({ adapter, directory: new URL('../schema', import.meta.url) });
-  await assert.rejects(() => runner.applyVersions({ versions: [55], requiredAppliedVersions: [], dryRun: false }), (error) => error.code === 'LEGACY_COMPETING_SCORE_STORE_BLOCKED');
-  assert.equal(adapter.storage.statements.length, 0);
+  assert.throws(() => assertProductionAcademicMigrationAllowed({ version: 55, name: '055_canonical_academic_scores.sql' }), { code: 'LEGACY_COMPETING_SCORE_STORE_BLOCKED' });
 });
 
-test('Migration 067 is blocked from generic execution until a protected release opts in', async () => {
-  const adapter = createInMemoryMigrationAdapter();
-  const runner = createMigrationRunner({ adapter, directory: new URL('../schema', import.meta.url) });
-  await assert.rejects(() => runner.applyVersions({ versions: [67], dryRun: false }), (error) => error.code === 'ACADEMIC_LIFECYCLE_MIGRATION_REQUIRES_PROTECTED_RELEASE');
-  assert.equal(adapter.storage.statements.length, 0);
+test('Migration 067 requires its dedicated exact-version protected workflow', async () => {
+  assert.throws(() => assertProductionAcademicMigrationAllowed({ version: 67, name: '067_academic_result_lifecycle.sql' }), { code: 'ACADEMIC_LIFECYCLE_MIGRATION_REQUIRES_PROTECTED_RELEASE' });
+  assert.match(lifecycleWorkflow, /EXECUTION_TOKEN !== APPLY_TOKEN/);
+  assert.match(lifecycleWorkflow, /requiredAppliedVersions: \[66, 68\]/);
+  assert.match(lifecycleWorkflow, /assertProductionAcademicMigrationAllowed\(migration, \{ authorizedMigrationVersion: VERSION \}\)/);
+});
+
+test('Migration 068 also remains blocked from unauthorized production execution', () => {
+  assert.throws(() => assertProductionAcademicMigrationAllowed({ version: 68, name: '068_academic_score_records_foundation.sql' }), { code: 'ACADEMIC_SCORE_FOUNDATION_REQUIRES_PROTECTED_RELEASE' });
 });

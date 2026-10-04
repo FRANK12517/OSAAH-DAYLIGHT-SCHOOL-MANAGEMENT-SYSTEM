@@ -3,7 +3,7 @@ name: Production academic result lifecycle migration 067
   workflow_dispatch:
     inputs:
       release_ref:
-        description: Exact reviewed release commit SHA containing Migration 067
+        description: Exact reviewed release commit SHA containing checksum-verified Migrations 068 and 067
         required: true
         type: string
       execution_token:
@@ -59,7 +59,7 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
       - name: Run lifecycle contract tests
-        run: node --test test/academic-result-lifecycle-contract.test.js test/migration-runner.test.js
+        run: node --test test/academic-result-lifecycle-contract.test.js test/academic-migration-safety.test.js test/migration-runner.test.js
       - name: Confirm protected database secret is available
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}

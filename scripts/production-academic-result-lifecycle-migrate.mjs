@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createMigrationRunner, discoverMigrations } from '../src/platform/migration-runner.js';
+import { assertProductionAcademicMigrationAllowed } from '../src/platform/academic-migration-guard.js';
 
 const VERSION = 67;
 const NAME = '067_academic_result_lifecycle.sql';
@@ -20,6 +21,9 @@ async function main() {
   const migrations = await discoverMigrations(migrationDirectory);
   const migration = migrations.find((item) => item.version === VERSION);
   if (!migration || migration.name !== NAME) throw new Error('Migration 067 definition is unavailable or mismatched.');
+  const scoreFoundation = migrations.find((item) => item.version === 68);
+  if (!scoreFoundation || scoreFoundation.name !== '068_academic_score_records_foundation.sql') throw new Error('Checksum-verified Migration 068 score foundation is unavailable or mismatched.');
+  assertProductionAcademicMigrationAllowed(migration, { authorizedMigrationVersion: VERSION });
   const loaded = await import(pathToFileURL(resolve(process.cwd(), 'src/ai/tidb-database-adapter.js')));
   const adapter = await loaded.createDatabaseAdapter({ environment: process.env });
   try {
@@ -29,10 +33,10 @@ async function main() {
     if (!tables.includes('academic_score_records')) throw new Error('Authoritative academic_score_records is absent; refusing lifecycle migration.');
     if (tables.includes('canonical_academic_scores')) throw new Error('Competing canonical_academic_scores exists; refusing lifecycle migration.');
     if (tables.includes('academic_result_records')) throw new Error('Migration 067 target already exists; refusing ambiguous partial execution.');
-    const runner = createMigrationRunner({ adapter, directory: migrationDirectory, baselineRequired: true, allowAcademicLifecycleMigration: true });
+    const runner = createMigrationRunner({ adapter, directory: migrationDirectory, baselineRequired: true });
     const result = mode === 'dry-run'
-      ? await runner.applyVersions({ versions: [VERSION], requiredAppliedVersions: [66], dryRun: true })
-      : await runner.applyVersions({ versions: [VERSION], requiredAppliedVersions: [66] });
+      ? await runner.applyVersions({ versions: [VERSION], requiredAppliedVersions: [66, 68], dryRun: true })
+      : await runner.applyVersions({ versions: [VERSION], requiredAppliedVersions: [66, 68] });
     if (mode === 'apply') {
       const verified = rows(await adapter.query("SELECT TABLE_NAME AS tableName FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='academic_result_records'"));
       if (!verified.length) throw new Error('Migration 067 completed without creating academic_result_records.');
