@@ -37,7 +37,7 @@ test('legacy Migration 055 is permanently blocked at the production boundary', a
 test('Migration 067 requires its dedicated exact-version protected workflow', async () => {
   assert.throws(() => assertProductionAcademicMigrationAllowed({ version: 67, name: '067_academic_result_lifecycle.sql' }), { code: 'ACADEMIC_LIFECYCLE_MIGRATION_REQUIRES_PROTECTED_RELEASE' });
   assert.match(lifecycleWorkflow, /EXECUTION_TOKEN !== APPLY_TOKEN/);
-  assert.match(lifecycleWorkflow, /requiredAppliedVersions: \[66, 68\]/);
+  assert.match(lifecycleWorkflow, /requiredAppliedVersions: \[63, 64, 65, 66, 68\]/);
   assert.match(lifecycleWorkflow, /assertProductionAcademicMigrationAllowed\(migration, \{ authorizedMigrationVersion: VERSION \}\)/);
 });
 

@@ -38,7 +38,7 @@ test('production policy blocks 067 and 068 unless their own protected workflow a
 test('production CLI and legacy release workflow apply the guard before execution', async () => {
   const cli = await readFile(new URL('../scripts/migrate.mjs', import.meta.url), 'utf8');
   const legacyWorkflow = await readFile(new URL('../scripts/apply-final-result-slip-reconciliation.mjs', import.meta.url), 'utf8');
-  assert.match(cli, /command === 'apply' && process\.env\.DATABASE_URL/);
+  assert.match(cli, /if \(command === 'apply'\)/);
   assert.match(cli, /assertProductionAcademicMigrationAllowed\(migration\)/);
   assert.match(legacyWorkflow, /assertProductionAcademicMigrationAllowed\(\{ version: 55/);
   assert.ok(legacyWorkflow.indexOf("assertProductionAcademicMigrationAllowed({ version: 55") < legacyWorkflow.indexOf('adapter = await adapterFactory'));

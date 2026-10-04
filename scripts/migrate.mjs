@@ -12,7 +12,7 @@ async function main() {
   const loaded = await import(pathToFileURL(resolve(modulePath))); const adapter = await loaded.createDatabaseAdapter?.({ environment: process.env });
   try {
     const runner = createMigrationRunner({ adapter, directory, baselineRequired: Boolean(process.env.DATABASE_URL) });
-    if (command === 'apply' && process.env.DATABASE_URL) {
+    if (command === 'apply') {
       const current = await runner.status();
       for (const migration of current.pending) assertProductionAcademicMigrationAllowed(migration);
     }
