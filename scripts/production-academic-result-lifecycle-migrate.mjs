@@ -35,8 +35,8 @@ async function main() {
     if (tables.includes('academic_result_records')) throw new Error('Migration 067 target already exists; refusing ambiguous partial execution.');
     const runner = createMigrationRunner({ adapter, directory: migrationDirectory, baselineRequired: true });
     const result = mode === 'dry-run'
-      ? await runner.applyVersions({ versions: [VERSION], requiredAppliedVersions: [66, 68], dryRun: true })
-      : await runner.applyVersions({ versions: [VERSION], requiredAppliedVersions: [66, 68] });
+      ? await runner.applyVersions({ versions: [VERSION], requiredAppliedVersions: [63, 64, 65, 66, 68], dryRun: true })
+      : await runner.applyVersions({ versions: [VERSION], requiredAppliedVersions: [63, 64, 65, 66, 68] });
     if (mode === 'apply') {
       const verified = rows(await adapter.query("SELECT TABLE_NAME AS tableName FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='academic_result_records'"));
       if (!verified.length) throw new Error('Migration 067 completed without creating academic_result_records.');
