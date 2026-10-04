@@ -41,9 +41,9 @@ test('Part 2 prepares the canonical staff role identifiers without hard-coding u
   assert.doesNotMatch(sql, /password/i);
 });
 
-test('migration inventory remains uniquely versioned after the terms uniqueness contract', async () => {
+test('migration inventory remains uniquely versioned after the academic lifecycle contract', async () => {
   const migrations = await discoverMigrations(new URL('../schema', import.meta.url));
-  assert.equal(migrations.length, 65);
+  assert.equal(migrations.length, 66);
   assert.equal(new Set(migrations.map((item) => item.version)).size, migrations.length);
-  assert.equal(migrations.at(-1).name, '066_subject_class_assignments_reconciliation.sql');
+  assert.equal(migrations.at(-1).name, '067_academic_result_lifecycle.sql');
 });

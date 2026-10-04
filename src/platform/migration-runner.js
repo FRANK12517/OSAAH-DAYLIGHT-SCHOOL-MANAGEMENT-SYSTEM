@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { assertSafeAcademicMigration } from './academic-migration-guard.js';
 
 const FILE_PATTERN = /^(\d+)_([a-z0-9_]+)\.sql$/i;
 const checksum = (sql) => createHash('sha256').update(sql).digest('hex');
@@ -36,7 +37,7 @@ export function createInMemoryMigrationAdapter(storage = {}) {
 
 function validateAdapter(adapter) { for (const method of ['healthCheck', 'ensureMetadata', 'listApplied', 'acquireLock', 'releaseLock', 'transaction', 'execute', 'recordApplied']) if (typeof adapter?.[method] !== 'function') throw error('DATABASE_ADAPTER_INVALID', `Database adapter is missing ${method}().`); }
 
-export function createMigrationRunner({ adapter, directory, clock = () => new Date().toISOString(), baselineRequired = false } = {}) {
+export function createMigrationRunner({ adapter, directory, clock = () => new Date().toISOString(), baselineRequired = false, allowAcademicLifecycleMigration = false } = {}) {
   validateAdapter(adapter); if (!directory) throw error('MIGRATION_DIRECTORY_REQUIRED', 'Migration directory is required.');
   async function currentBaseline() {
     if (typeof adapter.listBaselines !== 'function') { if (baselineRequired) throw error('MIGRATION_BASELINE_REQUIRED', 'A truthful current-production baseline is required before applying migrations.'); return null; }
@@ -77,6 +78,7 @@ export function createMigrationRunner({ adapter, directory, clock = () => new Da
     if (appliedVersions.has(ordered.at(-1).version) && ordered.some((migration) => !appliedVersions.has(migration.version))) throw error('MIGRATION_LEDGER_GAP', 'A later selected migration is recorded while an earlier selected migration is missing.');
     const pending = ordered.filter((migration) => !appliedVersions.has(migration.version));
     if (dryRun) return Object.freeze({ dryRun: true, baseline: before.baseline, pending: pending.map(({ version, name, checksum }) => ({ version, name, checksum })) });
+    pending.forEach((migration) => assertSafeAcademicMigration(migration, { allowAcademicLifecycleMigration }));
     if (!await adapter.acquireLock()) throw error('MIGRATION_LOCKED', 'Another migration execution is already active.');
     try {
       const current = await inspect({ createMetadata: false });
@@ -114,6 +116,7 @@ export function createMigrationRunner({ adapter, directory, clock = () => new Da
     if (!await adapter.acquireLock()) throw error('MIGRATION_LOCKED', 'Another migration execution is already active.');
     try {
       const result = await inspect({ createMetadata: false }), applied = [];
+      result.pending.forEach((migration) => assertSafeAcademicMigration(migration, { allowAcademicLifecycleMigration }));
       for (const migration of result.pending) await adapter.transaction(async (transaction) => {
         const executor = transaction?.executeMigrationSql ?? adapter.executeMigrationSql;
         if (typeof executor !== 'function') throw error('DATABASE_ADAPTER_INVALID', 'Database adapter is missing executeMigrationSql().');
