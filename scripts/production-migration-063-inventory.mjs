@@ -48,7 +48,7 @@ export async function collectMigration063Inventory(pool, {
     COLUMN_KEY AS column_key, ORDINAL_POSITION AS ordinal_position
     FROM information_schema.COLUMNS
     WHERE TABLE_SCHEMA = DATABASE()
-      AND ((TABLE_NAME = 'subjects' AND COLUMN_NAME IN ('subject_type', 'is_scoring'))
+      AND ((TABLE_NAME = 'subjects')
         OR TABLE_NAME IN ('schema_migrations', 'schema_baselines'))
     ORDER BY TABLE_NAME, ORDINAL_POSITION`);
   const indexes = await query(pool, `SELECT TABLE_NAME AS table_name, INDEX_NAME AS index_name,
