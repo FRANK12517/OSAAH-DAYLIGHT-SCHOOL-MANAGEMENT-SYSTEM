@@ -57,30 +57,45 @@ export async function collectMigration063Inventory(pool, {
     WHERE TABLE_SCHEMA = DATABASE()
       AND TABLE_NAME IN ('subjects', 'schema_migrations', 'schema_baselines')
     ORDER BY TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX`);
-  const subjectClassification = await query(pool, `SELECT subject_type, is_scoring, COUNT(*) AS row_count
-    FROM subjects
-    GROUP BY subject_type, is_scoring
-    ORDER BY subject_type, is_scoring`);
-  const subjectCount = await query(pool, 'SELECT COUNT(*) AS row_count FROM subjects');
+  const presentTables = new Set(tables.map((row) => row.table_name));
+  const subjectColumns = new Set(
+    columns
+      .filter((row) => row.table_name === 'subjects')
+      .map((row) => row.column_name)
+  );
+  const subjectClassification = presentTables.has('subjects') &&
+    subjectColumns.has('subject_type') && subjectColumns.has('is_scoring')
+    ? await query(pool, `SELECT subject_type, is_scoring, COUNT(*) AS row_count
+      FROM subjects
+      GROUP BY subject_type, is_scoring
+      ORDER BY subject_type, is_scoring`)
+    : [];
+  const subjectCount = presentTables.has('subjects')
+    ? await query(pool, 'SELECT COUNT(*) AS row_count FROM subjects')
+    : [{ row_count: null }];
   const dependentCounts = {};
   for (const table of [
     'academic_score_records', 'canonical_academic_scores', 'subject_class_assignments',
     'class_subjects', 'result_signatures'
   ]) {
-    const present = tables.some((row) => row.table_name === table);
+    const present = presentTables.has(table);
     dependentCounts[table] = present
       ? Number((await query(pool, `SELECT COUNT(*) AS row_count FROM \`${table}\``))[0]?.row_count ?? 0)
       : null;
   }
-  const migrationRows = await query(pool, `SELECT version, name, checksum, applied_at
-    FROM schema_migrations
-    WHERE version IN (63, 64, 65)
-    ORDER BY version`);
-  const baselineRows = await query(pool, `SELECT id, canonical_database, baseline_at, repository_commit,
-    schema_fingerprint, reconciliation_migration, workflow_provenance, baseline_type,
-    historical_migrations_executed, created_at
-    FROM schema_baselines
-    ORDER BY baseline_at`);
+  const migrationRows = presentTables.has('schema_migrations')
+    ? await query(pool, `SELECT version, name, checksum, applied_at
+      FROM schema_migrations
+      WHERE version IN (63, 64, 65)
+      ORDER BY version`)
+    : [];
+  const baselineRows = presentTables.has('schema_baselines')
+    ? await query(pool, `SELECT id, canonical_database, baseline_at, repository_commit,
+      schema_fingerprint, reconciliation_migration, workflow_provenance, baseline_type,
+      historical_migrations_executed, created_at
+      FROM schema_baselines
+      ORDER BY baseline_at`)
+    : [];
 
   return {
     ok: true,
@@ -90,6 +105,15 @@ export async function collectMigration063Inventory(pool, {
     expectedDatabase,
     databaseMatch: true,
     migration063: MIGRATION_063,
+    migration063SchemaState: !presentTables.has('subjects')
+      ? 'SUBJECTS_TABLE_MISSING'
+      : subjectColumns.has('subject_type') && subjectColumns.has('is_scoring')
+        ? 'CLASSIFICATION_COLUMNS_PRESENT'
+        : 'CLASSIFICATION_COLUMNS_MISSING_OR_PARTIAL',
+    metadataState: {
+      schemaMigrationsPresent: presentTables.has('schema_migrations'),
+      schemaBaselinesPresent: presentTables.has('schema_baselines')
+    },
     tables,
     columns,
     indexes,
