@@ -3,11 +3,11 @@ import { canonicalClassId } from './student-classes.js';
 export const DEFAULT_SUBJECT_CONFIGURATION_VERSION = 1;
 
 const nurserySubjects = Object.freeze([
-  { name: 'English Language', subjectType: 'CORE' },
-  { name: 'Mathematics', subjectType: 'CORE' },
-  { name: 'Science', subjectType: 'CORE' },
-  { name: 'Social Studies', subjectType: 'CORE' },
-  { name: 'Religious and Moral Education', subjectType: 'CORE' },
+  { name: 'English Language', subjectType: 'CORE', mandatory: true },
+  { name: 'Mathematics', subjectType: 'CORE', mandatory: true },
+  { name: 'Science', subjectType: 'CORE', mandatory: true },
+  { name: 'Social Studies', subjectType: 'CORE', mandatory: true },
+  { name: 'Religious and Moral Education', subjectType: 'CORE', mandatory: true },
   { name: 'Computing', subjectType: 'ELECTIVE' },
   { name: 'Creative Arts', subjectType: 'ELECTIVE' },
   { name: 'French', subjectType: 'ELECTIVE' }

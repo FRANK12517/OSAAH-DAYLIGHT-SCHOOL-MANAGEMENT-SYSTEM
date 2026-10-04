@@ -93,6 +93,7 @@ function fakeDatabase() {
 test('catalog defines the requested subjects for KG, both Primary bands, and JHS while preserving Nursery', () => {
   const nursery = ['English Language', 'Mathematics', 'Science', 'Social Studies', 'Religious and Moral Education', 'Computing', 'Creative Arts', 'French'];
   for (const cls of ['Nursery 1', 'Nursery 2']) assert.deepEqual(defaultSubjectsForClass(cls).map((s) => s.name), nursery);
+  assert.deepEqual(defaultSubjectsForClass('Nursery 1').filter((s) => s.mandatory).map((s) => s.name), nursery.slice(0, 5));
   assert.deepEqual(defaultSubjectsForClass('KG1').map((s) => s.name), ['Language and Literacy', 'Numeracy', 'Our World, Our People', 'Creative Arts']);
   assert.deepEqual(defaultSubjectsForClass('Basic 1').filter((s) => s.mandatory).map((s) => s.name), ['English Language', 'Mathematics', 'Science', 'History']);
   assert.deepEqual(defaultSubjectsForClass('Basic 4').filter((s) => s.mandatory).map((s) => s.name), ['English Language', 'Mathematics', 'Integrated Science', 'History']);
@@ -121,16 +122,18 @@ test('memory configuration protects mandatory subjects and marks lower/upper PE 
   assert.ok(service.list({ classId: 'JHS 1' }, admin).some((s) => s.name === 'Ghanaian Language'));
 });
 
-test('TiDB defaults are idempotent, preserve Nursery, and cascade across all 13 classes, three terms and future years', async () => {
+test('TiDB defaults are idempotent, preserve Nursery assignments, and cascade across all 13 classes, three terms and academic years', async () => {
   const db = fakeDatabase(); const service = createDurableAcademicService({ database: db, schoolId });
   const first = await service.configureDefaultSubjects(manager); const second = await service.configureDefaultSubjects(manager);
-  assert.equal(first.classesConfigured, 11); assert.equal(first.nurseryPreserved, true); assert.ok(first.assignmentsCreated > 0); assert.equal(second.assignmentsCreated, 0); assert.deepEqual(db.assignments.filter((a) => a.classId.includes('nursery')), db.nurseryBefore);
+  assert.equal(first.classesConfigured, 13); assert.equal(first.nurseryPreserved, true); assert.ok(first.assignmentsCreated > 0); assert.equal(second.assignmentsCreated, 0); assert.deepEqual(db.assignments.filter((a) => a.classId.includes('nursery')), db.nurseryBefore);
   assert.ok(db.assignments.filter((a) => !a.classId.includes('nursery')).every((a) => a.configurationVersion === '1'));
-  for (const cls of classes) for (const termNo of [1, 2, 3]) {
-    const response = await service.subjectCascade({ academicYearId: 'year-2026', termId: `year-2026-term-${termNo}`, classId: cls.id }, manager);
+  for (const yearId of ['year-2026', 'year-2027']) for (const cls of classes) for (const termNo of [1, 2, 3]) {
+    const response = await service.subjectCascade({ academicYearId: yearId, termId: `${yearId}-term-${termNo}`, classId: cls.id }, manager);
     const expected = cls.name.startsWith('Nursery') ? 8 : cls.name.startsWith('KG') ? 4 : cls.name.startsWith('Basic 1') || cls.name.startsWith('Basic 2') || cls.name.startsWith('Basic 3') ? 7 : 9;
     assert.equal(response.subjects.length, expected, `${cls.name}, term ${termNo}`);
     assert.ok(response.subjects.every((subject) => subject.isScoring !== false));
+    const mandatoryNames = defaultSubjectsForClass(cls.name).filter((subject) => subject.mandatory && subject.isScoring !== false).map((subject) => subject.name);
+    assert.deepEqual(response.subjects.filter((subject) => subject.mandatory).map((subject) => subject.name), mandatoryNames, `${cls.name}, ${yearId}, term ${termNo}: mandatory catalogue`);
   }
   for (const termNo of [1, 2, 3]) assert.equal((await service.subjectCascade({ academicYearId: 'year-2026', termId: `year-2026-term-${termNo}`, classId: 'class-kg-1' }, teacher)).subjects.length, 4);
   assert.equal((await service.subjectCascade({ academicYearId: 'year-2027', termId: 'year-2027-term-1', classId: 'class-kg-1' }, teacher)).subjects.length, 4);
@@ -141,6 +144,31 @@ test('TiDB defaults are idempotent, preserve Nursery, and cascade across all 13 
   await service.assignSubject({ subjectId: french.id, classId: 'class-basic-4', academicYearId: 'year-2026' }, manager);
   assert.ok((await service.subjectCascade({ academicYearId: 'year-2026', termId: 'year-2026-term-1', classId: 'class-basic-4' }, manager)).subjects.some((s) => s.id === french.id));
   assert.ok(!(await service.subjectCascade({ academicYearId: 'year-2027', termId: 'year-2027-term-1', classId: 'class-basic-4' }, manager)).subjects.some((s) => s.id === french.id));
+});
+
+test('Nursery CORE defaults cannot be deactivated or made non-scoring through durable APIs', async () => {
+  const db = fakeDatabase(); const service = createDurableAcademicService({ database: db, schoolId });
+  await service.configureDefaultSubjects(manager);
+  const english = db.subjects.find((subject) => subject.name === 'English Language');
+  await assert.rejects(() => service.deactivateSubject(english.id, manager), /Mandatory core/);
+  await assert.rejects(() => service.updateSubject(english.id, { isScoring: false }, manager), /Mandatory core/);
+  await assert.rejects(() => service.deactivateSubjectAssignment({ subjectId: english.id, classId: 'class-nursery-1', academicYearId: 'year-2026' }, manager), /Mandatory core/);
+});
+
+test('Nursery default configuration repairs a missing assignment and restores an inactive CORE assignment', async () => {
+  const db = fakeDatabase(); const service = createDurableAcademicService({ database: db, schoolId });
+  const english = db.subjects.find((subject) => subject.name === 'English Language');
+  const inactiveCore = db.assignments.find((assignment) => assignment.classId === 'class-nursery-1' && assignment.subjectId === english.id);
+  inactiveCore.active = 0;
+  const arts = db.subjects.find((subject) => subject.name === 'Creative Arts');
+  const artsAssignment = db.assignments.findIndex((assignment) => assignment.classId === 'class-nursery-2' && assignment.subjectId === arts.id);
+  db.assignments.splice(artsAssignment, 1);
+  const result = await service.configureDefaultSubjects(manager);
+  assert.equal(result.classesConfigured, 13);
+  assert.equal(result.mandatoryAssignmentsRestored, 1);
+  assert.ok(result.assignmentsCreated > 0);
+  assert.equal(inactiveCore.active, 1);
+  assert.ok(db.assignments.some((assignment) => assignment.classId === 'class-nursery-2' && assignment.subjectId === arts.id && assignment.active === 1));
 });
 
 test('server-side cascade rejects invalid years/terms and out-of-scope classes; defaults require manager permission', async () => {
