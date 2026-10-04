@@ -39,12 +39,13 @@ function fakeDatabase() {
       if (sql.includes('SELECT id FROM subjects WHERE school_id=? AND code=?')) return subjects.filter((row) => row.schoolId === p[0] && row.code === p[1]).map(({ id }) => ({ id }));
       if (sql.includes('SELECT id FROM subjects WHERE school_id=? AND LOWER(name)=LOWER(?) AND id<>?')) return subjects.filter((row) => row.schoolId === p[0] && row.name.toLowerCase() === p[1].toLowerCase() && row.id !== p[2]).map(({ id }) => ({ id }));
       if (sql.includes('SELECT id FROM subjects WHERE school_id=? AND LOWER(name)=LOWER(?)')) return subjects.filter((row) => row.schoolId === p[0] && row.name.toLowerCase() === p[1].toLowerCase()).map(({ id }) => ({ id }));
-      if (sql.includes('SELECT id,code,name,subject_type AS subjectType,is_scoring AS isScoring,is_active AS isActive FROM subjects WHERE school_id=? AND LOWER(name)=LOWER(?)')) return subjects.filter((row) => row.schoolId === p[0] && row.name.toLowerCase() === p[1].toLowerCase());
+      if (sql.includes('SELECT id,code,name,subject_type AS subjectType,is_scoring AS isScoring,is_active AS isActive,assessment_components_json AS assessmentComponentsJson FROM subjects WHERE school_id=? AND LOWER(name)=LOWER(?)')) return subjects.filter((row) => row.schoolId === p[0] && row.name.toLowerCase() === p[1].toLowerCase()).map((row) => ({ ...row, assessmentComponentsJson: row.assessmentComponentsJson ?? '[]' }));
       if (sql.includes('SELECT id,code,name,subject_type AS subjectType,is_scoring AS isScoring FROM subjects WHERE id=?')) return subjects.filter((row) => row.id === p[0] && row.schoolId === p[1]);
       if (sql.includes('SELECT id,code,name,department_id AS departmentId,subject_type AS subjectType,is_scoring AS isScoring,is_active AS isActive,assessment_components_json AS assessmentComponentsJson FROM subjects')) return subjects.filter((row) => row.schoolId === p[0]).map((row) => ({ ...row, isActive: row.isActive ?? 1 }));
       if (sql.includes('SELECT a.subject_id AS subjectId,a.class_id AS classId,a.active,c.name AS className')) return assignments.filter((row) => row.schoolId === p[0]).map((row) => ({ subjectId: row.subjectId, classId: row.classId, className: className(row.classId), active: row.active }));
       if (sql.includes('SELECT a.active,c.name AS className FROM subject_class_assignments')) return assignments.filter((row) => row.schoolId === p[0] && row.subjectId === p[1]).map((row) => ({ active: row.active, className: className(row.classId) }));
       if (sql.includes('SELECT a.id,a.class_id AS classId,c.name AS className FROM subject_class_assignments')) return assignments.filter((row) => row.schoolId === p[0] && row.subjectId === p[1]).map((row) => ({ id: row.id, classId: row.classId, className: className(row.classId) }));
+      if (sql.includes('SELECT id,active,academic_year_id AS academicYearId FROM subject_class_assignments')) return assignments.filter((row) => row.schoolId === p[0] && row.subjectId === p[1] && row.classId === p[2] && (sql.includes('academic_year_id IS NULL LIMIT') ? row.academicYearId === null : row.academicYearId === null || row.academicYearId === p[3])).map((row) => ({ ...row, academicYearId: row.academicYearId }));
       if (sql.includes('SELECT id,active FROM subject_class_assignments') && sql.includes('academic_year_id IS NULL')) return assignments.filter((row) => row.schoolId === p[0] && row.subjectId === p[1] && row.classId === p[2] && row.academicYearId === null);
       if (sql.includes('SELECT id,active FROM subject_class_assignments WHERE')) return assignments.filter((row) => row.schoolId === p[0] && row.subjectId === p[1] && row.classId === p[2] && row.academicYearId === p[3]);
       if (sql.includes('SELECT id FROM subject_class_assignments WHERE')) return assignments.filter((row) => row.schoolId === p[0] && row.subjectId === p[1] && row.classId === p[2] && (p[3] == null ? row.academicYearId == null : row.academicYearId === p[3])).map(({ id }) => ({ id }));
@@ -60,7 +61,7 @@ function fakeDatabase() {
       }
       if (sql.startsWith('INSERT INTO subject_class_assignments')) {
         const inactiveOverride = sql.includes('VALUES (?,?,?,?,?,0,?,?,?)');
-        if (!assignments.some((row) => row.id === p[0])) assignments.push({ id: p[0], schoolId: p[1], subjectId: p[2], classId: p[3], academicYearId: p.length >= 9 || inactiveOverride ? p[4] : null, active: inactiveOverride ? 0 : p.length >= 9 ? p[5] : 1, configurationVersion: inactiveOverride ? p[5] : p.length >= 9 ? p[6] : p[4] });
+        if (!assignments.some((row) => row.id === p[0])) assignments.push({ id: p[0], schoolId: p[1], subjectId: p[2], classId: p[3], academicYearId: p[4] ?? null, active: inactiveOverride ? 0 : 1, configurationVersion: inactiveOverride ? p[5] : p[5] ?? p[4] });
         return { affectedRows: 1 };
       }
       if (sql.startsWith('UPDATE subjects SET is_active=0') || sql.startsWith('UPDATE subjects SET is_active=1')) {
@@ -126,6 +127,7 @@ test('TiDB defaults are idempotent, preserve Nursery assignments, and cascade ac
   const db = fakeDatabase(); const service = createDurableAcademicService({ database: db, schoolId });
   const first = await service.configureDefaultSubjects(manager); const second = await service.configureDefaultSubjects(manager);
   assert.equal(first.classesConfigured, 13); assert.equal(first.nurseryPreserved, true); assert.ok(first.assignmentsCreated > 0); assert.equal(second.assignmentsCreated, 0); assert.deepEqual(db.assignments.filter((a) => a.classId.includes('nursery')), db.nurseryBefore);
+  assert.equal(first.expectedBaseline.assignmentSlots, 105); assert.equal(first.expectedBaseline.distinctSubjectNames, 18); assert.equal(db.subjects.length, 18); assert.equal(db.assignments.length, 105);
   assert.ok(db.assignments.filter((a) => !a.classId.includes('nursery')).every((a) => a.configurationVersion === '1'));
   for (const yearId of ['year-2026', 'year-2027']) for (const cls of classes) for (const termNo of [1, 2, 3]) {
     const response = await service.subjectCascade({ academicYearId: yearId, termId: `${yearId}-term-${termNo}`, classId: cls.id }, manager);
@@ -144,6 +146,39 @@ test('TiDB defaults are idempotent, preserve Nursery assignments, and cascade ac
   await service.assignSubject({ subjectId: french.id, classId: 'class-basic-4', academicYearId: 'year-2026' }, manager);
   assert.ok((await service.subjectCascade({ academicYearId: 'year-2026', termId: 'year-2026-term-1', classId: 'class-basic-4' }, manager)).subjects.some((s) => s.id === french.id));
   assert.ok(!(await service.subjectCascade({ academicYearId: 'year-2027', termId: 'year-2027-term-1', classId: 'class-basic-4' }, manager)).subjects.some((s) => s.id === french.id));
+});
+
+test('durable default synchronization commits transactionally and rejects duplicate subjects before writing', async () => {
+  const backing = fakeDatabase(); let committed = 0; let rolledBack = 0;
+  const database = {
+    query: (...args) => backing.query(...args),
+    execute: (...args) => backing.execute(...args),
+    async transaction(callback) {
+      try { const result = await callback({ query: (...args) => backing.query(...args), execute: (...args) => backing.execute(...args) }); committed += 1; return result; }
+      catch (error) { rolledBack += 1; throw error; }
+    }
+  };
+  const service = createDurableAcademicService({ database, schoolId });
+  await service.configureDefaultSubjects(manager);
+  assert.equal(committed, 1);
+  assert.equal(backing.subjects.length, 18);
+  assert.equal(backing.assignments.length, 105);
+
+  const beforeSubjects = backing.subjects.length;
+  const beforeAssignments = backing.assignments.length;
+  const duplicateDatabase = {
+    query: (...args) => backing.query(...args),
+    execute: (...args) => backing.execute(...args),
+    async transaction(callback) {
+      try { return await callback({ query: async (sql, params = []) => sql.includes('GROUP BY LOWER(name)') ? [{ normalizedName: 'english language', recordCount: 2 }] : backing.query(sql, params), execute: (...args) => backing.execute(...args) }); }
+      catch (error) { rolledBack += 1; throw error; }
+    }
+  };
+  const duplicateService = createDurableAcademicService({ database: duplicateDatabase, schoolId });
+  await assert.rejects(() => duplicateService.configureDefaultSubjects(manager), { code: 'DUPLICATE_SUBJECTS' });
+  assert.equal(rolledBack, 1);
+  assert.equal(backing.subjects.length, beforeSubjects);
+  assert.equal(backing.assignments.length, beforeAssignments);
 });
 
 test('Nursery CORE defaults cannot be deactivated or made non-scoring through durable APIs', async () => {

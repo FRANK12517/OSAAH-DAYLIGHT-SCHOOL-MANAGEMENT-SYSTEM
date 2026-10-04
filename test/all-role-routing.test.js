@@ -14,7 +14,7 @@ test('broken academic links resolve to their intended existing module pages', as
     '/results/broadsheets': ['/academic-modules.html', /Academic Module/],
     '/academics/classes': ['/academic-modules.html', /academic-classes/],
     '/results/report-cards': ['/results.html', /Student Result Slip/],
-    '/academics/subjects/list': ['/subjects.html', /Subject Management/],
+    '/academics/subjects/list': ['/subjects.html', /Subject Configuration/],
     '/results/promotions': ['/promotion-results.html', /Promotion Results/],
     '/academics/curriculum': ['/academic-modules.html', /curriculum/],
     '/academics/lesson-plans': ['/academic-modules.html', /lesson-plans/],

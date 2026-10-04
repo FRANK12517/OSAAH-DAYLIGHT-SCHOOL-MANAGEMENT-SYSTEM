@@ -1,6 +1,13 @@
 import { canonicalClassId } from './student-classes.js';
 
 export const DEFAULT_SUBJECT_CONFIGURATION_VERSION = 1;
+export const DEFAULT_ACADEMIC_CLASSES = Object.freeze([
+  'Nursery 1', 'Nursery 2', 'KG 1', 'KG 2',
+  'Primary 1', 'Primary 2', 'Primary 3', 'Primary 4', 'Primary 5', 'Primary 6',
+  'JHS 1', 'JHS 2', 'JHS 3'
+]);
+export const DEFAULT_SUBJECT_ASSIGNMENT_SLOTS = 105;
+export const DEFAULT_DISTINCT_SUBJECT_NAMES = 18;
 
 const nurserySubjects = Object.freeze([
   { name: 'English Language', subjectType: 'CORE', mandatory: true },

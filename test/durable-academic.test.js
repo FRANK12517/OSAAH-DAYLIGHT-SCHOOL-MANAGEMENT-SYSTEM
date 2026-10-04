@@ -57,6 +57,7 @@ test('authorized subject assignment is tenant-scoped and idempotent', async () =
   assert.equal(second.created, false);
   assert.equal(database.assignments.length, 1);
   assert.equal((await service.listAssignments('subject-math', manager)).length, 1);
+  assert.equal(database.calls.some(({ sql }) => sql.includes('UPDATE subjects SET is_active=1')), false, 'a year-scoped assignment must not globally reactivate the subject record');
 });
 
 test('durable score validation rejects values outside CA and Exam limits', async () => {
@@ -110,9 +111,48 @@ test('Score Entry options survive production class tables without optional order
   assert.equal(calls.some((sql) => sql.includes('c.level_id')), false);
 });
 
+test('year-scoped subject configuration prefers a year override, displays inactive assignments and excludes other years', async () => {
+  const assignments = [
+    { assignmentId: 'global-english', id: 'subject-english', code: 'ENG', name: 'English Language', departmentId: null, subjectType: 'CORE', isScoring: 1, subjectActive: 1, classId: 'class-primary-1', className: 'Primary 1', academicYearId: null, assignmentActive: 1 },
+    { assignmentId: 'year-english', id: 'subject-english', code: 'ENG', name: 'English Language', departmentId: null, subjectType: 'CORE', isScoring: 1, subjectActive: 1, classId: 'class-primary-1', className: 'Primary 1', academicYearId: 'year-2026', assignmentActive: 0 },
+    { assignmentId: 'other-year-math', id: 'subject-math', code: 'MATH', name: 'Mathematics', departmentId: null, subjectType: 'CORE', isScoring: 1, subjectActive: 1, classId: 'class-primary-1', className: 'Primary 1', academicYearId: 'year-2027', assignmentActive: 1 }
+  ];
+  const database = {
+    async query(sql, params = []) {
+      if (sql.includes('FROM academic_years')) return [{ id: 'year-2026', name: '2026/2027' }];
+      if (sql.includes('FROM classes WHERE school_id')) return [{ id: 'class-primary-1', name: 'Primary 1' }];
+      if (sql.includes('FROM subjects WHERE school_id=? ORDER BY name,id')) return [
+        { id: 'subject-english', code: 'ENG', name: 'English Language', departmentId: null, subjectType: 'CORE', isScoring: 1, isActive: 1, assessmentComponentsJson: '[]' },
+        { id: 'subject-history', code: 'HIST', name: 'History', departmentId: null, subjectType: 'CORE', isScoring: 1, isActive: 1, assessmentComponentsJson: '[]' },
+        { id: 'subject-jhs-only', code: 'CAREER', name: 'Career Technology', departmentId: null, subjectType: 'CORE', isScoring: 1, isActive: 1, assessmentComponentsJson: '[]' }
+      ];
+      if (sql.includes('SELECT a.subject_id AS subjectId,a.class_id AS classId,a.active,c.name AS className')) return [];
+      if (sql.includes('FROM subject_class_assignments a JOIN subjects s')) return assignments.filter((row) => row.classId === params[1] && (row.academicYearId == null || row.academicYearId === params[2]));
+      if (sql.includes('FROM subject_class_assignments WHERE school_id=? AND class_id=?')) return assignments.filter((row) => row.classId === params[1]).map((row) => ({ id: row.id }));
+      return [];
+    },
+    async execute() { return { affectedRows: 1 }; }
+  };
+  const service = createDurableAcademicService({ database, schoolId });
+  const result = await service.subjectConfiguration(manager, { academicYearId: 'year-2026', classId: 'class-primary-1' });
+  assert.equal(result.academicYear, '2026/2027');
+  assert.equal(result.className, 'Primary 1');
+  assert.deepEqual(result.subjects.map((subject) => subject.name), ['English Language', 'History']);
+  assert.equal(result.subjects[0].active, false, 'the selected year override wins over the active school default');
+  assert.equal(result.subjects[0].mandatory, true);
+  assert.equal(result.subjects[0].subjectType, 'CORE');
+  const history = result.subjects.find((subject) => subject.id === 'subject-history');
+  assert.equal(history.assigned, false);
+  assert.equal(history.active, false);
+  assert.equal(history.subjectType, 'CORE');
+  assert.equal(result.subjects.some((subject) => subject.name === 'Career Technology'), false, 'subjects from a different class band are not offered here');
+  await assert.rejects(() => service.subjectConfiguration({ ...manager, schoolId: 'sch_other_02' }, { academicYearId: 'year-2026', classId: 'class-primary-1' }), /Forbidden/);
+});
+
 test('legacy class_subjects mapping remains an authoritative subject source when normalized assignments are unavailable', async () => {
   const database = {
     async query(sql) {
+      if (sql.includes('FROM academic_years')) return [{ id: 'year-2026', name: '2026/2027' }];
       if (sql.includes('subject_class_assignments')) throw new Error("Table 'subject_class_assignments' doesn't exist");
       if (sql.includes('class_subjects')) return [{ id: 'subject-math', code: 'MATH', name: 'Mathematics', departmentId: null, classId: 'class-basic-1' }];
       return [];
@@ -120,12 +160,13 @@ test('legacy class_subjects mapping remains an authoritative subject source when
     async execute() { return { affectedRows: 1 }; }
   };
   const service = createDurableAcademicService({ database, schoolId });
-  assert.deepEqual(await service.listSubjects({ classId: 'class-basic-1' }, manager), [{ id: 'subject-math', code: 'MATH', name: 'Mathematics', departmentId: null, classId: 'class-basic-1' }]);
+  assert.deepEqual(await service.listSubjects({ classId: 'class-basic-1' }, manager), [{ id: 'subject-math', code: 'MATH', name: 'Mathematics', departmentId: null, classId: 'class-basic-1', active: true, subjectActive: true }]);
 });
 
 test('legacy class_subjects mapping is used when normalized assignments exist but contain no active rows', async () => {
   const database = {
     async query(sql) {
+      if (sql.includes('FROM academic_years')) return [{ id: 'year-2026', name: '2026/2027' }];
       if (sql.includes('subject_class_assignments')) return [];
       if (sql.includes('class_subjects')) return [{ id: 'subject-english', code: 'ENG', name: 'English Language', departmentId: null, classId: 'class-basic-1' }];
       return [];
@@ -133,7 +174,7 @@ test('legacy class_subjects mapping is used when normalized assignments exist bu
     async execute() { return { affectedRows: 1 }; }
   };
   const service = createDurableAcademicService({ database, schoolId });
-  assert.deepEqual(await service.listSubjects({ classId: 'class-basic-1', academicYearId: 'year-2026' }, manager), [{ id: 'subject-english', code: 'ENG', name: 'English Language', departmentId: null, classId: 'class-basic-1' }]);
+  assert.deepEqual(await service.listSubjects({ classId: 'class-basic-1', academicYearId: 'year-2026' }, manager), [{ id: 'subject-english', code: 'ENG', name: 'English Language', departmentId: null, classId: 'class-basic-1', active: true, subjectActive: true }]);
 });
 test('inactive normalized assignments do not leak back through legacy class_subjects rows', async () => {
   const database = {
