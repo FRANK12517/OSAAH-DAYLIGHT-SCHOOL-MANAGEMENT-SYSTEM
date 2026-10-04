@@ -22,6 +22,7 @@ const EXPECTED_COLUMNS = [
   { table: 'subjects', column: 'is_active', type: /^tinyint\(1\)/i, nullable: 'NO', defaultValue: '1' },
   { table: 'subject_class_assignments', column: 'configuration_version', type: /^varchar\(32\)/i, nullable: 'YES' }
 ];
+const ALLOWED_PREEXISTING_COLUMNS = new Set(['subject_class_assignments.configuration_version']);
 const mode = process.argv[2] ?? 'dry-run';
 const directory = resolve(fileURLToPath(new URL('../schema/', import.meta.url)));
 let adapter;
@@ -162,14 +163,25 @@ async function main() {
   const beforeHistoricalCounts = await historicalRecordCounts();
   const ledger65 = beforeLedger.find((row) => Number(row.version) === VERSION);
   const recorded = Boolean(ledger65 && ledger65.name === migration.name && ledger65.checksum === migration.checksum);
-  const existingColumnCount = beforeSchema.columns.length;
   if (recorded) {
     verifySchema(beforeSchema);
-  } else if (existingColumnCount > 0) {
-    throw Object.assign(new Error('Migration 065 columns exist without the matching migration ledger record; refusing ambiguous apply.'), {
-      code: 'MIGRATION_065_PREEXISTING_COLUMNS',
-      details: { existingColumns: beforeSchema.columns.map(({ tableName, columnName }) => `${tableName}.${columnName}`), ledger: ledger65 ?? null }
-    });
+  } else {
+    const existingColumns = beforeSchema.columns.map(({ tableName, columnName }) => `${tableName}.${columnName}`);
+    const ambiguousColumns = existingColumns.filter((column) => !ALLOWED_PREEXISTING_COLUMNS.has(column));
+    if (ambiguousColumns.length > 0) {
+      throw Object.assign(new Error('Migration 065 columns exist without the matching migration ledger record; refusing ambiguous apply.'), {
+        code: 'MIGRATION_065_PREEXISTING_COLUMNS',
+        details: { existingColumns: ambiguousColumns, allowedPreexistingColumns: [...ALLOWED_PREEXISTING_COLUMNS], ledger: ledger65 ?? null }
+      });
+    }
+    const sharedColumn = beforeSchema.columns.find(({ tableName, columnName }) => `${tableName}.${columnName}` === 'subject_class_assignments.configuration_version');
+    const sharedColumnSpec = EXPECTED_COLUMNS.find(({ table, column }) => `${table}.${column}` === 'subject_class_assignments.configuration_version');
+    if (sharedColumn && (!sharedColumnSpec.type.test(String(sharedColumn.columnType ?? '')) || sharedColumn.nullable !== sharedColumnSpec.nullable)) {
+      throw Object.assign(new Error('Migration 065 shared prerequisite column is incompatible.'), {
+        code: 'MIGRATION_065_SCHEMA_VERIFICATION_FAILED',
+        details: { mismatched: [{ table: sharedColumn.tableName, column: sharedColumn.columnName, actualType: sharedColumn.columnType, actualNullable: sharedColumn.nullable }] }
+      });
+    }
   }
 
   const runner = createMigrationRunner({ adapter, directory, baselineRequired: true });

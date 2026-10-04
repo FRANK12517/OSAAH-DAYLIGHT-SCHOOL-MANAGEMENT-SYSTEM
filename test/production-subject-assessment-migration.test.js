@@ -21,6 +21,8 @@ test('Migration 065 production runner is target-bound, ledger-aware, predecessor
   assert.match(script, /requiredAppliedVersions: \[PREDECESSOR_VERSION\]/);
   assert.match(script, /APPLY_SUBJECT_ASSESSMENT_065/);
   assert.match(script, /MIGRATION_065_PREEXISTING_COLUMNS/);
+  assert.match(script, /ALLOWED_PREEXISTING_COLUMNS/);
+  assert.match(script, /subject_class_assignments\.configuration_version/);
   assert.match(script, /MIGRATION_065_PREDECESSOR_NOT_VERIFIED/);
   assert.match(script, /MIGRATION_065_SCHEMA_VERIFICATION_FAILED/);
   assert.match(script, /MIGRATION_065_HISTORICAL_RECORD_COUNT_CHANGED/);
