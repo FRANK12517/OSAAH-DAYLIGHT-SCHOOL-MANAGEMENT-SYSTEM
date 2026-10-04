@@ -1,6 +1,7 @@
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 import { discoverMigrations, createMigrationRunner } from '../src/platform/migration-runner.js';
+import { assertProductionAcademicMigrationAllowed } from '../src/platform/academic-migration-guard.js';
 
 async function main() {
   const command = process.argv[2] ?? 'status', directory = resolve(fileURLToPath(new URL('../schema', import.meta.url)));
@@ -11,6 +12,10 @@ async function main() {
   const loaded = await import(pathToFileURL(resolve(modulePath))); const adapter = await loaded.createDatabaseAdapter?.({ environment: process.env });
   try {
     const runner = createMigrationRunner({ adapter, directory, baselineRequired: Boolean(process.env.DATABASE_URL) });
+    if (command === 'apply' && process.env.DATABASE_URL) {
+      const current = await runner.status();
+      for (const migration of current.pending) assertProductionAcademicMigrationAllowed(migration);
+    }
     return await (command === 'apply' ? runner.apply() : command === 'validate' ? runner.validate() : runner.status());
   } finally {
     await adapter?.close?.();
