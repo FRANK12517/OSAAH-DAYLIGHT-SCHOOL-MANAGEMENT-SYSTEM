@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { gradeForTotal } from './grading.js';
-import { canonicalAcademicClass, defaultSubjectForClass, defaultSubjectsForClass, DEFAULT_SUBJECT_CONFIGURATION_VERSION } from './default-subject-catalog.js';
+import { canonicalAcademicClass, defaultSubjectForClass, defaultSubjectsForClass, DEFAULT_SUBJECT_CONFIGURATION_VERSION, DEFAULT_SUBJECT_ASSIGNMENT_SLOTS, DEFAULT_DISTINCT_SUBJECT_NAMES } from './default-subject-catalog.js';
 import { calculateStudentResult, calculateClassPositions } from './result-calculation.js';
 
 const rows = (value) => Array.isArray(value) ? value : [];
@@ -83,64 +83,94 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     };
   }
 
-  async function configureDefaultSubjects(actor) {
+  async function configureDefaultSubjects(actor, { academicYearId: requestedYearId = null } = {}) {
     assertActor(actor, 'subjects.manage');
-    const classes = rows(await database.query('SELECT c.id,c.name FROM classes c WHERE c.school_id=? ORDER BY c.id', [schoolId]));
-    let classesConfigured = 0, subjectsCreated = 0, assignmentsCreated = 0, mandatoryAssignmentsRestored = 0;
-    for (const classRow of classes) {
-      const classId = canonicalAcademicClass(classRow.name);
-      if (!classId) continue;
-      const defaults = defaultSubjectsForClass(classId);
-      if (!defaults.length) continue;
-      classesConfigured += 1;
-      for (const definition of defaults) {
-        let subject = rows(await database.query('SELECT id,code,name,subject_type AS subjectType,is_scoring AS isScoring,is_active AS isActive FROM subjects WHERE school_id=? AND LOWER(name)=LOWER(?) LIMIT 1', [schoolId, definition.name]))[0];
-        if (!subject) {
-          const codeStem = `CFG_${definition.name.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_|_$/g, '')}`.slice(0, 28);
-          let code = codeStem, suffix = 1;
-          while (rows(await database.query('SELECT id FROM subjects WHERE school_id=? AND code=? LIMIT 1', [schoolId, code])).length) {
-            suffix += 1;
-            code = `${codeStem.slice(0, 27 - String(suffix).length)}_${suffix}`;
-          }
-          const subjectId = stableId('default-subject', schoolId, definition.name.toLowerCase());
-          await database.execute('INSERT INTO subjects (id,school_id,department_id,code,name,subject_type,is_scoring,assessment_components_json,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE id=id', [subjectId, schoolId, null, code, definition.name, definition.subjectType, definition.isScoring ? 1 : 0, JSON.stringify(definition.assessmentComponents), clock(), clock()]);
-          subject = rows(await database.query('SELECT id,code,name,subject_type AS subjectType,is_scoring AS isScoring,is_active AS isActive FROM subjects WHERE school_id=? AND LOWER(name)=LOWER(?) LIMIT 1', [schoolId, definition.name]))[0];
-          if (!subject) fail(`Unable to create the configured subject ${definition.name}.`, 409, 'SUBJECT_CONFIGURATION_CONFLICT');
-          subjectsCreated += 1;
-        }
-        if (definition.assessmentComponents?.length) {
-          let storedComponents = subject.assessmentComponentsJson ?? [];
-          if (typeof storedComponents === 'string') { try { storedComponents = JSON.parse(storedComponents); } catch { storedComponents = []; } }
-          if (!Array.isArray(storedComponents) || JSON.stringify(storedComponents) !== JSON.stringify(definition.assessmentComponents)) {
-            const componentJson = JSON.stringify(definition.assessmentComponents);
-            await database.execute('UPDATE subjects SET assessment_components_json=?,updated_at=? WHERE id=? AND school_id=?', [componentJson, clock(), subject.id, schoolId]);
-            subject.assessmentComponentsJson = componentJson;
-          }
-        }
-        if (definition.mandatory && Number(subject.isActive ?? 1) === 0) await database.execute('UPDATE subjects SET is_active=1,updated_at=? WHERE id=? AND school_id=?', [clock(), subject.id, schoolId]);
-        if (definition.activeByDefault === false) continue;
-        const existing = rows(await database.query('SELECT id,active FROM subject_class_assignments WHERE school_id=? AND subject_id=? AND class_id=? AND academic_year_id IS NULL LIMIT 1', [schoolId, subject.id, classRow.id]))[0];
-        if (existing) {
-          const shouldRestore = definition.mandatory && Number(existing.active) === 0;
-          // Approved Nursery rows are preserved exactly; only restore an
-          // inactive mandatory core row. Other levels receive the current
-          // configuration version without changing their active state.
-          if (shouldRestore || !classId.startsWith('Nursery')) {
-            await database.execute('UPDATE subject_class_assignments SET active=?,configuration_version=?,updated_at=? WHERE id=? AND school_id=?', [shouldRestore ? 1 : existing.active, String(DEFAULT_SUBJECT_CONFIGURATION_VERSION), clock(), existing.id, schoolId]);
-            if (shouldRestore) mandatoryAssignmentsRestored += 1;
-          }
-          continue;
-        }
-        await database.execute('INSERT INTO subject_class_assignments (id,school_id,subject_id,class_id,academic_year_id,active,configuration_version,created_at,updated_at) VALUES (?,?,?,?,NULL,1,?,?,?) ON DUPLICATE KEY UPDATE id=id', [stableId('default-assignment', schoolId, classRow.id, subject.id), schoolId, subject.id, classRow.id, String(DEFAULT_SUBJECT_CONFIGURATION_VERSION), clock(), clock()]);
-        assignmentsCreated += 1;
+    const sync = async (tx) => {
+      let academicYearId = text(requestedYearId) || null;
+      if (academicYearId) {
+        const year = rows(await tx.query('SELECT id FROM academic_years WHERE school_id=? AND (id=? OR name=?) LIMIT 1', [schoolId, academicYearId, academicYearId]))[0];
+        if (!year) fail('Academic year not found.', 404, 'ACADEMIC_YEAR_NOT_FOUND');
+        academicYearId = text(year.id);
       }
+      const classes = rows(await tx.query('SELECT c.id,c.name FROM classes c WHERE c.school_id=? ORDER BY c.id', [schoolId]));
+      const duplicateSubjects = rows(await tx.query('SELECT LOWER(name) AS normalizedName,COUNT(*) AS recordCount FROM subjects WHERE school_id=? GROUP BY LOWER(name) HAVING COUNT(*)>1', [schoolId]));
+      if (duplicateSubjects.length) fail('Duplicate subject names require manual reconciliation before synchronization.', 409, 'DUPLICATE_SUBJECTS', { duplicateSubjects });
+      let classesConfigured = 0, subjectsCreated = 0, assignmentsCreated = 0, mandatoryAssignmentsRestored = 0;
+      const nurseryNames = new Set(classes.flatMap((item) => canonicalAcademicClass(item.name)?.startsWith('Nursery') ? defaultSubjectsForClass(item.name).map((item) => item.name.toLocaleLowerCase('en')) : []));
+      for (const classRow of classes) {
+        const classId = canonicalAcademicClass(classRow.name);
+        if (!classId) continue;
+        const defaults = defaultSubjectsForClass(classId);
+        if (!defaults.length) continue;
+        classesConfigured += 1;
+        for (const definition of defaults) {
+          const matches = rows(await tx.query('SELECT id,code,name,subject_type AS subjectType,is_scoring AS isScoring,is_active AS isActive,assessment_components_json AS assessmentComponentsJson FROM subjects WHERE school_id=? AND LOWER(name)=LOWER(?) LIMIT 2', [schoolId, definition.name]));
+          if (matches.length > 1) fail(`Duplicate subject records exist for ${definition.name}.`, 409, 'DUPLICATE_SUBJECTS', { subjectName: definition.name });
+          let subject = matches[0];
+          if (!subject) {
+            const codeStem = `CFG_${definition.name.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_|_$/g, '')}`.slice(0, 28);
+            let code = codeStem, suffix = 1;
+            while (rows(await tx.query('SELECT id FROM subjects WHERE school_id=? AND code=? LIMIT 1', [schoolId, code])).length) {
+              suffix += 1;
+              code = `${codeStem.slice(0, 27 - String(suffix).length)}_${suffix}`;
+            }
+            const subjectId = stableId('default-subject', schoolId, definition.name.toLocaleLowerCase('en'));
+            await tx.execute('INSERT INTO subjects (id,school_id,department_id,code,name,subject_type,is_scoring,assessment_components_json,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE id=id', [subjectId, schoolId, null, code, definition.name, definition.subjectType, definition.isScoring ? 1 : 0, JSON.stringify(definition.assessmentComponents), clock(), clock()]);
+            subject = rows(await tx.query('SELECT id,code,name,subject_type AS subjectType,is_scoring AS isScoring,is_active AS isActive,assessment_components_json AS assessmentComponentsJson FROM subjects WHERE school_id=? AND LOWER(name)=LOWER(?) LIMIT 2', [schoolId, definition.name]))[0];
+            if (!subject) fail(`Unable to create the configured subject ${definition.name}.`, 409, 'SUBJECT_CONFIGURATION_CONFLICT');
+            subjectsCreated += 1;
+          }
+          // Subject metadata is global, while approved classification can vary by class.
+          // The class-specific catalogue overlay remains authoritative; never mutate any
+          // subject used by Nursery as part of the default sync.
+          if (!nurseryNames.has(definition.name.toLocaleLowerCase('en'))) {
+            let storedComponents = subject.assessmentComponentsJson ?? [];
+            if (typeof storedComponents === 'string') { try { storedComponents = JSON.parse(storedComponents); } catch { storedComponents = []; } }
+            const components = definition.assessmentComponents ?? [];
+            if (String(subject.subjectType ?? '').toUpperCase() !== definition.subjectType || Number(subject.isScoring ?? 1) !== (definition.isScoring === false ? 0 : 1) || JSON.stringify(Array.isArray(storedComponents) ? storedComponents : []) !== JSON.stringify(components)) {
+              await tx.execute('UPDATE subjects SET subject_type=?,is_scoring=?,assessment_components_json=?,updated_at=? WHERE id=? AND school_id=?', [definition.subjectType, definition.isScoring === false ? 0 : 1, JSON.stringify(components), clock(), subject.id, schoolId]);
+            }
+          }
+          if (definition.mandatory && Number(subject.isActive ?? 1) === 0 && !academicYearId && !classId.startsWith('Nursery')) await tx.execute('UPDATE subjects SET is_active=1,updated_at=? WHERE id=? AND school_id=?', [clock(), subject.id, schoolId]);
+          if (definition.activeByDefault === false) continue;
+
+          const scopes = academicYearId
+            ? rows(await tx.query('SELECT id,active,academic_year_id AS academicYearId FROM subject_class_assignments WHERE school_id=? AND subject_id=? AND class_id=? AND (academic_year_id IS NULL OR academic_year_id=?) ORDER BY academic_year_id', [schoolId, subject.id, classRow.id, academicYearId]))
+            : rows(await tx.query('SELECT id,active,academic_year_id AS academicYearId FROM subject_class_assignments WHERE school_id=? AND subject_id=? AND class_id=? AND academic_year_id IS NULL LIMIT 2', [schoolId, subject.id, classRow.id]));
+          const scopedDuplicates = scopes.filter((item) => (item.academicYearId ?? null) === academicYearId);
+          if (scopedDuplicates.length > 1) fail('Duplicate class-subject assignments require manual reconciliation.', 409, 'DUPLICATE_SUBJECT_ASSIGNMENTS', { classId: classRow.id, subjectId: subject.id, academicYearId });
+          const yearAssignment = academicYearId ? scopes.find((item) => text(item.academicYearId) === academicYearId) : null;
+          const globalAssignment = academicYearId ? scopes.find((item) => !item.academicYearId) : null;
+          const existing = yearAssignment ?? globalAssignment ?? scopes[0];
+          if (existing && (!academicYearId || yearAssignment || Number(existing.active ?? 1) === 1 || !definition.mandatory)) {
+            const shouldRestore = definition.mandatory && Number(existing.active) === 0 && (!academicYearId || Boolean(yearAssignment));
+            // Preserve Nursery configuration byte-for-byte except the already-approved
+            // repair of an inactive mandatory assignment.
+            if (shouldRestore || (!classId.startsWith('Nursery') && Boolean(yearAssignment || !academicYearId))) {
+              await tx.execute('UPDATE subject_class_assignments SET active=?,configuration_version=?,updated_at=? WHERE id=? AND school_id=?', [shouldRestore ? 1 : existing.active, String(DEFAULT_SUBJECT_CONFIGURATION_VERSION), clock(), existing.id, schoolId]);
+              if (shouldRestore) mandatoryAssignmentsRestored += 1;
+            }
+            continue;
+          }
+          const targetYear = academicYearId;
+          const insert = await tx.execute('INSERT INTO subject_class_assignments (id,school_id,subject_id,class_id,academic_year_id,active,configuration_version,created_at,updated_at) VALUES (?,?,?,?,?,1,?,?,?) ON DUPLICATE KEY UPDATE id=id', [stableId('default-assignment', schoolId, classRow.id, subject.id, targetYear ?? 'default'), schoolId, subject.id, classRow.id, targetYear, String(DEFAULT_SUBJECT_CONFIGURATION_VERSION), clock(), clock()]);
+          if (Number(insert?.affectedRows ?? 1) > 0) assignmentsCreated += 1;
+        }
+      }
+      return { schoolId, academicYearId, configurationVersion: DEFAULT_SUBJECT_CONFIGURATION_VERSION, classesConfigured, subjectsCreated, assignmentsCreated, mandatoryAssignmentsRestored, expectedBaseline: { assignmentSlots: DEFAULT_SUBJECT_ASSIGNMENT_SLOTS, distinctSubjectNames: DEFAULT_DISTINCT_SUBJECT_NAMES }, nurseryPreserved: true };
+    };
+    try { return typeof database.transaction === 'function' ? await database.transaction(sync) : await sync(database); }
+    catch (error) {
+      if (schemaCompatibilityError(error)) fail('Subject configuration requires the approved subject database migrations.', 503, 'SUBJECT_CONFIGURATION_SCHEMA_UNAVAILABLE');
+      throw error;
     }
-    return { schoolId, configurationVersion: DEFAULT_SUBJECT_CONFIGURATION_VERSION, classesConfigured, subjectsCreated, assignmentsCreated, mandatoryAssignmentsRestored, nurseryPreserved: true };
   }
 
   async function subjectCatalog(actor, { includeInactive = false } = {}) {
     assertActor(actor);
-    const subjectRows = rows(await database.query('SELECT id,code,name,department_id AS departmentId,subject_type AS subjectType,is_scoring AS isScoring,is_active AS isActive,assessment_components_json AS assessmentComponentsJson FROM subjects WHERE school_id=? ORDER BY name,id', [schoolId]));
+    let subjectRows;
+    try { subjectRows = rows(await database.query('SELECT id,code,name,department_id AS departmentId,subject_type AS subjectType,is_scoring AS isScoring,is_active AS isActive,assessment_components_json AS assessmentComponentsJson FROM subjects WHERE school_id=? ORDER BY name,id', [schoolId])); }
+    catch (error) { if (schemaCompatibilityError(error)) fail('Durable subject configuration is unavailable until the required subject database migrations are applied.', 503, 'SUBJECT_CONFIGURATION_SCHEMA_UNAVAILABLE'); throw error; }
     let assignmentRows = [];
     try {
       assignmentRows = rows(await database.query('SELECT a.subject_id AS subjectId,a.class_id AS classId,a.active,c.name AS className FROM subject_class_assignments a JOIN classes c ON c.id=a.class_id AND c.school_id=a.school_id WHERE a.school_id=? ORDER BY c.id', [schoolId]));
@@ -220,31 +250,43 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     const classId = text(filters.classId);
     if (classId) assertClassScope(classId, actor);
     if (!classId) return subjectCatalog(actor, { includeInactive: filters.includeInactive === true || String(filters.includeInactive).toLowerCase() === 'true' });
-    const academicYearId = text(filters.academicYearId || filters.academicYear);
+    let academicYearId = text(filters.academicYearId || filters.academicYear);
+    if (academicYearId) {
+      const year = rows(await database.query('SELECT id FROM academic_years WHERE school_id=? AND (id=? OR name=?) LIMIT 1', [schoolId, academicYearId, academicYearId]))[0];
+      if (!year) fail('Academic year not found.', 404, 'ACADEMIC_YEAR_NOT_FOUND');
+      academicYearId = text(year.id);
+    }
+    const includeInactive = filters.includeInactive === true || String(filters.includeInactive).toLowerCase() === 'true';
     const params = [schoolId, classId];
     let yearClause = '';
     if (academicYearId) { yearClause = ' AND (a.academic_year_id IS NULL OR a.academic_year_id=?)'; params.push(academicYearId); }
     try {
-      const assignments = rows(await database.query(`SELECT s.id,s.code,s.name,s.department_id AS departmentId,s.subject_type AS subjectType,s.is_scoring AS isScoring,a.class_id AS classId,c.name AS className,a.academic_year_id AS academicYearId,a.active AS assignmentActive,a.configuration_version AS configurationVersion
+      const assignments = rows(await database.query(`SELECT s.id,s.code,s.name,s.department_id AS departmentId,s.subject_type AS subjectType,s.is_scoring AS isScoring,s.is_active AS subjectActive,a.class_id AS classId,c.name AS className,a.academic_year_id AS academicYearId,a.active AS assignmentActive,a.configuration_version AS configurationVersion
         FROM subject_class_assignments a JOIN subjects s ON s.id=a.subject_id AND s.school_id=a.school_id
         JOIN classes c ON c.id=a.class_id AND c.school_id=a.school_id
-        WHERE a.school_id=? AND a.class_id=? AND s.is_active=1${yearClause} ORDER BY s.name,s.id`, params));
+        WHERE a.school_id=? AND a.class_id=?${yearClause} ORDER BY s.name,s.id`, params));
       if (assignments.length) {
         const bySubject = new Map();
         for (const item of assignments) {
           const key = text(item.id);
           const isYearOverride = Boolean(academicYearId && item.academicYearId && text(item.academicYearId) === academicYearId);
           const previous = bySubject.get(key);
+          if (academicYearId && previous && previous.isYearOverride === isYearOverride) fail('Duplicate class-subject assignments require manual reconciliation.', 409, 'DUPLICATE_SUBJECT_ASSIGNMENTS', { classId, subjectId: key, academicYearId });
           if (!previous || (isYearOverride && !previous.isYearOverride)) bySubject.set(key, { item, isYearOverride });
         }
-        return [...bySubject.values()].filter(({ item }) => Number(item.assignmentActive ?? 1) === 1).map(({ item }) => {
+        return [...bySubject.values()].filter(({ item }) => includeInactive || Number(item.assignmentActive ?? 1) === 1).map(({ item }) => {
           const { assignmentActive, ...subject } = item;
-          return decorateSubject(subject, classId);
+          return { ...decorateSubject(subject, classId), active: Number(assignmentActive ?? 1) === 1, subjectActive: Number(subject.subjectActive ?? 1) === 1 };
         });
       }
+      // A mapping that exists only for another academic year must not leak into
+      // this year's view through the legacy class_subjects compatibility path.
+      const anyNormalizedMapping = rows(await database.query('SELECT id FROM subject_class_assignments WHERE school_id=? AND class_id=? LIMIT 1', [schoolId, classId]));
+      if (anyNormalizedMapping.length) return [];
       return legacySubjects();
     } catch (error) {
       if (!schemaCompatibilityError(error)) throw error;
+      if (filters.requireNormalized === true) fail('Year-scoped subject configuration requires the approved subject database migrations.', 503, 'SUBJECT_CONFIGURATION_SCHEMA_UNAVAILABLE');
       // Some production databases retain the original class_subjects mapping.
       // It is authoritative and already references canonical subject/class
       // records; do not create a second mapping table or duplicate assignments.
@@ -252,20 +294,47 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     }
     async function legacySubjects() {
       try {
-        const result = await database.query(`SELECT s.id,s.code,s.name,s.department_id AS departmentId,s.subject_type AS subjectType,s.is_scoring AS isScoring,cs.class_id AS classId,c.name AS className
+        const result = await database.query(`SELECT s.id,s.code,s.name,s.department_id AS departmentId,s.subject_type AS subjectType,s.is_scoring AS isScoring,s.is_active AS subjectActive,cs.class_id AS classId,c.name AS className
           FROM class_subjects cs JOIN subjects s ON s.id=cs.subject_id AND s.school_id=?
           JOIN classes c ON c.id=cs.class_id AND c.school_id=?
           WHERE cs.class_id=? ORDER BY s.name,s.id`, [schoolId, schoolId, classId]);
-        return rows(result).map((subject) => decorateSubject(subject, classId));
+        return rows(result).map((subject) => ({ ...decorateSubject(subject, classId), active: Number(subject.subjectActive ?? 1) === 1, subjectActive: Number(subject.subjectActive ?? 1) === 1 }));
       } catch (error) {
         if (!schemaCompatibilityError(error)) throw error;
-        const result = await database.query(`SELECT s.id,s.code,s.name,s.department_id AS departmentId,cs.class_id AS classId,c.name AS className
+        const result = await database.query(`SELECT s.id,s.code,s.name,s.department_id AS departmentId,s.is_active AS subjectActive,cs.class_id AS classId,c.name AS className
           FROM class_subjects cs JOIN subjects s ON s.id=cs.subject_id AND s.school_id=?
           JOIN classes c ON c.id=cs.class_id AND c.school_id=?
           WHERE cs.class_id=? ORDER BY s.name,s.id`, [schoolId, schoolId, classId]);
-        return rows(result).map((subject) => decorateSubject(subject, classId));
+        return rows(result).map((subject) => ({ ...decorateSubject(subject, classId), active: Number(subject.subjectActive ?? 1) === 1, subjectActive: Number(subject.subjectActive ?? 1) === 1 }));
       }
     }
+  }
+
+  async function subjectConfiguration(actor, filters = {}) {
+    assertActor(actor);
+    const classId = text(filters.classId);
+    const requestedYear = text(filters.academicYearId || filters.academicYear);
+    if (!classId || !requestedYear) fail('Academic year and class are required.', 400, 'SUBJECT_CONFIGURATION_SCOPE_REQUIRED');
+    assertClassScope(classId, actor);
+    const [classRow, yearRows] = await Promise.all([
+      classFor(classId),
+      database.query('SELECT id,name FROM academic_years WHERE school_id=? AND (id=? OR name=?) LIMIT 1', [schoolId, requestedYear, requestedYear])
+    ]);
+    const academicYear = rows(yearRows)[0];
+    if (!academicYear) fail('Academic year not found.', 404, 'ACADEMIC_YEAR_NOT_FOUND');
+    const [configuredSubjects, catalogue] = await Promise.all([
+      listSubjects({ classId, academicYearId: academicYear.id, includeInactive: true, requireNormalized: true }, actor),
+      subjectCatalog(actor, { includeInactive: true })
+    ]);
+    const configuredById = new Map(configuredSubjects.map((subject) => [text(subject.id), subject]));
+    const approvedNames = new Set(defaultSubjectsForClass(classRow.name).map((definition) => definition.name.toLocaleLowerCase('en')));
+    const subjects = catalogue.filter((subject) => configuredById.has(text(subject.id)) || approvedNames.has(text(subject.name).toLocaleLowerCase('en'))).map((subject) => {
+      const configured = configuredById.get(text(subject.id));
+      if (configured) return { ...configured, assigned: true };
+      const decorated = decorateSubject({ ...subject, classId, className: classRow.name }, classId);
+      return { ...decorated, active: false, subjectActive: subject.active !== false, assigned: false };
+    }).sort((left, right) => text(left.name).localeCompare(text(right.name)));
+    return { schoolId, academicYearId: text(academicYear.id), academicYear: academicYear.name, classId, className: classRow.name, subjects };
   }
 
   async function subjectAssigned(input, actor) {
@@ -315,7 +384,6 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     }
     const subject = rows(await database.query('SELECT id,name FROM subjects WHERE id=? AND school_id=? LIMIT 1', [subjectId, schoolId]))[0];
     if (!subject) fail('Subject not found.', 404);
-    await database.execute('UPDATE subjects SET is_active=1,updated_at=? WHERE id=? AND school_id=?', [clock(), subjectId, schoolId]);
     const existing = rows(await database.query('SELECT id,active FROM subject_class_assignments WHERE school_id=? AND subject_id=? AND class_id=? AND ((academic_year_id IS NULL AND ? IS NULL) OR academic_year_id=?) LIMIT 1', [schoolId, subjectId, classId, academicYearId, academicYearId]))[0];
     if (existing) {
       await database.execute('UPDATE subject_class_assignments SET active=1,configuration_version=?,updated_at=? WHERE id=? AND school_id=?', [String(DEFAULT_SUBJECT_CONFIGURATION_VERSION), clock(), existing.id, schoolId]);
@@ -562,7 +630,7 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     }));
   }
 
-  return Object.freeze({ options, listSubjects, subjectCatalog, createSubject, updateSubject, deactivateSubject, subjectCascade, configureDefaultSubjects, listAssignments, assignSubject, deactivateSubjectAssignment, roster, resultStudents, saveScore, mockRoster, saveMockScore, listScores, resolvePeriod, result: canonicalResult, saveResult, publishResults: publishResult, publicationFor, savedResultFor: async (input, actor) => canonicalResult(input, actor), broadsheet });
+  return Object.freeze({ options, listSubjects, subjectCatalog, subjectConfiguration, createSubject, updateSubject, deactivateSubject, subjectCascade, configureDefaultSubjects, listAssignments, assignSubject, deactivateSubjectAssignment, roster, resultStudents, saveScore, mockRoster, saveMockScore, listScores, resolvePeriod, result: canonicalResult, saveResult, publishResults: publishResult, publicationFor, savedResultFor: async (input, actor) => canonicalResult(input, actor), broadsheet });
 }
 
 export default createDurableAcademicService;

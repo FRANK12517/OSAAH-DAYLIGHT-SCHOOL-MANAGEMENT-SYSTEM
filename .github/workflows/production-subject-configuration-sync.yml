@@ -1,0 +1,90 @@
+name: Production subject configuration synchronization
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Exact reviewed 40-character release SHA already contained in protected main
+        required: true
+        type: string
+      school_id:
+        description: Exact school ID to inspect; the workflow independently verifies the Osaah Daylight school record
+        required: true
+        type: string
+      academic_year_id:
+        description: Exact academic-year ID (or exact school year name) to inspect
+        required: true
+        type: string
+      execution_token:
+        description: DRY_RUN_ONLY is read-only; APPLY requires all separate approvals
+        required: true
+        default: DRY_RUN_ONLY
+        type: string
+      backup_confirmation:
+        description: For APPLY only, enter BACKUP_CONFIRMED after verifying a recoverable production backup
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-subject-configuration-sync
+  cancel-in-progress: false
+
+jobs:
+  synchronize:
+    name: Preview or synchronize approved school subjects
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 30
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      EXECUTION_TOKEN: ${{ inputs.execution_token }}
+      BACKUP_CONFIRMATION: ${{ inputs.backup_confirmation }}
+      RELEASE_SHA: ${{ inputs.release_ref }}
+      SCHOOL_ID: ${{ inputs.school_id }}
+      ACADEMIC_YEAR_ID: ${{ inputs.academic_year_id }}
+    steps:
+      - name: Validate exact release, scope and execution token
+        shell: bash
+        env:
+          RELEASE_REF: ${{ inputs.release_ref }}
+        run: |
+          [[ "$RELEASE_REF" =~ ^[0-9a-f]{40}$ ]] || { echo 'release_ref must be a full lowercase 40-character SHA.'; exit 1; }
+          test -n "$SCHOOL_ID" || { echo 'school_id is required.'; exit 1; }
+          test -n "$ACADEMIC_YEAR_ID" || { echo 'academic_year_id is required.'; exit 1; }
+          test "$EXECUTION_TOKEN" = 'DRY_RUN_ONLY' || test "$EXECUTION_TOKEN" = 'APPLY_SUBJECT_CONFIGURATION' || { echo 'Invalid subject synchronization token.'; exit 1; }
+          if [ "$EXECUTION_TOKEN" = 'APPLY_SUBJECT_CONFIGURATION' ]; then
+            test "$BACKUP_CONFIRMATION" = 'BACKUP_CONFIRMED' || { echo 'A recent recoverable backup confirmation is required for APPLY.'; exit 1; }
+          fi
+      - name: Check out the exact reviewed release SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_ref }}
+          fetch-depth: 0
+      - name: Verify exact release SHA is contained in protected main
+        shell: bash
+        env:
+          RELEASE_REF: ${{ inputs.release_ref }}
+        run: |
+          test "$(git rev-parse HEAD^{commit})" = "$RELEASE_REF"
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$RELEASE_REF" origin/main
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Validate subject configuration contracts
+        run: node --test test/default-subject-configuration.test.js test/durable-academic.test.js test/subject-configuration-preview.test.js test/subject-configuration-ui.test.js test/production-subject-configuration-sync.test.js
+      - name: Confirm protected production credential is available
+        run: test -n "${DATABASE_URL:-}" || { echo 'Protected DATABASE_URL is unavailable.'; exit 1; }
+      - name: Run read-only production preview
+        if: ${{ inputs.execution_token == 'DRY_RUN_ONLY' }}
+        run: node scripts/production-subject-configuration-sync.mjs dry-run
+      - name: Apply approved subject synchronization
+        if: ${{ inputs.execution_token == 'APPLY_SUBJECT_CONFIGURATION' }}
+        run: node scripts/production-subject-configuration-sync.mjs apply
