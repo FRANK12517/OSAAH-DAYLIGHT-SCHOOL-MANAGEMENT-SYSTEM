@@ -1,0 +1,73 @@
+name: Production Migration 066 diagnostic-only preflight
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Exact approved Migration 066 review commit SHA
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-subject-class-assignments-diagnostic
+  cancel-in-progress: false
+
+env:
+  APPROVED_RELEASE_SHA: a2c04c9cb0a7014274b048d042a7303816bf2de3
+  APPROVED_MIGRATION_SHA: 83a199d9f1590e2cf7d02b04ffc406b61784c99e51ee8ea8d3b3687056412c3c
+  MIGRATION_FILE: schema/066_subject_class_assignments_reconciliation.sql
+
+jobs:
+  preflight:
+    name: Read-only Migration 066 production preflight
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 30
+    steps:
+      - name: Validate the only approved release input
+        shell: bash
+        env:
+          RELEASE_REF: ${{ inputs.release_ref }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_REF" =~ ^[0-9a-f]{40}$ ]]
+          test "$RELEASE_REF" = "$APPROVED_RELEASE_SHA"
+
+      - name: Check out the exact approved release
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_ref }}
+          fetch-depth: 0
+
+      - name: Verify exact commit and Migration 066 checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^{commit})" = "$APPROVED_RELEASE_SHA"
+          test -f "$MIGRATION_FILE"
+          test "$(sha256sum "$MIGRATION_FILE" | awk '{print $1}')" = "$APPROVED_MIGRATION_SHA"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Run Migration 066 contract and read-only security tests
+        run: node --test test/subject-class-assignments-reconciliation.test.js
+
+      - name: Confirm protected database secret is available
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: test -n "${DATABASE_URL:-}" || { echo 'Protected DATABASE_URL is unavailable.'; exit 1; }
+
+      - name: Run the only permitted production operation — DRY_RUN_ONLY
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: node scripts/production-subject-class-assignments-reconciliation.mjs dry-run
