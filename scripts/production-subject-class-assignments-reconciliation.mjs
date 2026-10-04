@@ -6,6 +6,10 @@ import { createDatabaseAdapter } from '../src/ai/tidb-database-adapter.js';
 const EXPECTED_DATABASE = 'osaahdaylightschool';
 const VERSION = 66;
 const NAME = '066_subject_class_assignments_reconciliation.sql';
+const PREDECESSOR_VERSION = 64;
+const PREDECESSOR_NAME = '064_academic_result_blocking.sql';
+const DEPENDENT_VERSION = 65;
+const DEPENDENT_NAME = '065_subject_assessment_components.sql';
 const APPLY_TOKEN = 'APPLY_SUBJECT_CLASS_ASSIGNMENTS_066';
 const directory = resolve(fileURLToPath(new URL('../schema/', import.meta.url)));
 const mode = process.argv[2] ?? 'dry-run';
@@ -74,14 +78,16 @@ async function main() {
     const migration = migrations.find((item) => item.version === VERSION && item.name === NAME);
     if (!migration) fail('MIGRATION_066_FILE_MISSING', `Required migration ${NAME} is missing.`);
     const migration063 = migrations.find((item) => item.version === 63);
-    const migration064 = migrations.find((item) => item.version === 64);
-    if (!migration063 || !migration064) fail('MIGRATION_063_064_FILES_MISSING', 'Migration 063 and 064 definitions are required.');
+    const migration064 = migrations.find((item) => item.version === PREDECESSOR_VERSION && item.name === PREDECESSOR_NAME);
+    const migration065 = migrations.find((item) => item.version === DEPENDENT_VERSION && item.name === DEPENDENT_NAME);
+    if (!migration063 || !migration064 || !migration065) fail('MIGRATION_063_064_065_FILES_MISSING', 'Migration 063, 064, and 065 definitions are required.');
     const beforeLedger = await ledger(adapter);
     const applied = new Map(beforeLedger.migrationRows.map((row) => [Number(field(row, 'version')), row]));
     for (const target of [migration063, migration064]) {
       const row = applied.get(target.version);
       if (!row || field(row, 'name') !== target.name || field(row, 'checksum') !== target.checksum) fail(`MIGRATION_${target.version}_CHECKSUM_MISMATCH`, `Migration ${target.version} ledger checksum is not verified.`, { expected: target, actual: row ?? null });
     }
+    if (applied.has(DEPENDENT_VERSION)) fail('MIGRATION_065_ALREADY_APPLIED', 'Migration 065 must remain pending until this prerequisite repair is applied.', { migration: migration065, ledger: applied.get(DEPENDENT_VERSION) });
     const baseline = beforeLedger.baselineRows.at(-1);
     if (!baseline || field(baseline, 'canonicalDatabase') !== EXPECTED_DATABASE) fail('MIGRATION_BASELINE_REQUIRED', 'A matching production migration baseline is required.');
     const schema = await snapshot(adapter);
@@ -92,7 +98,7 @@ async function main() {
     if (schema.present.has('subject_class_assignments')) fail('MIGRATION_066_ALREADY_PRESENT', 'subject_class_assignments already exists; refusing an ambiguous reconciliation.', { beforeCounts });
     if (mode === 'dry-run') return { ok: true, mode, database, migration: { version: VERSION, name: NAME, checksum: migration.checksum }, verifiedPredecessors: [63, 64], baseline, schema: { presentTables: [...schema.present].sort(), classSubjectColumns: schema.columns.filter((row) => field(row, 'tableName') === 'class_subjects'), referencedForeignKeys: schema.foreignKeys.filter((row) => ['classes', 'subjects', 'academic_years', 'schools'].includes(field(row, 'referencedTable'))) }, beforeCounts, backupRecoveryReadiness: { status: 'REQUIRES_OPERATOR_CONFIRMATION_BEFORE_APPLY', productionWrites: 'NONE' }, pending: [{ version: VERSION, name: NAME, checksum: migration.checksum }] };
     const runner = createMigrationRunner({ adapter, directory, baselineRequired: true });
-    const result = await runner.applyVersions({ versions: [VERSION], requiredAppliedVersions: [64], dryRun: false, verifyMigration: async ({ adapter: transaction }) => {
+    const result = await runner.applyVersions({ versions: [VERSION], requiredAppliedVersions: [PREDECESSOR_VERSION], dryRun: false, verifyMigration: async ({ adapter: transaction }) => {
       const check = await transaction.query("SELECT TABLE_NAME AS tableName FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='subject_class_assignments'");
       if (!check.length) fail('MIGRATION_066_SCHEMA_VERIFICATION_FAILED', 'subject_class_assignments was not created.');
     } });

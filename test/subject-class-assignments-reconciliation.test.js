@@ -56,8 +56,29 @@ test('preflight refuses missing prerequisites, invalid legacy relationships, and
   assert.match(runner, /MIGRATION_066_PREREQUISITE_TABLE_MISSING/);
   assert.match(runner, /MIGRATION_066_LEGACY_MAPPING_INVALID/);
   assert.match(runner, /MIGRATION_066_ALREADY_PRESENT/);
-  assert.match(runner, /MIGRATION_063_064_FILES_MISSING/);
+  assert.match(runner, /MIGRATION_065_ALREADY_APPLIED/);
+  assert.match(runner, /MIGRATION_063_064_065_FILES_MISSING/);
   assert.match(runner, /MIGRATION_\$\{target\.version\}_CHECKSUM_MISMATCH/);
+});
+
+test('foundation repair is explicitly runnable after 064 while 065 remains pending', async () => {
+  assert.match(runner, /const PREDECESSOR_VERSION = 64/);
+  assert.match(runner, /const DEPENDENT_VERSION = 65/);
+  assert.match(runner, /requiredAppliedVersions: \[PREDECESSOR_VERSION\]/);
+  assert.match(runner, /Migration 065 must remain pending/);
+  const migrations = await discoverMigrations(new URL('../schema', import.meta.url));
+  const repair = migrations.find((item) => item.version === 66);
+  const assessment = migrations.find((item) => item.version === 65);
+  assert.equal(repair.name, '066_subject_class_assignments_reconciliation.sql');
+  assert.equal(assessment.name, '065_subject_assessment_components.sql');
+  assert.ok(repair.version > assessment.version);
+});
+
+test('066 is reserved for the prerequisite repair and the competing lifecycle 066 is not present on this release branch', async () => {
+  const migrations = await discoverMigrations(new URL('../schema', import.meta.url));
+  assert.equal(migrations.filter((item) => item.version === 66).length, 1);
+  assert.equal(migrations.find((item) => item.version === 66).name, '066_subject_class_assignments_reconciliation.sql');
+  assert.doesNotMatch(migration, /academic_result_records/);
 });
 
 test('preflight is read-only by default and the workflow is protected', () => {
