@@ -40,6 +40,76 @@
           ]
         }
       ]
+    },
+    {
+      "id": "student-attendance-register",
+      "description": "Canonical attendance register with desktop preservation, mobile cards, sample isolation, and versioned persistence.",
+      "route": "/attendance/students",
+      "files": [
+        {
+          "path": "public/attendance.html",
+          "requiredMarkers": [
+            "id=\"attendance-register\"",
+            "id=\"attendance-mobile-cards\"",
+            "id=\"save-attendance\""
+          ]
+        },
+        {
+          "path": "public/attendance-register.js",
+          "requiredMarkers": [
+            "/api/attendance/register",
+            "/api/attendance/students/sync",
+            "attendance-mobile-cards",
+            "version"
+          ]
+        },
+        {
+          "path": "src/server.mjs",
+          "requiredMarkers": [
+            "existingAttendance",
+            "attendanceRepository.listStudentRecords",
+            "const save = (entry)"
+          ]
+        },
+        {
+          "path": "test/part1-mobile-attendance-result-slip.test.js",
+          "requiredMarkers": [
+            "mobile attendance",
+            "existing attendance"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "student-result-slip-cascade",
+      "description": "Automatic academic-year, term, class, and eligible-student result-slip cascade with stale-request protection.",
+      "route": "/results",
+      "files": [
+        {
+          "path": "public/results.html",
+          "requiredMarkers": [
+            "name=\"academicYear\"",
+            "name=\"studentId\"",
+            "name=\"sampleMode\""
+          ]
+        },
+        {
+          "path": "public/result-view.js",
+          "requiredMarkers": [
+            "studentLoadVersion",
+            "/api/academic/result-students",
+            "No eligible students enrolled",
+            "Students:"
+          ]
+        },
+        {
+          "path": "test/part1-mobile-attendance-result-slip.test.js",
+          "requiredMarkers": [
+            "automatic result slip",
+            "stale"
+          ]
+        }
+      ]
     }
   ]
 }
