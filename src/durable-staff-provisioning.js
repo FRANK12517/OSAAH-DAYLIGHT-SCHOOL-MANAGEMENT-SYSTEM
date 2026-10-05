@@ -123,7 +123,7 @@ export function createDurableStaffProvisioning({ database, passwordHash, verifyL
       if (existingEmail?.length) throw failure('An account with this email already exists. Review or reconcile that account before registering staff.', 409, 'DUPLICATE_EMAIL');
       const existingStaff = await tx.query('SELECT id, user_id AS userId FROM staff WHERE school_id=? AND staff_number=? LIMIT 1', [schoolId, staffId]);
       if (existingStaff?.length) throw failure('Staff ID already exists. Review the existing staff record before registering another account.', 409, 'DUPLICATE_STAFF_ID');
-      const existingProfile = await tx.query('SELECT id FROM staff_profiles WHERE staff_id=? OR employee_id=? LIMIT 1', [staffId, staffId]);
+      const existingProfile = await tx.query('SELECT id FROM staff_profiles WHERE school_id=? AND staff_number=? LIMIT 1', [schoolId, staffId]);
       if (existingProfile?.length) throw failure('Staff ID already exists in the staff directory. Review the existing staff record before registering another account.', 409, 'DUPLICATE_STAFF_PROFILE');
 
       const role = await findRole(tx, roleKey, schoolId);
@@ -132,7 +132,7 @@ export function createDurableStaffProvisioning({ database, passwordHash, verifyL
 
       await tx.execute('INSERT INTO users (id, school_id, username, email, password_hash, full_name, phone, role, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [id, schoolId, username, email, hash, fullName, String(input?.phone ?? '').trim() || null, roleKey, 'ACTIVE', timestamp, timestamp]);
       await tx.execute('INSERT INTO staff (id, school_id, user_id, staff_number, first_name, last_name, department_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)', [id, schoolId, id, staffId, firstName, lastName, timestamp, timestamp]);
-      await tx.execute('INSERT INTO staff_profiles (id, school_id, staff_id, employee_id, full_name, phone, role_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', [id, schoolId, staffId, staffId, fullName, String(input?.phone ?? '').trim() || null, roleKey, timestamp, timestamp]);
+      await tx.execute('INSERT INTO staff_profiles (id, school_id, user_id, staff_number, department, position, date_hired, qualification, created_at) VALUES (?, ?, ?, ?, NULL, ?, NULL, NULL, ?)', [randomUUID(), schoolId, id, staffId, roleKey, timestamp]);
       await tx.execute('INSERT INTO user_roles (user_id, role_id, created_at) VALUES (?, ?, ?)', [id, role.id, timestamp]);
       if (assignment.classId || assignment.subjectId) {
         await tx.execute('INSERT INTO staff_assignments (id, staff_id, subject_id, class_id, stream_id, department_id, timetable_id, academic_year_id, term_id, created_at) VALUES (?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, ?)', [randomUUID(), id, assignment.subjectId, assignment.classId, timestamp]);
@@ -141,7 +141,7 @@ export function createDurableStaffProvisioning({ database, passwordHash, verifyL
       const verified = await tx.query(`SELECT u.id
         FROM users u
         JOIN staff s ON s.user_id=u.id AND s.school_id=u.school_id
-        JOIN staff_profiles sp ON sp.id=s.id AND sp.school_id=s.school_id
+        JOIN staff_profiles sp ON sp.user_id=s.user_id AND sp.school_id=s.school_id
         JOIN user_roles ur ON ur.user_id=u.id
         JOIN roles r ON r.id=ur.role_id AND r.role_key=?
         WHERE u.id=? AND u.school_id=? AND u.status='ACTIVE'
@@ -161,14 +161,14 @@ export function createDurableStaffProvisioning({ database, passwordHash, verifyL
     const params = userId ? [userId, schoolId] : [schoolId];
     return database.query(`SELECT s.id AS id, s.staff_number AS staffId, s.first_name AS firstName, s.last_name AS lastName,
         u.username AS username, u.email AS email, u.status AS accountStatus, u.created_at AS createdAt,
-        sp.full_name AS fullName, sp.phone AS phone, r.role_key AS roleKey,
+        u.full_name AS fullName, u.phone AS phone, r.role_key AS roleKey,
         sa.class_id AS assignedClassId, sa.subject_id AS assignedSubjectId
       FROM staff s
       JOIN users u ON u.id=s.user_id AND u.school_id=s.school_id
       JOIN user_roles ur ON ur.user_id=u.id
       JOIN roles r ON r.id=ur.role_id AND (r.school_id=s.school_id OR r.school_id IS NULL)
-      LEFT JOIN staff_profiles sp ON sp.id=s.id AND sp.school_id=s.school_id
-      LEFT JOIN staff_assignments sa ON sa.staff_id=sp.id
+      LEFT JOIN staff_profiles sp ON sp.user_id=s.user_id AND sp.school_id=s.school_id
+      LEFT JOIN staff_assignments sa ON sa.staff_id=s.id
       WHERE ${conditions} AND r.role_key IN ('TEACHER','HEADTEACHER','ASSISTANT_HEADTEACHER','ACCOUNTANT_BURSAR')
       ORDER BY s.staff_number,s.id`, params);
   }
@@ -205,7 +205,7 @@ export function createDurableStaffProvisioning({ database, passwordHash, verifyL
     await database.transaction(async (tx) => {
       if (nextStaffId !== current.staffId) {
         const duplicates = await tx.query('SELECT id FROM staff WHERE school_id=? AND staff_number=? AND id<>? LIMIT 1', [schoolId, nextStaffId, userId]);
-        const profiles = await tx.query('SELECT id FROM staff_profiles WHERE (staff_id=? OR employee_id=?) AND id<>? LIMIT 1', [nextStaffId, nextStaffId, userId]);
+        const profiles = await tx.query('SELECT id FROM staff_profiles WHERE school_id=? AND staff_number=? AND user_id<>? LIMIT 1', [schoolId, nextStaffId, userId]);
         if (duplicates?.length || profiles?.length) throw failure('Staff ID already exists.', 409, 'DUPLICATE_STAFF_ID');
       }
       if (email !== current.email) {
@@ -213,8 +213,9 @@ export function createDurableStaffProvisioning({ database, passwordHash, verifyL
         if (duplicates?.length) throw failure('An account with this email already exists.', 409, 'DUPLICATE_EMAIL');
         await tx.execute('UPDATE users SET email=? WHERE id=? AND school_id=?', [email, userId, schoolId]);
       }
+      await tx.execute('UPDATE users SET full_name=?, phone=? WHERE id=? AND school_id=?', [nextName, patch.phone === undefined ? current.phone : String(patch.phone ?? '').trim() || null, userId, schoolId]);
       await tx.execute('UPDATE staff SET staff_number=?, first_name=?, last_name=?, updated_at=? WHERE user_id=? AND school_id=?', [nextStaffId, names.firstName, names.lastName, nowIso(), userId, schoolId]);
-      await tx.execute('UPDATE staff_profiles SET staff_id=?, employee_id=?, full_name=?, phone=?, updated_at=? WHERE id=? AND school_id=?', [nextStaffId, nextStaffId, nextName, patch.phone === undefined ? current.phone : String(patch.phone ?? '').trim() || null, nowIso(), userId, schoolId]);
+      await tx.execute('UPDATE staff_profiles SET staff_number=? WHERE user_id=? AND school_id=?', [nextStaffId, userId, schoolId]);
     });
     return get(userId, schoolId);
   }
@@ -224,7 +225,7 @@ export function createDurableStaffProvisioning({ database, passwordHash, verifyL
     if (!roleKey) return null;
     let previousRole = null;
     const exists = await database.transaction(async (tx) => {
-      const staffRows = await tx.query('SELECT s.id FROM staff s JOIN users u ON u.id=s.user_id AND u.school_id=s.school_id JOIN staff_profiles sp ON sp.id=s.id AND sp.school_id=s.school_id WHERE s.user_id=? AND s.school_id=? LIMIT 1', [userId, schoolId]);
+      const staffRows = await tx.query('SELECT s.id FROM staff s JOIN users u ON u.id=s.user_id AND u.school_id=s.school_id WHERE s.user_id=? AND s.school_id=? LIMIT 1', [userId, schoolId]);
       if (!staffRows?.length) return false;
       const role = await findRole(tx, roleKey, schoolId);
       if (!role) throw failure('The requested staff role is not configured for this school.', 409, 'ROLE_NOT_CONFIGURED');
@@ -232,7 +233,6 @@ export function createDurableStaffProvisioning({ database, passwordHash, verifyL
       previousRole = previous?.[0]?.roleKey ?? null;
       await tx.execute('DELETE ur FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.user_id=? AND (r.school_id=? OR r.school_id IS NULL)', [userId, schoolId]);
       await tx.execute('INSERT INTO user_roles (user_id, role_id, created_at) VALUES (?, ?, ?)', [userId, role.id, nowIso()]);
-      await tx.execute('UPDATE staff_profiles SET role_key=?, updated_at=? WHERE id=? AND school_id=?', [roleKey, nowIso(), userId, schoolId]);
       await tx.execute('UPDATE auth_sessions SET revoked_at=? WHERE user_id=? AND school_id=? AND revoked_at IS NULL', [nowIso(), userId, schoolId]);
       return true;
     });
