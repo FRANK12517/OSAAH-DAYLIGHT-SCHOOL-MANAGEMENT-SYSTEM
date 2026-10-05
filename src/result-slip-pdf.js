@@ -41,11 +41,12 @@ export function createResultSlipPdfService() {
       section('RESULT SUMMARY');
       line('Total Score', result.totalMaximum ? `${result.totalScore} / ${result.totalMaximum}` : result.totalScore); line('Aggregate', result.aggregate ?? 'N/A'); line('Class Position', result.classPosition ?? result.position ?? '—'); line('Subjects Sat', result.subjectsSat ?? (result.subjects ?? []).length); line('Average Score', Number(result.average ?? 0).toFixed(2));
       section('GES TEACHER ASSESSMENT');
-      const assessment = result.assessment ?? {}; line('Conduct', assessment.conduct ?? 'Not recorded'); line('Attitude', assessment.attitude ?? 'Not recorded'); line('Interest', assessment.interest ?? 'Not recorded'); line('Class Teacher Remarks', assessment.classTeacherRemarks ?? 'Not recorded'); line('Headteacher Remarks', assessment.headteacherRemarks ?? 'Not recorded');
+      const assessment = result.assessment ?? result.assessments ?? {}; line('Conduct', assessment.conduct ?? 'Not recorded'); line('Attitude', assessment.attitude ?? 'Not recorded'); line('Interest', assessment.interest ?? 'Not recorded'); line('Class Teacher Remarks', assessment.classTeacherRemarks ?? 'Not recorded'); line('Headteacher Remarks', assessment.headteacherRemarks ?? 'Not recorded');
       section('ATTENDANCE');
       const attendance = result.attendance ?? {}; line('Times Present', attendance.timesPresent ?? 'Not recorded'); line('Times Absent', attendance.timesAbsent ?? 'Not recorded'); line('Total School Days', attendance.totalSchoolDays ?? 'Not recorded');
       section('SIGNATURES');
-      for (const signature of result.signatures ?? []) { line(signature.signatoryRole === 'CLASS_TEACHER' ? 'Class Teacher' : 'Headteacher', signature.name ?? 'Name not configured'); if (signature.phone) line('Phone', signature.phone); }
+      const signatures = new Map((result.signatures ?? []).map((signature) => [signature.signatoryRole, signature]));
+      for (const [role, label] of [['CLASS_TEACHER', 'Class Teacher'], ['HEADTEACHER', 'Headteacher']]) { const signature = signatures.get(role); line(`${label} Signature`, signature?.name ?? 'Name not configured'); line(`${label} Phone`, signature?.phone ?? 'Phone not configured'); line(`${label} Signing Status`, signature?.data || signature?.storageKey ? 'Signature on file' : 'Signature not uploaded'); }
       document.fontSize(7).fillColor('#486581').text(result.isSample === true ? 'SAMPLE DATA / DEMONSTRATION - NOT AN OFFICIAL RESULT.' : 'Generated from the authorized Osaah Daylight School Complex result record.', 55, 770, { align: 'center', width: 485 });
       document.end();
     });
