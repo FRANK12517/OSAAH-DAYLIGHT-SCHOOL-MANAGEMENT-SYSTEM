@@ -47,4 +47,9 @@ async function main() {
   } finally { await adapter.close?.(); }
 }
 
-try { process.stdout.write(`${JSON.stringify(await main())}\n`); } catch (error) { process.stderr.write(`${JSON.stringify({ error: error.message })}\n`); process.exitCode = 1; }
+try { process.stdout.write(`${JSON.stringify(await main())}\n`); } catch (error) {
+  const details = error?.details;
+  const diagnostic = details ? Object.fromEntries(['migration', 'version', 'statementIndex', 'operation', 'databaseCode', 'sqlState', 'databaseMessage'].filter((key) => details[key] !== undefined && details[key] !== null).map((key) => [key, details[key]])) : null;
+  process.stderr.write(`${JSON.stringify({ error: error.message, ...(diagnostic ? { diagnostic } : {}) })}\n`);
+  process.exitCode = 1;
+}
