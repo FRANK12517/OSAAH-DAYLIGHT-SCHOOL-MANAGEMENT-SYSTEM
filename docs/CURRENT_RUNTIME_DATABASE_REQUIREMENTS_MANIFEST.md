@@ -1,18 +1,24 @@
 # Current-Runtime Database Requirements Manifest
 
-**Repository baseline:** `8b331c3`  
-**Production target:** `osaahdaylightschool`  
+**Production release inspected:** `5f77ec7d1028915f4e2006d2798d80f93a03631e`
+
+**Production target:** `osaahdaylightschool`
+
 **Scope:** Objects referenced by current runtime database paths, not every historical migration object.
 
 ## Authentication and identity
 
-The current authentication service uses signed, stateless `osaah_session` cookies backed by an in-process session map. The current database login path reads `portal_users`, `users`, `roles`, `user_roles`, `role_permissions`, and `permissions`. It also reads `parent_student_links` and `students` when resolving parent identity. The runtime does **not** require a database-backed `sessions` table.
+The authentication service uses signed `osaah_session` cookies. In production, `OSAAH_SESSION_SECRET` must contain at least 32 characters, the TiDB adapter must be configured with `DATABASE_URL`, and each successful durable login persists a token hash and session metadata in `auth_sessions`; the in-process session map is not the durable system of record. The durable session contract uses `id`, `user_id`, `school_id`, `token_hash`, `created_at`, `expires_at`, `revoked_at`, and `last_used_at`.
+
+The school login query reads `users.id`, `school_id`, `username`, `email`, `password_hash`, and `status`, plus `roles`, `user_roles`, `role_permissions`, and `permissions`. Parent phone lookup also reads `parent_student_links` and `students`.
+
+**Protected production inventory evidence (2026-10-05, workflow run 37257102010):** the connection succeeded to `osaahdaylightschool`; `users` contained `email`, `password_hash`, `status`, and `created_at` but did not contain `username` or `updated_at`. The `auth_sessions` table and the columns/indexes required by the durable session contract were present. Migration 069 is the proposed additive repair for the two missing `users` columns; it is not considered applied until the protected production migration workflow verifies it.
 
 ## Current database-backed objects
 
 | Runtime area | Tables and views actively referenced | Required state |
 |---|---|---|
-| Authentication and RBAC | `portal_users`, `users`, `roles`, `user_roles`, `role_permissions`, `permissions`, `parent_student_links`, `students` | Existing identity and access tables must remain available; no `sessions` table required |
+| Authentication and RBAC | `portal_users`, `users`, `roles`, `user_roles`, `role_permissions`, `permissions`, `auth_sessions`, `parent_student_links`, `students` | Durable login requires the identity/RBAC tables, the contracted `users` columns, and the durable `auth_sessions` schema |
 | Admissions and enrollment | `admission_applications`, `students`, `student_profiles`, `student_enrollments`, `student_id_sequences`, `classes` | Existing admission/student identity tables; current enrollment writes preserve permanent identity |
 | Student attendance | `student_attendance`, `attendance_audit_history` | Existing table retained; academic scope, provenance, timestamps, and audit history required |
 | Staff attendance and leave | `staff_attendance`, `staff_leave`, `staff_attendance_reconciliation_audit` | Existing tables retained; scope, status, provenance, leave linkage, and reconciliation audit required |

@@ -41,10 +41,11 @@ test('Part 2 prepares the canonical staff role identifiers without hard-coding u
   assert.doesNotMatch(sql, /password/i);
 });
 
-test('migration inventory remains uniquely versioned through the academic score foundation', async () => {
+test('migration inventory remains uniquely versioned through the production user auth repair', async () => {
   const migrations = await discoverMigrations(new URL('../schema', import.meta.url));
-  assert.equal(migrations.length, 67);
+  assert.equal(migrations.length, 68);
   assert.equal(new Set(migrations.map((item) => item.version)).size, migrations.length);
-  assert.equal(migrations.at(-2).name, '067_academic_result_lifecycle.sql');
-  assert.equal(migrations.at(-1).name, '068_academic_score_records_foundation.sql');
+  assert.equal(migrations.at(-3).name, '067_academic_result_lifecycle.sql');
+  assert.equal(migrations.at(-2).name, '068_academic_score_records_foundation.sql');
+  assert.equal(migrations.at(-1).name, '069_production_user_login_identifiers.sql');
 });
