@@ -183,12 +183,12 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     }
     let rows = [];
     try {
-      rows = await database.query(`SELECT DISTINCT u.id,u.school_id AS schoolId,u.username,u.email,u.status,psl.telephone AS parentPhone
+      rows = await database.query(`SELECT DISTINCT u.id,u.school_id AS schoolId,COALESCE(u.username,u.email) AS username,u.email,u.status,psl.telephone AS parentPhone
         FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id
         JOIN parent_student_links psl ON psl.parent_user_id=u.id
         WHERE r.role_key='PARENT' AND UPPER(COALESCE(u.status,'ACTIVE'))='ACTIVE' AND COALESCE(psl.link_status,'ACTIVE')='ACTIVE'`, []);
     } catch {
-      try { rows = await database.query(`SELECT DISTINCT u.id,u.school_id AS schoolId,u.username,u.email,u.status,psl.telephone AS parentPhone
+      try { rows = await database.query(`SELECT DISTINCT u.id,u.school_id AS schoolId,COALESCE(u.username,u.email) AS username,u.email,u.status,psl.telephone AS parentPhone
         FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id JOIN parent_student_links psl ON psl.parent_user_id=u.id
         WHERE r.role_key='PARENT' AND UPPER(COALESCE(u.status,'ACTIVE'))='ACTIVE'`, []); } catch { rows = []; }
     }
@@ -204,17 +204,19 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     if (portal !== 'school' || !database?.query) return login({ username, password, portal, role });
     let rows;
     try {
-      rows = await database.query(`SELECT u.id,u.school_id AS schoolId,u.username,u.email,u.password_hash AS passwordHash,u.status,r.role_key AS roleKey,r.oversight_rank AS oversightRank,p.permission_key AS permissionKey
+      rows = await database.query(`SELECT u.id,u.school_id AS schoolId,COALESCE(u.username,u.email) AS username,u.email,u.password_hash AS passwordHash,u.status,r.role_key AS roleKey,r.oversight_rank AS oversightRank,p.permission_key AS permissionKey
         FROM users u
         LEFT JOIN user_roles ur ON ur.user_id=u.id
         LEFT JOIN roles r ON r.id=ur.role_id
         LEFT JOIN role_permissions rp ON rp.role_id=r.id
         LEFT JOIN permissions p ON p.id=rp.permission_id
-        WHERE LOWER(COALESCE(u.username,''))=? OR LOWER(COALESCE(u.email,''))=? ORDER BY COALESCE(r.oversight_rank,0) DESC,r.role_key,p.permission_key`, [key, key]);
+        WHERE LOWER(COALESCE(u.username,u.email,''))=? OR LOWER(COALESCE(u.email,''))=? ORDER BY COALESCE(r.oversight_rank,0) DESC,r.role_key,p.permission_key`, [key, key]);
     } catch (error) {
       const tableMatch = String(error?.message ?? '').match(/Table ['`]([^'`]+)['`] doesn't exist/i);
       const tableName = tableMatch?.[1]?.split('.').pop() || null;
-      console.error('School database authentication query failed', { code: error?.code ?? 'UNKNOWN', errno: error?.errno ?? null, sqlState: error?.sqlState ?? null, table: tableName });
+      const columnMatch = String(error?.message ?? '').match(/Unknown column ['`]([^'`]+)['`]/i);
+      const category = error?.code === 'ER_BAD_FIELD_ERROR' ? 'SCHEMA_COLUMN_MISMATCH' : error?.code === 'ER_NO_SUCH_TABLE' ? 'SCHEMA_TABLE_MISSING' : 'DATABASE_QUERY_FAILED';
+      console.error('School database authentication query failed', { component: 'school_authentication', operation: 'login_lookup', category, code: error?.code ?? 'UNKNOWN', errno: error?.errno ?? null, sqlState: error?.sqlState ?? null, table: tableName, column: columnMatch?.[1] ?? null });
       securityEvent('LOGIN_DATABASE_ERROR', null);
       return { ok: false, status: 503, error: 'Authentication service unavailable.' };
     }
@@ -257,7 +259,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     const local = authenticate(token);
     const session = verifiedSession(token);
     if (!durableSessionStore || typeof token !== 'string' || !token || local && (!session || !durableSessionIds.has(session.sessionId))) return local;
-    const rows = await database.query(`SELECT s.id AS sessionId,s.user_id AS userId,s.school_id AS schoolId,s.expires_at AS expiresAt,u.username,u.email,u.status,r.role_key AS roleKey,r.oversight_rank AS oversightRank,p.permission_key AS permissionKey FROM auth_sessions s JOIN users u ON u.id=s.user_id LEFT JOIN user_roles ur ON ur.user_id=u.id LEFT JOIN roles r ON r.id=ur.role_id LEFT JOIN role_permissions rp ON rp.role_id=r.id LEFT JOIN permissions p ON p.id=rp.permission_id WHERE s.token_hash=? AND s.revoked_at IS NULL AND s.expires_at>? AND u.status='ACTIVE' ORDER BY COALESCE(r.oversight_rank,0) DESC,r.role_key,p.permission_key`, [tokenHash(token), nowIso()]);
+    const rows = await database.query(`SELECT s.id AS sessionId,s.user_id AS userId,s.school_id AS schoolId,s.expires_at AS expiresAt,COALESCE(u.username,u.email) AS username,u.email,u.status,r.role_key AS roleKey,r.oversight_rank AS oversightRank,p.permission_key AS permissionKey FROM auth_sessions s JOIN users u ON u.id=s.user_id LEFT JOIN user_roles ur ON ur.user_id=u.id LEFT JOIN roles r ON r.id=ur.role_id LEFT JOIN role_permissions rp ON rp.role_id=r.id LEFT JOIN permissions p ON p.id=rp.permission_id WHERE s.token_hash=? AND s.revoked_at IS NULL AND s.expires_at>? AND u.status='ACTIVE' ORDER BY COALESCE(r.oversight_rank,0) DESC,r.role_key,p.permission_key`, [tokenHash(token), nowIso()]);
     const row = rows?.[0];
     if (!row) { if (session) revokeLocalSession(token, session); else sessions.delete(token); return null; }
     const userRows = rows.filter((candidate) => candidate.userId === row.userId);
