@@ -78,3 +78,37 @@ test('School Settings reads older school schemas without optional branding colum
   assert.equal(result.profile.name, 'OSAAH DAYLIGHT SCH. COM.');
   assert.equal(result.profile.primaryColour, null);
 });
+
+test('School Settings rehydrates legacy branding fields from the persisted schoolInformation setting after restart', async () => {
+  const school = { id: 'school-osaah-daylight', name: 'OSAAH DAYLIGHT SCH. COM.', motto: 'AIM HIGH', address: 'Bogoso', phone_number: '0200000000', email: null, website: null, updated_at: '2026-01-01' };
+  const storedSettings = new Map();
+  const database = {
+    async query(sql) {
+      if (sql.startsWith('SELECT id,name,motto')) throw new Error("Unknown column 'telephone'");
+      if (sql.startsWith('SELECT * FROM schools')) return [{ ...school }];
+      if (sql.startsWith('SELECT setting_key AS')) return [...storedSettings.entries()].map(([settingKey, value]) => ({ settingKey, settingValue: value.settingValue, valueType: value.valueType, updatedAt: value.updatedAt }));
+      return [];
+    },
+    async execute(sql, params) {
+      if (sql.startsWith('UPDATE schools SET ')) {
+        const assignments = sql.slice('UPDATE schools SET '.length, sql.lastIndexOf(' WHERE id=?')).split(',');
+        assignments.forEach((assignment, index) => { school[assignment.split('=')[0]] = params[index]; });
+      } else if (sql.startsWith('INSERT INTO system_settings')) {
+        storedSettings.set(params[2], { settingValue: params[3], valueType: params[4], updatedAt: params[6] });
+      } else throw new Error(`Unexpected SQL: ${sql}`);
+    }
+  };
+  const actor = { schoolId: 'school-osaah-daylight' };
+  const firstInstance = createSchoolSettingsService({ database });
+  const saved = await firstInstance.update({ name: 'OSAAH DAYLIGHT SCHOOL', telephone: '0241234567', primaryColour: '#102a43', secondaryColour: '#1769aa', accentColour: '#d4a72c' }, actor);
+  assert.equal(school.phone_number, '0241234567');
+  assert.equal(saved.profile.telephone, '0241234567');
+  assert.equal(saved.profile.primaryColour, '#102a43');
+  const secondInstance = createSchoolSettingsService({ database });
+  const reopened = await secondInstance.read(actor);
+  assert.equal(reopened.profile.name, 'OSAAH DAYLIGHT SCHOOL');
+  assert.equal(reopened.profile.telephone, '0241234567');
+  assert.equal(reopened.profile.primaryColour, '#102a43');
+  assert.equal(reopened.profile.secondaryColour, '#1769aa');
+  assert.equal(reopened.profile.accentColour, '#d4a72c');
+});
