@@ -57,14 +57,14 @@ async function main() {
     const runner = createMigrationRunner({ adapter, directory, baselineRequired: true });
     const before = await runner.status();
     if (!before.applied.some((item) => Number(item.version) === 68)) fail('MIGRATION_068_PREDECESSOR_MISSING', 'Required migration 068 is not recorded.');
-    const unexpectedPending = before.pending.filter((item) => Number(item.version) !== VERSION);
-    if (unexpectedPending.length) fail('UNEXPECTED_PENDING_MIGRATIONS', 'Other migrations are pending; refusing to apply an out-of-scope schema change.', { versions: unexpectedPending.map((item) => Number(item.version)) });
+    const pendingMigrationsOutsideScope = before.pending.filter((item) => Number(item.version) !== VERSION).map((item) => Number(item.version));
     const plan = await runner.applyVersions({ versions: [VERSION], requiredAppliedVersions: [68], dryRun: true });
 
     if (mode === 'dry-run') return {
       ok: true, mode, database,
       migration: { version: VERSION, name: NAME, checksum: migration.checksum },
       existingUsersColumns: schemaBefore.columns.map((column) => column.columnName),
+      pendingMigrationsOutsideScope,
       productionWrites: 'NONE', result: plan
     };
 
@@ -86,6 +86,7 @@ async function main() {
       ok: true, mode, database,
       migration: { version: VERSION, name: NAME, checksum: migration.checksum },
       verifiedColumns: schemaAfter.columns.filter((column) => ['username', 'updated_at'].includes(column.columnName)),
+      pendingMigrationsOutsideScope,
       productionWrites: 'MIGRATION_069_ONLY', result
     };
   } finally { await adapter.close?.(); }

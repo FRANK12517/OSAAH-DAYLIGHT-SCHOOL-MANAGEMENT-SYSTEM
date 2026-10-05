@@ -51,14 +51,16 @@ test('migration 069 is additive and backfills only deterministic legacy login/ti
 });
 
 
-test('production migration script is target-bound, version-allowlisted, and refuses unrelated pending migrations', async () => {
+test('production migration script is target-bound, version-allowlisted, and reports unrelated pending migrations without applying them', async () => {
   const script = await readFile(scriptUrl, 'utf8');
   assert.match(script, /EXPECTED_DATABASE = 'osaahdaylightschool'/);
   assert.match(script, /APPLY_PRODUCTION_USER_AUTH_069/);
   assert.match(script, /BACKUP_CONFIRMED/);
   assert.match(script, /versions: \[VERSION\]/);
   assert.match(script, /requiredAppliedVersions: \[68\]/);
-  assert.match(script, /UNEXPECTED_PENDING_MIGRATIONS/);
+  assert.match(script, /pendingMigrationsOutsideScope/);
+  assert.match(script, /runner\.applyVersions\(/);
+  assert.doesNotMatch(script, /runner\.apply\(\)/);
   assert.match(script, /productionWrites: 'MIGRATION_069_ONLY'/);
 });
 
