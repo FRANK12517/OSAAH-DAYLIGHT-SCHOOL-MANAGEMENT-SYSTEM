@@ -36,6 +36,15 @@ test('server PDF generator creates Mock PDFs only for eligible JHS results and m
   assert.match(resultPdfFilename(baseResult({ isSample: true, studentIndexNumber: 'OSAAH-DEMO-001' })), /^OSAAH_SAMPLE_End-of-Term_Result_OSAAH-DEMO-001_/);
 });
 
+test('PDF maps generated sample GES assessments and always renders both signature slots', async () => {
+  const fs = await import('node:fs/promises');
+  const source = await fs.readFile(new URL('../src/result-slip-pdf.js', import.meta.url), 'utf8');
+  assert.match(source, /result\.assessment \?\? result\.assessments \?\? \{\}/);
+  assert.match(source, /\['CLASS_TEACHER', 'Class Teacher'\], \['HEADTEACHER', 'Headteacher'\]/);
+  assert.match(source, /\$\{label\} Signature/);
+  assert.match(source, /Signature not uploaded/);
+});
+
 test('PDF client controls and both result pages use real download endpoints without exposing edit controls', async () => {
   const fs = await import('node:fs/promises');
   const terminal = await fs.readFile(new URL('../public/result-view.js', import.meta.url), 'utf8');

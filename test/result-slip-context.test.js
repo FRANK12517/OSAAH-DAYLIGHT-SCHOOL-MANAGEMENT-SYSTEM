@@ -25,6 +25,7 @@ test('Result Slip keeps the existing double border and uses canonical single-sel
   assert.match(client, /x\.isSample \? '' : `<button class=/);
   assert.match(client, /const saveButton = host\.querySelector\('#save-result'\); if \(saveButton\)/);
   assert.match(client, /\/api\/academic\/sample\/generate/);
+  assert.match(client, /form\.elements\.sampleMode\.checked\) values\.classId = form\.elements\.classId\.selectedOptions\[0\]\?\.textContent\.trim\(\)/);
   assert.match(client, /\/api\/academic\/result\?/);
   assert.match(pdfClient, /result\?\.isSample === true/);
   assert.match(pdfClient, /\/api\/academic\/sample\/result\/pdf/);
