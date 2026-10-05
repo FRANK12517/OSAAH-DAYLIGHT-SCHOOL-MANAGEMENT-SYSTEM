@@ -98,7 +98,7 @@
           "requiredMarkers": [
             "studentLoadVersion",
             "/api/academic/result-students",
-            "No eligible students enrolled",
+            "No students found for the selected class and academic context.",
             "Students:"
           ]
         },
