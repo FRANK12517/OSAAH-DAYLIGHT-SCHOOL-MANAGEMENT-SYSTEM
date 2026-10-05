@@ -197,7 +197,13 @@ export function createApp({ auth = null, students = null, attendance = null, att
   subjectRegister ??= createSubjectRegisterService({ subjects, staff });
   academicResults ??= createAcademicResultsService({ students, subjects, signatures, subjectRegister, schoolId: serviceSchoolId });
   classDatabase ??= createClassDatabaseService({ students, classes: CORE_LEVELS, schoolId: database ? null : serviceSchoolId });
-  const sampleResults = createSampleResultWorkflow({ students, subjects, academicResults });
+  const sampleResults = createSampleResultWorkflow({ students, subjects, academicResults, schoolId: serviceSchoolId });
+  async function normalizedSampleResultInput(input, actor) {
+    const context = durableAcademic ? await durableAcademic.resultContext(input, actor) : { className: input.classId, academicYear: input.academicYear, term: input.term };
+    const classId = canonicalClassId(context.className);
+    if (!classId) throw new Error('The selected class is not configured for sample results.');
+    return { input: { ...input, classId, academicYear: context.academicYear, term: context.term }, className: context.className };
+  }
   transcripts ??= createTranscriptService({ students, academicResults, signatures, schoolProfile: branding });
   communicationEngine ??= createCommunicationEngine({ audit, schoolId: serviceSchoolId });
   shepActivities ??= createShepActivitiesService({ students, staff });
@@ -449,15 +455,21 @@ export function createApp({ auth = null, students = null, attendance = null, att
           const term = String(query.term ?? '').trim();
           if (!classId || !academicYear || !term) return json(response, { students: [] });
           if (user.roleKey === 'TEACHER' && user.assignedClassIds?.length && !user.assignedClassIds.includes(classId)) return json(response, { error: 'Forbidden.' }, 403);
-          let studentsForResult = durableAcademic
-            ? await durableAcademic.resultStudents(query, user)
-            : students.listEligibleStudents({ requestedSchoolId: user.schoolId, academicYearId: academicYear, classId, termId: term, includeTestRecords: false })
-              .filter((student) => student.schoolId === user.schoolId)
-              .map((student) => ({ id: student.id, studentId: student.id, indexNumber: student.permanentStudentId, permanentStudentId: student.permanentStudentId, name: [student.firstName, student.middleName, student.surname].filter(Boolean).join(' '), classId: student.classId, isTestRecord: false }));
-          if (!studentsForResult.length && String(query.sampleMode ?? '').toLowerCase() === 'true') {
+          const sampleMode = String(query.sampleMode ?? '').toLowerCase() === 'true';
+          let studentsForResult;
+          if (sampleMode) {
+            const context = durableAcademic ? await durableAcademic.resultContext(query, user) : { className: classId };
+            if (!canonicalClassId(context.className)) throw new Error('The selected class is not configured for sample results.');
+            students.seedSampleStudents?.();
             studentsForResult = students.listStudents({ requestedSchoolId: user.schoolId, includeTestRecords: true })
-              .filter((student) => student.isTestRecord && (!student.classId || student.classId === classId))
+              .filter((student) => student.isTestRecord && isConfiguredTestStudentId(student.permanentStudentId))
               .map((student) => ({ id: student.id, studentId: student.id, indexNumber: student.permanentStudentId, permanentStudentId: student.permanentStudentId, name: [student.firstName, student.middleName, student.surname].filter(Boolean).join(' '), classId, isTestRecord: true }));
+          } else {
+            studentsForResult = durableAcademic
+              ? await durableAcademic.resultStudents(query, user)
+              : students.listEligibleStudents({ requestedSchoolId: user.schoolId, academicYearId: academicYear, classId, termId: term, includeTestRecords: false })
+                .filter((student) => student.schoolId === user.schoolId)
+                .map((student) => ({ id: student.id, studentId: student.id, indexNumber: student.permanentStudentId, permanentStudentId: student.permanentStudentId, name: [student.firstName, student.middleName, student.surname].filter(Boolean).join(' '), classId: student.classId, isTestRecord: false }));
           }
           return json(response, { students: studentsForResult });
         } catch (error) {
@@ -489,10 +501,10 @@ export function createApp({ auth = null, students = null, attendance = null, att
       if (pathname === '/api/academic/mock-scores' && request.method === 'POST') { if (!canAccess(user, 'mock.scores.write')) return json(response, { error: 'Forbidden.' }, 403); try { const body = await readJson(request); const result = durableAcademic ? await durableAcademic.saveMockScore(body, user) : academicResults.saveMockScore(body, user); audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, roleId: user.roleKey, action: 'MOCK_SCORE_SAVED', entity: 'MockAcademicScore', entityId: result.id })); return json(response, result, 201); } catch (error) { return json(response, { error: error.message }, error.message === 'Forbidden.' ? 403 : 400); } }
       if (pathname === '/api/academic/sample/mock-generate' && request.method === 'POST') { if (!canAccess(user, 'mock.scores.write') && !canAccess(user, 'mock.results.generate')) return json(response, { error: 'Forbidden.' }, 403); try { return json(response, { result: sampleResults.generateMock(await readJson(request), user) }, 201); } catch (error) { return json(response, { error: error.message }, error.message === 'Forbidden.' ? 403 : 400); } }
       if (pathname === '/api/academic/sample/mock-reset' && request.method === 'POST') { if (!canAccess(user, 'mock.scores.write')) return json(response, { error: 'Forbidden.' }, 403); try { return json(response, sampleResults.resetMock(await readJson(request), user)); } catch (error) { return json(response, { error: error.message }, error.message === 'Forbidden.' ? 403 : 400); } }
-      if (pathname === '/api/academic/sample/generate' && request.method === 'POST') { if (!canAccess(user, 'results.generate') && !canAccess(user, 'marks.write')) return json(response, { error: 'Forbidden.' }, 403); try { return json(response, { result: sampleResults.generate(await readJson(request), user) }, 201); } catch (error) { return json(response, { error: error.message }, error.message === 'Forbidden.' ? 403 : 400); } }
-      if (pathname === '/api/academic/sample/publish' && request.method === 'POST') { if (!canAccess(user, 'results.publish')) return json(response, { error: 'Forbidden.' }, 403); try { return json(response, sampleResults.publish(await readJson(request), user)); } catch (error) { return json(response, { error: error.message }, error.message === 'Forbidden.' ? 403 : 400); } }
+      if (pathname === '/api/academic/sample/generate' && request.method === 'POST') { if (!canAccess(user, 'results.generate') && !canAccess(user, 'marks.write')) return json(response, { error: 'Forbidden.' }, 403); try { const { input: sampleInput, className } = await normalizedSampleResultInput(await readJson(request), user); const result = sampleResults.generate(sampleInput, user); return json(response, { result: { ...result, classId: className, academicYear: sampleInput.academicYear, term: sampleInput.term, studentIndexNumber: result.studentIndexNumber ?? result.permanentStudentId } }, 201); } catch (error) { return json(response, { error: error.message }, error.message === 'Forbidden.' ? 403 : 400); } }
+      if (pathname === '/api/academic/sample/publish' && request.method === 'POST') { if (!canAccess(user, 'results.publish')) return json(response, { error: 'Forbidden.' }, 403); try { const { input } = await normalizedSampleResultInput(await readJson(request), user); return json(response, sampleResults.publish(input, user)); } catch (error) { return json(response, { error: error.message }, error.message === 'Forbidden.' ? 403 : 400); } }
       if (pathname === '/api/academic/sample/state' && request.method === 'GET') { if (!canAccess(user, 'results.read') && !canAccess(user, 'results.generate')) return json(response, { error: 'Forbidden.' }, 403); try { return json(response, { sample: sampleResults.state(Object.fromEntries(new URL(request.url, 'http://localhost').searchParams), user) }); } catch (error) { return json(response, { error: error.message }, error.message === 'Forbidden.' ? 403 : 400); } }
-      if (pathname === '/api/academic/sample/reset' && request.method === 'POST') { if (!canAccess(user, 'results.publish')) return json(response, { error: 'Forbidden.' }, 403); try { return json(response, sampleResults.reset(await readJson(request), user)); } catch (error) { return json(response, { error: error.message }, error.message === 'Forbidden.' ? 403 : 400); } }
+      if (pathname === '/api/academic/sample/reset' && request.method === 'POST') { if (!canAccess(user, 'results.publish')) return json(response, { error: 'Forbidden.' }, 403); try { const { input } = await normalizedSampleResultInput(await readJson(request), user); return json(response, sampleResults.reset(input, user)); } catch (error) { return json(response, { error: error.message }, error.message === 'Forbidden.' ? 403 : 400); } }
       async function assertResultReadable(query, actor) {
         const input = { ...query, studentId: query.studentId ?? null };
         if (resultBlocking?.assertReadable) return resultBlocking.assertReadable(input, actor);

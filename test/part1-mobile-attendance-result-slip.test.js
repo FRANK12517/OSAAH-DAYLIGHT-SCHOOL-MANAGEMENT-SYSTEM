@@ -33,7 +33,7 @@ test('automatic result slip loads the default cascade and protects against stale
   assert.match(client, /studentLoadVersion/);
   assert.match(client, /studentLoadController\?\.abort/);
   assert.match(client, /requestVersion !== studentLoadVersion/);
-  assert.match(client, /No eligible students enrolled/);
+  assert.match(client, /No students found for the selected class and academic context\./);
   assert.match(client, /Students:/);
   assert.match(client, /student\.name\).*—/);
 });

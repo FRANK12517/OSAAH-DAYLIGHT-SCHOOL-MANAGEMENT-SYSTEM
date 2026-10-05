@@ -23,6 +23,12 @@ test('lifecycle metadata remains isolated and does not define a score store', ()
   assert.match(lifecycle, /CREATE TABLE IF NOT EXISTS academic_result_records/i);
   assert.match(lifecycle, /UNIQUE KEY uq_academic_result_record_scope/i);
   assert.match(lifecycle, /idx_academic_result_record_context/i);
+  assert.match(lifecycle, /scope_key_hash CHAR\(64\) GENERATED ALWAYS AS/i);
+  assert.match(lifecycle, /LENGTH\(school_id\).*LENGTH\(student_id\).*LENGTH\(class_id\).*LENGTH\(academic_year_id\).*LENGTH\(term_id\).*LENGTH\(examination\)/s);
+  assert.match(lifecycle, /COALESCE\(CONCAT\(LENGTH\(mock_label\)/);
+  assert.match(lifecycle, /UNIQUE KEY uq_academic_result_record_scope \(scope_key_hash\)/i);
+  assert.match(lifecycle, /school_id\(64\), class_id\(64\), academic_year_id\(64\), term_id\(64\)/i);
+  assert.doesNotMatch(lifecycle, /UNIQUE KEY uq_academic_result_record_scope \(school_id,/i);
   for (const table of ['schools', 'students', 'classes', 'academic_years', 'terms', 'users']) assert.match(lifecycle, new RegExp(`REFERENCES ${table}\\(id\\)`, 'i'));
   assert.doesNotMatch(lifecycle, /CREATE TABLE IF NOT EXISTS (?:academic_score_records|canonical_academic_scores)/i);
   assert.match(academic, /academic_result_records/);
@@ -39,6 +45,8 @@ test('Migration 067 requires its dedicated exact-version protected workflow', as
   assert.match(lifecycleWorkflow, /EXECUTION_TOKEN !== APPLY_TOKEN/);
   assert.match(lifecycleWorkflow, /requiredAppliedVersions: \[63, 64, 65, 66, 68\]/);
   assert.match(lifecycleWorkflow, /assertProductionAcademicMigrationAllowed\(migration, \{ authorizedMigrationVersion: VERSION \}\)/);
+  assert.match(lifecycleWorkflow, /'databaseCode', 'sqlState', 'databaseMessage'/);
+  assert.match(lifecycleWorkflow, /diagnostic \? \{ diagnostic \} : \{\}/);
 });
 
 test('Migration 068 also remains blocked from unauthorized production execution', () => {

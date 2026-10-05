@@ -188,3 +188,63 @@ test('inactive normalized assignments do not leak back through legacy class_subj
   const service = createDurableAcademicService({ database, schoolId });
   assert.deepEqual(await service.listSubjects({ classId: 'class-basic-1' }, manager), []);
 });
+
+test('Result Slip roster falls back when production enrollment status columns are absent', async () => {
+  const calls = [];
+  const database = {
+    async query(sql, params = []) {
+      calls.push({ sql, params });
+      if (sql.includes('FROM academic_years')) return [{ id: 'year-2026', name: '2026/2027', isCurrent: 1 }];
+      if (sql.includes('FROM terms')) return [{ id: 'term-1', academicYearId: 'year-2026', name: 'First Term' }];
+      if (sql.includes('FROM classes WHERE school_id')) return [{ id: 'class-basic-1', name: 'Basic 1' }];
+      if (sql.includes('FROM student_enrollments e JOIN students s')) {
+        if (sql.includes('enrollment_status') || sql.includes('is_current')) throw new Error("Unknown column 'e.enrollment_status' in 'where clause'");
+        return [
+          { studentId: 'student-1', permanentStudentId: 'OSAAH-2026-001', firstName: 'Ama', middleName: null, surname: 'Learner', classId: 'class-basic-1' },
+          { studentId: 'student-2', permanentStudentId: 'OSAAH-2026-002', firstName: 'Kojo', middleName: null, surname: 'Learner', classId: 'class-basic-1' }
+        ];
+      }
+      return [];
+    },
+    async execute() { return { affectedRows: 1 }; }
+  };
+  const service = createDurableAcademicService({ database, schoolId });
+  const actor = { ...manager, permissions: new Set(['results.read']) };
+  const roster = await service.resultStudents({ classId: 'class-basic-1', academicYear: '2026/2027', term: 'First Term' }, actor);
+  assert.deepEqual(roster.map((student) => student.id), ['student-1', 'student-2']);
+  const enrollmentQueries = calls.filter(({ sql }) => sql.includes('FROM student_enrollments e JOIN students s'));
+  assert.equal(enrollmentQueries.length, 2);
+  assert.match(enrollmentQueries[0].sql, /enrollment_status/);
+  assert.doesNotMatch(enrollmentQueries[1].sql, /enrollment_status|is_current/);
+  assert.match(enrollmentQueries[1].sql, /SELECT DISTINCT/);
+});
+
+test('Result Slip retrieves durable saved scores after enrollment-flag compatibility fallback', async () => {
+  const calls = [];
+  const database = {
+    async query(sql, params = []) {
+      calls.push({ sql, params });
+      if (sql.includes('FROM academic_years')) return [{ id: 'year-2026', name: '2026/2027', isCurrent: 1 }];
+      if (sql.includes('FROM terms')) return [{ id: 'term-1', academicYearId: 'year-2026', name: 'First Term' }];
+      if (sql.includes('FROM classes WHERE school_id')) return [{ id: 'class-basic-1', name: 'Basic 1' }];
+      if (sql.includes('FROM students s JOIN student_enrollments e')) {
+        if (sql.includes('enrollment_status') || sql.includes('is_current')) throw new Error("Unknown column 'e.is_current' in 'where clause'");
+        return [{ id: 'student-1', permanentStudentId: 'OSAAH-2026-001', firstName: 'Ama', middleName: null, surname: 'Learner', gender: 'FEMALE', classId: 'class-basic-1' }];
+      }
+      if (sql.includes('FROM academic_score_records r')) return [{ subjectId: 'subject-math', subjectName: 'Mathematics', caScore: 44, examScore: 48, totalScore: 92, updatedAt: '2026-10-01T00:00:00.000Z' }];
+      if (sql.includes('FROM academic_result_records')) return [];
+      return [];
+    },
+    async execute() { return { affectedRows: 1 }; }
+  };
+  const service = createDurableAcademicService({ database, schoolId });
+  const actor = { ...manager, permissions: new Set(['results.read']) };
+  const result = await service.result({ studentId: 'student-1', classId: 'class-basic-1', academicYear: '2026/2027', term: 'First Term' }, actor);
+  assert.equal(result.studentIndexNumber, 'OSAAH-2026-001');
+  assert.equal(result.isSample, false);
+  assert.equal(result.subjects.length, 1);
+  assert.equal(result.subjects[0].totalScore, 92);
+  assert.ok(calls.some(({ sql }) => sql.includes('FROM academic_score_records r')));
+  assert.ok(calls.some(({ sql }) => sql.includes('FROM academic_result_records')));
+  assert.equal(calls.filter(({ sql }) => sql.includes('FROM students s JOIN student_enrollments e')).length, 2);
+});
