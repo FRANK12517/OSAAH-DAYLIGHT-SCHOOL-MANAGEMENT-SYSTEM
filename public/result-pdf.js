@@ -1,8 +1,28 @@
 window.downloadResultPdf = async function downloadResultPdf(result, { mock = false, status = null } = {}) {
+  const sample = result?.isSample === true;
   const query = new URLSearchParams({ studentId: result.studentId || '', classId: result.classId || '', academicYear: result.academicYear || '', term: result.term || '' });
-  if (mock) query.set('mockLabel', result.mockLabel || '');
-  const endpoint = mock ? '/api/academic/mock-result/pdf' : '/api/academic/result/pdf';
-  const response = await fetch(`${endpoint}?${query}`, { credentials: 'same-origin', headers: { Accept: 'application/pdf' } });
+  let endpoint;
+  let init = { credentials: 'same-origin', headers: { Accept: 'application/pdf' } };
+  if (sample) {
+    endpoint = '/api/academic/sample/result/pdf';
+    init = {
+      ...init,
+      method: 'POST',
+      headers: { ...init.headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sampleStudentId: result.permanentStudentId || result.studentIndexNumber || '',
+        classId: result.classId || '',
+        academicYear: result.academicYear || '',
+        term: result.term || '',
+        resultType: mock ? 'MOCK' : 'TERMINAL',
+        ...(mock ? { mockLabel: result.mockLabel || '1st Mock' } : {})
+      })
+    };
+  } else {
+    if (mock) query.set('mockLabel', result.mockLabel || '');
+    endpoint = mock ? '/api/academic/mock-result/pdf' : '/api/academic/result/pdf';
+  }
+  const response = await fetch(`${endpoint}${sample ? '' : `?${query}`}`, init);
   if (!response.ok) { const body = await response.json().catch(() => ({})); throw Error(body.error || 'PDF export failed.'); }
   const blob = await response.blob();
   const disposition = response.headers.get('content-disposition') || '';

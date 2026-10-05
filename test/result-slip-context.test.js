@@ -11,6 +11,7 @@ const actor = { id: 'result-teacher', userId: 'result-teacher', roleKey: 'PROPRI
 test('Result Slip keeps the existing double border and uses canonical single-select context controls', () => {
   const html = fs.readFileSync(new URL('../public/results.html', import.meta.url), 'utf8');
   const client = fs.readFileSync(new URL('../public/result-view.js', import.meta.url), 'utf8');
+  const pdfClient = fs.readFileSync(new URL('../public/result-pdf.js', import.meta.url), 'utf8');
   assert.match(html, /result-slip::after/);
   assert.match(html, /<select name="academicYear" required>/);
   assert.match(html, /<select name="term" required>/);
@@ -25,6 +26,9 @@ test('Result Slip keeps the existing double border and uses canonical single-sel
   assert.match(client, /const saveButton = host\.querySelector\('#save-result'\); if \(saveButton\)/);
   assert.match(client, /\/api\/academic\/sample\/generate/);
   assert.match(client, /\/api\/academic\/result\?/);
+  assert.match(pdfClient, /result\?\.isSample === true/);
+  assert.match(pdfClient, /\/api\/academic\/sample\/result\/pdf/);
+  assert.match(pdfClient, /sampleStudentId/);
 });
 
 test('Result Slip student API scopes real students and returns only existing samples in Test Mode', async () => {
@@ -67,6 +71,31 @@ test('Result Slip student API scopes real students and returns only existing sam
     assert.equal(generated.studentIndexNumber, 'OSAAH-DEMO-001');
     assert.ok(generated.subjects.length > 0);
     assert.equal(students.counts().students, officialCountBefore, 'sample generation must not alter official student counts');
+
+    const samplePdfResponse = await fetch(`${base}/api/academic/sample/result/pdf`, {
+      method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', Accept: 'application/pdf' },
+      body: JSON.stringify({ sampleStudentId: 'OSAAH-DEMO-001', classId: 'Primary 1', academicYear: '2026/2027', term: 'First Term', resultType: 'TERMINAL' })
+    });
+    assert.equal(samplePdfResponse.status, 200);
+    assert.match(samplePdfResponse.headers.get('content-type') || '', /application\/pdf/i);
+    assert.match(samplePdfResponse.headers.get('content-disposition') || '', /OSAAH_SAMPLE_/);
+    const samplePdf = Buffer.from(await samplePdfResponse.arrayBuffer());
+    assert.match(samplePdf.subarray(0, 8).toString(), /^%PDF-1\.[0-9]/);
+    assert.ok(samplePdf.length > 2500);
+    assert.equal(students.counts().students, officialCountBefore, 'sample PDF generation must not alter official student counts');
+    const sampleMockPdfResponse = await fetch(`${base}/api/academic/sample/result/pdf`, {
+      method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', Accept: 'application/pdf' },
+      body: JSON.stringify({ sampleStudentId: 'OSAAH-DEMO-001', classId: 'JHS 1', academicYear: '2026/2027', term: 'First Term', resultType: 'MOCK', mockLabel: '1st Mock' })
+    });
+    assert.equal(sampleMockPdfResponse.status, 200);
+    assert.match(sampleMockPdfResponse.headers.get('content-disposition') || '', /OSAAH_SAMPLE_1st-Mock_Result_/);
+    assert.match(Buffer.from(await sampleMockPdfResponse.arrayBuffer()).subarray(0, 8).toString(), /^%PDF-1\.[0-9]/);
+    assert.equal(students.counts().students, officialCountBefore, 'sample Mock PDF generation must not alter official student counts');
+    const rejectedPdfResponse = await fetch(`${base}/api/academic/sample/result/pdf`, {
+      method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sampleStudentId: 'STD-000001', classId: 'Primary 1', academicYear: '2026/2027', term: 'First Term', resultType: 'TERMINAL' })
+    });
+    assert.equal(rejectedPdfResponse.status, 400, 'sample PDF route must reject non-configured IDs');
 
     for (const classId of CORE_LEVELS) {
       const classSampleQuery = new URLSearchParams({ academicYear: '2026/2027', term: 'First Term', classId, sampleMode: 'true' });
