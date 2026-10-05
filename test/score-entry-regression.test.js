@@ -122,7 +122,7 @@ test('academic options and score-entry roster use the configured authenticated s
     assert.equal(optionsResponse.status, 200, 'the prior legacy-vs-authenticated school ID mismatch must not reject academic options');
     const options = await optionsResponse.json();
     assert.ok(options.classes.includes('Primary 1'));
-    const subjectsResponse = await fetch(`http://127.0.0.1:${port}/api/subjects?classId=Primary%201`, { headers });
+    const subjectsResponse = await fetch(`http://127.0.0.1:${port}/api/subjects?academicYear=2026%2F2027&term=First%20Term&classId=Primary%201`, { headers });
     assert.equal(subjectsResponse.status, 200);
     const subjectsBody = await subjectsResponse.json();
     assert.ok(subjectsBody.subjects.length > 0);

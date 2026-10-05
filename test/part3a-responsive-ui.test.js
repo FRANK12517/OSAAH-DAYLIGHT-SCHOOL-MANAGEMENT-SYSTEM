@@ -4,6 +4,16 @@ import { readFile } from 'node:fs/promises';
 
 const read = (name) => readFile(new URL(`../public/${name}`, import.meta.url), 'utf8');
 
+test('terminal Result Slip actions use the responsive action wrapper at narrow widths', async () => {
+  const [script, css] = await Promise.all([
+    readFile(new URL('../public/result-view.js', import.meta.url), 'utf8'),
+    readFile(new URL('../public/styles.css', import.meta.url), 'utf8')
+  ]);
+  assert.match(script, /no-print result-actions/);
+  assert.match(css, /\.result-slip \.result-actions\{display:grid;grid-template-columns:1fr/);
+  assert.match(css, /\.result-slip \.result-actions button\{width:100%/);
+});
+
 test('Part 3A uses targeted overflow containment instead of page-wide hiding', async () => {
   const css = await read('styles.css');
   assert.doesNotMatch(css, /body\{overflow-x:hidden\}/);
