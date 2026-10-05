@@ -11,7 +11,8 @@ const text = (value, fallback = '—') => String(value ?? fallback);
 
 export function resultPdfFilename(result) {
   const type = result.resultType === 'MOCK' ? safe(result.mockLabel, 'Mock') : 'End-of-Term';
-  return `OSAAH_${type}_Result_${safe(result.studentIndexNumber, 'Student')}_${safe(result.academicYear, 'Academic-Year')}_${safe(result.term, 'Term')}.pdf`;
+  const samplePrefix = result.isSample === true ? 'SAMPLE_' : '';
+  return `OSAAH_${samplePrefix}${type}_Result_${safe(result.studentIndexNumber, 'Student')}_${safe(result.academicYear, 'Academic-Year')}_${safe(result.term, 'Term')}.pdf`;
 }
 
 export function createResultSlipPdfService() {
@@ -29,6 +30,7 @@ export function createResultSlipPdfService() {
       const line = (label, value) => { ensure(18); document.fontSize(9).fillColor('#102a43').font('Helvetica-Bold').text(`${label}: `, { continued: true }).font('Helvetica').text(text(value)); };
       const section = (title) => { ensure(30); document.moveDown(.35).font('Helvetica-Bold').fontSize(11).fillColor('#102a43').text(title); document.moveTo(55, document.y + 3).lineTo(540, document.y + 3).lineWidth(1.2).strokeColor('#d4af37').stroke(); document.moveDown(.35); };
       pageHeader();
+      if (result.isSample === true) document.font('Helvetica-Bold').fontSize(9).fillColor('#9c6d00').text('SAMPLE DATA / DEMONSTRATION - NOT AN OFFICIAL RESULT', { align: 'center' }).moveDown(.35);
       document.font('Helvetica-Bold').fontSize(15).fillColor('#102a43').text(result.resultType === 'MOCK' ? 'MOCK EXAMINATION RESULT SLIP' : 'END-OF-TERM EXAMINATION RESULT SLIP', { align: 'center' });
       document.moveDown(.45); line('Student Name', result.studentName); line('Permanent Student ID / OSAAH Student Index', result.studentIndexNumber); line('Gender', result.gender ?? 'Not Recorded'); line('Class', result.classId); line('Total Boys in Class', result.classGenderDistribution?.totalBoys ?? 0); line('Total Girls in Class', result.classGenderDistribution?.totalGirls ?? 0); line('Total Students in Class', result.classGenderDistribution?.totalStudents ?? 0); line('Academic Year', result.academicYear); line('Term', result.term); line(result.resultType === 'MOCK' ? 'Mock Examination' : 'Examination', result.resultType === 'MOCK' ? result.mockLabel : 'End-of-Term');
       section('SUBJECT RESULTS');
@@ -44,7 +46,7 @@ export function createResultSlipPdfService() {
       const attendance = result.attendance ?? {}; line('Times Present', attendance.timesPresent ?? 'Not recorded'); line('Times Absent', attendance.timesAbsent ?? 'Not recorded'); line('Total School Days', attendance.totalSchoolDays ?? 'Not recorded');
       section('SIGNATURES');
       for (const signature of result.signatures ?? []) { line(signature.signatoryRole === 'CLASS_TEACHER' ? 'Class Teacher' : 'Headteacher', signature.name ?? 'Name not configured'); if (signature.phone) line('Phone', signature.phone); }
-      document.fontSize(7).fillColor('#486581').text('Generated from the authorized Osaah Daylight School Complex result record.', 55, 770, { align: 'center', width: 485 });
+      document.fontSize(7).fillColor('#486581').text(result.isSample === true ? 'SAMPLE DATA / DEMONSTRATION - NOT AN OFFICIAL RESULT.' : 'Generated from the authorized Osaah Daylight School Complex result record.', 55, 770, { align: 'center', width: 485 });
       document.end();
     });
   }
