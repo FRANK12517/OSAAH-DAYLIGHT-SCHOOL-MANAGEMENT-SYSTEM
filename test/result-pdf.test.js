@@ -88,6 +88,14 @@ test('sample PDF downloader sends only the configured sample ID to the isolated 
   assert.equal(body.resultType, 'TERMINAL');
 });
 
+test('sample PDF server normalizes display class labels before durable context lookup', async () => {
+  const fs = await import('node:fs/promises');
+  const server = await fs.readFile(new URL('../src/server.mjs', import.meta.url), 'utf8');
+  assert.match(server, /const options = await durableAcademic\.options\(actor\);/);
+  assert.match(server, /canonicalClassId\(item\.name\) === requestedClass/);
+  assert.match(server, /contextInput = \{ \.\.\.input, classId: classRow\.id \}/);
+});
+
 test('PDF export routes are protected before any client-provided student lookup', async () => {
   const server = createHttpServer(createApp());
   await new Promise((resolve) => server.listen(0, resolve));

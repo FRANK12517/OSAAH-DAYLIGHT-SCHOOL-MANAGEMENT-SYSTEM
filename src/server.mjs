@@ -203,7 +203,14 @@ export function createApp({ auth = null, students = null, attendance = null, att
   classDatabase ??= createClassDatabaseService({ students, classes: CORE_LEVELS, schoolId: database ? null : serviceSchoolId });
   const sampleResults = createSampleResultWorkflow({ students, subjects, academicResults, schoolId: serviceSchoolId });
   async function normalizedSampleResultInput(input, actor) {
-    const context = durableAcademic ? await durableAcademic.resultContext(input, actor) : { className: input.classId, academicYear: input.academicYear, term: input.term };
+    let contextInput = input;
+    if (durableAcademic) {
+      const requestedClass = canonicalClassId(input.classId);
+      const options = await durableAcademic.options(actor);
+      const classRow = options.classes?.find((item) => String(item.id) === String(input.classId) || canonicalClassId(item.name) === requestedClass || canonicalClassId(item.id) === requestedClass);
+      if (classRow) contextInput = { ...input, classId: classRow.id };
+    }
+    const context = durableAcademic ? await durableAcademic.resultContext(contextInput, actor) : { className: input.classId, academicYear: input.academicYear, term: input.term };
     const classId = canonicalClassId(context.className);
     if (!classId) throw new Error('The selected class is not configured for sample results.');
     return { input: { ...input, classId, academicYear: context.academicYear, term: context.term }, className: context.className };
