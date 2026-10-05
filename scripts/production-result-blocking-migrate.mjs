@@ -2,6 +2,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createDatabaseAdapter } from '../src/ai/tidb-database-adapter.js';
 import { createMigrationRunner, discoverMigrations } from '../src/platform/migration-runner.js';
+import { assertAcademicRecordCountsPreserved } from './academic-record-count-guard.js';
 
 const VERSION = 64;
 const NAME = '064_academic_result_blocking.sql';
@@ -60,7 +61,8 @@ async function academicRecordCounts(database = adapter) {
     const table = String(row.tableName);
     if (!/^[A-Za-z0-9_]+$/.test(table)) continue;
     const result = await database.query(`SELECT COUNT(*) AS rowCount FROM \`${table}\``);
-    counts[table] = Number(result[0]?.rowCount ?? 0);
+    const rowCount = result[0]?.rowCount ?? 0;
+    counts[table] = typeof rowCount === 'bigint' ? rowCount.toString() : rowCount;
   }
   return counts;
 }
@@ -96,13 +98,22 @@ async function main() {
   const runner = createMigrationRunner({ adapter, directory, baselineRequired: true });
   const dryRun = await runner.applyVersions({ versions: [VERSION], requiredAppliedVersions: [63], dryRun: true });
   if (mode === 'dry-run') return { ok: true, mode, database, migration: { version: VERSION, name: NAME, checksum: migration.checksum }, prerequisites, beforeLedger, beforeSchema, beforeAcademicCounts, pending: dryRun.pending, status: recorded ? 'ALREADY_APPLIED' : 'PENDING', productionWrites: 'NONE' };
-  const result = await runner.applyVersions({ versions: [VERSION], requiredAppliedVersions: [63], dryRun: false, verifyMigration: async ({ adapter: tx }) => verifySnapshot(await schemaSnapshot(tx)) });
+  let afterAcademicCounts = null;
+  const result = await runner.applyVersions({
+    versions: [VERSION],
+    requiredAppliedVersions: [63],
+    dryRun: false,
+    verifyMigration: async ({ adapter: tx }) => {
+      verifySnapshot(await schemaSnapshot(tx));
+      afterAcademicCounts = await academicRecordCounts(tx);
+      assertAcademicRecordCountsPreserved(beforeAcademicCounts, afterAcademicCounts, { migrationCreatedTables: TABLES });
+    }
+  });
+  if (afterAcademicCounts === null) afterAcademicCounts = beforeAcademicCounts;
   const afterLedger = await migrationLedger();
   const afterSchema = await schemaSnapshot();
-  const afterAcademicCounts = await academicRecordCounts();
   verifySnapshot(afterSchema);
   if (!afterLedger.some((row) => Number(row.version) === VERSION && row.name === NAME && row.checksum === migration.checksum)) throw Object.assign(new Error('Migration 064 ledger verification failed.'), { code: 'MIGRATION_064_LEDGER_VERIFICATION_FAILED', details: { afterLedger } });
-  if (JSON.stringify(beforeAcademicCounts) !== JSON.stringify(afterAcademicCounts)) throw Object.assign(new Error('Migration 064 changed protected academic record counts.'), { code: 'MIGRATION_064_ACADEMIC_RECORD_COUNT_CHANGED', details: { beforeAcademicCounts, afterAcademicCounts } });
-  return { ok: true, mode, database, migration: { version: VERSION, name: NAME, checksum: migration.checksum }, beforeLedger, afterLedger, beforeSchema, afterSchema, beforeAcademicCounts, afterAcademicCounts, applied: result.applied, productionWrites: 'SCHEMA_ONLY' };
+  return { ok: true, mode, database, migration: { version: VERSION, name: NAME, checksum: migration.checksum }, beforeLedger, afterLedger, beforeSchema, afterSchema, beforeAcademicCounts, afterAcademicCounts, applied: result.applied, productionWrites: result.applied.length ? 'SCHEMA_ONLY' : 'NONE' };
 }
 try { process.stdout.write(`${JSON.stringify(await main())}\n`); } catch (cause) { process.stderr.write(`${JSON.stringify(safeError(cause))}\n`); process.exitCode = 1; } finally { await adapter.close?.(); }
