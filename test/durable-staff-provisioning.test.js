@@ -22,15 +22,15 @@ function createFakeDatabase({ failAt = null } = {}) {
     if (sql.includes('FROM schools')) return store.schools.filter((row) => row.id === params[0]);
     if (sql.includes('FROM users WHERE LOWER(COALESCE(email')) return store.users.filter((row) => row.email.toLowerCase() === params[0]);
     if (sql.includes('FROM staff WHERE school_id=? AND staff_number=?')) return store.staff.filter((row) => row.school_id === params[0] && row.staff_number === params[1]).map((row) => ({ id: row.id, userId: row.user_id }));
-    if (sql.includes('FROM staff_profiles WHERE staff_id=? OR employee_id=?')) return store.profiles.filter((row) => row.staff_id === params[0] || row.employee_id === params[1]).map((row) => ({ id: row.id }));
+    if (sql.includes('FROM staff_profiles WHERE school_id=? AND staff_number=?')) return store.profiles.filter((row) => row.school_id === params[0] && row.staff_number === params[1]).map((row) => ({ id: row.id }));
     if (sql.includes('FROM roles') && sql.includes('WHERE role_key=?')) return store.roles.filter((row) => row.role_key === params[0] && (row.school_id === params[1] || row.school_id == null)).sort((a, b) => (a.school_id === params[1] ? -1 : 1) - (b.school_id === params[1] ? -1 : 1)).map((row) => ({ id: row.id, roleKey: row.role_key })).slice(0, 1);
     if (sql.includes('FROM classes c JOIN levels l')) return store.classes.filter((row) => row.id === params[0] && store.levels.some((level) => level.id === row.level_id && level.school_id === params[1])).map((row) => ({ id: row.id }));
     if (sql.includes('FROM subjects WHERE id=?')) return store.subjects.filter((row) => row.id === params[0] && row.school_id === params[1]).map((row) => ({ id: row.id }));
-    if (sql.includes('JOIN staff_profiles sp ON sp.id=s.id') && sql.includes('JOIN user_roles ur') && sql.includes('WHERE u.id=? AND u.school_id=?')) {
+    if (sql.includes('JOIN staff_profiles sp ON sp.user_id=s.user_id') && sql.includes('JOIN user_roles ur') && sql.includes('WHERE u.id=? AND u.school_id=?')) {
       const [roleKey, userId, schoolId] = params;
       return store.users.filter((user) => user.id === userId && user.school_id === schoolId && user.status === 'ACTIVE').flatMap((user) => {
         const staff = store.staff.find((item) => item.user_id === user.id && item.school_id === schoolId);
-        const profile = store.profiles.find((item) => item.id === staff?.id && item.school_id === schoolId);
+        const profile = store.profiles.find((item) => item.user_id === staff?.user_id && item.school_id === schoolId);
         const role = store.roles.find((item) => item.role_key === roleKey && store.userRoles.some((link) => link.user_id === user.id && link.role_id === item.id));
         return staff && profile && role ? [{ id: user.id }] : [];
       });
@@ -65,7 +65,7 @@ function createFakeDatabase({ failAt = null } = {}) {
       const [first, second] = params;
       return store.staff.filter((staff) => byUser ? staff.user_id === first && staff.school_id === second : staff.school_id === first).flatMap((staff) => {
         const user = store.users.find((row) => row.id === staff.user_id && row.school_id === staff.school_id);
-        const profile = store.profiles.find((row) => row.id === staff.id && row.school_id === staff.school_id);
+        const profile = store.profiles.find((row) => row.user_id === staff.user_id && row.school_id === staff.school_id);
         const roleLinks = store.userRoles.filter((link) => link.user_id === user?.id);
         const assignments = store.assignments.filter((row) => row.staff_id === staff.id);
         return roleLinks.flatMap((link) => {
@@ -95,8 +95,8 @@ function createFakeDatabase({ failAt = null } = {}) {
       return { affectedRows: 1 };
     }
     if (sql.startsWith('INSERT INTO staff_profiles')) {
-      const [id, school_id, staff_id, employee_id, full_name, phone, role_key, created_at, updated_at] = params;
-      store.profiles.push({ id, school_id, staff_id, employee_id, full_name, phone, role_key, created_at, updated_at });
+      const [id, school_id, user_id, staff_number, department, position, date_hired, qualification, created_at] = params;
+      store.profiles.push({ id, school_id, user_id, staff_number, department, position, date_hired, qualification, created_at });
       return { affectedRows: 1 };
     }
     if (sql.startsWith('INSERT INTO user_roles')) {
@@ -120,10 +120,15 @@ function createFakeDatabase({ failAt = null } = {}) {
       });
       return { affectedRows: 1 };
     }
-    if (sql.startsWith('UPDATE staff_profiles SET role_key=')) {
-      const profile = store.profiles.find((row) => row.id === params[2] && row.school_id === params[3]);
-      if (profile) { profile.role_key = params[0]; profile.updated_at = params[1]; }
+    if (sql.startsWith('UPDATE staff_profiles SET staff_number=')) {
+      const profile = store.profiles.find((row) => row.user_id === params[1] && row.school_id === params[2]);
+      if (profile) profile.staff_number = params[0];
       return { affectedRows: profile ? 1 : 0 };
+    }
+    if (sql.startsWith('UPDATE users SET full_name=')) {
+      const user = store.users.find((row) => row.id === params[2] && row.school_id === params[3]);
+      if (user) { user.full_name = params[0]; user.phone = params[1]; return { affectedRows: 1 }; }
+      return { affectedRows: 0 };
     }
     if (sql.startsWith('UPDATE users SET status=')) {
       const user = store.users.find((row) => row.id === params[1] && row.school_id === params[2]);

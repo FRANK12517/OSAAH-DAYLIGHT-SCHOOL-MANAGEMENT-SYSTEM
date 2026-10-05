@@ -155,8 +155,8 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     if (canonicalRoleKey(user?.roleKey) !== 'TEACHER' || !database?.query) return user;
     try {
       const assignments = await database.query(`SELECT DISTINCT sa.class_id AS classId,sa.subject_id AS subjectId
-        FROM staff s JOIN staff_profiles sp ON sp.id=s.id AND sp.school_id=s.school_id
-        LEFT JOIN staff_assignments sa ON sa.staff_id=sp.id
+        FROM staff s
+        LEFT JOIN staff_assignments sa ON sa.staff_id=s.id
         WHERE s.user_id=? AND s.school_id=?`, [user.id, user.schoolId]);
       user.assignedClassIds = [...new Set((assignments ?? []).map((item) => item.classId).filter(Boolean).map(String))];
       user.assignedSubjectIds = [...new Set((assignments ?? []).map((item) => item.subjectId).filter(Boolean).map(String))];
