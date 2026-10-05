@@ -2,9 +2,15 @@ import mysql from 'mysql2/promise';
 
 const expectedDatabase = 'osaahdaylightschool';
 const expectedTables = [
-  'schools', 'users', 'staff', 'roles', 'permissions', 'user_roles', 'role_permissions',
-  'sessions', 'classes', 'levels', 'students', 'student_enrollments', 'academic_years',
-  'terms', 'fee_structures', 'fee_obligations', 'fee_collection_records', 'fee_payments', 'auth_sessions'
+  'schools', 'school_settings', 'system_settings', 'users', 'staff', 'staff_profiles', 'staff_assignments',
+  'staff_leave', 'staff_attendance', 'roles', 'permissions', 'user_roles', 'role_permissions', 'auth_sessions',
+  'classes', 'levels', 'students', 'student_profiles', 'student_family_contacts', 'student_class_history',
+  'student_enrollments', 'admission_applications', 'academic_years', 'terms', 'subjects', 'subject_class_assignments',
+  'academic_score_records', 'academic_result_records', 'student_assessments', 'assessment_scores',
+  'academic_calendar_events', 'academic_calendar_term_configs', 'calendar_events', 'student_attendance',
+  'attendance_audit_history', 'fee_structures', 'fee_obligations', 'fee_collection_records', 'fee_payments',
+  'fee_invoices', 'payments', 'budgets', 'budget_items', 'expenses', 'general_income', 'school_expenses',
+  'transport_routes', 'student_transport_assignments', 'hostel_allocations', 'schema_migrations'
 ];
 
 function safeFailure(error) {

@@ -64,7 +64,11 @@ export function createSchoolSettingsService({ database = null, schoolProfile = n
       queryOptional('SELECT id,name,starts_on AS startsOn,ends_on AS endsOn,is_current AS isCurrent FROM academic_years WHERE school_id=? ORDER BY starts_on DESC,id', 'SELECT id,name,starts_on AS startsOn,ends_on AS endsOn FROM academic_years WHERE school_id=? ORDER BY starts_on DESC,id', schoolId),
       queryOptional('SELECT t.id,t.academic_year_id AS academicYearId,t.name,t.starts_on AS startsOn,t.ends_on AS endsOn,t.is_current AS isCurrent FROM terms t JOIN academic_years y ON y.id=t.academic_year_id WHERE y.school_id=? ORDER BY t.starts_on DESC,t.id', 'SELECT t.id,t.academic_year_id AS academicYearId,t.name,t.starts_on AS startsOn,t.ends_on AS endsOn FROM terms t JOIN academic_years y ON y.id=t.academic_year_id WHERE y.school_id=? ORDER BY t.starts_on DESC,t.id', schoolId)
     ]);
-    return publicView({ ...school, schoolId, settings: settings.map(parseSetting), academicYears, terms, updatedAt: school.updatedAt });
+    const parsedSettings = settings.map(parseSetting);
+    const information = parsedSettings.find((item) => item.key === 'schoolInformation')?.value;
+    const informationObject = information && typeof information === 'object' && !Array.isArray(information) ? information : {};
+    const profile = Object.fromEntries(Object.keys(PROFILE_FIELDS).map((field) => [field, school[field] ?? informationObject[field] ?? null]));
+    return publicView({ ...school, ...profile, schoolId, settings: parsedSettings, academicYears, terms, updatedAt: school.updatedAt });
   }
   async function queryOptional(primarySql, fallbackSql, schoolId) {
     try {
@@ -80,7 +84,10 @@ export function createSchoolSettingsService({ database = null, schoolProfile = n
   async function update(input, actor) {
     const schoolId = assertActor(actor);
     if (!input || typeof input !== 'object' || Array.isArray(input)) throw validationError('Settings payload must be an object.');
-    const profileUpdates = Object.fromEntries(Object.entries(PROFILE_FIELDS).filter(([field]) => input[field] !== undefined).map(([field]) => [field, input[field] === null ? null : String(input[field]).trim()]));
+    if (Object.prototype.hasOwnProperty.call(input, 'schoolInformation') && (!input.schoolInformation || typeof input.schoolInformation !== 'object' || Array.isArray(input.schoolInformation))) throw validationError('schoolInformation must be an object.');
+    const schoolInformation = input.schoolInformation && typeof input.schoolInformation === 'object' ? input.schoolInformation : {};
+    const profileInput = { ...schoolInformation, ...input };
+    const profileUpdates = Object.fromEntries(Object.entries(PROFILE_FIELDS).filter(([field]) => profileInput[field] !== undefined).map(([field]) => [field, profileInput[field] === null ? null : String(profileInput[field]).trim()]));
     if (Object.prototype.hasOwnProperty.call(profileUpdates, 'name') && !profileUpdates.name) throw validationError('name is required.');
     const settingUpdates = Object.fromEntries(Object.entries(input).filter(([key]) => SETTING_KEYS.has(key)).map(([key, value]) => [key, value]));
     const allowed = new Set([...Object.keys(PROFILE_FIELDS), ...SETTING_KEYS]);
@@ -109,7 +116,6 @@ export function createSchoolSettingsService({ database = null, schoolProfile = n
           else unsupported.push(field);
         }
         if (unsupported.includes('name')) throw Object.assign(new Error('The canonical school name column is unavailable.'), { status: 500 });
-        if (unsupported.length && !Object.prototype.hasOwnProperty.call(settingUpdates, 'schoolInformation')) throw validationError(`The deployed school schema cannot store: ${unsupported.join(', ')}.`);
         const updatedAtColumn = availableColumns ? (availableColumns.get('updated_at') ?? availableColumns.get('updatedat')) : 'updated_at';
         if (assignments.length) {
           const fields = assignments.map(([column]) => `${column}=?`);
@@ -118,7 +124,16 @@ export function createSchoolSettingsService({ database = null, schoolProfile = n
           await db.execute(`UPDATE schools SET ${fields.join(',')} WHERE id=?`, [...values, schoolId]);
         }
       }
-      for (const [key, value] of Object.entries(settingUpdates)) await db.execute('INSERT INTO system_settings (id,school_id,setting_key,setting_value,value_type,is_sensitive,created_at,updated_at) VALUES (?,?,?,?,?,0,?,?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value),value_type=VALUES(value),updated_at=VALUES(updated_at)', [`setting-${schoolId}-${key}`, schoolId, key, typeof value === 'string' ? value : JSON.stringify(value), typeof value, now(), now()]);
+      if (Object.keys(profileUpdates).length || Object.prototype.hasOwnProperty.call(settingUpdates, 'schoolInformation')) {
+        const existingRows = typeof db.query === 'function'
+          ? await db.query('SELECT setting_key AS settingKey,setting_value AS settingValue,value_type AS valueType,updated_at AS updatedAt FROM system_settings WHERE school_id=? AND setting_key=? LIMIT 1', [schoolId, 'schoolInformation'])
+          : [];
+        const existingValue = existingRows[0] ? parseSetting(existingRows[0]).value : null;
+        const existingInformation = existingValue && typeof existingValue === 'object' && !Array.isArray(existingValue) ? existingValue : {};
+        const submittedInformation = settingUpdates.schoolInformation && typeof settingUpdates.schoolInformation === 'object' && !Array.isArray(settingUpdates.schoolInformation) ? settingUpdates.schoolInformation : {};
+        settingUpdates.schoolInformation = { ...existingInformation, ...submittedInformation, ...profileUpdates };
+      }
+      for (const [key, value] of Object.entries(settingUpdates)) await db.execute('INSERT INTO system_settings (id,school_id,setting_key,setting_value,value_type,is_sensitive,created_at,updated_at) VALUES (?,?,?,?,?,0,?,?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value),value_type=VALUES(value_type),updated_at=VALUES(updated_at)', [`setting-${schoolId}-${key}`, schoolId, key, typeof value === 'string' ? value : JSON.stringify(value), typeof value, now(), now()]);
     };
     if (database.transaction) await database.transaction(executeAll); else await executeAll(database);
     return read(actor);
