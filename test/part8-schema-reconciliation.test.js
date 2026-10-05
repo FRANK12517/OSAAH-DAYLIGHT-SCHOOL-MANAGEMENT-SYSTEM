@@ -17,7 +17,7 @@ test('Part 8 identifies the exact authentication query and canonical table contr
   assert.match(auth, /table: tableName/);
   assert.match(auth, /split\('\.'\)\.pop\(\)/);
   for (const column of ['id', 'school_id', 'email', 'password_hash', 'status']) assert.match(auth, new RegExp(`u\\.${column === 'school_id' ? 'school_id' : column}`));
-  assert.match(auth, /u\.email AS username/);
+  assert.match(auth, /u\.username/);
 });
 
 test('Part 8 confirms the canonical foundation migration creates users and role tables', () => {

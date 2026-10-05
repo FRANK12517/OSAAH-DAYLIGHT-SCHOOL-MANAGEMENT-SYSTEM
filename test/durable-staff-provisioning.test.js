@@ -36,8 +36,8 @@ function createFakeDatabase({ failAt = null } = {}) {
       });
     }
     if (sql.includes('FROM users u') && sql.includes('LEFT JOIN user_roles ur')) {
-      const [email] = params;
-      return store.users.filter((user) => user.email.toLowerCase() === email).flatMap((user) => {
+      const [username, email] = params;
+      return store.users.filter((user) => user.username.toLowerCase() === username || user.email.toLowerCase() === email).flatMap((user) => {
         const links = store.userRoles.filter((link) => link.user_id === user.id);
         return links.flatMap((link) => {
           const role = store.roles.find((item) => item.id === link.role_id);
@@ -77,7 +77,7 @@ function createFakeDatabase({ failAt = null } = {}) {
     if (sql.includes('FROM staff s JOIN users u ON u.id=s.user_id AND u.school_id=s.school_id') && sql.includes('WHERE s.user_id=?')) return store.staff.filter((row) => row.user_id === params[0] && row.school_id === params[1] && store.users.some((user) => user.id === row.user_id && user.school_id === row.school_id)).map((row) => ({ id: row.id }));
     if (sql.includes('SELECT id FROM staff WHERE user_id=? AND school_id=?')) return store.staff.filter((row) => row.user_id === params[0] && row.school_id === params[1]).map((row) => ({ id: row.id }));
     if (sql.includes('SELECT r.role_key AS roleKey FROM user_roles')) return store.userRoles.filter((row) => row.user_id === params[0]).map((link) => store.roles.find((role) => role.id === link.role_id)).filter(Boolean).map((role) => ({ roleKey: role.role_key }));
-    if (sql.includes('SELECT u.email AS username FROM staff s JOIN users u')) return store.staff.filter((row) => row.user_id === params[0] && row.school_id === params[1]).map((staff) => ({ username: store.users.find((user) => user.id === staff.user_id)?.email }));
+    if (sql.includes('SELECT u.username AS username FROM staff s JOIN users u')) return store.staff.filter((row) => row.user_id === params[0] && row.school_id === params[1]).map((staff) => ({ username: store.users.find((user) => user.id === staff.user_id)?.email }));
     if (sql.includes('SELECT u.id,u.school_id AS schoolId')) return [];
     return [];
   }
@@ -85,8 +85,8 @@ function createFakeDatabase({ failAt = null } = {}) {
   function executeFor(store, sql, params = []) {
     if (failAt && sql.startsWith(failAt)) throw new Error('injected persistence failure');
     if (sql.startsWith('INSERT INTO users')) {
-      const [id, school_id, email, password_hash, full_name, phone, role, status, created_at] = params;
-      store.users.push({ id, school_id, email, password_hash, full_name, phone, role, status, created_at });
+      const [id, school_id, username, email, password_hash, full_name, phone, role, status, created_at, updated_at] = params;
+      store.users.push({ id, school_id, username, email, password_hash, full_name, phone, role, status, created_at, updated_at });
       return { affectedRows: 1 };
     }
     if (sql.startsWith('INSERT INTO staff (')) {
@@ -172,7 +172,7 @@ function createFakeDatabase({ failAt = null } = {}) {
 }
 
 const actor = { id: 'school-admin', schoolId: SCHOOL_ID };
-const newTeacher = { fullName: 'Frank Abban', staffId: 'OSAAH-STAFF-001', email: 'abbanfrank348@gmail.com', primaryRole: 'CLASSROOM_TEACHER', assignedClassId: 'primary-4', assignedSubjectId: 'mathematics' };
+const newTeacher = { fullName: 'Frank Abban', staffId: 'OSAAH-STAFF-001', username: 'frank.abban', email: 'abbanfrank348@gmail.com', primaryRole: 'CLASSROOM_TEACHER', assignedClassId: 'primary-4', assignedSubjectId: 'mathematics' };
 
 test('staff provisioning commits linked durable records and a new auth service can authenticate after restart', async () => {
   const database = createFakeDatabase();
@@ -215,6 +215,18 @@ test('staff provisioning commits linked durable records and a new auth service c
   assert.deepEqual(listed[0].assignedClassIds, ['primary-4']);
 });
 
+test('staff passwords enforce policy and generated credentials contain all required character classes', async () => {
+  const database = createFakeDatabase();
+  const auth = createAuthService({ database });
+  await assert.rejects(auth.registerStaff({ ...newTeacher, password: 'too-short' }, actor), { code: 'PASSWORD_POLICY' });
+  assert.equal(database.snapshot().users.length, 0);
+  const created = await auth.registerStaff(newTeacher, actor);
+  assert.match(created.temporaryPassword, /[A-Z]/);
+  assert.match(created.temporaryPassword, /[a-z]/);
+  assert.match(created.temporaryPassword, /\d/);
+  assert.match(created.temporaryPassword, /[^A-Za-z0-9]/);
+  assert.ok(created.temporaryPassword.length >= 12);
+});
 test('durable staff provisioning rejects duplicate email and Staff ID without creating duplicate records', async () => {
   const database = createFakeDatabase();
   const auth = createAuthService({ database });
@@ -238,13 +250,16 @@ test('durable staff provisioning rolls back all related inserts when a later wri
   assert.equal(stored.assignments.length, 0);
 });
 
-test('durable login uses the canonical users.email identifier', async () => {
+test('durable login accepts both canonical users.username and email identifiers', async () => {
   const database = createFakeDatabase();
   const auth = createAuthService({ database });
   const created = await auth.registerStaff(newTeacher, actor);
-  const login = await createAuthService({ database }).loginFromDatabase({ username: newTeacher.email, password: created.temporaryPassword, portal: 'school' });
-  assert.equal(login.ok, true);
-  assert.equal(login.user.roleKey, 'TEACHER');
+  const usernameLogin = await createAuthService({ database }).loginFromDatabase({ username: newTeacher.username, password: created.temporaryPassword, portal: 'school' });
+  const emailLogin = await createAuthService({ database }).loginFromDatabase({ username: newTeacher.email, password: created.temporaryPassword, portal: 'school' });
+  assert.equal(usernameLogin.ok, true);
+  assert.equal(emailLogin.ok, true);
+  assert.equal(usernameLogin.user.id, emailLogin.user.id);
+  assert.equal(usernameLogin.user.roleKey, 'TEACHER');
 });
 
 test('durable staff disable and credential reset persist status and replace the accepted credential', async () => {

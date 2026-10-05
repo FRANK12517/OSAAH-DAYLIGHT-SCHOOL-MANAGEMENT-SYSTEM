@@ -1,5 +1,11 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 
+const PASSWORD_MIN_LENGTH = 12;
+const PASSWORD_SYMBOLS = '!@#$%^&*()-_=+[]{}:,.?';
+function passwordCompliant(value) { const password = String(value ?? ''); return password.length >= PASSWORD_MIN_LENGTH && /[A-Z]/.test(password) && /[a-z]/.test(password) && /\d/.test(password) && /[^A-Za-z0-9]/.test(password); }
+function generatedPassword() { const required = ['A', 'a', '1', PASSWORD_SYMBOLS[0]]; const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789' + PASSWORD_SYMBOLS; const bytes = randomBytes(20); const chars = required.concat([...bytes].map((byte) => alphabet[byte % alphabet.length])); for (let i = chars.length - 1; i > 0; i -= 1) { const j = bytes[i % bytes.length] % (i + 1); [chars[i], chars[j]] = [chars[j], chars[i]]; } return chars.join(''); }
+function normalizedUsername(value, fallback) { return String(value ?? fallback ?? '').trim().toLowerCase(); }
+
 const STAFF_ROLES = Object.freeze({
   HEADTEACHER: 'HEADTEACHER',
   ASSISTANT_HEADTEACHER: 'ASSISTANT_HEADTEACHER',
@@ -32,7 +38,7 @@ function staffView(row) {
     id: String(row.id),
     fullName: row.fullName ?? [row.firstName, row.lastName].filter(Boolean).join(' '),
     staffId: row.staffId,
-    username: row.username ?? row.email,
+    username: row.username,
     email: row.email ?? null,
     phone: row.phone ?? null,
     roleKey: row.roleKey,
@@ -96,12 +102,15 @@ export function createDurableStaffProvisioning({ database, passwordHash, verifyL
     const staffId = String(input?.staffId ?? '').trim();
     const roleKey = roleFor(input?.primaryRole ?? input?.roleKey);
     const email = normalizedEmail(input?.email);
+    const username = normalizedUsername(input?.username);
+    const suppliedPassword = String(input?.password ?? '');
+    const temporaryPassword = suppliedPassword || generatedPassword();
     const schoolId = String(actor?.schoolId ?? '').trim();
-    if (!fullName || !staffId || !roleKey || !schoolId) throw failure('Full name, Staff ID, school, and an assignable role are required.');
+    if (!fullName || !staffId || !username || !roleKey || !schoolId) throw failure('Full name, Staff ID, school, and an assignable role are required.');
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw failure('Enter a valid staff email address.');
+    if (!passwordCompliant(temporaryPassword)) throw failure('Password must be at least 12 characters and include uppercase, lowercase, number, and symbol.', 400, 'PASSWORD_POLICY');
     const { firstName, lastName } = splitName(fullName);
     const id = randomUUID();
-    const temporaryPassword = randomBytes(18).toString('base64url');
     const hash = passwordHash(temporaryPassword);
     const timestamp = nowIso();
     const { classId, subjectId } = await database.transaction(async (tx) => {
@@ -109,6 +118,8 @@ export function createDurableStaffProvisioning({ database, passwordHash, verifyL
       if (!schoolRows?.length) throw failure('The school associated with this administrator is unavailable.', 409, 'SCHOOL_NOT_FOUND');
 
       const existingEmail = await tx.query('SELECT id FROM users WHERE LOWER(COALESCE(email,\'\'))=? LIMIT 1', [email]);
+      const existingUsername = await tx.query('SELECT id FROM users WHERE school_id=? AND LOWER(username)=? LIMIT 1', [schoolId, username]);
+      if (existingUsername?.length) throw failure('Username already exists for this school.', 409, 'DUPLICATE_USERNAME');
       if (existingEmail?.length) throw failure('An account with this email already exists. Review or reconcile that account before registering staff.', 409, 'DUPLICATE_EMAIL');
       const existingStaff = await tx.query('SELECT id, user_id AS userId FROM staff WHERE school_id=? AND staff_number=? LIMIT 1', [schoolId, staffId]);
       if (existingStaff?.length) throw failure('Staff ID already exists. Review the existing staff record before registering another account.', 409, 'DUPLICATE_STAFF_ID');
@@ -119,7 +130,7 @@ export function createDurableStaffProvisioning({ database, passwordHash, verifyL
       if (!role) throw failure('The requested staff role is not configured for this school.', 409, 'ROLE_NOT_CONFIGURED');
       const assignment = await validateOptionalAssignments(tx, schoolId, input ?? {});
 
-      await tx.execute('INSERT INTO users (id, school_id, email, password_hash, full_name, phone, role, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', [id, schoolId, email, hash, fullName, String(input?.phone ?? '').trim() || null, roleKey, 'ACTIVE', timestamp]);
+      await tx.execute('INSERT INTO users (id, school_id, username, email, password_hash, full_name, phone, role, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [id, schoolId, username, email, hash, fullName, String(input?.phone ?? '').trim() || null, roleKey, 'ACTIVE', timestamp, timestamp]);
       await tx.execute('INSERT INTO staff (id, school_id, user_id, staff_number, first_name, last_name, department_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)', [id, schoolId, id, staffId, firstName, lastName, timestamp, timestamp]);
       await tx.execute('INSERT INTO staff_profiles (id, school_id, staff_id, employee_id, full_name, phone, role_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', [id, schoolId, staffId, staffId, fullName, String(input?.phone ?? '').trim() || null, roleKey, timestamp, timestamp]);
       await tx.execute('INSERT INTO user_roles (user_id, role_id, created_at) VALUES (?, ?, ?)', [id, role.id, timestamp]);
@@ -139,17 +150,17 @@ export function createDurableStaffProvisioning({ database, passwordHash, verifyL
       return assignment;
     });
 
-    const loginProbe = await verifyLogin({ username: email, password: temporaryPassword, portal: 'school' });
+    const loginProbe = await verifyLogin({ username, password: temporaryPassword, portal: 'school' });
     if (!loginProbe?.ok || loginProbe.user?.id !== id || loginProbe.user?.roleKey !== roleKey || !loginProbe.token) throw failure('The committed staff account did not pass the durable login check. Credentials were not issued.', 503, 'STAFF_LOGIN_VERIFICATION_FAILED');
     await revokeSession(loginProbe.token);
-    return { staff: { id, fullName, staffId, username: email, email, phone: String(input?.phone ?? '').trim() || null, roleKey, primaryRole: roleKey === 'TEACHER' ? 'CLASSROOM_TEACHER' : roleKey === 'ACCOUNTANT_BURSAR' ? 'ACCOUNTANT' : roleKey, assignedClassIds: classId ? [classId] : [], assignedSubjectIds: subjectId ? [subjectId] : [], accountStatus: 'ACTIVE', createdAt: timestamp, mustChangePassword: false }, temporaryPassword };
+    return { staff: { id, fullName, staffId, username, email, phone: String(input?.phone ?? '').trim() || null, roleKey, primaryRole: roleKey === 'TEACHER' ? 'CLASSROOM_TEACHER' : roleKey === 'ACCOUNTANT_BURSAR' ? 'ACCOUNTANT' : roleKey, assignedClassIds: classId ? [classId] : [], assignedSubjectIds: subjectId ? [subjectId] : [], accountStatus: 'ACTIVE', createdAt: timestamp, mustChangePassword: false }, temporaryPassword };
   }
 
   async function readRows(schoolId, userId = null) {
     const conditions = userId ? 's.user_id=? AND s.school_id=?' : 's.school_id=?';
     const params = userId ? [userId, schoolId] : [schoolId];
     return database.query(`SELECT s.id AS id, s.staff_number AS staffId, s.first_name AS firstName, s.last_name AS lastName,
-        u.email AS username, u.email AS email, u.status AS accountStatus, u.created_at AS createdAt,
+        u.username AS username, u.email AS email, u.status AS accountStatus, u.created_at AS createdAt,
         sp.full_name AS fullName, sp.phone AS phone, r.role_key AS roleKey,
         sa.class_id AS assignedClassId, sa.subject_id AS assignedSubjectId
       FROM staff s
@@ -245,9 +256,9 @@ export function createDurableStaffProvisioning({ database, passwordHash, verifyL
   }
 
   async function resetCredentials(userId, schoolId) {
-    const temporaryPassword = randomBytes(18).toString('base64url');
+    const temporaryPassword = generatedPassword();
     return database.transaction(async (tx) => {
-      const rows = await tx.query('SELECT u.email AS username FROM staff s JOIN users u ON u.id=s.user_id WHERE s.user_id=? AND s.school_id=? LIMIT 1', [userId, schoolId]);
+      const rows = await tx.query('SELECT u.username AS username FROM staff s JOIN users u ON u.id=s.user_id WHERE s.user_id=? AND s.school_id=? LIMIT 1', [userId, schoolId]);
       if (!rows?.length) return null;
       const timestamp = nowIso();
       const result = await tx.execute('UPDATE users SET password_hash=? WHERE id=? AND school_id=?', [passwordHash(temporaryPassword), userId, schoolId]);
