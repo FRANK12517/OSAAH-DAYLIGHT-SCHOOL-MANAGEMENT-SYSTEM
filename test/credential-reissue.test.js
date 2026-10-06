@@ -35,3 +35,20 @@ test('authorized credential reissue returns one-time material and revokes target
     assert.doesNotMatch(JSON.stringify(audit), /password_hash|temporaryPassword|credential-salt/i);
   } finally { await new Promise((resolve) => server.close(resolve)); }
 });
+
+
+test('canonical School Administrator role can reissue credentials despite an incomplete persisted permission set', async () => {
+  const administrator = { ...user, id: 'credential-admin-incomplete', permissions: new Set(['users.read']) };
+  const audit = [];
+  const auth = createAuthService({ users: [administrator, target], sessionSecret: 'credential-reissue-admin-role-test-secret', audit: (entry) => audit.push(entry) });
+  const database = { query: async () => [{ id: target.id, username: target.username, email: target.email, status: 'ACTIVE', firstName: 'Target', lastName: 'Teacher', roleKey: 'TEACHER', roleName: 'Teacher' }] };
+  const server = createServer(createApp({ auth, database, audit: (entry) => audit.push(entry), aiEnabled: false }));
+  await new Promise((resolve) => server.listen(0, resolve));
+  try {
+    const login = auth.login({ username: administrator.username, password, portal: 'school', role: administrator.roleKey });
+    assert.equal(login.ok, true);
+    const result = await request(server, `/api/users/${target.id}/credentials/reissue`, login.token);
+    assert.equal(result.status, 200);
+    assert.equal(JSON.parse(result.body).ok, true);
+  } finally { await new Promise((resolve) => server.close(resolve)); }
+});

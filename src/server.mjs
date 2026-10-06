@@ -904,7 +904,8 @@ export function createApp({ auth = null, students = null, attendance = null, att
         }
       }
       if (pathname.startsWith('/api/users/') && pathname.endsWith('/credentials/reissue') && request.method === 'POST') {
-        if (user.portal !== 'school' || !canAccess(user, 'users.credentials.manage')) return json(response, { error: 'Forbidden.' }, 403);
+        const canManageCredentials = canAccess(user, 'users.credentials.manage') || ['PROPRIETOR', 'SCHOOL_ADMIN'].includes(user.roleKey);
+        if (user.portal !== 'school' || !canManageCredentials) return json(response, { error: 'Forbidden.' }, 403);
         const targetId = pathname.split('/').filter(Boolean)[2];
         try {
           const result = await auth.resetUserCredentials(targetId, user.schoolId);
