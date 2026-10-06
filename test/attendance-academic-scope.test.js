@@ -34,7 +34,9 @@ test('Today’s Attendance exposes exactly three UI terms while preserving backe
     { label: '2nd Term', value: 'Second Term' },
     { label: '3rd Term', value: 'Third Term' }
   ]);
-  for (const className of ['Nursery 1', 'Primary 1', 'JHS 1']) assert.match(html, new RegExp(`value="${className}"`));
+  assert.match(html, /id="attendance-class"/);
+  assert.match(html, /Loading assigned classes/);
+  assert.match(script, /result\.classes/);
   assert.match(script, /date: dateField\.value/);
   assert.match(script, /Class, Academic Year, Term, and Date/);
   assert.match(server, /query\.get\('date'\)/);

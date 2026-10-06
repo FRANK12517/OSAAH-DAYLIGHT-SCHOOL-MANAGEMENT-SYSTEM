@@ -29,5 +29,6 @@ test('sample students use reserved IDs, populate every class, and stay out of no
 test('attendance page exposes all canonical classes through one selector', async () => {
   const html = await readFile(new URL('../public/attendance.html', import.meta.url), 'utf8');
   assert.equal((html.match(/<select id="attendance-class"/g) ?? []).length, 1);
-  for (const classId of CORE_LEVELS) assert.match(html, new RegExp(`value="${classId}"`));
+  assert.match(html, /Loading assigned classes/);
+  assert.doesNotMatch(html, /<option value="(?:Nursery 1|Primary 1|JHS 1)">/);
 });
