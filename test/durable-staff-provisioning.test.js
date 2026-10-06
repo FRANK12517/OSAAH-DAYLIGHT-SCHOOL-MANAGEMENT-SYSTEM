@@ -285,6 +285,23 @@ test('durable staff disable and credential reset persist status and replace the 
   assert.equal((await restartedAuth.loginFromDatabase({ username: newTeacher.email, password: replacement.temporaryPassword, portal: 'school' })).ok, true);
 });
 
+test('durable disabled staff rejects the correct password for username and email without creating a session', async () => {
+  const database = createFakeDatabase();
+  const auth = createAuthService({ database });
+  const created = await auth.registerStaff(newTeacher, actor);
+  assert.equal(await auth.setAccountStatus(created.staff.id, false, SCHOOL_ID), true);
+
+  const usernameLogin = await createAuthService({ database }).loginFromDatabase({ username: newTeacher.username, password: created.temporaryPassword, portal: 'school' });
+  const emailLogin = await createAuthService({ database }).loginFromDatabase({ username: newTeacher.email, password: created.temporaryPassword, portal: 'school' });
+
+  assert.equal(usernameLogin.ok, false);
+  assert.equal(emailLogin.ok, false);
+  assert.equal(usernameLogin.token, undefined);
+  assert.equal(emailLogin.token, undefined);
+  assert.equal(usernameLogin.user, undefined);
+  assert.equal(emailLogin.user, undefined);
+});
+
 
 test('durable role changes update canonical role assignment and an incomplete database adapter never falls back to memory', async () => {
   const database = createFakeDatabase();
