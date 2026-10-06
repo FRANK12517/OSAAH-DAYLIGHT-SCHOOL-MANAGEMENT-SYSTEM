@@ -295,6 +295,41 @@ export function createParentDashboardService({
     return student;
   }
 
+  function resultSourceFor(student) {
+    return Boolean(student?.isTestRecord ?? student?.is_test_record) ? academicResults : durableAcademic ?? academicResults;
+  }
+
+  async function loadPublishedResult(actor, student, context) {
+    const source = resultSourceFor(student);
+    if (!source?.publicationFor || !source?.result) return null;
+    if (resultBlocking?.assertReadable) await resultBlocking.assertReadable({ classId: context.classId, academicYear: context.yearId, term: context.termId, studentId: student.id ?? student.studentId ?? student.student_id }, actor);
+    else if (academicResults?.blockFor?.({ classId: context.classId, academicYear: context.yearId, term: context.termId, studentId: student.id ?? student.studentId ?? student.student_id })?.status === 'BLOCKED') {
+      fail('This result is temporarily blocked by the school. Please contact the school office.', 403, 'PARENT_RESULT_BLOCKED');
+    }
+    const isSample = Boolean(student.isTestRecord ?? student.is_test_record);
+    const input = {
+      classId: context.classId,
+      academicYear: context.yearId,
+      term: context.termId,
+      studentId: student.id ?? student.studentId ?? student.student_id,
+      examination: 'TERMINAL',
+      isSample,
+      sample: isSample
+    };
+    // The parent and academic context have already been authorized above. Use
+    // that exact child/context for the server-side durable read; never trust
+    // client-supplied child lists or elevate a broader result query.
+    const resultActor = {
+      ...actor,
+      children: [{ ...student, id: input.studentId }],
+      roleKey: 'HEADTEACHER',
+      permissions: new Set(['*'])
+    };
+    const publication = await source.publicationFor(input, resultActor);
+    if (publication?.status !== 'PUBLISHED') return null;
+    return await source.result(input, resultActor);
+  }
+
   async function legacyTermEvidence(actor, student, context, recordType) {
     const childIds = new Set(authorizedIds(student));
     try {
@@ -302,12 +337,8 @@ export function createParentDashboardService({
         const records = await attendanceRepository.listStudentRecords({ schoolId: actor.schoolId, academicYear: context.yearName, term: context.canonicalTermName ?? context.termName, classId: context.classId, studentId: text(student.studentProfileId ?? student.student_profile_id ?? student.id ?? student.student_id) });
         return rows(records).some((row) => childIds.has(text(row.studentId ?? row.student_id)));
       }
-      if (recordType === 'published-results' && academicResults?.publicationFor && academicResults?.result) {
-        if (resultBlocking?.assertReadable) await resultBlocking.assertReadable({ classId: context.classId, academicYear: context.yearId, term: context.termId, studentId: student.id ?? student.studentId ?? student.student_id }, actor); else if (academicResults?.blockFor?.({ classId: context.classId, academicYear: context.yearId, term: context.termId, studentId: student.id ?? student.studentId ?? student.student_id })?.status === 'BLOCKED') fail('This result is temporarily blocked by the school. Please contact the school office.', 403, 'PARENT_RESULT_BLOCKED');
-        const publication = academicResults.publicationFor({ classId: context.classId, academicYear: context.yearId, term: context.termId, isSample: Boolean(student.isTestRecord ?? student.is_test_record), studentId: student.id ?? student.studentId ?? student.student_id });
-        if (publication?.status !== 'PUBLISHED') return false;
-        academicResults.result({ studentId: student.id ?? student.studentId ?? student.student_id, classId: context.classId, academicYear: context.yearId, term: context.termId, sample: Boolean(student.isTestRecord ?? student.is_test_record) }, { ...actor, children: [student], roleKey: 'HEADTEACHER', permissions: new Set(['*']) });
-        return true;
+      if (recordType === 'published-results') {
+        return Boolean(await loadPublishedResult(actor, student, context));
       }
       if ((recordType === 'fees' || recordType === 'payments' || recordType === 'payment-receipts') && parentFeeObligations?.listForParent) {
         const result = await parentFeeObligations.listForParent(actor, { academicYearId: context.yearId, termId: context.termId, classId: context.classId, status: 'PUBLISHED' });
@@ -405,15 +436,9 @@ export function createParentDashboardService({
       return { recordType: type, available: true, student: { name, permanentStudentId }, context, attendanceSummary: attendanceSummary(authorizedRecords), records: authorizedRecords };
     }
     if (type === 'published-results') {
-      if (resultBlocking?.assertReadable) await resultBlocking.assertReadable({ classId: context.classId, academicYear: context.yearId, term: context.termId, studentId: student.id ?? student.studentId ?? student.student_id }, actor); else if (academicResults?.blockFor?.({ classId: context.classId, academicYear: context.yearId, term: context.termId, studentId: student.id ?? student.studentId ?? student.student_id })?.status === 'BLOCKED') fail('This result is temporarily blocked by the school. Please contact the school office.', 403, 'PARENT_RESULT_BLOCKED');
-      const publication = academicResults.publicationFor({ classId: context.classId, academicYear: context.yearId, term: context.termId, isSample: Boolean(student.isTestRecord ?? student.is_test_record), studentId: student.id ?? student.studentId ?? student.student_id });
-      if (publication?.status !== 'PUBLISHED') fail('No published result is available for this student and academic context.', 404, 'PARENT_RESULT_NOT_PUBLISHED');
-      try {
-        const result = academicResults.result({ studentId: student.id ?? student.studentId ?? student.student_id, classId: context.classId, academicYear: context.yearId, term: context.termId, sample: Boolean(student.isTestRecord ?? student.is_test_record) }, { ...selectedActor, roleKey: 'HEADTEACHER', permissions: new Set(['*']) });
-        return { recordType: type, available: true, student: { name, permanentStudentId }, context, result };
-      } catch {
-        fail('The published result could not be loaded for this student and academic context.', 404, 'PARENT_RESULT_UNAVAILABLE');
-      }
+      const result = await loadPublishedResult(actor, student, context);
+      if (!result) fail('No published result is available for this student and academic context.', 404, 'PARENT_RESULT_NOT_PUBLISHED');
+      return { recordType: type, available: true, student: { name, permanentStudentId }, context, result };
     }
     if (type === 'fees' || type === 'payments' || type === 'payment-receipts') {
       let obligations = [];

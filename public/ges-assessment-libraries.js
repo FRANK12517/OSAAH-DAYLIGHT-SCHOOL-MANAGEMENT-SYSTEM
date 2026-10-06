@@ -330,3 +330,10 @@ window.OSAAH_GES_ASSESSMENT_LIBRARIES = {
     ]
   }
 };
+
+
+// Map Result Slip field names to the canonical shared GES comment-bank keys.
+window.OSAAH_GES_ASSESSMENT_LIBRARY_KEY = (key) => ({
+  classTeacherRemarks: 'ctRemarks',
+  headteacherRemarks: 'htRemarks'
+}[key] || key);
