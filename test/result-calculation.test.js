@@ -29,8 +29,32 @@ test('canonical subject metadata excludes non-scoring subjects without relying o
     { subjectId: 'sports', subjectName: 'Sports and Wellness', subjectType: 'NON_SCORING', isScoring: 0, totalScore: 100 },
     { subjectId: 'english', subjectName: 'English Language', subjectType: 'CORE', isScoring: 1, totalScore: 80 }
   ], { classId: 'Primary 4' });
-  assert.equal(result.subjectsSat, 1);
+  assert.equal(result.subjectsSat, 2);
   assert.equal(result.totalScore, 80);
+});
+
+test('Subjects Sat counts valid submitted subjects, not only scoring subjects or Best Six selections', () => {
+  const rows = [
+    ['English Language', 80], ['Mathematics', 80], ['Science', 80], ['Social Studies', 80],
+    ['RME', 80], ['Computing', 80], ['Physical Education', 80], ['French', 80]
+  ].map(([subjectName, totalScore]) => ({ subjectId: subjectName, subjectName, totalScore }));
+  const result = calculateStudentResult(rows, { classId: 'JHS 2' });
+  assert.equal(result.subjectsSat, 8);
+  assert.equal(result.aggregateSubjects.length, 6);
+});
+
+test('Subjects Sat is dynamic, ignores missing rows, preserves zero, and counts one duplicate subject once', () => {
+  const result = calculateStudentResult([
+    { subjectId: 'a', totalScore: 0 }, { subjectId: 'b', totalScore: 1 }, { subjectId: 'c', totalScore: 2 },
+    { subjectId: 'd', totalScore: 3 }, { subjectId: 'e', totalScore: 4 }, { subjectId: 'f', totalScore: 5 },
+    { subjectId: 'g', totalScore: 6 }, { subjectId: 'h', totalScore: 7 }, { subjectId: 'h', totalScore: 7 },
+    { subjectId: 'missing', totalScore: null }, { subjectId: 'blank', totalScore: 10, submitted: false },
+    { subjectId: 'placeholder', totalScore: 10, placeholder: true }
+  ], { classId: 'Primary 4' });
+  assert.equal(result.subjectsSat, 8);
+  assert.equal(result.totalScore, 35);
+  const seven = calculateStudentResult(Array.from({ length: 7 }, (_, index) => ({ subjectId: `s${index}`, totalScore: 50 })), { classId: 'Primary 4' });
+  assert.equal(seven.subjectsSat, 7);
 });
 
 test('JHS class position ranks by lower aggregate, then higher selected-six total', () => {
