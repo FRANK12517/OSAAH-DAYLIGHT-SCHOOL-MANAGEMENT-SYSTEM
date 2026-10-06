@@ -28,6 +28,8 @@ test('Staff Management API requires authentication and staff.manage permission, 
     assert.equal(await request(server, '/api/staff-management'), 401);
     assert.equal(await request(server, '/api/staff-management', { token: teacher.token }), 403);
     assert.equal(await request(server, '/api/staff-management', { token: administrator.token }), 200);
+    assert.equal(await request(server, '/api/staff-directory', { token: administrator.token }), 200);
+    assert.equal(await request(server, '/api/staff-directory', { token: teacher.token }), 403);
     assert.equal(await request(server, `/api/staff-management/${created.administrator.id}/disable`, { method: 'POST', token: administrator.token }), 409);
     assert.equal(await request(server, `/api/staff-management/${created.administrator.id}/revoke`, { method: 'POST', token: administrator.token }), 409);
   } finally {
@@ -42,4 +44,11 @@ test('Staff Management renders API-backed directory rows after loading', async (
   assert.ok(loader, 'Staff Management load function should be present');
   assert.match(loader, /const render=staff=>/, 'directory renderer should be defined');
   assert.match(loader, /render\(Array\.isArray\(data\.staff\)\?data\.staff:\[\]\)/, 'API staff rows should be passed to the renderer');
+});
+
+test('Staff Directory uses the read-only directory endpoint', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(new URL('../public/staff-canonical.html', import.meta.url), 'utf8');
+  assert.match(source, /fetch\('\/api\/staff-directory'\)/, 'Staff Directory should use its read-only directory endpoint');
+  assert.doesNotMatch(source, /fetch\('\/api\/attendance\/staff'\)/, 'Staff Directory must not use the attendance-only endpoint');
 });
