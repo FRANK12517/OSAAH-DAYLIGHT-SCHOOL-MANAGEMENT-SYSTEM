@@ -30,6 +30,19 @@ test('Save Result persists scores, attendance, assessments, and SAVED state acro
   assert.equal(refreshed.assessment.conduct, 'Demonstrates exceptional honesty'); assert.equal(refreshed.attendance.totalSchoolDays, 20); assert.equal(refreshed.status, 'SAVED');
 });
 
+test('class-teacher and headteacher remarks survive Save Result, regenerated result, and publication', () => {
+  const { student, results } = setup();
+  const input = complete(student);
+  input.assessment.classTeacherRemarks = 'Responds positively to correction and guidance.';
+  input.assessment.headteacherRemarks = 'Continue to build on this success and aim even higher in the coming term.';
+  results.saveResult(input, teacher);
+  const filters = { studentId: student.id, classId: 'Primary 1', academicYear: '2026/2027', term: 'First Term', examination: 'TERMINAL' };
+  assert.deepEqual(results.result(filters, teacher).assessment, input.assessment);
+  const published = results.publishResults(filters, teacher);
+  assert.equal(published.status, 'PUBLISHED');
+  assert.deepEqual(results.result(filters, teacher).assessment, input.assessment);
+});
+
 test('editing an underlying score makes the saved result dirty and saving again restores SAVED', () => {
   const { student, results } = setup(); results.saveResult(complete(student), teacher);
   results.saveScore({ studentId: student.id, classId: 'Primary 1', subjectId: 'Math', academicYear: '2026/2027', term: 'First Term', caScore: 45, examScore: 40 }, teacher);

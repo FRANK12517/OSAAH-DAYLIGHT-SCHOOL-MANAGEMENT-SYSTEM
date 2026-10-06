@@ -40,9 +40,11 @@ test('PDF maps generated sample GES assessments and always renders both signatur
   const fs = await import('node:fs/promises');
   const source = await fs.readFile(new URL('../src/result-slip-pdf.js', import.meta.url), 'utf8');
   assert.match(source, /result\.assessment \?\? result\.assessments \?\? \{\}/);
-  assert.match(source, /\['CLASS_TEACHER', 'Class Teacher'\], \['HEADTEACHER', 'Headteacher'\]/);
+  assert.match(source, /\['CLASS_TEACHER', 'Class Teacher'\] : \['HEADTEACHER', 'Headteacher'\]/);
   assert.match(source, /\$\{label\} Signature/);
   assert.match(source, /Signature not uploaded/);
+  assert.match(source, /classTeacherRemarks/);
+  assert.match(source, /headteacherRemarks/);
 });
 
 test('PDF client controls and both result pages use real download endpoints without exposing edit controls', async () => {
@@ -120,4 +122,47 @@ test('PDF export routes are protected before any client-provided student lookup'
   assert.equal(await request('/api/academic/mock-result/pdf?studentId=student-1&classId=JHS%203&mockLabel=1st%20Mock'), 401);
   assert.equal(await request('/api/academic/sample/result/pdf'), 401);
   await new Promise((resolve) => server.close(resolve));
+});
+
+test('representative full JHS terminal Result Slip fits exactly one A4 page with wrapped remarks and complete lower sections', async () => {
+  const service = createResultSlipPdfService();
+  const subjects = Array.from({ length: 12 }, (_, index) => ({
+    subjectName: ['English Language', 'Mathematics', 'Integrated Science', 'Social Studies', 'Computing', 'French', 'RME', 'Career Technology', 'Creative Arts', 'Ghanaian Language', 'Physical Education', 'Career Guidance'][index],
+    caScore: 38 + index % 10,
+    examScore: 42 + index % 8,
+    totalScore: 80 + index % 12,
+    grade: '1',
+    subjectPosition: `${index + 1}${index === 0 ? 'st' : 'th'}`,
+    remark: 'Excellent performance'
+  }));
+  const longTeacherRemark = 'Responds positively to correction and guidance. '.repeat(3).trim();
+  const longHeadteacherRemark = 'Continue to build on this success and aim even higher in the coming term. '.repeat(2).trim();
+  const buffer = await service.pdf(baseResult({
+    isSample: true,
+    studentIndexNumber: 'OSAAH-DEMO-001',
+    classId: 'JHS 2',
+    gender: 'Female',
+    classGenderDistribution: { totalBoys: 20, totalGirls: 18, totalStudents: 38 },
+    academicYear: '2026/2027',
+    subjects,
+    totalScore: 1026,
+    totalMaximum: 1200,
+    aggregate: 8,
+    classPosition: '2nd',
+    subjectsSat: 12,
+    average: 85.5,
+    assessment: {
+      conduct: 'Responds positively to correction and guidance.',
+      attitude: 'Demonstrates a consistently positive attitude toward learning and personal growth.',
+      interest: 'Shows remarkable curiosity in discovering new ideas and concepts.',
+      classTeacherRemarks: longTeacherRemark,
+      headteacherRemarks: longHeadteacherRemark
+    },
+    attendance: { timesPresent: 58, timesAbsent: 2, totalSchoolDays: 60 }
+  }));
+  const raw = buffer.toString('latin1');
+  assert.equal((raw.match(/\/Type\s*\/Page\b/g) || []).length, 1, 'PDF contains exactly one page object');
+  assert.match(raw, /\/Type\s*\/Pages[\s\S]{0,300}?\/Count\s+1\b/, 'PDF page tree reports a single page');
+  assert.match(raw, /\/MediaBox\s*\[0\s+0\s+595\.28\s+841\.89\]/, 'page geometry is A4 portrait');
+  assert.ok(buffer.length > 5000, 'full representative result is rendered');
 });
