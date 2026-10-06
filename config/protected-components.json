@@ -3,7 +3,7 @@
   "components": [
     {
       "id": "administrator-users-roles-directory",
-      "description": "Read-only, canonical-school-scoped directory of existing accounts and assigned roles.",
+      "description": "Canonical school-scoped Users & Roles directory with one-time credential reissue controls.",
       "route": "/users",
       "files": [
         {
@@ -12,7 +12,9 @@
             "<h1>Users &amp; Roles</h1>",
             "This directory is read-only;",
             "id=\"directory-rows\"",
-            "fetch('/api/users'"
+            "fetch('/api/users'",
+            "data-reissue=",
+            "Temporary credentials issued"
           ]
         },
         {
@@ -28,7 +30,9 @@
           "path": "src/server.mjs",
           "requiredMarkers": [
             "pathname === '/api/users'",
-            "'/users': '/users-and-roles.html'"
+            "'/users': '/users-and-roles.html'",
+            "credentials/reissue",
+            "CREDENTIALS_REISSUED"
           ]
         },
         {
@@ -36,7 +40,16 @@
           "requiredMarkers": [
             "Users & Roles API authorizes server-side",
             "directory service rejects accounts outside the canonical school",
+            "never returns credentials",
             "never returns credentials"
+          ]
+        },
+        {
+          "path": "src/durable-credential-management.js",
+          "requiredMarkers": [
+            "createDurableCredentialManagement",
+            "temporaryPassword",
+            "auth_sessions"
           ]
         }
       ]
