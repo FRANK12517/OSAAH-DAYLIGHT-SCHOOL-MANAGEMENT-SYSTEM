@@ -103,6 +103,7 @@ function createFakeDatabase({ failAt = null } = {}) {
       return { affectedRows: 1 };
     }
     if (sql.startsWith('INSERT INTO staff_assignments')) {
+      if (!store.profiles.some((profile) => profile.id === params[1])) throw new Error('Foreign key constraint failed for staff_assignments.staff_id');
       store.assignments.push({ id: params[0], staff_id: params[1], subject_id: params[2], class_id: params[3], created_at: params[4] });
       return { affectedRows: 1 };
     }
@@ -195,6 +196,8 @@ test('staff provisioning commits linked durable records and a new auth service c
   assert.equal(stored.profiles.length, 1);
   assert.equal(stored.userRoles.length, 1);
   assert.equal(stored.assignments.length, 1);
+  assert.equal(stored.profiles[0].id, stored.staff[0].id);
+  assert.equal(stored.assignments[0].staff_id, stored.profiles[0].id);
   assert.equal(stored.users[0].school_id, SCHOOL_ID);
   assert.equal(stored.users[0].email, newTeacher.email);
   assert.notEqual(stored.users[0].password_hash, created.temporaryPassword);
