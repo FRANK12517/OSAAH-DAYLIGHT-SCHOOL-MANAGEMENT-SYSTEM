@@ -27,6 +27,7 @@ const numericGrade = (row, classId, examination) => {
   return Number(gradeForTotal(validateScore(row.totalScore), { classId, examination })[0]);
 };
 const stableId = (item) => String(item.studentId ?? item.id ?? '');
+const subjectKey = (row) => String(row.subjectId ?? row.subject ?? '').trim();
 
 export function calculateAggregate(rows, { classId = '', examination = 'TERMINAL' } = {}) {
   const level = levelOf(classId);
@@ -49,12 +50,14 @@ export function calculateAggregate(rows, { classId = '', examination = 'TERMINAL
 }
 
 export function calculateStudentResult(rows = [], options = {}) {
+  const satRows = validSubjectRows(rows);
   const valid = scoring(rows);
   const totalScore = valid.reduce((sum, row) => sum + validateScore(row.totalScore), 0);
   const average = valid.length ? Number((totalScore / valid.length).toFixed(2)) : null;
   const aggregate = calculateAggregate(rows, options);
   const level = levelOf(options.classId);
-  return { totalScore, totalMaximum: level === 'KG' ? KG_TOTAL_MAXIMUM : null, average, subjectsSat: valid.length, ...aggregate };
+  const subjectsSat = new Set(satRows.map(subjectKey)).size;
+  return { totalScore, totalMaximum: level === 'KG' ? KG_TOTAL_MAXIMUM : null, average, subjectsSat, ...aggregate };
 }
 
 export function calculateClassPositions(studentResults = [], { classId = '' } = {}) {
