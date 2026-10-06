@@ -41,6 +41,28 @@ test('assignment retrieval remains school- and teacher-class-scoped', async () =
   assert.equal(created.status, 'DRAFT');
 });
 
+test('assignment class aliases remain authorized while subjects stay class-scoped', async () => {
+  const service = createAssignmentService({ classes: ['KG1'], subjects: { list: ({ classId }) => classId === 'KG1' ? [{ id: 'phonics' }] : [] } });
+  const teacher = { id: 'teacher-kg', roleKey: 'TEACHER', schoolId, assignedClassIds: ['KG 1'] };
+  const created = await service.create({ classId: 'KG1', subjectId: 'phonics', title: 'Letter sounds' }, teacher);
+  assert.equal(created.classId, 'KG1');
+  await assert.rejects(() => service.create({ classId: 'KG1', subjectId: 'math', title: 'Numbers' }, teacher), /Subject is not configured/);
+});
+
+test('durable assignments require an active subject registration for the selected class', async () => {
+  const database = {
+    async query(sql) {
+      if (sql.includes('FROM classes')) return [{ id: 'class-kg1', name: 'KG 1' }];
+      if (sql.includes('FROM subjects s JOIN subject_class_assignments')) return [];
+      return [];
+    },
+    async execute() {}
+  };
+  const service = createAssignmentService({ database, classes: [], schoolId });
+  const teacher = { id: 'teacher-durable', roleKey: 'TEACHER', schoolId, assignedClassIds: ['class-kg1'] };
+  await assert.rejects(() => service.create({ classId: 'class-kg1', subjectId: 'subject-math', title: 'Fractions' }, teacher), /Subject is not configured/);
+});
+
 test('attendance route metadata has distinct student, staff, and alert API contracts', () => {
   assert.deepEqual(resolveRouteContract({ moduleKey: 'student-attendance', route: '/attendance' }).apiDependencies, ['/api/attendance/register']);
   assert.deepEqual(resolveRouteContract({ moduleKey: 'staff-attendance', route: '/staff/attendance' }).apiDependencies, ['/api/attendance/staff']);

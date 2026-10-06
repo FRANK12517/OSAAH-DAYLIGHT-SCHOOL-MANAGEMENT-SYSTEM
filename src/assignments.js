@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import PDFDocument from 'pdfkit';
+import { canonicalClassId, displayClassName } from './student-classes.js';
 
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -11,18 +12,28 @@ export function createAssignmentService({ database = null, subjects = null, stud
   const memory = new Map();
   const durable = Boolean(database?.query && database?.execute);
   const classSet = new Set(classes.map((item) => typeof item === 'string' ? item : item.id));
+  const sameClass = (left, right) => String(left ?? '') === String(right ?? '') || (canonicalClassId(left) !== null && canonicalClassId(left) === canonicalClassId(right));
+  const assignedClasses = (actor) => (actor?.assignedClassIds ?? []).map(String);
 
   function actorSchool(actor) { if (!actor?.schoolId || actor.schoolId !== schoolId) fail('Forbidden.', 403, 'SCHOOL_SCOPE_DENIED'); }
   function teacher(actor, classId) {
     actorSchool(actor);
     if (!['TEACHER', 'HEADTEACHER', 'ASSISTANT_HEADTEACHER', 'SCHOOL_ADMIN', 'PROPRIETOR'].includes(actor.roleKey)) fail('Teacher assignment access required.', 403, 'ASSIGNMENT_ROLE_DENIED');
-    if (actor.roleKey === 'TEACHER' && !(actor.assignedClassIds ?? []).map(String).includes(String(classId))) fail('Class is outside your teacher assignment.', 403, 'ASSIGNMENT_CLASS_DENIED');
+    if (actor.roleKey === 'TEACHER' && !assignedClasses(actor).some((assigned) => sameClass(assigned, classId))) fail('Class is outside your teacher assignment.', 403, 'ASSIGNMENT_CLASS_DENIED');
   }
-  function validateInput(input, actor, { publish = false } = {}) {
+  async function validateInput(input, actor, { publish = false } = {}) {
     const classId = text(input.classId); const subjectId = text(input.subjectId);
     if (!classId || !subjectId || !text(input.title)) fail('Class, subject, and assignment title are required.');
-    if (classSet.size && !classSet.has(classId)) fail('Class is not configured for this school.');
+    const configuredClass = classSet.has(classId) || (durable && (await database.query('SELECT id FROM classes WHERE school_id=? AND id=? LIMIT 1', [schoolId, classId])).length > 0);
+    if (classSet.size && !configuredClass) fail('Class is not configured for this school.');
     teacher(actor, classId);
+    if (durable) {
+      const registered = await database.query('SELECT s.id FROM subjects s JOIN subject_class_assignments a ON a.subject_id=s.id AND a.school_id=s.school_id WHERE s.school_id=? AND s.id=? AND a.class_id=? AND a.active=1 AND (a.academic_year_id IS NULL OR a.academic_year_id=?) LIMIT 1', [schoolId, subjectId, classId, text(input.academicYearId)]);
+      if (!registered.length) fail('Subject is not configured for the selected class.');
+    } else if (subjects?.list) {
+      const available = subjects.list({ classId }, actor) ?? [];
+      if (!available.some((subject) => String(subject.id) === subjectId)) fail('Subject is not configured for the selected class.');
+    }
     if (input.dueDate && input.assignmentDate && String(input.dueDate) < String(input.assignmentDate)) fail('Due date cannot be before the assignment date.');
     const recipients = input.recipientScope === 'STUDENTS' ? [...new Set((input.studentIds ?? []).map(text).filter(Boolean))] : [];
     if (input.recipientScope === 'STUDENTS' && !recipients.length) fail('Select at least one authorized student.');
@@ -36,12 +47,12 @@ export function createAssignmentService({ database = null, subjects = null, stud
   function matchesChild(record, student) { const ids = [student.id, student.studentId, student.studentProfileId, student.permanentStudentId].map(text); return record.recipientScope === 'CLASS' ? String(record.classId) === String(student.classId ?? student.class_id) : (record.studentIds ?? []).some((id) => ids.includes(text(id))); }
 
   async function create(input, actor) {
-    const normalized = validateInput(input, actor); const record = { id: randomUUID(), schoolId, academicYearId: text(input.academicYearId), termId: text(input.termId), classId: normalized.classId, subjectId: normalized.subjectId, teacherId: actor.id, title: text(input.title), instructions: text(input.instructions) || null, assignmentDate: input.assignmentDate ?? null, dueDate: input.dueDate ?? null, recipientScope: input.recipientScope === 'STUDENTS' ? 'STUDENTS' : 'CLASS', studentIds: normalized.recipients, status: 'DRAFT', createdBy: actor.id, createdAt: now(), updatedAt: now(), publishedAt: null, files: normalized.files };
+    const normalized = await validateInput(input, actor); const record = { id: randomUUID(), schoolId, academicYearId: text(input.academicYearId), termId: text(input.termId), classId: normalized.classId, subjectId: normalized.subjectId, teacherId: actor.id, title: text(input.title), instructions: text(input.instructions) || null, assignmentDate: input.assignmentDate ?? null, dueDate: input.dueDate ?? null, recipientScope: input.recipientScope === 'STUDENTS' ? 'STUDENTS' : 'CLASS', studentIds: normalized.recipients, status: 'DRAFT', createdBy: actor.id, createdAt: now(), updatedAt: now(), publishedAt: null, files: normalized.files };
     if (durable) { await database.execute('INSERT INTO assignments (id,school_id,academic_year_id,term_id,class_id,subject_id,teacher_id,title,instructions,assignment_date,due_date,recipient_scope,recipient_student_ids,status,created_by,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [record.id, schoolId, record.academicYearId, record.termId, record.classId, record.subjectId, record.teacherId, record.title, record.instructions, record.assignmentDate, record.dueDate, record.recipientScope, JSON.stringify(record.studentIds), record.status, record.createdBy, record.createdAt, record.updatedAt]); for (const file of record.files) await database.execute('INSERT INTO assignment_files (id,assignment_id,school_id,file_name,mime_type,file_size,storage_reference,created_at) VALUES (?,?,?,?,?,?,?,?)', [randomUUID(), record.id, schoolId, file.fileName, file.mimeType, file.size, file.storageReference, record.createdAt]); } else memory.set(record.id, record);
     return view(record);
   }
-  async function publish(id, actor) { const record = await getForStaff(id, actor); validateInput(record, actor, { publish: true }); record.status = 'PUBLISHED'; record.publishedBy = actor.id; record.publishedAt = now(); record.updatedAt = record.publishedAt; if (durable) await database.execute('UPDATE assignments SET status=?,published_by=?,published_at=?,updated_at=? WHERE id=? AND school_id=?', ['PUBLISHED', actor.id, record.publishedAt, record.updatedAt, id, schoolId]); else memory.set(id, record); return view(record); }
-  async function getForStaff(id, actor) { actorSchool(actor); const record = durable ? await loadDurable(id) : memory.get(id); if (!record || (actor.roleKey === 'TEACHER' && !(actor.assignedClassIds ?? []).map(String).includes(String(record.classId)))) fail('Assignment not found.', 404, 'ASSIGNMENT_NOT_FOUND'); return record; }
+  async function publish(id, actor) { const record = await getForStaff(id, actor); await validateInput(record, actor, { publish: true }); record.status = 'PUBLISHED'; record.publishedBy = actor.id; record.publishedAt = now(); record.updatedAt = record.publishedAt; if (durable) await database.execute('UPDATE assignments SET status=?,published_by=?,published_at=?,updated_at=? WHERE id=? AND school_id=?', ['PUBLISHED', actor.id, record.publishedAt, record.updatedAt, id, schoolId]); else memory.set(id, record); return view(record); }
+  async function getForStaff(id, actor) { actorSchool(actor); const record = durable ? await loadDurable(id) : memory.get(id); if (!record || (actor.roleKey === 'TEACHER' && !assignedClasses(actor).some((assigned) => sameClass(assigned, record.classId)))) fail('Assignment not found.', 404, 'ASSIGNMENT_NOT_FOUND'); return record; }
   async function loadDurable(id) { const rows = await database.query('SELECT id,school_id AS schoolId,academic_year_id AS academicYearId,term_id AS termId,class_id AS classId,subject_id AS subjectId,teacher_id AS teacherId,title,instructions,assignment_date AS assignmentDate,due_date AS dueDate,recipient_scope AS recipientScope,recipient_student_ids AS recipientStudentIds,status,created_by AS createdBy,created_at AS createdAt,updated_at AS updatedAt,published_at AS publishedAt FROM assignments WHERE id=? AND school_id=? LIMIT 1', [id, schoolId]); if (!rows[0]) return null; const files = await database.query('SELECT file_name AS fileName,mime_type AS mimeType,file_size AS size,storage_reference AS storageReference FROM assignment_files WHERE assignment_id=? AND school_id=? ORDER BY created_at,id', [id, schoolId]); const row = rows[0]; return { ...row, studentIds: typeof row.recipientStudentIds === 'string' ? JSON.parse(row.recipientStudentIds || '[]') : (row.recipientStudentIds ?? []), files }; }
   async function listForStaff(actor, filters = {}) {
     actorSchool(actor);
@@ -49,15 +60,15 @@ export function createAssignmentService({ database = null, subjects = null, stud
     const academicYearId = text(filters.academicYearId || filters.academicYear);
     const termId = text(filters.termId || filters.term);
     const classId = text(filters.classId);
-    const allowedClassIds = actor.roleKey === 'TEACHER' ? new Set((actor.assignedClassIds ?? []).map(String)) : null;
-    if (classId && allowedClassIds && !allowedClassIds.has(classId)) fail('Class is outside your teacher assignment.', 403, 'ASSIGNMENT_CLASS_DENIED');
+    const allowedClassIds = actor.roleKey === 'TEACHER' ? assignedClasses(actor) : null;
+    if (classId && allowedClassIds && !allowedClassIds.some((assigned) => sameClass(assigned, classId))) fail('Class is outside your teacher assignment.', 403, 'ASSIGNMENT_CLASS_DENIED');
     if (durable) {
       const result = await database.query(`SELECT id,school_id AS schoolId,academic_year_id AS academicYearId,term_id AS termId,class_id AS classId,subject_id AS subjectId,teacher_id AS teacherId,title,instructions,assignment_date AS assignmentDate,due_date AS dueDate,recipient_scope AS recipientScope,recipient_student_ids AS recipientStudentIds,status,created_by AS createdBy,created_at AS createdAt,updated_at AS updatedAt,published_at AS publishedAt FROM assignments WHERE school_id=? AND (?='' OR academic_year_id=?) AND (?='' OR term_id=?) AND (?='' OR class_id=?) ORDER BY created_at DESC`, [schoolId, academicYearId, academicYearId, termId, termId, classId, classId]);
       const records = [];
       for (const row of result) records.push(view({ ...row, studentIds: typeof row.recipientStudentIds === 'string' ? JSON.parse(row.recipientStudentIds || '[]') : (row.recipientStudentIds ?? []), files: await database.query('SELECT file_name AS fileName,mime_type AS mimeType,file_size AS size,storage_reference AS storageReference FROM assignment_files WHERE assignment_id=? AND school_id=? ORDER BY created_at,id', [row.id, schoolId]) }));
-      return records.filter((record) => !allowedClassIds || allowedClassIds.has(String(record.classId)));
+      return records.filter((record) => !allowedClassIds || allowedClassIds.some((assigned) => sameClass(assigned, record.classId)));
     }
-    return [...memory.values()].filter((record) => (!academicYearId || record.academicYearId === academicYearId) && (!termId || record.termId === termId) && (!classId || record.classId === classId) && (!allowedClassIds || allowedClassIds.has(String(record.classId)))).map(view);
+    return [...memory.values()].filter((record) => (!academicYearId || record.academicYearId === academicYearId) && (!termId || record.termId === termId) && (!classId || sameClass(record.classId, classId)) && (!allowedClassIds || allowedClassIds.some((assigned) => sameClass(assigned, record.classId)))).map(view);
   }
   async function listForParent(actor, student, filters = {}) {
     authorizedParent(actor, student);
@@ -78,6 +89,6 @@ export function createAssignmentService({ database = null, subjects = null, stud
   }
   async function getForParent(id, actor, student) { authorizedParent(actor, student); const rows = await listForParent(actor, student); const record = rows.find((item) => item.id === id); if (!record) fail('Assignment not found.', 404, 'ASSIGNMENT_NOT_FOUND'); return record; }
   async function pdf(id, actor, student) { const record = await getForParent(id, actor, student); return new Promise((resolve, reject) => { const document = new PDFDocument({ size: 'A4', margins: { top: 48, right: 48, bottom: 48, left: 48 } }); const chunks = []; document.on('data', (chunk) => chunks.push(chunk)); document.on('end', () => resolve(Buffer.concat(chunks))); document.on('error', reject); document.font('Helvetica-Bold').fontSize(18).fillColor('#102a43').text('OSAAH DAYLIGHT SCHOOL', { align: 'center' }); document.moveDown().fontSize(14).text('ASSIGNMENT'); document.moveDown().font('Helvetica').fontSize(10); for (const [label, value] of [['Student', student.name ?? student.fullName], ['Permanent Student ID', student.permanentStudentId], ['Class', student.className ?? student.classId], ['Academic Year', record.academicYearId], ['Term', record.termId], ['Subject', record.subjectId], ['Title', record.title], ['Assignment Date', record.assignmentDate], ['Due Date', record.dueDate], ['Teacher', record.teacherId]]) document.text(`${label}: ${value ?? '—'}`); document.moveDown().font('Helvetica-Bold').text('Instructions'); document.font('Helvetica').text(record.instructions ?? '—', { width: 500 }); document.moveDown().font('Helvetica-Bold').text('Uploaded assignment images'); document.font('Helvetica').text((record.files ?? []).map((file) => `${file.fileName} (${file.mimeType})`).join('\n') || 'No image metadata available.'); document.moveDown().fillColor('#9b2c2c').font('Helvetica-Bold').text(student.isTestRecord ? 'SAMPLE DATA' : 'Authorized parent copy', { align: 'center' }); document.end(); }); }
-  async function options(actor) { actorSchool(actor); const configuredSubjects = subjects?.list ? subjects.list({ includeInactive: false }, actor) : []; return { classes: [...classSet].map((id) => ({ id, name: id.replace(/^KG([12])$/, 'KG $1') })), subjects: configuredSubjects }; }
+  async function options(actor) { actorSchool(actor); const configuredSubjects = subjects?.list ? subjects.list({ includeInactive: false }, actor) : []; let configuredClasses = classes.map((item) => typeof item === 'string' ? { id: item, name: displayClassName(item) } : { ...item, name: displayClassName(item.name ?? item.id) }); if (durable) { const rows = await database.query('SELECT id,name FROM classes WHERE school_id=? ORDER BY id', [schoolId]); if (rows.length) configuredClasses = rows.map((item) => ({ ...item, name: displayClassName(item.name ?? item.id) })); } const allowed = actor.roleKey === 'TEACHER' ? configuredClasses.filter((item) => assignedClasses(actor).some((assigned) => sameClass(assigned, item.id))) : configuredClasses; return { classes: allowed, subjects: configuredSubjects }; }
   return { create, publish, listForStaff, listForParent, getForParent, pdf, options, getForStaff, durable };
 }
