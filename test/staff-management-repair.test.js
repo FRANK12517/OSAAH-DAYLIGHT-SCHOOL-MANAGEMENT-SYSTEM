@@ -34,3 +34,12 @@ test('Staff Management API requires authentication and staff.manage permission, 
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test('Staff Management renders API-backed directory rows after loading', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(new URL('../public/staff-management.html', import.meta.url), 'utf8');
+  const loader = source.match(/async function load\(\)\{([\s\S]*?)\}form\.onsubmit=/)?.[1];
+  assert.ok(loader, 'Staff Management load function should be present');
+  assert.match(loader, /const render=staff=>/, 'directory renderer should be defined');
+  assert.match(loader, /render\(Array\.isArray\(data\.staff\)\?data\.staff:\[\]\)/, 'API staff rows should be passed to the renderer');
+});
