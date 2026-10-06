@@ -132,7 +132,9 @@ export function createDurableStaffProvisioning({ database, passwordHash, verifyL
 
       await tx.execute('INSERT INTO users (id, school_id, username, email, password_hash, full_name, phone, role, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [id, schoolId, username, email, hash, fullName, String(input?.phone ?? '').trim() || null, roleKey, 'ACTIVE', timestamp, timestamp]);
       await tx.execute('INSERT INTO staff (id, school_id, user_id, staff_number, first_name, last_name, department_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)', [id, schoolId, id, staffId, firstName, lastName, timestamp, timestamp]);
-      await tx.execute('INSERT INTO staff_profiles (id, school_id, user_id, staff_number, department, position, date_hired, qualification, created_at) VALUES (?, ?, ?, ?, NULL, ?, NULL, NULL, ?)', [randomUUID(), schoolId, id, staffId, roleKey, timestamp]);
+      // Share the canonical staff identity so staff_assignments satisfies deployments
+      // whose FK targets staff_profiles.id as well as schemas targeting staff.id.
+      await tx.execute('INSERT INTO staff_profiles (id, school_id, user_id, staff_number, department, position, date_hired, qualification, created_at) VALUES (?, ?, ?, ?, NULL, ?, NULL, NULL, ?)', [id, schoolId, id, staffId, roleKey, timestamp]);
       await tx.execute('INSERT INTO user_roles (id, user_id, role_id, created_at) VALUES (?, ?, ?, ?)', [randomUUID(), id, role.id, timestamp]);
       if (assignment.classId || assignment.subjectId) {
         await tx.execute('INSERT INTO staff_assignments (id, staff_id, subject_id, class_id, stream_id, department_id, timetable_id, academic_year_id, term_id, created_at) VALUES (?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, ?)', [randomUUID(), id, assignment.subjectId, assignment.classId, timestamp]);
