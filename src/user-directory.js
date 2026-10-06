@@ -17,6 +17,7 @@ export const USER_DIRECTORY_SQL = `
   WHERE u.school_id = ?
   ORDER BY u.email, u.id, r.role_name
 `;
+export const CREDENTIAL_MANAGEMENT_PERMISSION = 'users.credentials.manage';
 
 function directoryError(message, status, code) {
   return Object.assign(new Error(message), { status, code });

@@ -903,6 +903,18 @@ export function createApp({ auth = null, students = null, attendance = null, att
           return json(response, { error: error.message ?? 'User directory service is unavailable.' }, error.status ?? 503);
         }
       }
+      if (pathname.startsWith('/api/users/') && pathname.endsWith('/credentials/reissue') && request.method === 'POST') {
+        if (user.portal !== 'school' || !canAccess(user, 'users.credentials.manage')) return json(response, { error: 'Forbidden.' }, 403);
+        const targetId = pathname.split('/').filter(Boolean)[2];
+        try {
+          const result = await auth.resetUserCredentials(targetId, user.schoolId);
+          if (!result) return json(response, { error: 'Account not found.' }, 404);
+          audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, roleId: user.roleKey, action: 'CREDENTIALS_REISSUED', entity: 'User', entityId: result.userId, newValue: { targetUsername: result.username, targetRoleKey: result.roleKey, mustChangePassword: true } }));
+          return json(response, { ok: true, user: { id: result.userId, username: result.username, email: result.email, staffId: result.staffId, roleKey: result.roleKey }, temporaryPassword: result.temporaryPassword, mustChangePassword: true });
+        } catch (error) {
+          return json(response, { error: error.message ?? 'Credentials could not be reissued.', code: error.code ?? 'CREDENTIAL_REISSUE_FAILED' }, error.status ?? 400);
+        }
+      }
       return json(response, { error: 'Not found.' }, 404);
     }
     if (pathname === '/website') { response.writeHead(302, { Location: '/#public-school-website', 'Cache-Control': 'no-store' }); return response.end(); }

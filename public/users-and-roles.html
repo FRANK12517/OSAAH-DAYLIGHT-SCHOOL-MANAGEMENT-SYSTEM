@@ -1,84 +1,28 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Users &amp; Roles | OsaaH Daylight</title>
-  <link rel="stylesheet" href="/styles.css">
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Users &amp; Roles | OsaaH Daylight</title><link rel="stylesheet" href="/styles.css">
   <style>
-    .users-toolbar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:20px 0 12px}
-    .users-toolbar p{margin:0}
-    .users-refresh{border:1px solid #1769aa;border-radius:8px;background:#fff;color:#1769aa;padding:9px 14px;font:inherit;font-weight:600;cursor:pointer}
-    .users-refresh:disabled{opacity:.6;cursor:wait}
-    .user-role{display:inline-block;margin:2px 5px 2px 0;padding:4px 8px;border-radius:999px;background:#eaf2f8;color:#102a43;font-size:.82rem;white-space:nowrap}
-    .user-status{font-weight:600}
-    .user-status[data-status="ACTIVE"]{color:#176b45}
-    .user-status[data-status="DISABLED"],.user-status[data-status="REVOKED"]{color:#9a3412}
-    .users-empty{padding:18px;text-align:center;color:#52606d}
-    @media(max-width:640px){.users-toolbar{align-items:flex-start;flex-direction:column}}
+    .users-toolbar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:20px 0 12px}.users-toolbar p{margin:0}
+    .users-refresh,.credential-action,.copy-action{border:1px solid #1769aa;border-radius:8px;background:#fff;color:#1769aa;padding:9px 14px;font:inherit;font-weight:600;cursor:pointer}.users-refresh:disabled,.credential-action:disabled{opacity:.6;cursor:wait}
+    .user-role{display:inline-block;margin:2px 5px 2px 0;padding:4px 8px;border-radius:999px;background:#eaf2f8;color:#102a43;font-size:.82rem;white-space:nowrap}.user-status{font-weight:600}.user-status[data-status="ACTIVE"]{color:#176b45}.user-status[data-status="DISABLED"],.user-status[data-status="REVOKED"]{color:#9a3412}.credential-status{display:block;margin-top:4px;font-size:.78rem;color:#52606d}.users-empty{padding:18px;text-align:center;color:#52606d}.credential-action{font-size:.78rem;padding:6px 9px;margin-top:6px}.credential-dialog{max-width:500px;border:0;border-radius:14px;padding:24px;box-shadow:0 20px 60px #102a4333}.credential-dialog::backdrop{background:#102a4366}.credential-value{display:flex;gap:8px;align-items:center;background:#f4f7f9;border:1px solid #d9e2ec;padding:12px;border-radius:8px;font-family:ui-monospace,monospace;word-break:break-all}.copy-action{padding:5px 9px;white-space:nowrap}.dialog-close{margin-top:16px;border:0;background:#102a43;color:#fff;border-radius:8px;padding:10px 16px;font:inherit;font-weight:600;cursor:pointer}@media(max-width:640px){.users-toolbar{align-items:flex-start;flex-direction:column}}
   </style>
 </head>
 <body>
-  <main class="form-page">
-    <a class="text-button" href="/">← Dashboard</a>
-    <p class="eyebrow">ADMINISTRATIVE</p>
-    <h1>Users &amp; Roles</h1>
-    <p class="muted">Existing accounts and assigned roles for your authorized school. This directory is read-only; account changes remain subject to the existing server-side controls.</p>
-    <section class="card" aria-labelledby="directory-heading">
-      <div class="users-toolbar">
-        <div>
-          <h2 id="directory-heading">School user directory</h2>
-          <p id="directory-status" class="muted" role="status" aria-live="polite">Loading existing accounts…</p>
-        </div>
-        <button id="directory-refresh" class="users-refresh" type="button">Refresh</button>
-      </div>
-      <div class="responsive-table">
-        <table>
-          <thead><tr><th>Account</th><th>Username</th><th>Email</th><th>Role(s)</th><th>Status</th></tr></thead>
-          <tbody id="directory-rows"><tr><td colspan="5">Loading…</td></tr></tbody>
-        </table>
-      </div>
+  <main class="form-page"><a class="text-button" href="/">← Dashboard</a><p class="eyebrow">ADMINISTRATIVE</p><h1>Users &amp; Roles</h1>
+    <p class="muted">Existing accounts and assigned roles for your authorized school. This directory is read-only; credential reissue is the only available account action and remains subject to server-side authorization.</p>
+    <section class="card" aria-labelledby="directory-heading"><div class="users-toolbar"><div><h2 id="directory-heading">School user directory</h2><p id="directory-status" class="muted" role="status" aria-live="polite">Loading existing accounts…</p></div><button id="directory-refresh" class="users-refresh" type="button">Refresh</button></div>
+      <div class="responsive-table"><table><thead><tr><th>Account</th><th>Username</th><th>Email</th><th>Role(s)</th><th>Status</th><th>Credentials</th></tr></thead><tbody id="directory-rows"><tr><td colspan="6">Loading…</td></tr></tbody></table></div>
     </section>
   </main>
+  <dialog id="credential-dialog" class="credential-dialog"><h2>Temporary credentials issued</h2><p class="muted">Share this password securely with the account holder. It is shown once and must be changed at the next sign-in.</p><p><strong>Username</strong></p><div class="credential-value"><span id="credential-username"></span><button class="copy-action" data-copy="credential-username" type="button">Copy</button></div><p><strong>Temporary password</strong></p><div class="credential-value"><span id="credential-password"></span><button class="copy-action" data-copy="credential-password" type="button">Copy</button></div><button id="credential-close" class="dialog-close" type="button">Done</button></dialog>
   <script>
-    const rows=document.querySelector('#directory-rows');
-    const status=document.querySelector('#directory-status');
-    const refresh=document.querySelector('#directory-refresh');
+    const rows=document.querySelector('#directory-rows'),status=document.querySelector('#directory-status'),refresh=document.querySelector('#directory-refresh'),dialog=document.querySelector('#credential-dialog');
     const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
-    async function loadUsers(){
-      refresh.disabled=true;
-      status.textContent='Loading existing accounts…';
-      rows.innerHTML='<tr><td colspan="5">Loading…</td></tr>';
-      try{
-        const response=await fetch('/api/users',{headers:{Accept:'application/json'},credentials:'same-origin',cache:'no-store'});
-        const data=await response.json().catch(()=>({}));
-        if(!response.ok){
-          const message=response.status===401?'Sign in to view authorized school users.':response.status===403?'You are not authorized to view Users & Roles.':'The user directory is temporarily unavailable.';
-          status.textContent=message;
-          rows.innerHTML=`<tr><td colspan="5" class="users-empty">${esc(message)}</td></tr>`;
-          return;
-        }
-        const users=Array.isArray(data.users)?data.users:[];
-        if(!users.length){
-          status.textContent='No existing accounts were returned for this school.';
-          rows.innerHTML='<tr><td colspan="5" class="users-empty">No existing accounts found.</td></tr>';
-          return;
-        }
-        rows.innerHTML=users.map(user=>{
-          const roleLabels=Array.isArray(user.roles)&&user.roles.length?user.roles.map(role=>`<span class="user-role">${esc(role.name||role.key)}</span>`).join(''):'<span class="muted">No role assigned</span>';
-          const account=user.displayName||user.username||user.email||'Unnamed account';
-          const accountStatus=String(user.status||'UNKNOWN').toUpperCase();
-          return `<tr><td>${esc(account)}</td><td>${esc(user.username)}</td><td>${esc(user.email||'—')}</td><td>${roleLabels}</td><td><span class="user-status" data-status="${esc(accountStatus)}">${esc(accountStatus)}</span></td></tr>`;
-        }).join('');
-        status.textContent=`${users.length} existing account${users.length===1?'':'s'} found.`;
-      }catch{
-        const message='The user directory could not be reached. Try again shortly.';
-        status.textContent=message;
-        rows.innerHTML=`<tr><td colspan="5" class="users-empty">${esc(message)}</td></tr>`;
-      }finally{refresh.disabled=false}
-    }
-    refresh.addEventListener('click',loadUsers);
-    loadUsers();
+    const labels={MUST_CHANGE_PASSWORD:'Must change password',PASSWORD_REISSUE_AVAILABLE:'Credential setup needed',ACTIVE:'Active',DISABLED:'Unavailable'};
+    async function reissue(id,button){if(!confirm('Issue a new temporary password for this account? Existing sessions will be signed out.'))return;button.disabled=true;try{const response=await fetch(`/api/users/${encodeURIComponent(id)}/credentials/reissue`,{method:'POST',headers:{Accept:'application/json'},credentials:'same-origin'});const data=await response.json().catch(()=>({}));if(!response.ok){alert(data.error||'Credentials could not be reissued.');return}document.querySelector('#credential-username').textContent=data.user?.username||'';document.querySelector('#credential-password').textContent=data.temporaryPassword||'';dialog.showModal()}catch{alert('The credential service could not be reached.')}finally{button.disabled=false}}
+    async function loadUsers(){refresh.disabled=true;status.textContent='Loading existing accounts…';rows.innerHTML='<tr><td colspan="6">Loading…</td></tr>';try{const response=await fetch('/api/users',{headers:{Accept:'application/json'},credentials:'same-origin',cache:'no-store'}),data=await response.json().catch(()=>({}));if(!response.ok){const message=response.status===401?'Sign in to view authorized school users.':response.status===403?'You are not authorized to view Users & Roles.':'The user directory is temporarily unavailable.';status.textContent=message;rows.innerHTML=`<tr><td colspan="6" class="users-empty">${esc(message)}</td></tr>`;return}const users=Array.isArray(data.users)?data.users:[];if(!users.length){status.textContent='No existing accounts were returned for this school.';rows.innerHTML='<tr><td colspan="6" class="users-empty">No existing accounts found.</td></tr>';return}rows.innerHTML=users.map(user=>{const roleLabels=Array.isArray(user.roles)&&user.roles.length?user.roles.map(role=>`<span class="user-role">${esc(role.name||role.key)}</span>`).join(''):'<span class="muted">No role assigned</span>';const account=user.displayName||user.username||user.email||'Unnamed account',accountStatus=String(user.status||'UNKNOWN').toUpperCase(),credential=labels[user.credentialStatus||accountStatus]||'Credential status unavailable';const action=(user.canReissueCredentials??(accountStatus==='ACTIVE'))?`<button class="credential-action" type="button" data-reissue="${esc(user.id)}">Reissue</button>`:'—';return `<tr><td>${esc(account)}</td><td>${esc(user.username)}</td><td>${esc(user.email||'—')}</td><td>${roleLabels}</td><td><span class="user-status" data-status="${esc(accountStatus)}">${esc(accountStatus)}</span></td><td><span class="credential-status">${esc(credential)}</span>${action}</td></tr>`}).join('');rows.querySelectorAll('[data-reissue]').forEach(button=>button.addEventListener('click',()=>reissue(button.dataset.reissue,button)));status.textContent=`${users.length} existing account${users.length===1?'':'s'} found.`}catch{const message='The user directory could not be reached. Try again shortly.';status.textContent=message;rows.innerHTML=`<tr><td colspan="6" class="users-empty">${esc(message)}</td></tr>`}finally{refresh.disabled=false}}
+    document.querySelector('#directory-refresh').addEventListener('click',loadUsers);document.querySelector('#credential-close').addEventListener('click',()=>dialog.close());document.querySelectorAll('[data-copy]').forEach(button=>button.addEventListener('click',async()=>{const value=document.querySelector(`#${button.dataset.copy}`).textContent;await navigator.clipboard?.writeText(value);button.textContent='Copied';setTimeout(()=>button.textContent='Copy',1200)}));loadUsers();
   </script>
-</body>
-</html>
+</body></html>
