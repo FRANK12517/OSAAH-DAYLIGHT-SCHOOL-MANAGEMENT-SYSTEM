@@ -307,6 +307,18 @@ export function createApp({ auth = null, students = null, attendance = null, att
       const user = await auth.authenticateAsync(readCookie(request, 'osaah_session') ?? bearer(request));
       return user ? json(response, { user: publicUser(user), redirectTo: user.dashboard }) : json(response, { error: 'Authentication required.' }, 401);
     }
+    if (pathname === '/api/auth/change-password' && request.method === 'POST') {
+      const token = readCookie(request, 'osaah_session') ?? bearer(request);
+      const user = await auth.authenticateAsync(token);
+      if (!user) return json(response, { error: 'Authentication required.' }, 401);
+      try {
+        const result = await auth.changeOwnPassword(user, await readJson(request), token);
+        audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, roleId: user.roleKey, action: 'PASSWORD_CHANGED', entity: 'User', entityId: user.id }));
+        return json(response, result, 200, `osaah_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${secureCookieSuffix(request)}`);
+      } catch (error) {
+        return json(response, { error: error.message, code: error.code ?? 'PASSWORD_CHANGE_FAILED' }, error.status ?? 400);
+      }
+    }
     if (pathname === '/api/auth/password-reset' && request.method === 'POST') { const body = await readJson(request); return json(response, auth.requestPasswordReset(body.username ?? '')); }
     if (pathname === '/api/auth/password-reset/complete' && request.method === 'POST') { const body = await readJson(request); const result = auth.completePasswordReset(body.token ?? '', body.newPassword ?? ''); return json(response, result, result.ok ? 200 : 400); }
     if (pathname === '/api/documents/verify' && request.method === 'GET') return json(response, compliance.verifyDocument(new URL(request.url, 'http://localhost').searchParams.get('code') ?? ''));

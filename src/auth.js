@@ -4,7 +4,7 @@ import { normalizeGhanaPhone } from './ghana-phone.js';
 import { createConfiguredTestParent, isConfiguredTestParentPhone, TEST_PARENT_ID, TEST_PARENT_SCHOOL_ID } from './test-parent-fixture.js';
 import { createDurableStaffProvisioning } from './durable-staff-provisioning.js';
 import { createDurableAdministratorCredentialReset } from './durable-administrator-credential-reset.js';
-import { createDurableCredentialManagement, generatedPassword } from './durable-credential-management.js';
+import { createDurableCredentialManagement, generatedPassword, passwordMeetsPolicy } from './durable-credential-management.js';
 
 const SESSION_TTL_MS = 30 * 60 * 1000;
 const RESET_TTL_MS = 15 * 60 * 1000;
@@ -314,10 +314,55 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     await revokeDurableSessionsForUser(userId);
     return { userId: user.id, username: user.username, email: user.email ?? null, staffId: user.staffId ?? null, roleKey: user.roleKey ?? null, temporaryPassword, mustChangePassword: true };
   }
+  async function changeOwnPassword(actor, input = {}, currentToken = null) {
+    const currentPassword = input.currentPassword;
+    const newPassword = input.newPassword;
+    const confirmPassword = input.confirmPassword;
+    const fail = (message, status = 400, code = 'PASSWORD_CHANGE_INVALID') => { throw Object.assign(new Error(message), { status, code }); };
+    if (![currentPassword, newPassword, confirmPassword].every((value) => typeof value === 'string' && value.length > 0)) fail('Current password, new password, and confirmation are required.');
+    if (newPassword !== confirmPassword) fail('New password and confirmation do not match.');
+    if (!passwordMeetsPolicy(newPassword)) fail('New password must be at least 12 characters and include uppercase, lowercase, a number, and a symbol.');
+    if (currentPassword === newPassword) fail('New password must be different from the current password.');
+    if (!actor?.id || !actor?.schoolId) fail('Authenticated account context is required.', 401, 'UNAUTHENTICATED');
+    let existingHash;
+    let durableTarget = null;
+    if (database?.query && database?.transaction) {
+      const rows = await database.query('SELECT id, password_hash AS passwordHash, status FROM users WHERE id=? AND school_id=? LIMIT 1', [actor.id, actor.schoolId]);
+      durableTarget = rows?.[0] ?? null;
+      if (!durableTarget) fail('Authenticated account was not found.', 401, 'UNAUTHENTICATED');
+      if (String(durableTarget.status ?? 'ACTIVE').toUpperCase() !== 'ACTIVE') fail('Disabled accounts cannot change passwords.', 409, 'ACCOUNT_DISABLED');
+      existingHash = durableTarget.passwordHash;
+    } else {
+      const user = users.find((candidate) => candidate.id === actor.id && candidate.schoolId === actor.schoolId);
+      if (!user) fail('Authenticated account was not found.', 401, 'UNAUTHENTICATED');
+      if (!isActive(user)) fail('Disabled accounts cannot change passwords.', 409, 'ACCOUNT_DISABLED');
+      existingHash = user.passwordHash;
+    }
+    let matches = false;
+    try { matches = typeof existingHash === 'string' && existingHash.includes(':') ? passwordMatches(currentPassword, existingHash) : await bcrypt.compare(currentPassword, existingHash ?? ''); } catch { matches = false; }
+    if (!matches) fail('Current password is incorrect.', 401, 'CURRENT_PASSWORD_INVALID');
+    const timestamp = nowIso();
+    const nextHash = passwordHash(newPassword);
+    if (durableTarget) {
+      await database.transaction(async (tx) => {
+        const result = await tx.execute("UPDATE users SET password_hash=?, updated_at=? WHERE id=? AND school_id=? AND status='ACTIVE'", [nextHash, timestamp, actor.id, actor.schoolId]);
+        if (!Number(result?.affectedRows)) fail('Password update was not persisted.', 503, 'PASSWORD_UPDATE_FAILED');
+        await tx.execute('UPDATE auth_sessions SET revoked_at=? WHERE user_id=? AND school_id=? AND revoked_at IS NULL', [timestamp, actor.id, actor.schoolId]);
+      });
+    } else {
+      const user = users.find((candidate) => candidate.id === actor.id && candidate.schoolId === actor.schoolId);
+      user.passwordHash = nextHash;
+      user.must_change_password = false;
+      user.password_changed_at = timestamp;
+      await revokeDurableSessionsForUser(actor.id);
+    }
+    for (const [sessionToken, session] of sessions) if (session.userId === actor.id) revokeLocalSession(sessionToken, session);
+    return { ok: true };
+  }
   function resetStaffCredentials(userId, schoolId) { if (database?.query) { if (!durableStaff) throw new Error('Durable staff management is unavailable.'); return durableStaff.resetCredentials(userId, schoolId); } const user = users.find((candidate) => candidate.id === userId && candidate.schoolId === schoolId && candidate.staffId); if (!user) return null; const temporaryPassword = randomBytes(18).toString('base64url'); user.passwordHash = passwordHash(temporaryPassword); user.must_change_password = true; for (const [token, session] of sessions) if (session.userId === userId) revokeLocalSession(token, session); revokeDurableSessionsBestEffort(userId); return { username: user.username, temporaryPassword }; }
   function requestPasswordReset(username) { const user = users.find((candidate) => candidate.username.toLowerCase() === username.trim().toLowerCase()); if (!user) return { ok: true }; const token = randomUUID(); resetTokens.set(token, { userId: user.id, expiresAt: now() + RESET_TTL_MS }); return { ok: true, token }; }
   function completePasswordReset(token, newPassword) { const reset = resetTokens.get(token); if (!reset || reset.expiresAt <= now() || typeof newPassword !== 'string' || newPassword.length < 10) return { ok: false, error: 'Invalid or expired reset request.' }; const user = users.find((candidate) => candidate.id === reset.userId); if (!user) return { ok: false, error: 'Invalid or expired reset request.' }; user.passwordHash = passwordHash(newPassword); resetTokens.delete(token); for (const [sessionToken, session] of sessions) if (session.userId === user.id) revokeLocalSession(sessionToken, session); revokeDurableSessionsBestEffort(user.id); return { ok: true }; }
-  return { login, loginByPhone, loginByPhoneFromDatabase, loginFromDatabase, authenticate, authenticateAsync, logout, logoutSession, requestPasswordReset, completePasswordReset, setAccountStatus, revokeAccount, createAdministrator, listAdministrators, getAdministrator, updateAdministrator, resetAdministratorCredentials, resetAdministratorCredentialsByEmail, resetUserCredentials, registerStaff, listStaff, getStaff, updateStaff, changeStaffRole, assignStaff, resetStaffCredentials, sessionTtlMs: SESSION_TTL_MS, genericLoginError: GENERIC_LOGIN_ERROR };
+  return { login, loginByPhone, loginByPhoneFromDatabase, loginFromDatabase, authenticate, authenticateAsync, logout, logoutSession, requestPasswordReset, completePasswordReset, changeOwnPassword, setAccountStatus, revokeAccount, createAdministrator, listAdministrators, getAdministrator, updateAdministrator, resetAdministratorCredentials, resetAdministratorCredentialsByEmail, resetUserCredentials, registerStaff, listStaff, getStaff, updateStaff, changeStaffRole, assignStaff, resetStaffCredentials, sessionTtlMs: SESSION_TTL_MS, genericLoginError: GENERIC_LOGIN_ERROR };
 }
 
 export function canAccess(user, permission) { return Boolean(user && (user.permissions.has('*') || user.permissions.has(permission))); }

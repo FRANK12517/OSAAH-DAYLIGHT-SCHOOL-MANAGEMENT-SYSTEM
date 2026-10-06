@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 const PASSWORD_SYMBOLS = '!@#$%^&*()-_=+[]{}:,.?';
 const PASSWORD_MIN_LENGTH = 12;
 
-function compliant(password) {
+export function passwordMeetsPolicy(password) {
   return password.length >= PASSWORD_MIN_LENGTH && /[A-Z]/.test(password) && /[a-z]/.test(password) && /\d/.test(password) && /[^A-Za-z0-9]/.test(password);
 }
 
