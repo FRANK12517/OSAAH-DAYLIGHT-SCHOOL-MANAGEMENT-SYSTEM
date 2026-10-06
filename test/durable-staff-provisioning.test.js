@@ -99,7 +99,7 @@ function createFakeDatabase({ failAt = null } = {}) {
       return { affectedRows: 1 };
     }
     if (sql.startsWith('INSERT INTO user_roles')) {
-      store.userRoles.push({ user_id: params[0], role_id: params[1], created_at: params[2] });
+      store.userRoles.push({ id: params[0], user_id: params[1], role_id: params[2], created_at: params[3] });
       return { affectedRows: 1 };
     }
     if (sql.startsWith('INSERT INTO staff_assignments')) {
