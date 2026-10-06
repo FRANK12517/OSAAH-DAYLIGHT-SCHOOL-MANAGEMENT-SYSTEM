@@ -87,7 +87,7 @@ export function createDurableStaffProvisioning({ database, passwordHash, verifyL
     const classId = String(input.assignedClassId ?? '').trim() || null;
     const subjectId = String(input.assignedSubjectId ?? '').trim() || null;
     if (classId) {
-      const rows = await tx.query(`SELECT c.id FROM classes c JOIN levels l ON l.id=c.level_id WHERE c.id=? AND l.school_id=? LIMIT 1`, [classId, schoolId]);
+      const rows = await tx.query('SELECT id FROM classes WHERE id=? AND school_id=? LIMIT 1', [classId, schoolId]);
       if (!rows?.length) throw failure('The selected class is not available for this school.', 400, 'INVALID_CLASS');
     }
     if (subjectId) {

@@ -12,8 +12,7 @@ function createFakeDatabase({ failAt = null } = {}) {
       { id: 'role-headteacher', school_id: SCHOOL_ID, role_key: 'HEADTEACHER', oversight_rank: 80 },
       { id: 'role-accountant', school_id: SCHOOL_ID, role_key: 'ACCOUNTANT_BURSAR', oversight_rank: 30 }
     ],
-    levels: [{ id: 'level-primary', school_id: SCHOOL_ID }],
-    classes: [{ id: 'primary-4', level_id: 'level-primary' }],
+    classes: [{ id: 'primary-4', school_id: SCHOOL_ID }],
     subjects: [{ id: 'mathematics', school_id: SCHOOL_ID }],
     users: [], staff: [], profiles: [], userRoles: [], assignments: [], sessions: []
   };
@@ -24,7 +23,7 @@ function createFakeDatabase({ failAt = null } = {}) {
     if (sql.includes('FROM staff WHERE school_id=? AND staff_number=?')) return store.staff.filter((row) => row.school_id === params[0] && row.staff_number === params[1]).map((row) => ({ id: row.id, userId: row.user_id }));
     if (sql.includes('FROM staff_profiles WHERE school_id=? AND staff_number=?')) return store.profiles.filter((row) => row.school_id === params[0] && row.staff_number === params[1]).map((row) => ({ id: row.id }));
     if (sql.includes('FROM roles') && sql.includes('WHERE role_key=?')) return store.roles.filter((row) => row.role_key === params[0] && (row.school_id === params[1] || row.school_id == null)).sort((a, b) => (a.school_id === params[1] ? -1 : 1) - (b.school_id === params[1] ? -1 : 1)).map((row) => ({ id: row.id, roleKey: row.role_key })).slice(0, 1);
-    if (sql.includes('FROM classes c JOIN levels l')) return store.classes.filter((row) => row.id === params[0] && store.levels.some((level) => level.id === row.level_id && level.school_id === params[1])).map((row) => ({ id: row.id }));
+    if (sql.includes('FROM classes WHERE id=?')) return store.classes.filter((row) => row.id === params[0] && row.school_id === params[1]).map((row) => ({ id: row.id }));
     if (sql.includes('FROM subjects WHERE id=?')) return store.subjects.filter((row) => row.id === params[0] && row.school_id === params[1]).map((row) => ({ id: row.id }));
     if (sql.includes('JOIN staff_profiles sp ON sp.user_id=s.user_id') && sql.includes('JOIN user_roles ur') && sql.includes('WHERE u.id=? AND u.school_id=?')) {
       const [roleKey, userId, schoolId] = params;
