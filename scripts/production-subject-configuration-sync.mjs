@@ -83,8 +83,8 @@ async function loadScope(adapter, schoolId, yearInput) {
   const requiredColumns = {
     classes: ['id', 'school_id', 'name'],
     academic_years: ['id', 'school_id', 'name'],
-    subjects: ['id', 'school_id', 'code', 'name', 'subject_type', 'is_scoring', 'is_active', 'assessment_components_json'],
-    subject_class_assignments: ['id', 'school_id', 'subject_id', 'class_id', 'academic_year_id', 'active', 'configuration_version']
+    subjects: ['id', 'school_id', 'department_id', 'code', 'name', 'subject_type', 'is_scoring', 'is_active', 'assessment_components_json', 'created_at', 'updated_at'],
+    subject_class_assignments: ['id', 'school_id', 'subject_id', 'class_id', 'academic_year_id', 'active', 'configuration_version', 'created_at', 'updated_at']
   };
   const missingColumns = Object.entries(requiredColumns).flatMap(([table, expected]) => expected.filter((column) => !hasColumn(table, column)).map((column) => `${table}.${column}`));
   if (missingColumns.length) fail('PREREQUISITE_SCHEMA_MISSING', 'Subject synchronization prerequisite columns are unavailable.', { missingColumns });

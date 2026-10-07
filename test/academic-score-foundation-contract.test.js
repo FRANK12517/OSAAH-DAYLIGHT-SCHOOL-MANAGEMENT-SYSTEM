@@ -17,9 +17,11 @@ test('Migration 068 is uniquely numbered and has a stable checksum for the commi
   assert.ok(foundation);
   assert.equal(foundation.name, '068_academic_score_records_foundation.sql');
   assert.equal(foundation.checksum, createHash('sha256').update(schema).digest('hex'));
-  assert.deepEqual(migrations.slice(-4).map((item) => item.version), [69, 70, 71, 72]);
-  assert.equal(migrations.at(-3).name, '070_school_admin_score_entry_permission.sql');
-  assert.equal(migrations.at(-2).name, '071_school_admin_results_reports_permission.sql');
+  assert.deepEqual(migrations.slice(-4).map((item) => item.version), [70, 71, 72, 73]);
+  assert.equal(migrations.at(-4).name, '070_school_admin_score_entry_permission.sql');
+  assert.equal(migrations.at(-3).name, '071_school_admin_results_reports_permission.sql');
+  assert.equal(migrations.at(-2).name, '072_school_admin_mock_score_entry_permission.sql');
+  assert.equal(migrations.at(-1).name, '073_subject_updated_at.sql');
   assert.equal(new Set(migrations.map((item) => item.version)).size, migrations.length);
 });
 
