@@ -23,10 +23,10 @@ async function loadSubjects() {
   const classId = context.elements.classId.value;
   const academicYear = context.elements.academicYear.value;
   const term = context.elements.term.value;
-  if (!JHS_CLASSES.has(classId)) { setOptions(context.elements.subjectId, [], 'Select a JHS class first'); return; }
-  const query = new URLSearchParams({ classId, academicYearId: academicYear, termId: term });
+  const query = new URLSearchParams({ mock: 'true' });
+  if (classId && academicYear && term) { query.set('classId', classId); query.set('academicYearId', academicYear); query.set('termId', term); }
   const result = await api(`/api/subjects?${query}`);
-  const subjects = (result.subjects || []).filter((subject) => subject.active !== false && subject.classId === classId);
+  const subjects = (result.subjects || []).filter((subject) => subject.active !== false && (!classId || !subject.classId || subject.classId === classId));
   setOptions(context.elements.subjectId, subjects, 'No active subjects configured for this JHS class');
 }
 async function load() {
@@ -34,7 +34,7 @@ async function load() {
   setOptions(context.elements.academicYear, options.academicYears || [], 'No academic years configured');
   setOptions(context.elements.term, options.terms || [], 'No terms configured');
   setOptions(context.elements.mockLabel, options.mockTypes || MOCK_TYPES);
-  const classes = (options.classes || []).filter((item) => JHS_CLASSES.has(valueOf(item)));
+  const classes = (options.classes || []).filter((item) => JHS_CLASSES.has(labelOf(item)));
   setOptions(context.elements.classId, classes, 'No JHS classes configured');
   await loadSubjects();
 }

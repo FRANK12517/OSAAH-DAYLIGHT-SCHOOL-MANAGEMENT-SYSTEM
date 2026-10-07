@@ -279,6 +279,7 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     return { id: text(subjectId), schoolId, active: false, archived: true, historicalRecordsPreserved: true };
   }
 
+  async function mockSubjectCatalog(actor) { assertActor(actor); const catalogue = await subjectCatalog(actor); return catalogue.filter((subject) => ['JHS 1','JHS 2','JHS 3'].some((className) => Boolean(defaultSubjectForClass(className, subject.name)))).map((subject) => ({ ...decorateSubject(subject, 'JHS 1'), classNames: ['JHS 1','JHS 2','JHS 3'] })); }
   async function listSubjects(filters = {}, actor) {
     assertActor(actor);
     const classId = text(filters.classId);
@@ -728,7 +729,7 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     }));
   }
 
-  return Object.freeze({ options, listSubjects, subjectCatalog, subjectConfiguration, createSubject, updateSubject, deactivateSubject, subjectCascade, configureDefaultSubjects, listAssignments, assignSubject, deactivateSubjectAssignment, roster, sampleScoreEntryRoster, resultStudents, resultContext, saveScore, mockRoster, saveMockScore, listScores, resolvePeriod, result: canonicalResult, saveResult, publishResults: publishResult, publicationFor, savedResultFor: async (input, actor) => canonicalResult(input, actor), broadsheet });
+  return Object.freeze({ options, listSubjects, subjectCatalog, mockSubjectCatalog, subjectConfiguration, createSubject, updateSubject, deactivateSubject, subjectCascade, configureDefaultSubjects, listAssignments, assignSubject, deactivateSubjectAssignment, roster, sampleScoreEntryRoster, resultStudents, resultContext, saveScore, mockRoster, saveMockScore, listScores, resolvePeriod, result: canonicalResult, saveResult, publishResults: publishResult, publicationFor, savedResultFor: async (input, actor) => canonicalResult(input, actor), broadsheet });
 }
 
 export default createDurableAcademicService;
