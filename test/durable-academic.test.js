@@ -208,6 +208,38 @@ test('legacy class_subjects mapping is used when normalized assignments exist bu
   const service = createDurableAcademicService({ database, schoolId });
   assert.deepEqual(await service.listSubjects({ classId: 'class-basic-1', academicYearId: 'year-2026' }, manager), [{ id: 'subject-english', code: 'ENG', name: 'English Language', departmentId: null, classId: 'class-basic-1', active: true, subjectActive: true }]);
 });
+
+test('absent legacy class_subjects mapping returns an empty subject collection instead of a schema-unavailable error', async () => {
+  const calls = [];
+  const database = {
+    async query(sql) {
+      calls.push(sql);
+      if (sql.includes('FROM subjects WHERE school_id')) return [{ id: 'subject-english', code: 'ENG', name: 'English Language', departmentId: null, subjectType: 'CORE', isScoring: 1, isActive: 1, assessmentComponentsJson: '[]' }];
+      if (sql.includes('subject_class_assignments')) return [];
+      if (sql.includes('class_subjects')) throw Object.assign(new Error("Table 'osaahdaylightschool.class_subjects' doesn't exist"), { code: 'ER_NO_SUCH_TABLE' });
+      return [];
+    },
+    async execute() { return { affectedRows: 1 }; }
+  };
+  const service = createDurableAcademicService({ database, schoolId });
+  assert.deepEqual(await service.listSubjects({ classId: 'class-basic-1' }, manager), []);
+  assert.equal(calls.filter((sql) => sql.includes('class_subjects')).length, 1);
+});
+
+test('unexpected legacy subject database errors remain diagnosable', async () => {
+  const database = {
+    async query(sql) {
+      if (sql.includes('FROM subjects WHERE school_id')) return [{ id: 'subject-english', code: 'ENG', name: 'English Language', departmentId: null, subjectType: 'CORE', isScoring: 1, isActive: 1, assessmentComponentsJson: '[]' }];
+      if (sql.includes('subject_class_assignments')) return [];
+      if (sql.includes('class_subjects')) throw Object.assign(new Error('Too many connections'), { code: 'ER_CON_COUNT_ERROR' });
+      return [];
+    },
+    async execute() { return { affectedRows: 1 }; }
+  };
+  const service = createDurableAcademicService({ database, schoolId });
+  await assert.rejects(() => service.listSubjects({ classId: 'class-basic-1' }, manager), /Too many connections/);
+});
+
 test('inactive normalized assignments do not leak back through legacy class_subjects rows', async () => {
   const database = {
     async query(sql) {
