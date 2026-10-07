@@ -298,7 +298,7 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
           if (academicYearId && previous && previous.isYearOverride === isYearOverride) fail('Duplicate class-subject assignments require manual reconciliation.', 409, 'DUPLICATE_SUBJECT_ASSIGNMENTS', { classId, subjectId: key, academicYearId });
           if (!previous || (isYearOverride && !previous.isYearOverride)) bySubject.set(key, { item, isYearOverride });
         }
-        return [...bySubject.values()].filter(({ item }) => includeInactive || Number(item.assignmentActive ?? 1) === 1).map(({ item }) => {
+        return [...bySubject.values()].filter(({ item }) => includeInactive || (Number(item.assignmentActive ?? 1) === 1 && Number(item.subjectActive ?? 1) === 1)).map(({ item }) => {
           const { assignmentActive, ...subject } = item;
           return { ...decorateSubject(subject, classId), active: Number(assignmentActive ?? 1) === 1, subjectActive: Number(subject.subjectActive ?? 1) === 1 };
         });
@@ -322,14 +322,14 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
           FROM class_subjects cs JOIN subjects s ON s.id=cs.subject_id AND s.school_id=?
           JOIN classes c ON c.id=cs.class_id AND c.school_id=?
           WHERE cs.class_id=? ORDER BY s.name,s.id`, [schoolId, schoolId, classId]);
-        return rows(result).map((subject) => ({ ...decorateSubject(subject, classId), active: Number(subject.subjectActive ?? 1) === 1, subjectActive: Number(subject.subjectActive ?? 1) === 1 }));
+        return rows(result).filter((subject) => includeInactive || Number(subject.subjectActive ?? 1) === 1).map((subject) => ({ ...decorateSubject(subject, classId), active: Number(subject.subjectActive ?? 1) === 1, subjectActive: Number(subject.subjectActive ?? 1) === 1 }));
       } catch (error) {
         if (!schemaCompatibilityError(error)) throw error;
         const result = await database.query(`SELECT s.id,s.code,s.name,s.department_id AS departmentId,s.is_active AS subjectActive,cs.class_id AS classId,c.name AS className
           FROM class_subjects cs JOIN subjects s ON s.id=cs.subject_id AND s.school_id=?
           JOIN classes c ON c.id=cs.class_id AND c.school_id=?
           WHERE cs.class_id=? ORDER BY s.name,s.id`, [schoolId, schoolId, classId]);
-        return rows(result).map((subject) => ({ ...decorateSubject(subject, classId), active: Number(subject.subjectActive ?? 1) === 1, subjectActive: Number(subject.subjectActive ?? 1) === 1 }));
+        return rows(result).filter((subject) => includeInactive || Number(subject.subjectActive ?? 1) === 1).map((subject) => ({ ...decorateSubject(subject, classId), active: Number(subject.subjectActive ?? 1) === 1, subjectActive: Number(subject.subjectActive ?? 1) === 1 }));
       }
     }
   }
@@ -374,7 +374,7 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     const period = await resolvePeriod(input);
     await classFor(classId);
     const configuredSubjects = await listSubjects({ classId, academicYearId: period.yearId }, actor);
-    return { academicYearId: period.yearId, academicYear: period.yearName, termId: period.termId, term: period.termName, classId, subjects: configuredSubjects.filter((subject) => subject.isScoring !== false && Number(subject.isScoring) !== 0) };
+    return { academicYearId: period.yearId, academicYear: period.yearName, termId: period.termId, term: period.termName, classId, subjects: configuredSubjects.filter((subject) => subject.active !== false && subject.subjectActive !== false && subject.isScoring !== false && Number(subject.isScoring) !== 0) };
   }
 
   async function scoringSubjectAssigned(input, actor) {
@@ -469,7 +469,7 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     assertClassScope(classId, actor);
     const period = await resolvePeriod(input);
     await classFor(classId);
-    if (!await scoringSubjectAssigned({ classId, subjectId: input.subjectId, academicYearId: period.yearId }, actor)) return [];
+    if (!await scoringSubjectAssigned({ classId, subjectId: input.subjectId, academicYearId: period.yearId }, actor)) fail('Subject is invalid for this class and academic context.', 400, 'INVALID_CLASS_SUBJECT');
     const result = await database.query(`SELECT s.id AS studentId,s.permanent_student_id AS permanentStudentId,s.first_name AS firstName,s.middle_name AS middleName,s.last_name AS surname,
       e.class_id AS classId,r.ca_score AS caScore,r.examination_score AS examScore,r.total_score AS totalScore,r.grade,r.id AS scoreId
       FROM student_enrollments e JOIN students s ON s.id=e.student_id
