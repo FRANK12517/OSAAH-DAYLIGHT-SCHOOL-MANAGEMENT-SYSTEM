@@ -42,9 +42,20 @@ test('sample records cannot be promoted into production enrollment', () => {
   assert.equal(testOptions.students.length, 0);
 });
 
-test('promotion page has one class selector, one term selector, filtered student identity, and explicit save', () => {
+test('promotion page has academic context selectors, a filtered checkbox multiselect, and explicit bulk save', () => {
   const html = fs.readFileSync(new URL('../public/promotion.html', import.meta.url), 'utf8');
-  assert.equal((html.match(/id="promotion-class"/g) ?? []).length, 1); assert.equal((html.match(/id="promotion-term"/g) ?? []).length, 1); assert.match(html, /Student<select/); assert.match(html, /permanentStudentId/); assert.match(html, /Save Promotion Decision/); assert.match(html, /api\/examinations\/promotion\/options/); assert.match(html, /api\/examinations\/promotion'/);
+  const script = fs.readFileSync(new URL('../public/promotion.js', import.meta.url), 'utf8');
+  assert.equal((html.match(/id="promotion-class"/g) ?? []).length, 1);
+  assert.equal((html.match(/id="promotion-term"/g) ?? []).length, 1);
+  assert.equal((html.match(/id="promotion-year"/g) ?? []).length, 1);
+  assert.match(html, /id="promotion-student-picker"/);
+  assert.match(html, /id="promotion-select-all"/);
+  assert.match(html, /Clear selection/);
+  assert.match(html, /Save Promotion Decision/);
+  assert.match(script, /permanentStudentId/);
+  assert.match(script, /promotion\/options/);
+  assert.match(script, /promotion\/bulk/);
+  assert.match(script, /studentIds: submittedIds/);
 });
 
 test('promotion results provides a single previous/current year selector and canonical Nursery-to-JHS destination classes', () => {

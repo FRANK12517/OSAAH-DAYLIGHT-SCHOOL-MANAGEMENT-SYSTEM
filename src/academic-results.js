@@ -57,10 +57,10 @@ export function createAcademicResultsService({ now = () => new Date().toISOStrin
     const eligibleStudents = students?.listEligibleStudents?.({ requestedSchoolId: schoolId, academicYearId: academicYear, classId, termId: term }) ?? [];
     const roster = [...new Map(eligibleStudents.filter((student) => student.schoolId === schoolId && student.classId === classId && !student.isTestRecord).map((student) => [student.id, student])).values()];
     const sampleMode = filters.sampleMode === true || String(filters.sampleMode ?? '').toLowerCase() === 'true';
-    const sampleRoster = sampleMode && roster.length === 0
-      ? [...new Map((students?.listStudents?.({ requestedSchoolId: schoolId, includeTestRecords: true }) ?? []).filter((student) => student.schoolId === schoolId && (!student.classId || student.classId === classId) && student.isTestRecord).map((student) => [student.id, student])).values()]
+    const sampleRoster = sampleMode
+      ? (students?.listStudents?.({ requestedSchoolId: schoolId, includeTestRecords: true }) ?? []).filter((student) => student.schoolId === schoolId && student.isTestRecord && student.permanentStudentId === 'OSAAH-DEMO-001')
       : [];
-    const selectedRoster = roster.length ? roster : sampleRoster;
+    const selectedRoster = sampleMode ? sampleRoster : roster;
     const scores = listScores({ academicYear, term, classId, subjectId }, actor);
     const byStudent = new Map(scores.map((score) => [score.studentId, score]));
     return selectedRoster.map((student) => {
