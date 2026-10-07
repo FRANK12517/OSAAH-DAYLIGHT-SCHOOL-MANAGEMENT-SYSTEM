@@ -7,6 +7,11 @@ const rows = (value) => Array.isArray(value) ? value : [];
 const text = (value) => String(value ?? '').trim();
 const fail = (message, status = 400, code = 'ACADEMIC_DATA_ERROR', details = null) => { throw Object.assign(new Error(message), { status, code, details }); };
 const schemaCompatibilityError = (error) => /unknown column|doesn'?t exist|no such table|table .* does not exist/i.test(String(error?.message ?? error));
+const missingOptionalEnrollmentStateColumn = (error) => {
+  const message = String(error?.message ?? error);
+  return /unknown column|no such column|column .*does not exist|column .*doesn't exist|invalid column name/i.test(message)
+    && /\b(?:enrollment_status|is_current)\b/i.test(message);
+};
 async function historicalAcademicCounts(database, schoolId) {
   const tables = new Set(rows(await database.query(
     "SELECT TABLE_NAME AS tableName FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ('academic_score_records','academic_result_records')"
@@ -480,7 +485,7 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     try {
       result = await database.query(`${rosterProjection} AND COALESCE(e.enrollment_status,'ACTIVE')='ACTIVE' AND COALESCE(e.is_current,1)=1 ORDER BY s.last_name,s.first_name,s.id`, rosterParams);
     } catch (error) {
-      if (!schemaCompatibilityError(error)) throw error;
+      if (!missingOptionalEnrollmentStateColumn(error)) throw error;
       result = await database.query(`${rosterProjection} ORDER BY s.last_name,s.first_name,s.id`, rosterParams);
     }
     return rows(result).map((item) => ({ studentId: item.studentId, permanentStudentId: item.permanentStudentId, studentName: [item.firstName, item.middleName, item.surname].filter(Boolean).join(' '), classId: item.classId, caScore: item.caScore == null ? null : Number(item.caScore), examScore: item.examScore == null ? null : Number(item.examScore), totalScore: item.totalScore == null ? null : Number(item.totalScore), grade: item.grade ?? null, saved: Boolean(item.scoreId) }));

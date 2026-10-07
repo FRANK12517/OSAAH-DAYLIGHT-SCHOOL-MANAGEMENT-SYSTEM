@@ -73,22 +73,30 @@ test('durable score validation rejects values outside CA and Exam limits', async
   await assert.rejects(() => service.saveScore({ classId: 'class-basic-1', subjectId: 'subject-math', studentId: 'student-1', academicYear: '2026/2027', term: 'First Term', caScore: 0, examScore: -1 }, manager), /Exam score must be between 0 and 50/);
 });
 
-test('durable Sample Mode validates durable class and subject IDs and returns only the canonical demo student', async () => {
+test('durable Sample Mode accepts production year, term, class, and subject IDs and returns only the canonical demo student', async () => {
   const database = fakeDatabase();
-  database.assignments.push({ id: 'subject-math', subjectId: 'subject-math', classId: 'class-basic-1', className: 'Basic 1', academicYearId: null, assignmentActive: 1, subjectActive: 1, isScoring: 1, name: 'Mathematics', code: 'MATH', subjectType: 'CORE', configurationVersion: '1' });
+  const originalQuery = database.query.bind(database);
+  database.query = async (sql, params = []) => {
+    if (sql.includes('FROM academic_years')) return [{ id: 'ay_2026_01', name: '2026/2027' }];
+    if (sql.includes('FROM terms')) return [{ id: 'term_2026_01', academicYearId: 'ay_2026_01', name: '1st Term' }];
+    if (sql.includes('FROM classes WHERE school_id')) return [{ id: 'class_bs4_01', name: 'Basic 4' }];
+    return originalQuery(sql, params);
+  };
+  database.assignments.push({ id: 'subj_math', subjectId: 'subj_math', classId: 'class_bs4_01', className: 'Basic 4', academicYearId: null, assignmentActive: 1, subjectActive: 1, isScoring: 1, name: 'Mathematics', code: 'MATH', subjectType: 'CORE', configurationVersion: '1' });
   const students = createStudentService({ schoolId });
   students.seedSampleStudents();
   const service = createDurableAcademicService({ database, schoolId, students });
-  const teacher = { ...manager, roleKey: 'TEACHER', assignedClassIds: ['class-basic-1'], assignedSubjectIds: ['subject-math'] };
+  const teacher = { ...manager, roleKey: 'TEACHER', assignedClassIds: ['class_bs4_01'], assignedSubjectIds: ['subj_math'] };
 
-  const sampleRoster = await service.sampleScoreEntryRoster({ academicYear: '2026/2027', term: 'First Term', classId: 'class-basic-1', subjectId: 'subject-math' }, teacher);
+  const context = { academicYearId: 'ay_2026_01', termId: 'term_2026_01', classId: 'class_bs4_01', subjectId: 'subj_math' };
+  const sampleRoster = await service.sampleScoreEntryRoster(context, teacher);
   assert.equal(sampleRoster.length, 1);
   assert.equal(sampleRoster[0].permanentStudentId, 'OSAAH-DEMO-001');
   assert.equal(sampleRoster[0].isTestRecord, true);
-  assert.equal(sampleRoster[0].classId, 'class-basic-1');
+  assert.equal(sampleRoster[0].classId, 'class_bs4_01');
   assert.equal(sampleRoster[0].saved, false);
-  await assert.rejects(() => service.sampleScoreEntryRoster({ academicYear: '2026/2027', term: 'First Term', classId: 'class-basic-1', subjectId: 'unassigned-subject' }, teacher), /Subject is invalid for this class and academic context/);
-  await assert.rejects(() => service.sampleScoreEntryRoster({ academicYear: '2026/2027', term: 'First Term', classId: 'class-basic-1', subjectId: 'subject-math' }, { ...teacher, assignedClassIds: ['another-class'] }), /outside your assignment/);
+  await assert.rejects(() => service.sampleScoreEntryRoster({ ...context, subjectId: 'unassigned-subject' }, teacher), /Subject is invalid for this class and academic context/);
+  await assert.rejects(() => service.sampleScoreEntryRoster(context, { ...teacher, assignedClassIds: ['another-class'] }), /outside your assignment/);
 });
 
 test('cross-school durable academic access is rejected', async () => {
@@ -269,6 +277,29 @@ test('Score Entry roster falls back when production enrollment status columns ar
   assert.doesNotMatch(enrollmentQueries[1].sql, /enrollment_status|is_current/);
   assert.match(enrollmentQueries[1].sql, /s\.school_id=\?/);
   assert.match(enrollmentQueries[1].sql, /COALESCE\(s\.is_test_record,0\)=0/);
+});
+
+test('Score Entry roster does not retry for an unrelated missing database column', async () => {
+  const calls = [];
+  const unrelatedColumnError = new Error("Unknown column 's.student_status' in 'where clause'");
+  const database = {
+    async query(sql, params = []) {
+      calls.push({ sql, params });
+      if (sql.includes('FROM academic_years')) return [{ id: 'year-2026', name: '2026/2027' }];
+      if (sql.includes('FROM terms')) return [{ id: 'term-1', academicYearId: 'year-2026', name: 'First Term' }];
+      if (sql.includes('FROM classes WHERE school_id')) return [{ id: 'class-basic-1', name: 'Basic 1' }];
+      if (sql.includes('FROM subject_class_assignments a JOIN subjects') && sql.includes('WHERE a.school_id=? AND a.class_id=?')) return [{ id: 'subject-math', code: 'MATH', name: 'Mathematics', subjectType: 'CORE', isScoring: 1, subjectActive: 1, classId: 'class-basic-1', className: 'Basic 1', academicYearId: null, assignmentActive: 1 }];
+      if (sql.includes('FROM student_enrollments e JOIN students s')) throw unrelatedColumnError;
+      return [];
+    },
+    async execute() { return { affectedRows: 1 }; }
+  };
+  const service = createDurableAcademicService({ database, schoolId });
+  await assert.rejects(
+    () => service.roster({ classId: 'class-basic-1', subjectId: 'subject-math', academicYear: '2026/2027', term: 'First Term' }, manager),
+    (error) => error === unrelatedColumnError
+  );
+  assert.equal(calls.filter(({ sql }) => sql.includes('FROM student_enrollments e JOIN students s')).length, 1);
 });
 
 test('Result Slip retrieves durable saved scores after enrollment-flag compatibility fallback', async () => {

@@ -210,6 +210,58 @@ test('authenticated Sample Mode loads and saves only the existing DEMO-001 sampl
   }
 });
 
+test('durable Score Entry HTTP contract keeps empty, sample, validation, authorization, and server-error states distinct', async () => {
+  let failRoster = false;
+  const database = {
+    async query(sql) {
+      if (sql.includes('FROM academic_years')) return [{ id: 'ay_2026_01', name: '2026/2027' }];
+      if (sql.includes('FROM terms')) return [{ id: 'term_2026_01', academicYearId: 'ay_2026_01', name: '1st Term' }];
+      if (sql.includes('FROM classes WHERE school_id')) return [{ id: 'class_bs4_01', name: 'Basic 4' }];
+      if (sql.includes('FROM subject_class_assignments a JOIN subjects s') && sql.includes('WHERE a.school_id=? AND a.class_id=?')) return [{ id: 'subj_math', code: 'MATH', name: 'Mathematics', subjectType: 'CORE', isScoring: 1, subjectActive: 1, classId: 'class_bs4_01', className: 'Basic 4', academicYearId: null, assignmentActive: 1 }];
+      if (sql.includes('FROM student_enrollments e JOIN students s')) {
+        if (failRoster) throw new Error('database connection reset');
+        return [];
+      }
+      return [];
+    },
+    async execute() { return { affectedRows: 1 }; }
+  };
+  const actor = { ...teacher, assignedClassIds: ['class_bs4_01'] };
+  const auth = { authenticateAsync: async (token) => token === 'authorized' ? actor : null };
+  const server = http.createServer(createApp({ auth, database, aiEnabled: false }));
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const base = `http://127.0.0.1:${server.address().port}/api/academic/score-entry/roster`;
+    const context = { academicYearId: 'ay_2026_01', termId: 'term_2026_01', classId: 'class_bs4_01', subjectId: 'subj_math' };
+    const request = async (params, token = 'authorized') => fetch(`${base}?${new URLSearchParams(params)}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+
+    const official = await request({ ...context, sampleMode: 'false' });
+    assert.equal(official.status, 200);
+    assert.deepEqual((await official.json()).students, []);
+
+    const sample = await request({ ...context, sampleMode: 'true' });
+    assert.equal(sample.status, 200);
+    const sampleStudents = (await sample.json()).students;
+    assert.deepEqual(sampleStudents.map((student) => student.permanentStudentId), ['OSAAH-DEMO-001']);
+
+    const malformed = await request({ academicYearId: context.academicYearId, termId: context.termId, classId: context.classId });
+    assert.equal(malformed.status, 400);
+
+    const unauthorizedClass = await request({ ...context, classId: 'class_not_assigned' });
+    assert.equal(unauthorizedClass.status, 403);
+
+    const unauthenticated = await request(context, null);
+    assert.equal(unauthenticated.status, 401);
+
+    failRoster = true;
+    const serverFailure = await request({ ...context, sampleMode: 'false' });
+    assert.equal(serverFailure.status, 500);
+    assert.equal((await serverFailure.json()).error, 'Unable to load students. Please try again.');
+  } finally {
+    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
 test('Score Entry UI has dependent single-select subjects, required-selection gates, ID display, loading and error states', () => {
   const html = fs.readFileSync(new URL('../public/examinations.html', import.meta.url), 'utf8');
   const js = fs.readFileSync(new URL('../public/score-entry.js', import.meta.url), 'utf8');
