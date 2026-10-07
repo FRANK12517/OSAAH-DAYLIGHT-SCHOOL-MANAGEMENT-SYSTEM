@@ -12,6 +12,11 @@ const missingOptionalEnrollmentStateColumn = (error) => {
   return /unknown column|no such column|column .*does not exist|column .*doesn't exist|invalid column name/i.test(message)
     && /\b(?:enrollment_status|is_current)\b/i.test(message);
 };
+const missingOptionalStudentTestRecordColumn = (error) => {
+  const message = String(error?.message ?? error);
+  return /unknown column|no such column|column .*does not exist|column .*doesn't exist|invalid column name/i.test(message)
+    && /\bis_test_record\b/i.test(message);
+};
 async function historicalAcademicCounts(database, schoolId) {
   const tables = new Set(rows(await database.query(
     "SELECT TABLE_NAME AS tableName FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ('academic_score_records','academic_result_records')"
@@ -481,13 +486,28 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
       LEFT JOIN academic_score_records r ON r.school_id=e.school_id AND r.student_id IN (SELECT sp.id FROM student_profiles sp WHERE sp.student_master_id=s.id OR sp.student_id=s.permanent_student_id) AND r.subject_id=? AND r.class_id=e.class_id AND r.academic_year_id=? AND r.term_id=? AND r.record_type='TERMINAL' AND r.mock_label IS NULL
       WHERE e.school_id=? AND e.class_id=? AND e.academic_year_id=? AND e.term_id=? AND s.school_id=? AND COALESCE(s.student_status,'ACTIVE')='ACTIVE' AND COALESCE(s.is_test_record,0)=0`;
     const rosterParams = [text(input.subjectId), period.yearId, period.termId, schoolId, classId, period.yearId, period.termId, schoolId];
+    let query = `${rosterProjection} AND COALESCE(e.enrollment_status,'ACTIVE')='ACTIVE' AND COALESCE(e.is_current,1)=1 ORDER BY s.last_name,s.first_name,s.id`;
     let result;
-    try {
-      result = await database.query(`${rosterProjection} AND COALESCE(e.enrollment_status,'ACTIVE')='ACTIVE' AND COALESCE(e.is_current,1)=1 ORDER BY s.last_name,s.first_name,s.id`, rosterParams);
-    } catch (error) {
-      if (!missingOptionalEnrollmentStateColumn(error)) throw error;
-      result = await database.query(`${rosterProjection} ORDER BY s.last_name,s.first_name,s.id`, rosterParams);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        result = await database.query(query, rosterParams);
+        break;
+      } catch (error) {
+        if (missingOptionalStudentTestRecordColumn(error) && query.includes('COALESCE(s.is_test_record,0)=0')) {
+          // Older production student tables identify sample rows only by their
+          // permanent ID. Keep official mode isolated without requiring a
+          // column that the legacy schema never declared.
+          query = query.replace("COALESCE(s.is_test_record,0)=0", "s.permanent_student_id NOT LIKE 'OSAAH-DEMO-%'");
+          continue;
+        }
+        if (missingOptionalEnrollmentStateColumn(error) && query.includes('COALESCE(e.enrollment_status')) {
+          query = query.replace(" AND COALESCE(e.enrollment_status,'ACTIVE')='ACTIVE' AND COALESCE(e.is_current,1)=1", '');
+          continue;
+        }
+        throw error;
+      }
     }
+    if (!result) throw new Error('Score Entry roster query did not return a result.');
     return rows(result).map((item) => ({ studentId: item.studentId, permanentStudentId: item.permanentStudentId, studentName: [item.firstName, item.middleName, item.surname].filter(Boolean).join(' '), classId: item.classId, caScore: item.caScore == null ? null : Number(item.caScore), examScore: item.examScore == null ? null : Number(item.examScore), totalScore: item.totalScore == null ? null : Number(item.totalScore), grade: item.grade ?? null, saved: Boolean(item.scoreId) }));
   }
 

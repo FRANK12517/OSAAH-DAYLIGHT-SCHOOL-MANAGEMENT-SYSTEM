@@ -279,6 +279,33 @@ test('Score Entry roster falls back when production enrollment status columns ar
   assert.match(enrollmentQueries[1].sql, /COALESCE\(s\.is_test_record,0\)=0/);
 });
 
+test('Score Entry roster falls back to permanent-ID sample exclusion when students.is_test_record is absent', async () => {
+  const calls = [];
+  const database = {
+    async query(sql, params = []) {
+      calls.push({ sql, params });
+      if (sql.includes('FROM academic_years')) return [{ id: 'year-2026', name: '2026/2027' }];
+      if (sql.includes('FROM terms')) return [{ id: 'term-1', academicYearId: 'year-2026', name: 'First Term' }];
+      if (sql.includes('FROM classes WHERE school_id')) return [{ id: 'class-basic-1', name: 'Basic 1' }];
+      if (sql.includes('FROM subject_class_assignments a JOIN subjects') && sql.includes('WHERE a.school_id=? AND a.class_id=?')) return [{ id: 'subject-math', code: 'MATH', name: 'Mathematics', subjectType: 'CORE', isScoring: 1, subjectActive: 1, classId: 'class-basic-1', className: 'Basic 1', academicYearId: null, assignmentActive: 1 }];
+      if (sql.includes('FROM student_enrollments e JOIN students s')) {
+        if (sql.includes('is_test_record')) throw new Error("Unknown column 's.is_test_record' in 'where clause'");
+        return [{ studentId: 'student-1', permanentStudentId: 'OSAAH-2026-001', firstName: 'Ama', middleName: null, surname: 'Learner', classId: 'class-basic-1' }];
+      }
+      return [];
+    },
+    async execute() { return { affectedRows: 1 }; }
+  };
+  const service = createDurableAcademicService({ database, schoolId });
+  const roster = await service.roster({ classId: 'class-basic-1', subjectId: 'subject-math', academicYear: '2026/2027', term: 'First Term' }, manager);
+  assert.deepEqual(roster.map((student) => student.permanentStudentId), ['OSAAH-2026-001']);
+  const rosterQueries = calls.filter(({ sql }) => sql.includes('FROM student_enrollments e JOIN students s'));
+  assert.equal(rosterQueries.length, 2);
+  assert.match(rosterQueries[0].sql, /COALESCE\(s\.is_test_record,0\)=0/);
+  assert.match(rosterQueries[1].sql, /s\.permanent_student_id NOT LIKE 'OSAAH-DEMO-%'/);
+  assert.doesNotMatch(rosterQueries[1].sql, /is_test_record/);
+});
+
 test('Score Entry roster does not retry for an unrelated missing database column', async () => {
   const calls = [];
   const unrelatedColumnError = new Error("Unknown column 's.student_status' in 'where clause'");
