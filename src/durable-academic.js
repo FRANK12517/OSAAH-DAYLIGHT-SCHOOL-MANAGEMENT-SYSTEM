@@ -5,8 +5,23 @@ import { calculateStudentResult, calculateClassPositions } from './result-calcul
 
 const rows = (value) => Array.isArray(value) ? value : [];
 const text = (value) => String(value ?? '').trim();
-const fail = (message, status = 400, code = 'ACADEMIC_DATA_ERROR') => { throw Object.assign(new Error(message), { status, code }); };
+const fail = (message, status = 400, code = 'ACADEMIC_DATA_ERROR', details = null) => { throw Object.assign(new Error(message), { status, code, details }); };
 const schemaCompatibilityError = (error) => /unknown column|doesn'?t exist|no such table|table .* does not exist/i.test(String(error?.message ?? error));
+async function historicalAcademicCounts(database, schoolId) {
+  const tables = new Set(rows(await database.query(
+    "SELECT TABLE_NAME AS tableName FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ('academic_score_records','academic_result_records')"
+  )).map((row) => row.tableName ?? row.TABLE_NAME));
+  const count = async (table, where = 'school_id=?', params = [schoolId]) => Number(rows(await database.query(
+    `SELECT COUNT(*) AS rowCount FROM ${table} WHERE ${where}`, params
+  ))[0]?.rowCount ?? 0);
+  const result = { academicScoreRecords: 0, academicResultRecords: 0, publishedResults: 0 };
+  if (tables.has('academic_score_records')) result.academicScoreRecords = await count('academic_score_records');
+  if (tables.has('academic_result_records')) {
+    result.academicResultRecords = await count('academic_result_records');
+    result.publishedResults = await count('academic_result_records', 'school_id=? AND status=?', [schoolId, 'PUBLISHED']);
+  }
+  return result;
+}
 const MOCK_TYPES = Object.freeze(Array.from({ length: 10 }, (_, index) => `${index + 1}${index === 0 ? 'st' : index === 1 ? 'nd' : index === 2 ? 'rd' : 'th'} Mock`));
 const JHS_CLASSES = new Set(['JHS 1', 'JHS 2', 'JHS 3']);
 
@@ -95,6 +110,7 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
       const classes = rows(await tx.query('SELECT c.id,c.name FROM classes c WHERE c.school_id=? ORDER BY c.id', [schoolId]));
       const duplicateSubjects = rows(await tx.query('SELECT LOWER(name) AS normalizedName,COUNT(*) AS recordCount FROM subjects WHERE school_id=? GROUP BY LOWER(name) HAVING COUNT(*)>1', [schoolId]));
       if (duplicateSubjects.length) fail('Duplicate subject names require manual reconciliation before synchronization.', 409, 'DUPLICATE_SUBJECTS', { duplicateSubjects });
+      const historyBefore = await historicalAcademicCounts(tx, schoolId);
       let classesConfigured = 0, subjectsCreated = 0, assignmentsCreated = 0, mandatoryAssignmentsRestored = 0;
       const nurseryNames = new Set(classes.flatMap((item) => canonicalAcademicClass(item.name)?.startsWith('Nursery') ? defaultSubjectsForClass(item.name).map((item) => item.name.toLocaleLowerCase('en')) : []));
       for (const classRow of classes) {
@@ -157,9 +173,17 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
           if (Number(insert?.affectedRows ?? 1) > 0) assignmentsCreated += 1;
         }
       }
+      const historyAfter = await historicalAcademicCounts(tx, schoolId);
+      if (JSON.stringify(historyBefore) !== JSON.stringify(historyAfter)) fail(
+        'Historical academic records changed during default subject synchronization.',
+        409,
+        'HISTORICAL_RECORDS_CHANGED',
+        { before: historyBefore, after: historyAfter }
+      );
       return { schoolId, academicYearId, configurationVersion: DEFAULT_SUBJECT_CONFIGURATION_VERSION, classesConfigured, subjectsCreated, assignmentsCreated, mandatoryAssignmentsRestored, expectedBaseline: { assignmentSlots: DEFAULT_SUBJECT_ASSIGNMENT_SLOTS, distinctSubjectNames: DEFAULT_DISTINCT_SUBJECT_NAMES }, nurseryPreserved: true };
     };
-    try { return typeof database.transaction === 'function' ? await database.transaction(sync) : await sync(database); }
+    if (typeof database.transaction !== 'function') fail('Default subject synchronization requires a database transaction.', 503, 'SUBJECT_SYNC_TRANSACTION_REQUIRED');
+    try { return await database.transaction(sync); }
     catch (error) {
       if (schemaCompatibilityError(error)) fail('Subject configuration requires the approved subject database migrations.', 503, 'SUBJECT_CONFIGURATION_SCHEMA_UNAVAILABLE');
       throw error;
