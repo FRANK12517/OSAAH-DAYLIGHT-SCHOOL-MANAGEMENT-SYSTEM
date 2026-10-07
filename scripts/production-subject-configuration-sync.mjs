@@ -7,6 +7,8 @@ import { createDatabaseAdapter } from '../src/ai/tidb-database-adapter.js';
 const EXPECTED_DATABASE = 'osaahdaylightschool';
 const rows = (value) => Array.isArray(value) ? value : [];
 const fail = (code, message, details = null) => { throw Object.assign(new Error(message), { code, details }); };
+const HISTORICAL_COUNT_KEYS = ['academicScoreRecords', 'academicResultRecords', 'publishedResults'];
+const historicalCountsChanged = (before, after) => HISTORICAL_COUNT_KEYS.some((key) => before[key] !== after[key]);
 
 async function writeSummary(report) {
   const destination = process.env.GITHUB_STEP_SUMMARY;
@@ -155,7 +157,7 @@ async function main() {
     const verifiedScope = await loadScope(adapter, scope.school.id, scope.academicYear.id);
     preview = buildSubjectConfigurationPreview({ classes: verifiedScope.classes, subjects: verifiedScope.subjects, assignments: verifiedScope.assignments, academicYear: verifiedScope.academicYear });
     const historyAfter = await readCounts(adapter, scope.school.id, scope.academicYear.id);
-    if (JSON.stringify(historyBefore) !== JSON.stringify(historyAfter)) fail('HISTORICAL_RECORDS_CHANGED', 'Score or result counts changed during subject synchronization.', { before: historyBefore, after: historyAfter });
+    if (historicalCountsChanged(historyBefore, historyAfter)) fail('HISTORICAL_RECORDS_CHANGED', 'Score or result counts changed during subject synchronization.', { before: historyBefore, after: historyAfter });
     if (!preview.applyPreflightReady || preview.missingSubjects.length || preview.missingAssignments.length) fail('POST_APPLY_VERIFICATION_FAILED', 'Subject synchronization did not satisfy the reviewed baseline.', { duplicateDetection: preview.duplicateDetection, missingClasses: preview.missingClasses, missingSubjects: preview.missingSubjects, missingAssignments: preview.missingAssignments });
     const report = {
       ok: true, mode: 'APPLY', database: verifiedScope.database,

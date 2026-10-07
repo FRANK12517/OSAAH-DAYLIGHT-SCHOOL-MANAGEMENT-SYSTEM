@@ -18,8 +18,11 @@ const classes = [['class-nursery-1', 'Nursery 1'], ['class-nursery-2', 'Nursery 
 const years = [{ id: 'year-2026', name: '2026/2027' }, { id: 'year-2027', name: '2027/2028' }];
 const terms = years.flatMap(({ id }) => [1, 2, 3].map((n) => ({ id: `${id}-term-${n}`, academicYearId: id, name: ['First', 'Second', 'Third'][n - 1] + ' Term' })));
 
-function fakeDatabase() {
+function fakeDatabase({ historyMutation = null, historySeed = {} } = {}) {
   const subjects = [], assignments = [];
+  const history = { scores: structuredClone(historySeed.scores ?? []), results: structuredClone(historySeed.results ?? []) };
+  const transactionStats = { committed: 0, rolledBack: 0 };
+  let mutationApplied = false;
   for (const name of ['English Language', 'Mathematics', 'Science', 'Social Studies', 'Religious and Moral Education', 'Computing', 'Creative Arts', 'French']) {
     const id = `nursery-subject-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
     subjects.push({ id, schoolId, code: `N_${name.slice(0, 5).toUpperCase()}`, name, subjectType: ['Computing', 'Creative Arts', 'French'].includes(name) ? 'ELECTIVE' : 'CORE', isScoring: 1, isActive: 1 });
@@ -28,10 +31,14 @@ function fakeDatabase() {
   const nurseryBefore = assignments.map((row) => ({ ...row }));
   const calls = [];
   const className = (id) => classes.find((row) => row.id === id)?.name;
-  return {
-    subjects, assignments, nurseryBefore, calls,
+  const db = {
+    subjects, assignments, nurseryBefore, calls, history, transactionStats,
     async query(sql, p = []) {
       calls.push({ sql, params: p });
+      if (sql.includes('information_schema.TABLES') && sql.includes('academic_score_records')) return [{ tableName: 'academic_score_records' }, { tableName: 'academic_result_records' }];
+      if (sql.includes('COUNT(*) AS rowCount FROM academic_score_records')) return [{ rowCount: history.scores.filter((row) => row.school_id === p[0]).length }];
+      if (sql.includes('COUNT(*) AS rowCount FROM academic_result_records') && sql.includes('status=?')) return [{ rowCount: history.results.filter((row) => row.school_id === p[0] && row.status === p[1]).length }];
+      if (sql.includes('COUNT(*) AS rowCount FROM academic_result_records')) return [{ rowCount: history.results.filter((row) => row.school_id === p[0]).length }];
       if (sql.includes('SELECT c.id,c.name FROM classes c WHERE c.school_id=?')) return classes;
       if (sql.includes('SELECT id,name FROM classes WHERE school_id=?')) return classes.filter((row) => row.id === p[1]);
       if (sql.includes('FROM academic_years')) return years.filter((row) => !p[1] || row.id === p[1] || row.name === p[2]);
@@ -55,6 +62,10 @@ function fakeDatabase() {
     },
     async execute(sql, p = []) {
       calls.push({ sql, params: p });
+      if (!mutationApplied && historyMutation && (sql.startsWith('INSERT INTO subjects') || sql.startsWith('INSERT INTO subject_class_assignments'))) {
+        mutationApplied = true;
+        historyMutation(history);
+      }
       if (sql.startsWith('INSERT INTO subjects')) {
         if (!subjects.some((row) => row.id === p[0] || (row.schoolId === p[1] && row.code === p[3]))) subjects.push({ id: p[0], schoolId: p[1], code: p[3], name: p[4], subjectType: p[5], isScoring: p[6], assessmentComponentsJson: p[7], isActive: 1 });
         return { affectedRows: 1 };
@@ -87,8 +98,24 @@ function fakeDatabase() {
         return { affectedRows: row ? 1 : 0 };
       }
       return { affectedRows: 1 };
+    },
+    async transaction(callback) {
+      const snapshot = structuredClone({ subjects, assignments, history });
+      try {
+        const result = await callback(db);
+        transactionStats.committed += 1;
+        return result;
+      } catch (error) {
+        subjects.splice(0, subjects.length, ...snapshot.subjects);
+        assignments.splice(0, assignments.length, ...snapshot.assignments);
+        history.scores.splice(0, history.scores.length, ...snapshot.history.scores);
+        history.results.splice(0, history.results.length, ...snapshot.history.results);
+        transactionStats.rolledBack += 1;
+        throw error;
+      }
     }
   };
+  return db;
 }
 
 test('catalog defines the requested subjects for KG, both Primary bands, and JHS while preserving Nursery', () => {
@@ -127,6 +154,7 @@ test('TiDB defaults are idempotent, preserve Nursery assignments, and cascade ac
   const db = fakeDatabase(); const service = createDurableAcademicService({ database: db, schoolId });
   const first = await service.configureDefaultSubjects(manager); const second = await service.configureDefaultSubjects(manager);
   assert.equal(first.classesConfigured, 13); assert.equal(first.nurseryPreserved, true); assert.ok(first.assignmentsCreated > 0); assert.equal(second.assignmentsCreated, 0); assert.deepEqual(db.assignments.filter((a) => a.classId.includes('nursery')), db.nurseryBefore);
+  assert.equal(first.subjectsCreated, 10); assert.equal(first.assignmentsCreated, 89); assert.equal(second.subjectsCreated, 0); assert.equal(second.assignmentsCreated, 0); assert.equal(second.mandatoryAssignmentsRestored, 0);
   assert.equal(first.expectedBaseline.assignmentSlots, 105); assert.equal(first.expectedBaseline.distinctSubjectNames, 18); assert.equal(db.subjects.length, 18); assert.equal(db.assignments.length, 105);
   assert.ok(db.assignments.filter((a) => !a.classId.includes('nursery')).every((a) => a.configurationVersion === '1'));
   for (const yearId of ['year-2026', 'year-2027']) for (const cls of classes) for (const termNo of [1, 2, 3]) {
@@ -146,6 +174,38 @@ test('TiDB defaults are idempotent, preserve Nursery assignments, and cascade ac
   await service.assignSubject({ subjectId: french.id, classId: 'class-basic-4', academicYearId: 'year-2026' }, manager);
   assert.ok((await service.subjectCascade({ academicYearId: 'year-2026', termId: 'year-2026-term-1', classId: 'class-basic-4' }, manager)).subjects.some((s) => s.id === french.id));
   assert.ok(!(await service.subjectCascade({ academicYearId: 'year-2027', termId: 'year-2027-term-1', classId: 'class-basic-4' }, manager)).subjects.some((s) => s.id === french.id));
+});
+
+test('intended subject and subject-class assignment creation is allowed without historical changes', async () => {
+  const db = fakeDatabase(); const service = createDurableAcademicService({ database: db, schoolId });
+  const result = await service.configureDefaultSubjects(manager);
+  assert.equal(result.subjectsCreated, 10);
+  assert.equal(result.assignmentsCreated, 89);
+  assert.equal(db.subjects.length, 18);
+  assert.equal(db.assignments.length, 105);
+  assert.deepEqual(db.history, { scores: [], results: [] });
+  assert.equal(db.transactionStats.committed, 1);
+});
+
+test('score, result, and published-result history mutations fail and roll back configuration writes', async () => {
+  const cases = [
+    ['score history', { historyMutation: (history) => history.scores.push({ school_id: schoolId }) }],
+    ['result history', { historyMutation: (history) => history.results.push({ school_id: schoolId, status: 'DRAFT' }) }],
+    ['published-result history', {
+      historySeed: { results: [{ school_id: schoolId, status: 'DRAFT' }] },
+      historyMutation: (history) => { history.results[0].status = 'PUBLISHED'; }
+    }]
+  ];
+  for (const [label, options] of cases) {
+    const db = fakeDatabase(options); const service = createDurableAcademicService({ database: db, schoolId });
+    const beforeSubjects = db.subjects.length;
+    const beforeAssignments = db.assignments.length;
+    await assert.rejects(() => service.configureDefaultSubjects(manager), { code: 'HISTORICAL_RECORDS_CHANGED' }, label);
+    assert.equal(db.subjects.length, beforeSubjects, `${label}: created subjects rolled back`);
+    assert.equal(db.assignments.length, beforeAssignments, `${label}: created assignments rolled back`);
+    assert.equal(db.transactionStats.committed, 0, `${label}: transaction not committed`);
+    assert.equal(db.transactionStats.rolledBack, 1, `${label}: transaction rolled back`);
+  }
 });
 
 test('durable default synchronization commits transactionally and rejects duplicate subjects before writing', async () => {

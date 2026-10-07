@@ -7,6 +7,7 @@ const script = await readFile(new URL('../scripts/production-subject-configurati
 const workflow = await readFile(new URL('../.github/workflows/production-subject-configuration-sync.yml', import.meta.url), 'utf8');
 const server = await readFile(new URL('../src/server.mjs', import.meta.url), 'utf8');
 const guards = await readFile(new URL('../src/platform/subject-sync-guards.js', import.meta.url), 'utf8');
+const durableAcademic = await readFile(new URL('../src/durable-academic.js', import.meta.url), 'utf8');
 
 test('protected workflow pins reviewed release SHA, exact school/year scope and production environment', () => {
   assert.match(workflow, /environment:\s*production/i);
@@ -58,6 +59,15 @@ test('APPLY requires a distinct token, recoverable backup, transactional sync an
   assert.match(script, /HISTORICAL_RECORDS_CHANGED/);
   assert.match(script, /POST_APPLY_VERIFICATION_FAILED/);
   assert.match(script, /duplicateDetection/);
+});
+
+test('historical invariance protects only score/result counts and fails inside the required transaction', () => {
+  assert.match(script, /HISTORICAL_COUNT_KEYS = \['academicScoreRecords', 'academicResultRecords', 'publishedResults'\]/);
+  assert.match(script, /historicalCountsChanged\(historyBefore, historyAfter\)/);
+  assert.match(durableAcademic, /historicalAcademicCounts\(tx, schoolId\)/);
+  assert.match(durableAcademic, /HISTORICAL_RECORDS_CHANGED/);
+  assert.match(durableAcademic, /await database\.transaction\(sync\)/);
+  assert.doesNotMatch(durableAcademic, /await sync\(database\)/);
 });
 
 test('production score, result and subject routes return a controlled unavailable status without the durable service', () => {
