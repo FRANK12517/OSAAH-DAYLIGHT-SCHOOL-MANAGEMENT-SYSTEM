@@ -7,6 +7,10 @@ const rows = (value) => Array.isArray(value) ? value : [];
 const text = (value) => String(value ?? '').trim();
 const fail = (message, status = 400, code = 'ACADEMIC_DATA_ERROR', details = null) => { throw Object.assign(new Error(message), { status, code, details }); };
 const schemaCompatibilityError = (error) => /unknown column|doesn'?t exist|no such table|table .* does not exist/i.test(String(error?.message ?? error));
+const missingLegacySubjectTable = (error) => {
+  const message = String(error?.message ?? error);
+  return /ER_NO_SUCH_TABLE|no such table|table .* does not exist|table .* doesn't exist/i.test(message) && /class_subjects/i.test(message);
+};
 const missingOptionalEnrollmentStateColumn = (error) => {
   const message = String(error?.message ?? error);
   return /unknown column|no such column|column .*does not exist|column .*doesn't exist|invalid column name/i.test(message)
@@ -212,7 +216,10 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
       if (!schemaCompatibilityError(error)) throw error;
       try {
         assignmentRows = rows(await database.query('SELECT cs.subject_id AS subjectId,cs.class_id AS classId,c.name AS className,1 AS active FROM class_subjects cs JOIN classes c ON c.id=cs.class_id AND c.school_id=? WHERE c.school_id=? ORDER BY c.id', [schoolId, schoolId]));
-      } catch (legacyError) { if (!schemaCompatibilityError(legacyError)) throw legacyError; }
+      } catch (legacyError) {
+        if (missingLegacySubjectTable(legacyError)) assignmentRows = [];
+        else if (!schemaCompatibilityError(legacyError)) throw legacyError;
+      }
     }
     const result = subjectRows.map((subject) => {
       const assignments = assignmentRows.filter((item) => item.subjectId === subject.id);
@@ -335,12 +342,18 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
           WHERE cs.class_id=? ORDER BY s.name,s.id`, [schoolId, schoolId, classId]);
         return rows(result).filter((subject) => includeInactive || Number(subject.subjectActive ?? 1) === 1).map((subject) => ({ ...decorateSubject(subject, classId), active: Number(subject.subjectActive ?? 1) === 1, subjectActive: Number(subject.subjectActive ?? 1) === 1 }));
       } catch (error) {
+        if (missingLegacySubjectTable(error)) return [];
         if (!schemaCompatibilityError(error)) throw error;
-        const result = await database.query(`SELECT s.id,s.code,s.name,s.department_id AS departmentId,s.is_active AS subjectActive,cs.class_id AS classId,c.name AS className
-          FROM class_subjects cs JOIN subjects s ON s.id=cs.subject_id AND s.school_id=?
-          JOIN classes c ON c.id=cs.class_id AND c.school_id=?
-          WHERE cs.class_id=? ORDER BY s.name,s.id`, [schoolId, schoolId, classId]);
-        return rows(result).filter((subject) => includeInactive || Number(subject.subjectActive ?? 1) === 1).map((subject) => ({ ...decorateSubject(subject, classId), active: Number(subject.subjectActive ?? 1) === 1, subjectActive: Number(subject.subjectActive ?? 1) === 1 }));
+        try {
+          const result = await database.query(`SELECT s.id,s.code,s.name,s.department_id AS departmentId,s.is_active AS subjectActive,cs.class_id AS classId,c.name AS className
+            FROM class_subjects cs JOIN subjects s ON s.id=cs.subject_id AND s.school_id=?
+            JOIN classes c ON c.id=cs.class_id AND c.school_id=?
+            WHERE cs.class_id=? ORDER BY s.name,s.id`, [schoolId, schoolId, classId]);
+          return rows(result).filter((subject) => includeInactive || Number(subject.subjectActive ?? 1) === 1).map((subject) => ({ ...decorateSubject(subject, classId), active: Number(subject.subjectActive ?? 1) === 1, subjectActive: Number(subject.subjectActive ?? 1) === 1 }));
+        } catch (legacyError) {
+          if (missingLegacySubjectTable(legacyError)) return [];
+          throw legacyError;
+        }
       }
     }
   }
