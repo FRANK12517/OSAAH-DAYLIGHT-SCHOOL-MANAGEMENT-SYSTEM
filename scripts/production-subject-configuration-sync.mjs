@@ -1,6 +1,6 @@
 import { appendFile } from 'node:fs/promises';
 import { buildSubjectConfigurationPreview } from '../src/platform/subject-configuration-preview.js';
-import { validateSubjectSyncExecution } from '../src/platform/subject-sync-guards.js';
+import { assertAuthoritativeSchoolScope, AUTHORITATIVE_SCHOOL_ID, validateSubjectSyncExecution } from '../src/platform/subject-sync-guards.js';
 import { createDurableAcademicService } from '../src/durable-academic.js';
 import { createDatabaseAdapter } from '../src/ai/tidb-database-adapter.js';
 
@@ -67,8 +67,9 @@ async function readCounts(adapter, schoolId, academicYearId) {
 async function loadScope(adapter, schoolId, yearInput) {
   const database = rows(await adapter.query('SELECT DATABASE() AS databaseName'))[0]?.databaseName;
   if (database !== EXPECTED_DATABASE) fail('DATABASE_TARGET_MISMATCH', 'Unexpected production database target.', { expected: EXPECTED_DATABASE, actual: database ?? null });
-  const school = rows(await adapter.query('SELECT id,name FROM schools WHERE id=? LIMIT 1', [schoolId]))[0];
-  if (!school || !/osaah\s+daylight/i.test(String(school.name ?? ''))) fail('SCHOOL_SCOPE_MISMATCH', 'The requested Osaah Daylight school is not present in the selected database.', { schoolId });
+  const schoolRows = rows(await adapter.query('SELECT id,name FROM schools ORDER BY id'));
+  const school = assertAuthoritativeSchoolScope({ requestedSchoolId: schoolId, schools: schoolRows });
+  if (school.id !== AUTHORITATIVE_SCHOOL_ID) fail('SCHOOL_SCOPE_MISMATCH', 'The requested school is not the authoritative production school.', { schoolId });
   const academicYear = rows(await adapter.query('SELECT id,name FROM academic_years WHERE school_id=? AND (id=? OR name=?) LIMIT 1', [schoolId, yearInput, yearInput]))[0];
   if (!academicYear) fail('ACADEMIC_YEAR_SCOPE_MISMATCH', 'The requested academic year does not belong to the selected school.', { schoolId, academicYear: yearInput });
 
