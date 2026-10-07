@@ -248,3 +248,43 @@ test('Result Slip retrieves durable saved scores after enrollment-flag compatibi
   assert.ok(calls.some(({ sql }) => sql.includes('FROM academic_result_records')));
   assert.equal(calls.filter(({ sql }) => sql.includes('FROM students s JOIN student_enrollments e')).length, 2);
 });
+
+test('Score Entry cascade excludes inactive subjects and inactive assignments', async () => {
+  const database = {
+    async query(sql) {
+      if (sql.includes('FROM academic_years')) return [{ id: 'year-2026', name: '2026/2027' }];
+      if (sql.includes('FROM terms')) return [{ id: 'term-1', academicYearId: 'year-2026', name: 'First Term' }];
+      if (sql.includes('FROM classes WHERE school_id')) return [{ id: 'class-basic-1', name: 'Basic 1' }];
+      if (sql.includes('FROM subject_class_assignments a JOIN subjects s')) return [
+        { id: 'subject-active', code: 'ENG', name: 'English Language', subjectType: 'CORE', isScoring: 1, subjectActive: 1, classId: 'class-basic-1', className: 'Basic 1', academicYearId: 'year-2026', assignmentActive: 1 },
+        { id: 'subject-inactive', code: 'HIST', name: 'History', subjectType: 'ELECTIVE', isScoring: 1, subjectActive: 0, classId: 'class-basic-1', className: 'Basic 1', academicYearId: 'year-2026', assignmentActive: 1 },
+        { id: 'subject-unassigned', code: 'SCI', name: 'Science', subjectType: 'ELECTIVE', isScoring: 1, subjectActive: 1, classId: 'class-basic-1', className: 'Basic 1', academicYearId: 'year-2026', assignmentActive: 0 }
+      ];
+      return [];
+    },
+    async execute() { return { affectedRows: 1 }; }
+  };
+  const service = createDurableAcademicService({ database, schoolId });
+  const cascade = await service.subjectCascade({ classId: 'class-basic-1', academicYear: '2026/2027', term: 'First Term' }, manager);
+  assert.deepEqual(cascade.subjects.map((subject) => subject.id), ['subject-active']);
+});
+
+test('Score Entry durable roster rejects a subject not actively assigned to the selected class and year', async () => {
+  const database = {
+    async query(sql) {
+      if (sql.includes('FROM academic_years')) return [{ id: 'year-2026', name: '2026/2027' }];
+      if (sql.includes('FROM terms')) return [{ id: 'term-1', academicYearId: 'year-2026', name: 'First Term' }];
+      if (sql.includes('FROM classes WHERE school_id')) return [{ id: 'class-basic-1', name: 'Basic 1' }];
+      if (sql.includes('FROM subject_class_assignments a JOIN subjects s')) return [{
+        id: 'subject-other-class', code: 'SCI', name: 'Science', subjectType: 'ELECTIVE', isScoring: 1, subjectActive: 1, classId: 'class-basic-1', className: 'Basic 1', academicYearId: 'year-2026', assignmentActive: 1
+      }];
+      return [];
+    },
+    async execute() { return { affectedRows: 1 }; }
+  };
+  const service = createDurableAcademicService({ database, schoolId });
+  await assert.rejects(
+    () => service.roster({ classId: 'class-basic-1', subjectId: 'subject-not-assigned', academicYear: '2026/2027', term: 'First Term' }, manager),
+    (error) => error.message === 'Subject is invalid for this class and academic context.' && error.status === 400 && error.code === 'INVALID_CLASS_SUBJECT'
+  );
+});
