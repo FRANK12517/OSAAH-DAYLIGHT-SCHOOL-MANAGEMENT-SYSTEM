@@ -288,3 +288,22 @@ test('Score Entry durable roster rejects a subject not actively assigned to the 
     (error) => error.message === 'Subject is invalid for this class and academic context.' && error.status === 400 && error.code === 'INVALID_CLASS_SUBJECT'
   );
 });
+
+test('Score Entry durable roster returns a valid empty collection with exact term scoping and official sample exclusion', async () => {
+  const database = fakeDatabase();
+  const originalQuery = database.query.bind(database);
+  database.query = async (sql, params = []) => {
+    database.calls.push({ sql, params });
+    if (sql.includes('FROM subject_class_assignments a JOIN subjects s') && sql.includes('WHERE a.school_id=? AND a.class_id=?')) return [{ id: 'subject-math', name: 'Mathematics', classId: 'class-basic-1', className: 'Basic 1', academicYearId: 'year-2026', isScoring: 1, subjectActive: 1, assignmentActive: 1 }];
+    if (sql.includes('FROM student_enrollments e JOIN students s') && sql.includes('academic_score_records')) return [];
+    return originalQuery(sql, params);
+  };
+  const service = createDurableAcademicService({ database, schoolId });
+  const roster = await service.roster({ classId: 'class-basic-1', subjectId: 'subject-math', academicYear: '2026/2027', term: 'First Term' }, manager);
+  assert.deepEqual(roster, [], 'zero eligible enrollment rows are a successful empty result');
+  const rosterQuery = database.calls.find(({ sql }) => sql.includes('FROM student_enrollments e JOIN students s') && sql.includes('academic_score_records'));
+  assert.ok(rosterQuery);
+  assert.match(rosterQuery.sql, /e\.term_id=\?/);
+  assert.match(rosterQuery.sql, /COALESCE\(s\.is_test_record,0\)=0/);
+  assert.equal(rosterQuery.params[6], 'term-1');
+});

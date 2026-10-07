@@ -82,7 +82,7 @@ test('score roster requires every academic selection and returns only the select
   assert.throws(() => resultService.scoreEntryRoster({ academicYear: '2026/2027', term: 'First Term', classId, subjectId: subject.id }, { ...teacher, schoolId: 'another-school' }), /Forbidden/);
 });
 
-test('sample Score Entry mode loads exactly two samples only when no real enrollment exists', () => {
+test('sample Score Entry mode loads the canonical DEMO-001 fixture separately from official students', () => {
   const { students, subjects, resultService } = scoreFixture();
   const classId = 'KG1';
   const subject = subjects.list({ classId }, teacher)[0];
@@ -90,12 +90,14 @@ test('sample Score Entry mode loads exactly two samples only when no real enroll
   const filters = { academicYear: '2026/2027', term: 'First Term', classId, subjectId: subject.id };
   assert.equal(resultService.scoreEntryRoster({ ...filters, sampleMode: 'false' }, teacher).length, 0);
   const sampleRoster = resultService.scoreEntryRoster({ ...filters, sampleMode: 'true' }, teacher);
-  assert.equal(sampleRoster.length, 2);
-  assert.ok(sampleRoster.every((student) => student.isTestRecord === true));
+  assert.equal(sampleRoster.length, 1);
+  assert.equal(sampleRoster[0].permanentStudentId, 'OSAAH-DEMO-001');
+  assert.equal(sampleRoster[0].isTestRecord, true);
   eligibleStudent(students, classId, 'Real');
   const realRoster = resultService.scoreEntryRoster({ ...filters, sampleMode: 'true' }, teacher);
   assert.equal(realRoster.length, 1);
-  assert.equal(realRoster[0].isTestRecord, false);
+  assert.equal(realRoster[0].permanentStudentId, 'OSAAH-DEMO-001');
+  assert.equal(realRoster[0].isTestRecord, true);
 });
 
 test('academic options and score-entry roster use the configured authenticated school instead of the legacy service default', async () => {
@@ -174,6 +176,40 @@ test('authenticated Score Entry API loads scoped students, saves CA/Exam, and re
   }
 });
 
+test('authenticated Sample Mode loads and saves only the existing DEMO-001 sample workflow record', async () => {
+  const students = createStudentService({ schoolId });
+  const subjects = createSubjectService({ schoolId });
+  const subject = subjects.list({ classId: 'JHS 1' }, teacher)[0];
+  const resultService = createAcademicResultsService({ schoolId, students, subjects });
+  const actor = { ...teacher, roleKey: 'PROPRIETOR', assignedClassIds: [], permissions: new Set(['*']) };
+  const auth = { authenticateAsync: async (token) => token === 'authorized' ? actor : null };
+  const app = createApp({ auth, students, subjects, academicResults: resultService });
+  const server = http.createServer(app);
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const headers = { Authorization: 'Bearer authorized' };
+    const query = new URLSearchParams({ academicYear: '2026/2027', term: 'First Term', classId: 'JHS 1', subjectId: subject.id, sampleMode: 'true' });
+    const loaded = await fetch(`${base}/api/academic/score-entry/roster?${query}`, { headers });
+    assert.equal(loaded.status, 200);
+    const roster = await loaded.json();
+    assert.equal(roster.students.length, 1);
+    assert.equal(roster.students[0].permanentStudentId, 'OSAAH-DEMO-001');
+    assert.equal(roster.students[0].isTestRecord, true);
+    const savedResponse = await fetch(`${base}/api/academic/scores`, { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ ...Object.fromEntries(query), studentId: roster.students[0].studentId, caScore: 25, examScore: 35, sampleMode: true }) });
+    assert.equal(savedResponse.status, 201);
+    const saved = await savedResponse.json();
+    assert.equal(saved.studentIndexNumber, 'OSAAH-DEMO-001');
+    assert.equal(saved.isTestRecord, true);
+    const officialQuery = new URLSearchParams({ academicYear: '2026/2027', term: 'First Term', classId: 'JHS 1', subjectId: subject.id });
+    const official = await fetch(`${base}/api/academic/score-entry/roster?${officialQuery}`, { headers });
+    assert.equal(official.status, 200);
+    assert.deepEqual((await official.json()).students, []);
+  } finally {
+    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
 test('Score Entry UI has dependent single-select subjects, required-selection gates, ID display, loading and error states', () => {
   const html = fs.readFileSync(new URL('../public/examinations.html', import.meta.url), 'utf8');
   const js = fs.readFileSync(new URL('../public/score-entry.js', import.meta.url), 'utf8');
@@ -182,7 +218,7 @@ test('Score Entry UI has dependent single-select subjects, required-selection ga
   assert.match(js, /Loading subjects…/);
   assert.match(js, /No subjects configured for this class\./);
   assert.match(js, /Loading students…/);
-  assert.match(js, /No students found for the selected class and academic year\./);
+  assert.match(js, /No students found for the selected class, term and academic year\./);
   assert.match(js, /\/api\/academic\/score-entry\/roster/);
   assert.match(js, /student\.permanentStudentId/);
   assert.match(js, /subjectSelect\.value = ''/);

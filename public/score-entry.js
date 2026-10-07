@@ -98,8 +98,8 @@ function render(students, classId) {
     const ca = student.caScore ?? 0;
     const exam = student.examScore ?? 0;
     const total = student.totalScore ?? 0;
-    return `<tr data-student="${esc(student.studentId)}"><td data-label="Student ID">${esc(student.permanentStudentId)}${student.isTestRecord ? ' <small>(SAMPLE DATA)</small>' : ''}</td><td data-label="Student Name">${esc(student.studentName)}</td><td data-label="CA / 50"><input class="ca" type="number" min="0" max="50" step="0.01" value="${esc(ca)}" aria-label="CA score for ${esc(student.studentName)}"></td><td data-label="Exam / 50"><input class="exam" type="number" min="0" max="50" step="0.01" value="${esc(exam)}" aria-label="Exam score for ${esc(student.studentName)}"></td><td data-label="Total" class="total">${Number(total).toFixed(2)}</td><td data-label="Grade" class="grade">${esc(student.grade ?? grade(total, classId))}</td><td data-label="Save Status" class="save-status">${student.saved ? 'Saved' : 'Not saved'}</td></tr>`;
-  }).join('') || '<tr><td colspan="7">No students found for the selected class and academic year.</td></tr>';
+    return `<tr data-student="${esc(student.studentId)}" data-sample="${Boolean(student.isTestRecord)}"><td data-label="Student ID">${esc(student.permanentStudentId)}${student.isTestRecord ? ' <small>(SAMPLE DATA)</small>' : ''}</td><td data-label="Student Name">${esc(student.studentName)}</td><td data-label="CA / 50"><input class="ca" type="number" min="0" max="50" step="0.01" value="${esc(ca)}" aria-label="CA score for ${esc(student.studentName)}"></td><td data-label="Exam / 50"><input class="exam" type="number" min="0" max="50" step="0.01" value="${esc(exam)}" aria-label="Exam score for ${esc(student.studentName)}"></td><td data-label="Total" class="total">${Number(total).toFixed(2)}</td><td data-label="Grade" class="grade">${esc(student.grade ?? grade(total, classId))}</td><td data-label="Save Status" class="save-status">${student.saved ? 'Saved' : 'Not saved'}</td></tr>`;
+  }).join('') || '<tr><td colspan="7">No students found for the selected class, term and academic year.</td></tr>';
   studentsHost.querySelectorAll('tr[data-student]').forEach((row) => {
     const totalCell = row.querySelector('.total');
     const gradeCell = row.querySelector('.grade');
@@ -135,7 +135,7 @@ function scheduleSave(row, caScore, examScore, stateCell) {
 async function save(row, caScore, examScore, stateCell, sequence) {
   if (sequence !== sequences.get(row)) return;
   stateCell.textContent = 'Saving…';
-  const data = { academicYear: context.elements.academicYear.value.trim(), term: context.elements.term.value, classId: classSelect.value, subjectId: subjectSelect.value, studentId: row.dataset.student, caScore, examScore };
+  const data = { academicYear: context.elements.academicYear.value.trim(), term: context.elements.term.value, classId: classSelect.value, subjectId: subjectSelect.value, studentId: row.dataset.student, caScore, examScore, sampleMode: row.dataset.sample === 'true' };
   try {
     const saved = await api('/api/academic/scores', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
     if (sequence === sequences.get(row)) {
@@ -213,7 +213,7 @@ context.addEventListener('submit', async (event) => {
     const params = new URLSearchParams(filters);
     const result = await api(`/api/academic/score-entry/roster?${params}`);
     render(result.students, filters.classId);
-    showMessage(result.students.length ? `${result.students.length} student${result.students.length === 1 ? '' : 's'} loaded.` : 'No students found for the selected class and academic year.', result.students.length ? 'success' : 'muted');
+    showMessage(result.students.length ? `${result.students.length} student${result.students.length === 1 ? '' : 's'} loaded.` : 'No students found for the selected class, term and academic year.', result.students.length ? 'success' : 'muted');
   } catch (error) {
     clearRoster('Students could not be loaded.');
     showMessage(error.message || 'Unable to load students. Please try again.');
