@@ -22,7 +22,7 @@ const makeStudent = (n, classId = 'class-primary-1', { sample = false } = {}) =>
   enrollmentId: `enrollment-${n}`, classId, academicYearId: 'year-2026', termId: 'term-3',
   enrollmentStatus: 'ACTIVE', isCurrent: 1, isTestRecord: sample ? 1 : 0, studentStatus: 'ACTIVE'
 });
-function fixture(students = [makeStudent(1), makeStudent(2)]) {
+function fixture(students = [makeStudent(1), makeStudent(2)], { rejectSortOrder = false } = {}) {
   const calls = [];
   const state = { students: new Map(students.map((student) => [student.id, { ...student }])), decisions: new Map(), enrollments: new Map(students.map((student) => [student.enrollmentId, { ...student, id: student.enrollmentId, studentId: student.id }])), writes: [] };
   const respond = (sql, params = [], target = state) => {
@@ -49,7 +49,10 @@ function fixture(students = [makeStudent(1), makeStudent(2)]) {
     return [];
   };
   const db = {
-    query: async (sql, params) => respond(sql, params),
+    query: async (sql, params) => {
+      if (rejectSortOrder && /sort_order/i.test(sql)) throw Object.assign(new Error("Unknown column 'sort_order' in 'order clause'"), { code: 'ER_BAD_FIELD_ERROR', errno: 1054 });
+      return respond(sql, params);
+    },
     execute: async (sql, params = []) => {
       state.writes.push({ sql, params });
       if (sql.includes('INSERT INTO promotion_decisions')) {
@@ -93,6 +96,13 @@ test('durable Promotion roster is term-scoped and excludes sample/test students'
 test('durable Promotion returns a successful empty roster for valid zero-student context', async () => {
   const { service } = fixture([]);
   assert.deepEqual((await service.options(context, teacher)).students, []);
+});
+
+test('durable Promotion options tolerate production classes tables without optional sort_order', async () => {
+  const { service, calls } = fixture([], { rejectSortOrder: true });
+  const result = await service.options({}, { id: 'owner-1', schoolId, roleKey: 'PROPRIETOR', permissions: new Set(['promotion.write']) });
+  assert.deepEqual(result.classes.map(({ id }) => id), classes.map(({ id }) => id));
+  assert.ok(calls.filter(({ sql }) => /FROM classes/i.test(sql)).every(({ sql }) => !/sort_order/i.test(sql)));
 });
 
 test('bulk promotion validates every student and atomically preserves old enrollments while creating next-year enrollments', async () => {

@@ -32,7 +32,7 @@ export function createDurablePromotionService({ database, schoolId, idFactory = 
     const [years, terms, classes] = await Promise.all([
       database.query('SELECT id,name,starts_on AS startsOn,ends_on AS endsOn,is_current AS isCurrent FROM academic_years WHERE school_id=? ORDER BY starts_on,id', [schoolId]),
       database.query('SELECT t.id,t.name,t.academic_year_id AS academicYearId,t.starts_on AS startsOn,t.ends_on AS endsOn FROM terms t JOIN academic_years y ON y.id=t.academic_year_id WHERE y.school_id=? ORDER BY t.starts_on,t.id', [schoolId]),
-      database.query('SELECT id,name,sort_order AS sortOrder FROM classes WHERE school_id=? ORDER BY sort_order,id', [schoolId])
+      database.query('SELECT id,name FROM classes WHERE school_id=? ORDER BY name,id', [schoolId])
     ]);
     return { academicYears: rows(years), terms: rows(terms), classes: rows(classes).filter((item) => actor?.roleKey !== 'TEACHER' || (Array.isArray(actor.assignedClassIds) && actor.assignedClassIds.some((value) => String(value) === String(item.id) || String(value) === String(item.name)))) };
   }
@@ -43,7 +43,7 @@ export function createDurablePromotionService({ database, schoolId, idFactory = 
     const termValue = text(input.termId ?? input.term);
     if (!yearValue || !classValue || !termValue) return { ...lists, students: [] };
     const { year, term } = await resolvePeriod(input);
-    const klass = rows(await database.query('SELECT id,name,sort_order AS sortOrder FROM classes WHERE school_id=? AND (id=? OR name=?) LIMIT 1', [schoolId, classValue, classValue]))[0];
+    const klass = rows(await database.query('SELECT id,name FROM classes WHERE school_id=? AND (id=? OR name=?) LIMIT 1', [schoolId, classValue, classValue]))[0];
     if (!klass) fail('Class is invalid for this school.', 400, 'PROMOTION_CLASS_INVALID');
     assertClassScope(klass.id, klass.name, actor);
     const roster = await database.query(`SELECT s.id AS id,s.permanent_student_id AS permanentStudentId,s.first_name AS firstName,s.middle_name AS middleName,s.last_name AS lastName,e.class_id AS classId
@@ -70,10 +70,10 @@ export function createDurablePromotionService({ database, schoolId, idFactory = 
     if (new Set(ids.map(String)).size !== ids.length) fail('Duplicate student IDs are not allowed.');
     if (!['PROMOTED','REPEAT','HOLD','TRANSFER','GRADUATED'].includes(decision)) fail('Invalid promotion decision.');
     const { year, term } = await resolvePeriod(input);
-    const klass = rows(await database.query('SELECT id,name,sort_order AS sortOrder FROM classes WHERE school_id=? AND (id=? OR name=?) LIMIT 1', [schoolId, classValue, classValue]))[0];
+    const klass = rows(await database.query('SELECT id,name FROM classes WHERE school_id=? AND (id=? OR name=?) LIMIT 1', [schoolId, classValue, classValue]))[0];
     if (!klass) fail('Class is invalid for this school.', 400, 'PROMOTION_CLASS_INVALID');
     assertClassScope(klass.id, klass.name, actor);
-    const classRows = rows(await database.query('SELECT id,name,sort_order AS sortOrder FROM classes WHERE school_id=? ORDER BY sort_order,id', [schoolId]));
+    const classRows = rows(await database.query('SELECT id,name FROM classes WHERE school_id=? ORDER BY name,id', [schoolId]));
     const progression = CORE_LEVELS.map((name) => canonicalAcademicClass(name));
     const currentIndex = progression.indexOf(canonicalAcademicClass(klass.name));
     const isJhs3 = currentIndex === progression.length - 1;
