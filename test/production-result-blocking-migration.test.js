@@ -36,3 +36,20 @@ test('protected migration 064 runner requires exact production target, predecess
   assert.match(workflow, /git merge-base --is-ancestor/);
   assert.doesNotMatch(workflow, /npm run migration:apply/);
 });
+
+import { discoverMigrations } from '../src/platform/migration-runner.js';
+import { assertProductionAcademicMigrationAllowed } from '../src/platform/academic-migration-guard.js';
+test('migration 075 isolates terminal and Mock blocks without deleting data', async () => {
+  const sql = await readFile(new URL('../schema/075_result_blocking_examination_scope.sql', import.meta.url), 'utf8');
+  const migrations = await discoverMigrations(new URL('../schema', import.meta.url));
+  assert.equal(migrations.find((item) => item.version === 75)?.name, '075_result_blocking_examination_scope.sql');
+  assert.match(sql, /result_type/i); assert.match(sql, /mock_examination/i); assert.match(sql, /uq_academic_result_block_examination_scope/i);
+  assert.doesNotMatch(sql, /\b(DROP TABLE|DROP COLUMN|TRUNCATE|DELETE\s+FROM|REPLACE\s+INTO)\b/i);
+});
+test('migration 075 is protected by an exact release and backup-gated workflow', async () => {
+  assert.throws(() => assertProductionAcademicMigrationAllowed({ version: 75, name: '075_result_blocking_examination_scope.sql' }), { code: 'RESULT_BLOCKING_MIGRATION_REQUIRES_PROTECTED_RELEASE' });
+  const workflow = await readFile(new URL('../.github/workflows/production-result-blocking-migration-075.yml', import.meta.url), 'utf8');
+  const script = await readFile(new URL('../scripts/production-result-blocking-migrate-075.mjs', import.meta.url), 'utf8');
+  assert.match(workflow, /APPLY_RESULT_BLOCKING_075/); assert.match(workflow, /BACKUP_CONFIRMED/); assert.match(workflow, /production-result-blocking-migrate-075\.mjs/);
+  assert.match(script, /applyVersions/); assert.match(script, /requiredAppliedVersions: \[74\]/);
+});

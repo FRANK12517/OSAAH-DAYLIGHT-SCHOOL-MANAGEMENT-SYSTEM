@@ -299,11 +299,11 @@ export function createParentDashboardService({
     return Boolean(student?.isTestRecord ?? student?.is_test_record) ? academicResults : durableAcademic ?? academicResults;
   }
 
-  async function loadPublishedResult(actor, student, context) {
+  async function loadPublishedResult(actor, student, context, resultOptions = {}) {
     const source = resultSourceFor(student);
     if (!source?.publicationFor || !source?.result) return null;
-    if (resultBlocking?.assertReadable) await resultBlocking.assertReadable({ classId: context.classId, academicYear: context.yearId, term: context.termId, studentId: student.id ?? student.studentId ?? student.student_id }, actor);
-    else if (academicResults?.blockFor?.({ classId: context.classId, academicYear: context.yearId, term: context.termId, studentId: student.id ?? student.studentId ?? student.student_id })?.status === 'BLOCKED') {
+    const isMock = String(resultOptions.resultType ?? resultOptions.examination ?? '').toUpperCase() === 'MOCK'; const mockLabel = text(resultOptions.mockLabel); if (resultBlocking?.assertReadable) await resultBlocking.assertReadable({ classId: context.classId, academicYear: context.yearId, term: context.termId, studentId: student.id ?? student.studentId ?? student.student_id, resultType: isMock ? 'MOCK' : 'TERMINAL', mockLabel }, actor);
+    else if (academicResults?.blockFor?.({ classId: context.classId, academicYear: context.yearId, term: context.termId, studentId: student.id ?? student.studentId ?? student.student_id, resultType: isMock ? 'MOCK' : 'TERMINAL', mockLabel })?.status === 'BLOCKED') {
       fail('This result is temporarily blocked by the school. Please contact the school office.', 403, 'PARENT_RESULT_BLOCKED');
     }
     const isSample = Boolean(student.isTestRecord ?? student.is_test_record);
@@ -312,7 +312,8 @@ export function createParentDashboardService({
       academicYear: context.yearId,
       term: context.termId,
       studentId: student.id ?? student.studentId ?? student.student_id,
-      examination: 'TERMINAL',
+      examination: isMock ? 'MOCK' : 'TERMINAL',
+      mockLabel,
       isSample,
       sample: isSample
     };
@@ -327,7 +328,7 @@ export function createParentDashboardService({
     };
     const publication = await source.publicationFor(input, resultActor);
     if (publication?.status !== 'PUBLISHED') return null;
-    return await source.result(input, resultActor);
+    return await source.result(input, resultActor, { mock: isMock });
   }
 
   async function legacyTermEvidence(actor, student, context, recordType) {
@@ -436,7 +437,7 @@ export function createParentDashboardService({
       return { recordType: type, available: true, student: { name, permanentStudentId }, context, attendanceSummary: attendanceSummary(authorizedRecords), records: authorizedRecords };
     }
     if (type === 'published-results') {
-      const result = await loadPublishedResult(actor, student, context);
+      const result = await loadPublishedResult(actor, student, context, input);
       if (!result) fail('No published result is available for this student and academic context.', 404, 'PARENT_RESULT_NOT_PUBLISHED');
       return { recordType: type, available: true, student: { name, permanentStudentId }, context, result };
     }
