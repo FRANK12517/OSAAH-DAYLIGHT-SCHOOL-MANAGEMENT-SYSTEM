@@ -72,3 +72,9 @@ test('unauthorized APPLY is rejected unless its distinct token, exact scope, rel
   assert.throws(() => validateSubjectSyncExecution({ ...base, releaseSha: 'not-a-commit-sha', executionToken: 'APPLY_SUBJECT_CONFIGURATION', backupConfirmation: 'BACKUP_CONFIRMED' }), { code: 'RELEASE_SHA_REQUIRED' });
   assert.equal(validateSubjectSyncExecution({ ...base, executionToken: 'APPLY_SUBJECT_CONFIGURATION', backupConfirmation: 'BACKUP_CONFIRMED' }), true);
 });
+
+test('APPLY preflight checks every subject and assignment column used inside configureDefaultSubjects', () => {
+  for (const column of ['department_id', 'created_at', 'updated_at']) assert.match(script, new RegExp(`subjects: \\[[^\\]]*${column}`));
+  for (const column of ['created_at', 'updated_at']) assert.match(script, new RegExp(`subject_class_assignments: \\[[^\\]]*${column}`));
+  assert.match(script, /missingColumns/);
+});
