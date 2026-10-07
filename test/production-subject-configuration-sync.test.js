@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { validateSubjectSyncExecution } from '../src/platform/subject-sync-guards.js';
+import { assertAuthoritativeSchoolScope, normalizeSchoolName, validateSubjectSyncExecution } from '../src/platform/subject-sync-guards.js';
 
 const script = await readFile(new URL('../scripts/production-subject-configuration-sync.mjs', import.meta.url), 'utf8');
 const workflow = await readFile(new URL('../.github/workflows/production-subject-configuration-sync.yml', import.meta.url), 'utf8');
@@ -31,6 +31,24 @@ test('DRY_RUN_ONLY script path has zero writes and exact production target check
   assert.match(script, /SCHOOL_SCOPE_MISMATCH/);
   assert.match(script, /ACADEMIC_YEAR_SCOPE_MISMATCH/);
   assert.match(script, /PREREQUISITE_SCHEMA_MISSING/);
+  assert.match(script, /SELECT id,name FROM schools ORDER BY id/);
+});
+
+test('authoritative production school scope accepts only sch_default_01 and verified cosmetic name variants', () => {
+  assert.equal(normalizeSchoolName(' Osaah  Daylight School '), 'osaah daylight school');
+  assert.equal(normalizeSchoolName('Osaahdaylight School'), 'osaahdaylight school');
+  assert.equal(assertAuthoritativeSchoolScope({ requestedSchoolId: 'sch_default_01', schools: [{ id: 'sch_default_01', name: 'Osaahdaylight School' }] }).id, 'sch_default_01');
+  assert.equal(assertAuthoritativeSchoolScope({ requestedSchoolId: 'sch_default_01', schools: [{ id: 'sch_default_01', name: 'Osaah Daylight School' }] }).id, 'sch_default_01');
+});
+
+test('authoritative production school scope blocks wrong, missing, ambiguous, and renamed records', () => {
+  for (const input of [
+    { requestedSchoolId: 'other-school', schools: [{ id: 'sch_default_01', name: 'Osaahdaylight School' }] },
+    { requestedSchoolId: 'sch_default_01', schools: [] },
+    { requestedSchoolId: 'sch_default_01', schools: [{ id: 'sch_default_01', name: 'Osaahdaylight School' }, { id: 'other-school', name: 'Other School' }] },
+    { requestedSchoolId: 'sch_default_01', schools: [{ id: 'sch_default_01', name: 'Different School' }] },
+    { requestedSchoolId: 'sch_default_01', schools: [{ id: 'other-school', name: 'Osaahdaylight School' }] }
+  ]) assert.throws(() => assertAuthoritativeSchoolScope(input), { code: 'SCHOOL_SCOPE_MISMATCH' });
 });
 
 test('APPLY requires a distinct token, recoverable backup, transactional sync and unchanged history counts', () => {
@@ -48,7 +66,7 @@ test('production score, result and subject routes return a controlled unavailabl
 });
 
 test('unauthorized APPLY is rejected unless its distinct token, exact scope, release SHA and backup confirmation are present', () => {
-  const base = { mode: 'apply', databaseUrl: 'configured', releaseSha: 'a'.repeat(40), schoolId: 'school-osaah-daylight', academicYearId: 'year-2026', executionToken: 'DRY_RUN_ONLY', backupConfirmation: '' };
+  const base = { mode: 'apply', databaseUrl: 'configured', releaseSha: 'a'.repeat(40), schoolId: 'sch_default_01', academicYearId: 'year-2026', executionToken: 'DRY_RUN_ONLY', backupConfirmation: '' };
   assert.throws(() => validateSubjectSyncExecution(base), { code: 'APPLY_APPROVAL_REQUIRED' });
   assert.throws(() => validateSubjectSyncExecution({ ...base, executionToken: 'APPLY_SUBJECT_CONFIGURATION' }), { code: 'BACKUP_CONFIRMATION_REQUIRED' });
   assert.throws(() => validateSubjectSyncExecution({ ...base, releaseSha: 'not-a-commit-sha', executionToken: 'APPLY_SUBJECT_CONFIGURATION', backupConfirmation: 'BACKUP_CONFIRMED' }), { code: 'RELEASE_SHA_REQUIRED' });
