@@ -1,0 +1,78 @@
+name: Production durable announcements migration 076
+"on":
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Exact reviewed release commit SHA containing Migration 076
+        required: true
+        type: string
+      execution_token:
+        description: DRY_RUN_ONLY is read-only; apply requires separately approved token
+        required: true
+        default: DRY_RUN_ONLY
+        type: string
+      backup_confirmation:
+        description: For apply only, enter BACKUP_CONFIRMED after verifying a recent recoverable backup
+        required: false
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: production-durable-announcements-migration-076
+  cancel-in-progress: false
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    env:
+      EXECUTION_TOKEN: ${{ inputs.execution_token }}
+      BACKUP_CONFIRMATION: ${{ inputs.backup_confirmation }}
+    steps:
+      - name: Validate exact release and execution inputs
+        shell: bash
+        env:
+          RELEASE_REF: ${{ inputs.release_ref }}
+        run: |
+          [[ "$RELEASE_REF" =~ ^[0-9a-f]{40}$ ]] || { echo 'release_ref must be a full lowercase 40-character SHA.'; exit 1; }
+          test "$EXECUTION_TOKEN" = 'DRY_RUN_ONLY' || test "$EXECUTION_TOKEN" = 'APPLY_DURABLE_ANNOUNCEMENTS_076' || { echo 'Invalid Migration 076 execution token.'; exit 1; }
+          if [ "$EXECUTION_TOKEN" = 'APPLY_DURABLE_ANNOUNCEMENTS_076' ]; then test "$BACKUP_CONFIRMATION" = 'BACKUP_CONFIRMED' || { echo 'A recent recoverable backup confirmation is required for apply.'; exit 1; }; fi
+      - name: Check out reviewed release
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_ref }}
+          fetch-depth: 0
+      - name: Verify release is based on protected main
+        shell: bash
+        env:
+          RELEASE_REF: ${{ inputs.release_ref }}
+        run: |
+          test "$(git rev-parse HEAD^{commit})" = "$RELEASE_REF"
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor origin/main "$RELEASE_REF"
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Run Migration 076 safety tests
+        env:
+          DATABASE_URL: ''
+          OSAAH_DATABASE_ADAPTER_MODULE: ''
+        run: node --test test/production-durable-announcements-migration-076.test.js test/migration-runner.test.js
+      - name: Confirm protected database secret is available
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: test -n "${DATABASE_URL:-}" || { echo 'Protected DATABASE_URL is unavailable.'; exit 1; }
+      - name: Run read-only Migration 076 preflight
+        if: ${{ inputs.execution_token == 'DRY_RUN_ONLY' }}
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: node scripts/production-durable-announcements-migrate-076.mjs dry-run
+      - name: Apply only the separately authorized Migration 076
+        if: ${{ inputs.execution_token == 'APPLY_DURABLE_ANNOUNCEMENTS_076' }}
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: node scripts/production-durable-announcements-migrate-076.mjs apply
