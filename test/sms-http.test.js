@@ -11,7 +11,7 @@ function fixtureDatabase() {
     async transaction(work) { return work(this); }
   };
 }
-async function withServer(t, identity, allowSmsNonProduction = true) {
+async function withServer(t, identity, allowSmsNonProduction = false) {
   let current = identity;
   const auth = { async authenticateAsync() { return current; }, authenticate() { return current; } };
   const server = createServer(createApp({ auth, database: fixtureDatabase(), aiEnabled: false, allowSmsNonProduction }));
@@ -21,19 +21,19 @@ async function withServer(t, identity, allowSmsNonProduction = true) {
 }
 const identity = (roleKey, permissions) => ({ id: `user-${roleKey.toLowerCase()}`, roleKey, portal: roleKey === 'PARENT' ? 'parent' : 'school', schoolId, permissions: new Set(permissions) });
 
-test('SMS API and Messages page are denied to teachers without the official SMS role', async (t) => {
+test('SMS API and Messages page are denied to teachers with broad in-app messaging permission only', async (t) => {
   const server = await withServer(t, identity('TEACHER', ['messages.read', 'messages.write']));
   assert.equal((await server.request('/api/sms/options')).status, 403);
   assert.equal((await server.request('/communication/messages')).status, 403);
 });
 
-test('Preview SMS API is disabled by default even for an authorized Headteacher', async (t) => {
-  const server = await withServer(t, identity('HEADTEACHER', ['messages.sms.send']), false);
+test('local SMS storage API is disabled by default even for an authorized Headteacher', async (t) => {
+  const server = await withServer(t, identity('HEADTEACHER', ['messages.sms.send']));
   assert.equal((await server.request('/api/sms/options')).status, 503);
 });
 
-test('authorized Headteacher can open the Messages page and read roster options, but no provider submission is invoked', async (t) => {
-  const server = await withServer(t, identity('HEADTEACHER', ['messages.sms.send', 'messages.read']));
+test('authorized Headteacher can use an explicitly injected isolated fixture while the provider remains disabled', async (t) => {
+  const server = await withServer(t, identity('HEADTEACHER', ['messages.sms.send', 'messages.read']), true);
   const page = await server.request('/communication/messages');
   assert.equal(page.status, 200);
   assert.match(await page.text(), /Compose SMS/);
@@ -44,7 +44,21 @@ test('authorized Headteacher can open the Messages page and read roster options,
   assert.equal(result.provider.configured, false);
 });
 
-test('Parent keeps the distinct In-App Messages page and existing message API while seeing no SMS route', async (t) => {
+test('only Proprietor, Administrator, and Headteacher can call SMS APIs when an isolated fixture is injected', async (t) => {
+  const server = await withServer(t, identity('HEADTEACHER', ['messages.sms.send']), true);
+  for (const role of ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER']) {
+    server.setIdentity(identity(role, ['messages.sms.send']));
+    assert.equal((await server.request('/api/sms/options')).status, 200, role);
+  }
+  for (const role of ['ASSISTANT_HEADTEACHER', 'ACCOUNTANT', 'TEACHER', 'PARENT']) {
+    server.setIdentity(identity(role, ['messages.sms.send', 'messages.read', 'messages.write']));
+    assert.equal((await server.request('/api/sms/options')).status, 403, role);
+  }
+  server.setIdentity(identity('HEADTEACHER', ['messages.read', 'messages.write']));
+  assert.equal((await server.request('/api/sms/options')).status, 403);
+});
+
+test('Parent keeps distinct In-App Messages and existing teacher messaging without any SMS route access', async (t) => {
   const server = await withServer(t, identity('PARENT', ['messages.read', 'messages.write']));
   const page = await server.request('/communication/in-app-messages');
   assert.equal(page.status, 200);

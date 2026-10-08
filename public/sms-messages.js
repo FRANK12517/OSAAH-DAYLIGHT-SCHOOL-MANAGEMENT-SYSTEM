@@ -4,7 +4,7 @@
   const status = $('#sms-status');
   const mode = $('#recipient-mode');
   const text = $('#message');
-  const state = { parents: [], contexts: [], providerReady: false, draftId: null, busy: false, preview: null, idempotencyKey: null };
+  const state = { parents: [], contexts: [], providerReady: false, draftId: null, busy: false, preview: null, idempotencyKey: null, previewToken: null };
   const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
   async function api(url, options = {}) {
     const response = await fetch(url, { credentials: 'same-origin', ...options, headers: { ...(options.body ? { 'content-type': 'application/json' } : {}), ...(options.headers ?? {}) } });
@@ -39,6 +39,7 @@
     $('#class-context').classList.toggle('sms-hidden', current !== 'PARENTS_BY_CLASS');
     state.preview = null;
     state.idempotencyKey = null;
+    state.previewToken = null;
     $('#recipient-count').textContent = 'Recipients not previewed';
     $('#preview-box').classList.add('sms-hidden');
     updateButtons();
@@ -70,7 +71,8 @@
     try {
       const result = await api('/api/sms/preview', { method: 'POST', body: JSON.stringify(payload()) });
       state.preview = result;
-      state.idempotencyKey = crypto.randomUUID();
+      state.idempotencyKey = result.idempotencyKey;
+      state.previewToken = result.previewToken;
       $('#recipient-count').textContent = `${result.recipientCount} unique recipient${result.recipientCount === 1 ? '' : 's'}`;
       $('#segment-count').textContent = `${result.segments} segment${result.segments === 1 ? '' : 's'} each · ${result.totalEstimatedSegments} total estimated`;
       $('#cost-count').textContent = result.estimatedCost === null ? 'Cost estimate unavailable' : `Estimated GHS ${Number(result.estimatedCost).toFixed(2)}`;
@@ -78,7 +80,7 @@
       $('#preview-box').classList.remove('sms-hidden');
       setStatus(result.recipientCount ? 'Preview ready. Review the audience and message before sending.' : 'No eligible parents have registered Ghana mobile numbers for this selection.', result.recipientCount ? 'good' : 'error');
       updateButtons();
-    } catch (error) { state.preview = null; updateButtons(); setStatus(error.message, 'error'); }
+    } catch (error) { state.preview = null; state.idempotencyKey = null; state.previewToken = null; updateButtons(); setStatus(error.message, 'error'); }
   }
   async function refreshHistory() {
     const result = await api('/api/sms/history');
@@ -112,16 +114,18 @@
     if (!window.confirm(summary)) return;
     try {
       state.busy = true; updateButtons();
-      const result = await api('/api/sms/send', { method: 'POST', body: JSON.stringify({ ...payload(), confirm: true, idempotencyKey: state.idempotencyKey || (state.idempotencyKey = crypto.randomUUID()) }) });
-      state.draftId = null; state.preview = null; state.idempotencyKey = null;
-      setStatus(result.status === 'SENT' ? 'Provider accepted the SMS submission. Delivery remains pending until provider confirmation.' : result.error || result.status, result.status === 'SENT' ? 'good' : 'error');
+      const result = await api('/api/sms/send', { method: 'POST', body: JSON.stringify({ ...payload(), confirm: true, idempotencyKey: state.idempotencyKey, previewToken: state.previewToken }) });
+      state.draftId = null; state.preview = null; state.idempotencyKey = null; state.previewToken = null;
+      const accepted = ['SUBMITTED', 'PARTIALLY_SUBMITTED'].includes(result.status);
+      const unknown = result.status === 'SUBMISSION_UNKNOWN';
+      setStatus(accepted ? `${result.submitted} SMS submission(s) accepted by the provider; delivery awaits provider confirmation.${result.rejected ? ` ${result.rejected} recipient(s) were rejected.` : ''}` : unknown ? `${result.error} Do not retry until the provider history has been checked.` : result.error || result.status, accepted ? 'good' : 'error');
       $('#preview-box').classList.add('sms-hidden'); $('#recipient-count').textContent = 'Recipients not previewed'; await refreshHistory();
     } catch (error) { setStatus(error.message, 'error'); }
     finally { state.busy = false; updateButtons(); }
   }
   mode.addEventListener('change', setModeVisibility);
-  for (const control of [$('#single-parent'), $('#multi-parent'), $('#class-name'), $('#academic-year'), $('#term')]) control.addEventListener('change', () => { state.preview = null; state.idempotencyKey = null; $('#recipient-count').textContent = 'Recipients not previewed'; $('#preview-box').classList.add('sms-hidden'); updateButtons(); });
-  text.addEventListener('input', () => { state.preview = null; state.idempotencyKey = null; $('#recipient-count').textContent = 'Recipients not previewed'; updateEstimate(); });
+  for (const control of [$('#single-parent'), $('#multi-parent'), $('#class-name'), $('#academic-year'), $('#term')]) control.addEventListener('change', () => { state.preview = null; state.idempotencyKey = null; state.previewToken = null; $('#recipient-count').textContent = 'Recipients not previewed'; $('#preview-box').classList.add('sms-hidden'); updateButtons(); });
+  text.addEventListener('input', () => { state.preview = null; state.idempotencyKey = null; state.previewToken = null; $('#recipient-count').textContent = 'Recipients not previewed'; updateEstimate(); });
   $('#academic-year').addEventListener('change', renderTerms);
   $('#preview').addEventListener('click', preview);
   $('#save-draft').addEventListener('click', saveDraft);

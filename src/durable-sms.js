@@ -1,4 +1,4 @@
-import { randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { canonicalRoleKey } from './auth.js';
 import { normalizeGhanaPhone } from './ghana-phone.js';
 import { isConfiguredTestStudentId, TEST_PARENT_ID, TEST_PARENT_PHONE } from './test-parent-fixture.js';
@@ -11,6 +11,27 @@ const idOf = (actor) => actor?.id ?? actor?.userId;
 const str = (value) => String(value ?? '').trim();
 const canonicalSmsClass = (value) => str(value).toUpperCase().replace(/\bBASIC\s*(\d+)\b/g, 'PRIMARY $1').replace(/\bKG\s*(\d+)\b/g, 'KG $1').replace(/\s+/g, ' ').trim();
 const gsmBasic = /^[\u0000-\u007f£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !"#¤%&'()*+,-.\/:;<=>?¡@£$¥¿ÄÖÑÜ§¿äöñüà^{}\\\[~\]|€]*$/u;
+const PRODUCTION_RUNTIME = (environment) => environment?.VERCEL === '1' && str(environment?.VERCEL_ENV).toLowerCase() === 'production' && str(environment?.NODE_ENV).toLowerCase() === 'production';
+const digest = (value) => createHash('sha256').update(JSON.stringify(value)).digest('base64url');
+
+function signPreview(payload, secret) {
+  const encoded = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const signature = createHmac('sha256', secret).update(encoded).digest('base64url');
+  return `${encoded}.${signature}`;
+}
+
+function verifyPreview(token, secret) {
+  if (!secret || typeof token !== 'string') return null;
+  const [encoded, suppliedSignature, extra] = token.split('.');
+  if (!encoded || !suppliedSignature || extra !== undefined) return null;
+  try {
+    const expected = Buffer.from(createHmac('sha256', secret).update(encoded).digest('base64url'));
+    const supplied = Buffer.from(suppliedSignature);
+    if (expected.length !== supplied.length || !timingSafeEqual(expected, supplied)) return null;
+    const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'));
+    return payload && typeof payload === 'object' ? payload : null;
+  } catch { return null; }
+}
 
 export function estimateSmsSegments(message) {
   const text = String(message ?? '');
@@ -26,24 +47,32 @@ export function createArkeselGateway({ environment = process.env, fetchImpl = gl
   const apiKey = str(environment.ARKESEL_API_KEY);
   const senderId = str(environment.ARKESEL_SENDER_ID);
   const callbackToken = str(environment.ARKESEL_CALLBACK_TOKEN);
-  const nonProductionOptIn = str(environment.OSAAH_SMS_ALLOW_NONPRODUCTION).toLowerCase() === 'true';
-  const productionEnvironment = str(environment.VERCEL_ENV).toLowerCase() === 'production';
+  const productionEnvironment = PRODUCTION_RUNTIME(environment);
   const costSetting = str(environment.ARKESEL_COST_PER_SEGMENT_GHS);
   const costPerSegmentGhs = costSetting && Number.isFinite(Number(costSetting)) && Number(costSetting) > 0 ? Number(costSetting) : null;
   const baseUrl = str(environment.PUBLIC_BASE_URL || (environment.VERCEL_URL ? `https://${environment.VERCEL_URL}` : 'https://www.osaahdaylightschool.online')).replace(/\/$/, '');
-  const configured = Boolean(apiKey && senderId && senderId.length <= 11 && callbackToken && fetchImpl && (productionEnvironment || nonProductionOptIn));
+  const configured = Boolean(productionEnvironment && apiKey && senderId && senderId.length <= 11 && callbackToken && str(environment.OSAAH_SMS_PREVIEW_SECRET).length >= 32 && fetchImpl);
   async function send({ message, recipients }) {
-    if (!configured) fail('SMS provider is not configured. Set the protected Arkesel API key, sender ID, and delivery callback token.', 503, 'SMS_PROVIDER_NOT_CONFIGURED');
+    if (!configured) fail('SMS provider is not configured for the verified Production runtime.', 503, 'SMS_PROVIDER_NOT_CONFIGURED');
     const callback = new URL('/api/sms/delivery-callback', baseUrl);
     callback.searchParams.set('token', callbackToken);
-    const response = await fetchImpl('https://sms.arkesel.com/api/v2/sms/send', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'api-key': apiKey },
-      body: JSON.stringify({ sender: senderId, message, recipients, callback_url: callback.toString() })
-    });
+    let response;
+    try {
+      response = await fetchImpl('https://sms.arkesel.com/api/v2/sms/send', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'api-key': apiKey },
+        body: JSON.stringify({ sender: senderId, message, recipients: recipients.map((number) => number.replace(/^\+/, '')), callback_url: callback.toString() }),
+        signal: AbortSignal.timeout(12_000)
+      });
+    } catch {
+      fail('SMS provider request timed out or could not be reached; its submission status is unknown.', 502, 'SMS_PROVIDER_OUTCOME_UNKNOWN');
+    }
     const body = await response.json().catch(() => ({}));
-    if (!response.ok || String(body.status ?? '').toLowerCase() !== 'success') fail('SMS provider did not accept the submission.', 502, 'SMS_PROVIDER_REJECTED');
-    return body.data;
+    if (!response.ok || String(body.status ?? '').toLowerCase() !== 'success') {
+      if (response.status >= 500) fail('SMS provider returned a server error; its submission status is unknown.', 502, 'SMS_PROVIDER_OUTCOME_UNKNOWN');
+      fail('SMS provider rejected the submission.', 502, 'SMS_PROVIDER_REJECTED');
+    }
+    return Array.isArray(body.data) ? body.data : [];
   }
   function validateCallbackToken(value) {
     const supplied = Buffer.from(str(value)); const expected = Buffer.from(callbackToken);
@@ -52,8 +81,9 @@ export function createArkeselGateway({ environment = process.env, fetchImpl = gl
   return Object.freeze({ provider: 'ARKESEL', configured, send, validateCallbackToken, callbackBaseUrl: baseUrl, costPerSegmentGhs, checkedAt: clock() });
 }
 
-export function createDurableSmsService({ database, schoolId, gateway = createArkeselGateway(), clock = () => new Date().toISOString(), audit = () => {} } = {}) {
+export function createDurableSmsService({ database, schoolId, gateway = createArkeselGateway(), previewSecret = process.env.OSAAH_SMS_PREVIEW_SECRET, clock = () => new Date().toISOString(), audit = () => {} } = {}) {
   if (!database?.query || !database?.execute || !database?.transaction) throw new TypeError('A durable database adapter is required for SMS.');
+  const signingSecret = str(previewSecret);
   const assertActor = (actor) => {
     if (!actor || actor.schoolId !== schoolId) fail('School scope denied.', 403);
     if (!SMS_ROLE_SET.has(canonicalRoleKey(actor.roleKey)) || !(actor.permissions?.has?.('messages.sms.send') || actor.permissions?.has?.('*'))) fail('SMS sending requires messages.sms.send.', 403);
@@ -111,16 +141,18 @@ export function createDurableSmsService({ database, schoolId, gateway = createAr
   }
   async function options(actor) {
     assertActor(actor);
-    const [parents, contexts] = await Promise.all([
-      database.query(`SELECT DISTINCT u.id AS id,COALESCE(NULLIF(u.username,''),NULLIF(u.email,''),u.id) AS name
-        FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id AND r.role_key='PARENT'
-        JOIN parent_student_links psl ON psl.parent_user_id=u.id AND psl.link_status='ACTIVE'
-        JOIN student_profiles sp ON sp.id=psl.student_id AND sp.school_id=u.school_id
-        JOIN students s ON s.id=sp.student_master_id AND s.school_id=u.school_id
-        WHERE u.school_id=? AND UPPER(COALESCE(u.status,'ACTIVE'))='ACTIVE' AND COALESCE(s.is_test_record,0)=0 AND u.id<>? AND COALESCE(psl.telephone,'')<>'' ORDER BY name,u.id`, [schoolId, TEST_PARENT_ID]),
+    const [rows, contexts] = await Promise.all([
+      database.query(`${linkedStudentQuery} ORDER BY u.id,s.id`, [schoolId, schoolId, TEST_PARENT_ID]),
       database.query('SELECT ay.id AS academicYearId,ay.name AS academicYearName,t.id AS termId,t.name AS termName FROM academic_years ay JOIN terms t ON t.academic_year_id=ay.id WHERE ay.school_id=? ORDER BY ay.is_current DESC,ay.starts_on DESC,t.is_current DESC,t.starts_on DESC', [schoolId])
     ]);
-    return { parents, classes: [...SMS_CLASSES], academicContexts: contexts, provider: { name: gateway.provider ?? null, configured: Boolean(gateway.configured) } };
+    const parentsById = new Map();
+    for (const row of rows) {
+      if (!row || row.parentId === TEST_PARENT_ID || isConfiguredTestStudentId(row.permanentStudentId)) continue;
+      const phone = normalizeGhanaPhone(row.telephone);
+      if (!phone || phone === TEST_PARENT_PHONE || parentsById.has(String(row.parentId))) continue;
+      parentsById.set(String(row.parentId), { id: String(row.parentId), name: String(row.parentName ?? row.parentId) });
+    }
+    return { parents: [...parentsById.values()], classes: [...SMS_CLASSES], academicContexts: contexts, provider: { name: gateway.provider ?? null, configured: Boolean(gateway.configured) } };
   }
   function cleanSelector(input) {
     return { recipientMode: str(input.recipientMode ?? input.audience).toUpperCase(), parentIds: [...new Set((Array.isArray(input.parentIds) ? input.parentIds : input.parentId ? [input.parentId] : []).map(str).filter(Boolean))], className: str(input.className) || null, academicYearId: str(input.academicYearId) || null, termId: str(input.termId) || null };
@@ -131,6 +163,9 @@ export function createDurableSmsService({ database, schoolId, gateway = createAr
     if ([...message].length > 1600) fail('SMS message must be 1,600 characters or fewer.');
     return message;
   }
+  function normalizedAudience(recipients) {
+    return recipients.map(({ parentId, phone }) => [String(parentId), phone]).sort((a, b) => `${a[0]}\0${a[1]}`.localeCompare(`${b[0]}\0${b[1]}`));
+  }
   async function preview(input, actor) {
     assertActor(actor);
     const message = validateMessage(input);
@@ -138,7 +173,11 @@ export function createDurableSmsService({ database, schoolId, gateway = createAr
     const estimate = estimateSmsSegments(message);
     const totalEstimatedSegments = estimate.segments * selection.recipients.length;
     const estimatedCost = Number.isFinite(gateway?.costPerSegmentGhs) && gateway.costPerSegmentGhs > 0 ? Math.round(totalEstimatedSegments * gateway.costPerSegmentGhs * 100) / 100 : null;
-    return { message, ...estimate, recipientCount: selection.recipients.length, totalEstimatedSegments, recipients: selection.recipients.map(({ parentId, parentName, className }) => ({ parentId, parentName, className })), recipientMode: selection.mode, context: selection.context, estimatedCost, costCurrency: estimatedCost === null ? null : 'GHS' };
+    const idempotencyKey = randomUUID();
+    const requestHash = digest({ message, selector: cleanSelector(input) });
+    const expiresAt = new Date(Date.parse(clock()) + 10 * 60 * 1000).toISOString();
+    const previewToken = signingSecret ? signPreview({ version: 1, schoolId, actorId: String(idOf(actor)), idempotencyKey, requestHash, audienceHash: digest(normalizedAudience(selection.recipients)), expiresAt }, signingSecret) : null;
+    return { message, ...estimate, recipientCount: selection.recipients.length, totalEstimatedSegments, recipients: selection.recipients.map(({ parentId, parentName, className }) => ({ parentId, parentName, className })), recipientMode: selection.mode, context: selection.context, estimatedCost, costCurrency: estimatedCost === null ? null : 'GHS', idempotencyKey, previewToken, expiresAt };
   }
   const asCampaign = (row) => ({ id: row.id, status: row.status, message: row.message_body, recipientMode: row.recipient_mode, selector: (() => { try { return row.selector_json ? JSON.parse(row.selector_json) : null; } catch { return null; } })(), recipients: Number(row.recipient_count ?? 0), createdAt: row.created_at, updatedAt: row.updated_at, sentAt: row.sent_at ?? null, provider: row.provider_key ?? null });
   async function saveDraft(input, actor) {
@@ -167,50 +206,74 @@ export function createDurableSmsService({ database, schoolId, gateway = createAr
     assertActor(actor);
     if (input?.confirm !== true) fail('Explicit confirmation is required before sending SMS.', 400, 'SMS_CONFIRMATION_REQUIRED');
     const message = validateMessage(input);
-    const idempotencyKey = str(input.idempotencyKey);
-    if (!idempotencyKey || idempotencyKey.length > 128) fail('A valid idempotency key is required.');
-    const existing = await database.query('SELECT id,status,message_body,recipient_mode,recipient_count,created_at,updated_at,sent_at,provider_key FROM sms_campaigns WHERE school_id=? AND idempotency_key=? LIMIT 1', [schoolId, idempotencyKey]);
+    if (!signingSecret) fail('SMS sending is disabled because the protected preview-signing secret is not configured.', 503, 'SMS_PREVIEW_SIGNING_UNAVAILABLE');
+    const claims = verifyPreview(input.previewToken, signingSecret);
+    if (!claims || claims.version !== 1 || claims.schoolId !== schoolId || claims.actorId !== String(idOf(actor))) fail('A valid server-issued SMS preview is required.', 400, 'SMS_PREVIEW_REQUIRED');
+    if (!Number.isFinite(Date.parse(claims.expiresAt)) || Date.parse(claims.expiresAt) <= Date.parse(clock())) fail('The SMS preview expired. Preview the message and audience again.', 409, 'SMS_PREVIEW_EXPIRED');
+    const selector = cleanSelector(input);
+    if (claims.requestHash !== digest({ message, selector }) || claims.idempotencyKey !== str(input.idempotencyKey)) fail('The SMS request no longer matches its confirmed preview.', 409, 'SMS_PREVIEW_MISMATCH');
+    const existing = await database.query('SELECT id,status,message_body,recipient_mode,recipient_count,created_at,updated_at,sent_at,provider_key FROM sms_campaigns WHERE school_id=? AND idempotency_key=? LIMIT 1', [schoolId, claims.idempotencyKey]);
     if (existing.length) return { ...asCampaign(existing[0]), duplicate: true };
     if (!gateway?.configured || typeof gateway.send !== 'function') fail('SMS provider is not configured; the message was not queued or sent.', 503, 'SMS_PROVIDER_NOT_CONFIGURED');
     const selection = await resolveRecipients(input, actor);
     if (!selection.recipients.length) fail('No eligible parent recipients were found; nothing was sent.', 400, 'SMS_EMPTY_RECIPIENTS');
-    const id = randomUUID(); const now = clock(); const selector = cleanSelector(input);
-    await database.transaction(async (tx) => {
-      await tx.execute('INSERT INTO sms_campaigns (id,school_id,message_body,recipient_mode,selector_json,status,recipient_count,created_by,idempotency_key,provider_key,created_at,updated_at,sent_at) VALUES (?,?,?,?,?,\'QUEUED\',?,?,?,?,?,?,NULL)', [id, schoolId, message, selection.mode, JSON.stringify(selector), selection.recipients.length, idOf(actor), idempotencyKey, gateway.provider ?? 'UNKNOWN', now, now]);
-      for (const recipient of selection.recipients) await tx.execute('INSERT INTO sms_campaign_recipients (id,school_id,campaign_id,parent_user_id,student_id,normalized_phone,recipient_name,status,provider_message_id,last_error,created_at,updated_at,delivered_at) VALUES (?,?,?,?,?,?,?,\'QUEUED\',NULL,NULL,?,?,NULL)', [randomUUID(), schoolId, id, recipient.parentId, recipient.studentId, recipient.phone, recipient.parentName, now, now]);
-    });
+    if (claims.audienceHash !== digest(normalizedAudience(selection.recipients))) fail('The parent roster changed after preview. Review a fresh preview before sending.', 409, 'SMS_PREVIEW_STALE');
+    const id = randomUUID(); const now = clock();
+    try {
+      await database.transaction(async (tx) => {
+        await tx.execute('INSERT INTO sms_campaigns (id,school_id,message_body,recipient_mode,selector_json,status,recipient_count,created_by,idempotency_key,provider_key,created_at,updated_at,sent_at) VALUES (?,?,?,?,?,\'QUEUED\',?,?,?,?,?,?,NULL)', [id, schoolId, message, selection.mode, JSON.stringify(selector), selection.recipients.length, idOf(actor), claims.idempotencyKey, gateway.provider ?? 'UNKNOWN', now, now]);
+        for (const recipient of selection.recipients) await tx.execute('INSERT INTO sms_campaign_recipients (id,school_id,campaign_id,parent_user_id,student_id,normalized_phone,recipient_name,status,provider_message_id,last_error,created_at,updated_at,delivered_at) VALUES (?,?,?,?,?,?,?,\'QUEUED\',NULL,NULL,?,?,NULL)', [randomUUID(), schoolId, id, recipient.parentId, recipient.studentId, recipient.phone, recipient.parentName, now, now]);
+      });
+    } catch (error) {
+      const raced = await database.query('SELECT id,status,message_body,recipient_mode,recipient_count,created_at,updated_at,sent_at,provider_key FROM sms_campaigns WHERE school_id=? AND idempotency_key=? LIMIT 1', [schoolId, claims.idempotencyKey]);
+      if (raced.length) return { ...asCampaign(raced[0]), duplicate: true };
+      throw error;
+    }
     let providerRows;
     try {
       providerRows = await gateway.send({ message, recipients: selection.recipients.map((item) => item.phone) });
-      const refs = Array.isArray(providerRows) ? providerRows : providerRows && typeof providerRows === 'object' ? [providerRows] : [];
-      for (const recipient of selection.recipients) {
-        const match = refs.find((ref) => normalizeGhanaPhone(ref.recipient ?? ref.phone) === recipient.phone) ?? (refs.length === 1 ? refs[0] : null);
-        await database.execute('UPDATE sms_campaign_recipients SET status=\'SENT\',provider_message_id=?,updated_at=? WHERE school_id=? AND campaign_id=? AND normalized_phone=?', [match?.id ?? match?.messageId ?? null, clock(), schoolId, id, recipient.phone]);
-      }
-      const sentAt = clock();
-      await database.execute('UPDATE sms_campaigns SET status=\'SENT\',sent_at=?,updated_at=? WHERE school_id=? AND id=?', [sentAt, sentAt, schoolId, id]);
-      audit({ schoolId, userId: idOf(actor), action: 'SMS_SUBMITTED', entity: 'SmsCampaign', entityId: id, recipients: selection.recipients.length, provider: gateway.provider ?? 'UNKNOWN' });
-      return { id, status: 'SENT', message, recipientMode: selection.mode, recipients: selection.recipients.length, sentAt, provider: gateway.provider ?? null, deliveryStatus: 'PENDING_PROVIDER_CONFIRMATION', duplicate: false };
     } catch (error) {
-      const safeError = error?.code === 'SMS_PROVIDER_REJECTED' ? 'Provider rejected the SMS submission.' : 'SMS provider submission failed.';
-      await database.execute('UPDATE sms_campaign_recipients SET status=\'FAILED\',last_error=?,updated_at=? WHERE school_id=? AND campaign_id=? AND status=\'QUEUED\'', [safeError, clock(), schoolId, id]);
-      await database.execute('UPDATE sms_campaigns SET status=\'FAILED\',updated_at=? WHERE school_id=? AND id=?', [clock(), schoolId, id]);
-      audit({ schoolId, userId: idOf(actor), action: 'SMS_SUBMISSION_FAILED', entity: 'SmsCampaign', entityId: id });
-      return { id, status: 'FAILED', message, recipientMode: selection.mode, recipients: selection.recipients.length, provider: gateway.provider ?? null, error: safeError, duplicate: false };
+      const outcome = error?.code === 'SMS_PROVIDER_REJECTED' ? 'REJECTED' : 'SUBMISSION_UNKNOWN';
+      const safeError = outcome === 'REJECTED' ? 'SMS provider rejected the submission.' : 'Provider outcome is unknown; check provider history before any retry.';
+      await database.execute('UPDATE sms_campaign_recipients SET status=?,last_error=?,updated_at=? WHERE school_id=? AND campaign_id=? AND status=\'QUEUED\'', [outcome, safeError, clock(), schoolId, id]);
+      await database.execute('UPDATE sms_campaigns SET status=?,updated_at=? WHERE school_id=? AND id=?', [outcome, clock(), schoolId, id]);
+      audit({ schoolId, userId: idOf(actor), action: 'SMS_SUBMISSION_FAILED', entity: 'SmsCampaign', entityId: id, outcome });
+      return { id, status: outcome, message, recipientMode: selection.mode, recipients: selection.recipients.length, provider: gateway.provider ?? null, error: safeError, duplicate: false };
     }
+    const refs = Array.isArray(providerRows) ? providerRows : [];
+    let accepted = 0;
+    for (const recipient of selection.recipients) {
+      const match = refs.find((ref) => normalizeGhanaPhone(ref?.recipient ?? ref?.phone) === recipient.phone && str(ref?.id ?? ref?.messageId ?? ref?.sms_id));
+      if (match) {
+        accepted += 1;
+        await database.execute('UPDATE sms_campaign_recipients SET status=\'SUBMITTED\',provider_message_id=?,updated_at=? WHERE school_id=? AND campaign_id=? AND normalized_phone=?', [str(match.id ?? match.messageId ?? match.sms_id), clock(), schoolId, id, recipient.phone]);
+      } else {
+        await database.execute('UPDATE sms_campaign_recipients SET status=\'REJECTED\',last_error=?,updated_at=? WHERE school_id=? AND campaign_id=? AND normalized_phone=?', ['Provider returned no accepted reference for this recipient.', clock(), schoolId, id, recipient.phone]);
+      }
+    }
+    const rejected = selection.recipients.length - accepted;
+    const campaignStatus = accepted === 0 ? 'REJECTED' : rejected > 0 ? 'PARTIALLY_SUBMITTED' : 'SUBMITTED';
+    const submittedAt = clock();
+    await database.execute('UPDATE sms_campaigns SET status=?,sent_at=?,updated_at=? WHERE school_id=? AND id=?', [campaignStatus, submittedAt, submittedAt, schoolId, id]);
+    audit({ schoolId, userId: idOf(actor), action: 'SMS_SUBMITTED', entity: 'SmsCampaign', entityId: id, recipients: accepted, rejected, provider: gateway.provider ?? 'UNKNOWN' });
+    return { id, status: campaignStatus, message, recipientMode: selection.mode, recipients: selection.recipients.length, submitted: accepted, rejected, sentAt: submittedAt, provider: gateway.provider ?? null, deliveryStatus: accepted ? 'PENDING_PROVIDER_CONFIRMATION' : 'NOT_SUBMITTED', duplicate: false };
   }
   async function deliveryCallback({ token, smsId, status } = {}) {
     if (!gateway?.validateCallbackToken?.(token)) fail('Invalid provider callback.', 401);
     const providerStatus = str(status).toUpperCase();
-    const mapped = providerStatus === 'DELIVERED' ? 'DELIVERED' : ['NOT_DELIVERED','PROHIBITED','EXPIRED','FAILED'].includes(providerStatus) ? 'FAILED' : ['SUBMITTED','QUEUED'].includes(providerStatus) ? 'SENT' : null;
+    const mapped = providerStatus === 'DELIVERED' ? 'DELIVERED' : providerStatus === 'SENT' ? 'SENT' : providerStatus === 'SUBMITTED' ? 'SUBMITTED' : providerStatus === 'QUEUED' ? 'QUEUED' : ['PROHIBITED','REJECTED'].includes(providerStatus) ? 'REJECTED' : ['NOT_DELIVERED','EXPIRED','FAILED'].includes(providerStatus) ? 'FAILED' : null;
     if (!smsId || !mapped) fail('Unsupported provider delivery status.', 400);
-    const rows = await database.query('SELECT id,campaign_id FROM sms_campaign_recipients WHERE school_id=? AND provider_message_id=? LIMIT 1', [schoolId, str(smsId)]);
+    const rows = await database.query('SELECT id,campaign_id,status FROM sms_campaign_recipients WHERE school_id=? AND provider_message_id=? LIMIT 1', [schoolId, str(smsId)]);
     if (!rows.length) return { accepted: false };
+    const current = str(rows[0].status).toUpperCase();
+    if (current === 'DELIVERED' || (['FAILED','REJECTED'].includes(current) && mapped !== 'DELIVERED')) return { accepted: true, status: current };
+    const rank = { QUEUED: 0, SUBMITTED: 1, SENT: 2 };
+    if (rank[mapped] !== undefined && rank[current] !== undefined && rank[mapped] < rank[current]) return { accepted: true, status: current };
     const now = clock();
-    await database.execute('UPDATE sms_campaign_recipients SET status=?,last_error=?,delivered_at=?,updated_at=? WHERE school_id=? AND id=?', [mapped, mapped === 'FAILED' ? `Provider status: ${providerStatus}` : null, mapped === 'DELIVERED' ? now : null, now, schoolId, rows[0].id]);
-    const summary = await database.query('SELECT COUNT(*) AS total,SUM(status=\'DELIVERED\') AS delivered,SUM(status=\'FAILED\') AS failed,SUM(status IN (\'QUEUED\',\'SENT\')) AS pending FROM sms_campaign_recipients WHERE school_id=? AND campaign_id=?', [schoolId, rows[0].campaign_id]);
+    await database.execute('UPDATE sms_campaign_recipients SET status=?,last_error=?,delivered_at=?,updated_at=? WHERE school_id=? AND id=?', [mapped, ['FAILED','REJECTED'].includes(mapped) ? `Provider status: ${providerStatus}` : null, mapped === 'DELIVERED' ? now : null, now, schoolId, rows[0].id]);
+    const summary = await database.query('SELECT COUNT(*) AS total,SUM(status=\'DELIVERED\') AS delivered,SUM(status IN (\'FAILED\',\'REJECTED\')) AS failed,SUM(status IN (\'QUEUED\',\'SUBMITTED\',\'SENT\',\'SUBMISSION_UNKNOWN\')) AS pending FROM sms_campaign_recipients WHERE school_id=? AND campaign_id=?', [schoolId, rows[0].campaign_id]);
     const counts = summary[0] ?? {};
-    const campaignStatus = Number(counts.pending ?? 0) > 0 ? 'SENT' : Number(counts.failed ?? 0) > 0 ? Number(counts.delivered ?? 0) > 0 ? 'PARTIALLY_DELIVERED' : 'FAILED' : 'DELIVERED';
+    const campaignStatus = Number(counts.pending ?? 0) > 0 ? (Number(counts.failed ?? 0) > 0 ? 'PARTIALLY_SUBMITTED' : mapped === 'SENT' ? 'SENT' : mapped === 'QUEUED' ? 'QUEUED' : 'SUBMITTED') : Number(counts.failed ?? 0) > 0 ? Number(counts.delivered ?? 0) > 0 ? 'PARTIALLY_DELIVERED' : 'FAILED' : 'DELIVERED';
     await database.execute('UPDATE sms_campaigns SET status=?,updated_at=? WHERE school_id=? AND id=?', [campaignStatus, now, schoolId, rows[0].campaign_id]);
     audit({ schoolId, action: 'SMS_DELIVERY_STATUS', entity: 'SmsCampaignRecipient', entityId: rows[0].id, status: mapped });
     return { accepted: true, status: mapped };
