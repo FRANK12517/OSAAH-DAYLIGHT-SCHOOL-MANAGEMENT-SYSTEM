@@ -41,15 +41,16 @@ test('Part 2 prepares the canonical staff role identifiers without hard-coding u
   assert.doesNotMatch(sql, /password/i);
 });
 
-test('migration inventory remains uniquely versioned through the durable promotion rollover', async () => {
+test('migration inventory remains uniquely versioned through durable SMS campaigns', async () => {
   const migrations = await discoverMigrations(new URL('../schema', import.meta.url));
   assert.equal(new Set(migrations.map((item) => item.version)).size, migrations.length);
-  assert.equal(migrations.at(-8).name, '069_production_user_login_identifiers.sql');
-  assert.equal(migrations.at(-7).name, '070_school_admin_score_entry_permission.sql');
-  assert.equal(migrations.at(-6).name, '071_school_admin_results_reports_permission.sql');
-  assert.equal(migrations.at(-5).name, '072_school_admin_mock_score_entry_permission.sql');
-  assert.equal(migrations.at(-4).name, '073_subject_updated_at.sql');
-  assert.equal(migrations.at(-3).name, '074_durable_promotion_rollover.sql');
-  assert.equal(migrations.at(-2).name, '075_result_blocking_examination_scope.sql');
-  assert.equal(migrations.at(-1).name, '076_durable_announcements.sql');
+  assert.equal(migrations.at(-9).name, '069_production_user_login_identifiers.sql');
+  assert.equal(migrations.at(-8).name, '070_school_admin_score_entry_permission.sql');
+  assert.equal(migrations.at(-7).name, '071_school_admin_results_reports_permission.sql');
+  assert.equal(migrations.at(-6).name, '072_school_admin_mock_score_entry_permission.sql');
+  assert.equal(migrations.at(-5).name, '073_subject_updated_at.sql');
+  assert.equal(migrations.at(-4).name, '074_durable_promotion_rollover.sql');
+  assert.equal(migrations.at(-3).name, '075_result_blocking_examination_scope.sql');
+  assert.equal(migrations.at(-2).name, '076_durable_announcements.sql');
+  assert.equal(migrations.at(-1).name, '077_durable_sms_messages.sql');
 });

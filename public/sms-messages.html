@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Messages | OsaaH Daylight</title><link rel="stylesheet" href="/styles.css">
+  <style>
+    .sms-page{max-width:1120px;margin:0 auto;padding:1rem}.sms-head{display:flex;justify-content:space-between;gap:1rem;align-items:flex-start;flex-wrap:wrap}.sms-grid{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(280px,.8fr);gap:1rem}.sms-card{background:#fff;border:1px solid #d9e2ec;border-radius:14px;padding:1.1rem;box-shadow:0 6px 20px #102a4310}.sms-card label{display:block;font-weight:600;margin:.8rem 0}.sms-card input,.sms-card select,.sms-card textarea{display:block;width:100%;margin-top:.35rem;padding:.7rem;border:1px solid #bcccdc;border-radius:8px;font:inherit}.sms-card select[multiple]{min-height:150px}.sms-actions{display:flex;flex-wrap:wrap;gap:.6rem;margin-top:1rem}.sms-meta{display:flex;gap:1rem;flex-wrap:wrap;color:#486581;font-size:.95rem}.sms-status{padding:.75rem 1rem;border-radius:8px;background:#f0f4f8;margin:.75rem 0}.sms-status.error{background:#fff1f0;color:#8a1c13}.sms-status.good{background:#e7f6ed;color:#14532d}.sms-list{display:grid;gap:.7rem}.sms-item{border:1px solid #d9e2ec;border-radius:10px;padding:.8rem}.sms-item header{display:flex;justify-content:space-between;gap:.6rem;flex-wrap:wrap}.sms-item p{white-space:pre-wrap;overflow-wrap:anywhere}.sms-small{font-size:.88rem;color:#627d98}.sms-hidden{display:none!important}.sms-preview{max-height:220px;overflow:auto}.sms-chip{display:inline-block;background:#eaf2f8;border-radius:999px;padding:.2rem .65rem;margin:.15rem;font-size:.84rem}@media(max-width:780px){.sms-grid{grid-template-columns:1fr}.sms-page{padding:.7rem}}
+  </style>
+</head>
+<body>
+  <main class="sms-page">
+    <a class="text-button" href="/">← Dashboard</a>
+    <div class="sms-head"><div><p class="eyebrow">COMMUNICATION HUB</p><h1>Messages</h1><p class="muted">Compose and manage SMS messages to registered parents. In-app messages remain available separately.</p></div><a class="text-button" href="/communication/in-app-messages">In-App Messages</a></div>
+    <p id="sms-status" class="sms-status" role="status" aria-live="polite">Loading SMS service…</p>
+    <div class="sms-grid">
+      <section class="sms-card">
+        <h2>Compose SMS</h2>
+        <form id="sms-form">
+          <label>Recipients
+            <select id="recipient-mode" name="recipientMode" required>
+              <option value="ALL_PARENTS">All Registered Parents</option>
+              <option value="INDIVIDUAL_PARENT">Individual Parent</option>
+              <option value="SELECTED_PARENTS">Selected Parents</option>
+              <option value="PARENTS_BY_CLASS">Parents by Class</option>
+            </select>
+          </label>
+          <label id="single-parent-wrap" class="sms-hidden">Parent
+            <select id="single-parent" aria-label="Select one parent"><option value="">Choose a parent</option></select>
+          </label>
+          <label id="multi-parent-wrap" class="sms-hidden">Selected parents <span class="sms-small">Use Ctrl/Command to select multiple.</span>
+            <select id="multi-parent" multiple aria-label="Select multiple parents"></select>
+          </label>
+          <div id="class-context" class="sms-hidden">
+            <label>Class<select id="class-name"></select></label>
+            <label>Academic year<select id="academic-year"></select></label>
+            <label>Term<select id="term"></select></label>
+          </div>
+          <label>Message
+            <textarea id="message" name="message" rows="6" maxlength="1600" required placeholder="Write a clear, concise message to parents."></textarea>
+          </label>
+          <div class="sms-meta"><span id="char-count">0 characters</span><span id="segment-count">0 estimated segments</span><span id="recipient-count">Recipients not previewed</span><span id="cost-count">Cost estimate unavailable</span></div>
+          <div id="preview-box" class="sms-preview sms-hidden"></div>
+          <div class="sms-actions">
+            <button class="secondary-button" type="button" id="save-draft">Save Draft</button>
+            <button class="secondary-button" type="button" id="preview">Preview</button>
+            <button class="primary-button" type="button" id="send" disabled>Send SMS</button>
+          </div>
+        </form>
+      </section>
+      <section class="sms-card">
+        <h2>Sent, Failed & Drafts</h2><p class="sms-small">Status changes to Delivered only after the SMS provider confirms delivery.</p>
+        <div id="history" class="sms-list">Loading history…</div>
+      </section>
+    </div>
+  </main>
+  <script src="/sms-messages.js"></script>
+</body>
+</html>

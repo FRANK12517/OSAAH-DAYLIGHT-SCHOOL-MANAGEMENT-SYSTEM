@@ -12,6 +12,8 @@ function componentFor(module) {
   const route = module.route ?? '';
   if (key === 'single-school-panel') return '/single-school-panel.html';
   if (key === 'academic-calendar') return '/academic-calendar.html';
+  if (key === 'messages') return '/sms-messages.html';
+  if (key === 'in-app-messages') return '/in-app-messages.html';
   if (key === 'class-database') return '/class-database.html';
   if (key === 'completed-class-database') return '/completed-class-database.html';
   if (key === 'attendance-dashboard') return '/attendance-overview.html';
@@ -32,6 +34,8 @@ function componentFor(module) {
 
 function apiFor(module) {
   const route = module.route ?? '';
+  if (module.moduleKey === 'messages') return ['/api/sms/options', '/api/sms/preview', '/api/sms/drafts', '/api/sms/send', '/api/sms/history'];
+  if (module.moduleKey === 'in-app-messages') return ['/api/communication/messages'];
   if (module.moduleKey === 'student-attendance') return ['/api/attendance/register'];
   if (module.moduleKey === 'staff-attendance' || module.moduleKey === 'staff-attendance-hr') return ['/api/attendance/staff'];
   if (module.moduleKey === 'attendance-alerts') return ['/api/attendance/alerts'];
