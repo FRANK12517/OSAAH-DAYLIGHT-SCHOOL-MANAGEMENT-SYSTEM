@@ -52,6 +52,11 @@ test('Mock Result UI normalizes durable class objects and requests a context-sco
   assert.match(client, /JHS\.has\(classNameOf\(c\)\)/);
   assert.match(client, /\/api\/academic\/result-students/);
   assert.match(client, /sampleMode/);
+  assert.match(client, /resultType:'MOCK'/);
+  assert.match(client, /Select a student\.\.\./);
+  assert.match(client, /button\[type="submit"\]/);
+  assert.match(page, /name="studentId" required/);
+  assert.match(page, /type="submit" disabled/);
   assert.match(client, /No students enrolled in this class/);
   assert.match(client, /requestId!==rosterRequest/);
   assert.match(client, /host\.replaceChildren\(\)/);

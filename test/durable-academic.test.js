@@ -480,3 +480,25 @@ test('Score Entry durable roster returns a valid empty collection with exact ter
   assert.match(rosterQuery.sql, /COALESCE\(s\.is_test_record,0\)=0/);
   assert.equal(rosterQuery.params[6], 'term-1');
 });
+
+
+test('durable result roster accepts Mock-only access only for a JHS Mock context', async () => {
+  const database = {
+    async query(sql) {
+      if (sql.includes('FROM academic_years')) return [{ id: 'year-2026', name: '2026/2027' }];
+      if (sql.includes('FROM terms')) return [{ id: 'term-1', academicYearId: 'year-2026', name: 'First Term' }];
+      if (sql.includes('FROM classes WHERE school_id')) return [{ id: 'class-jhs-1', name: 'JHS 1' }];
+      if (sql.includes('FROM student_enrollments e JOIN students s')) return [{ studentId: 'student-jhs-1', permanentStudentId: 'OSAAH-2026-001', firstName: 'Ama', middleName: null, surname: 'Learner', classId: 'class-jhs-1' }];
+      return [];
+    },
+    async execute() { return { affectedRows: 1 }; }
+  };
+  const service = createDurableAcademicService({ database, schoolId });
+  const mockReader = { id: 'teacher-mock-reader', roleKey: 'TEACHER', schoolId, assignedClassIds: ['class-jhs-1'], permissions: new Set(['mock.results.read']) };
+  await assert.rejects(
+    () => service.resultStudents({ classId: 'class-jhs-1', academicYear: '2026/2027', term: 'First Term' }, mockReader),
+    /Forbidden\./
+  );
+  const roster = await service.resultStudents({ classId: 'class-jhs-1', academicYear: '2026/2027', term: 'First Term', resultType: 'MOCK' }, mockReader);
+  assert.deepEqual(roster.map((student) => student.permanentStudentId), ['OSAAH-2026-001']);
+});
