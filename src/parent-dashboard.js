@@ -160,6 +160,7 @@ export function createParentDashboardService({
   examinations = null,
   historicalRecords = null,
   communication = null,
+  durableAnnouncements = null,
   academicCalendar = null,
   operations = null,
   assignments = null,
@@ -173,7 +174,7 @@ export function createParentDashboardService({
       case 'parent-fees': return Boolean(parentFeeObligations?.listForParent || fees?.statement);
       case 'parent-payments': return Boolean(durableFeeReader?.listReceipts || receiptBranding?.listForParent);
       case 'parent-timetable': return Boolean(examinations?.listTimetables);
-      case 'parent-announcements': return Boolean(communication?.listAnnouncements);
+      case 'parent-announcements': return Boolean(durableAnnouncements?.list || communication?.listAnnouncements);
       case 'parent-calendar': return Boolean(academicCalendar?.list);
       case 'parent-messages': return Boolean(communication?.listMessages);
       case 'parent-transport': return Boolean(operations?.list);
@@ -488,7 +489,7 @@ export function createParentDashboardService({
       student = await resolveChild(actor, permanentStudentId);
     }
     const selectedActor = student ? { ...actor, children: [{ ...student, id: student.id ?? student.student_id ?? student.studentProfileId, studentProfileId: student.studentProfileId ?? student.student_profile_id, permanentStudentId, classId: student.classId ?? student.class_id, className: student.className ?? student.class_id }] } : { ...actor, children: [] };
-    if (moduleKey === 'parent-announcements') return { moduleKey, moduleName: card.moduleName, student: student ? { name: studentName(student), permanentStudentId } : null, records: communication.listAnnouncements(selectedActor) };
+    if (moduleKey === 'parent-announcements') return { moduleKey, moduleName: card.moduleName, student: student ? { name: studentName(student), permanentStudentId } : null, records: durableAnnouncements ? await durableAnnouncements.list(actor) : communication.listAnnouncements(selectedActor) };
     if (moduleKey === 'parent-calendar') {
       const filters = {};
       if (input.academicYear || input.term) {
