@@ -33,6 +33,8 @@ test('production runner requires Migration 076, read-only dry-run default, exact
   assert.match(runner, /execution:\s*'read-only'/);
   const workflow = await readFile(workflowPath, 'utf8');
   assert.match(workflow, /environment: production/);
+  assert.match(workflow, /DATABASE_URL:\s*\$\{\{\s*secrets\.DATABASE_URL\s*\}\}/);
+  assert.doesNotMatch(workflow, /secrets\.PRODUCTION_DATABASE_URL/);
   assert.match(workflow, /needs: preflight/);
   assert.match(workflow, /backup_confirmation == 'BACKUP_CONFIRMED'/);
   assert.match(workflow, /SMS_MIGRATION_077_EXECUTION_TOKEN/);

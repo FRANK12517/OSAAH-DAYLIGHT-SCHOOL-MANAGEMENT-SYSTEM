@@ -34,7 +34,7 @@ jobs:
       - name: Inspect production schema and print exact Migration 077 dry-run plan
         run: node scripts/production-sms-migration-077.mjs dry-run
         env:
-          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
           OSAAH_DATABASE_ADAPTER_MODULE: src/ai/tidb-database-adapter.js
 
   protected-apply:
@@ -53,7 +53,7 @@ jobs:
       - name: Apply exact Migration 077 and verify schema, grants, and preserved records
         run: node scripts/production-sms-migration-077.mjs apply
         env:
-          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
           OSAAH_DATABASE_ADAPTER_MODULE: src/ai/tidb-database-adapter.js
           EXECUTION_TOKEN: ${{ secrets.SMS_MIGRATION_077_EXECUTION_TOKEN }}
           BACKUP_CONFIRMATION: ${{ inputs.backup_confirmation }}
