@@ -601,6 +601,16 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
 
   async function mockRoster(input = {}, actor) {
     assertActor(actor);
+    if (String(input.sampleMode ?? '').toLowerCase() === 'true' || input.sampleMode === true) {
+      const fixtures = students?.listStudents?.({ requestedSchoolId: schoolId, includeTestRecords: true }) ?? [];
+      const sample = fixtures.find((student) => student.schoolId === schoolId && student.isTestRecord === true && student.permanentStudentId === 'OSAAH-DEMO-001');
+      if (!sample) return [];
+      const mockLabel = text(input.mockLabel);
+      if (!mockLabel) fail('Class, subject, and Mock Examination are required.');
+      const scores = await listScores({ ...input, studentId: sample.id }, actor, { mock: true });
+      const score = scores.find((row) => row.subjectId === text(input.subjectId));
+      return [{ studentId: sample.id, permanentStudentId: sample.permanentStudentId, studentName: [sample.firstName, sample.middleName, sample.surname].filter(Boolean).join(' '), classId: text(input.classId), subjectId: text(input.subjectId), totalScore: score?.totalScore ?? null, grade: score?.grade ?? null, saved: Boolean(score), isTestRecord: true }];
+    }
     if (!authorized(actor, 'mock.scores.read') && !authorized(actor, 'mock.scores.write')) fail('Forbidden.', 403, 'ACADEMIC_PERMISSION_REQUIRED');
     const classId = text(input.classId), subjectId = text(input.subjectId), mockLabel = text(input.mockLabel);
     await assertMockClass(classId);
@@ -612,7 +622,8 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     const result = await database.query(`SELECT s.id AS studentId,s.permanent_student_id AS permanentStudentId,s.first_name AS firstName,s.middle_name AS middleName,s.last_name AS surname,
       r.total_score AS totalScore,r.grade,r.id AS scoreId
       FROM student_enrollments e JOIN students s ON s.id=e.student_id
-      LEFT JOIN academic_score_records r ON r.school_id=e.school_id AND r.student_id IN (SELECT sp.id FROM student_profiles sp WHERE sp.student_master_id=s.id OR sp.student_id=s.permanent_student_id) AND r.subject_id=? AND r.class_id=e.class_id AND r.academic_year_id=? AND r.term_id=? AND r.record_type='MOCK' AND r.mock_label=?
+      LEFT JOIN student_profiles sp ON sp.school_id=s.school_id AND (sp.student_master_id=s.id OR sp.student_id=s.permanent_student_id)
+      LEFT JOIN academic_score_records r ON r.school_id=e.school_id AND r.student_id=sp.id AND r.subject_id=? AND r.class_id=e.class_id AND r.academic_year_id=? AND r.term_id=? AND r.record_type='MOCK' AND r.mock_label=?
       WHERE e.school_id=? AND e.class_id=? AND e.academic_year_id=? AND COALESCE(e.enrollment_status,'ACTIVE')='ACTIVE' AND COALESCE(e.is_current,1)=1 AND s.school_id=? AND COALESCE(s.student_status,'ACTIVE')='ACTIVE' AND COALESCE(s.is_test_record,0)=0
       ORDER BY s.last_name,s.first_name,s.id`, [subjectId, period.yearId, period.termId, mockLabel, schoolId, classId, period.yearId, schoolId]);
     return rows(result).map((item) => ({ studentId: item.studentId, permanentStudentId: item.permanentStudentId, studentName: [item.firstName, item.middleName, item.surname].filter(Boolean).join(' '), classId, subjectId, totalScore: item.totalScore == null ? null : Number(item.totalScore), grade: item.grade ?? null, saved: Boolean(item.scoreId) }));
