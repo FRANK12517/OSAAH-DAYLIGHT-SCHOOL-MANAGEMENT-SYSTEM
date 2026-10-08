@@ -14,6 +14,7 @@ const records = [
 function mockDb() {
   const executed = [];
   const recipientRows = [...records];
+  let recipientStatus = 'SUBMITTED';
   const db = {
     executed,
     recipientRows,
@@ -21,12 +22,12 @@ function mockDb() {
       if (sql.includes('academic_years ay JOIN terms')) return [{ academicYearId: 'year-1', termId: 'term-1' }];
       if (sql.includes('FROM parent_student_links psl')) return recipientRows.filter((row) => !sql.includes('psl.parent_user_id IN (') || params.slice(3).includes(row.parentId));
       if (sql.includes('AND idempotency_key=?')) return [];
-      if (sql.includes('SELECT id,campaign_id,status FROM sms_campaign_recipients')) return [{ id: 'recipient-row', campaign_id: 'campaign-1', status: 'SUBMITTED' }];
+      if (sql.includes('SELECT id,campaign_id,status FROM sms_campaign_recipients')) return [{ id: 'recipient-row', campaign_id: 'campaign-1', status: recipientStatus }];
       if (sql.includes('SELECT COUNT(*) AS total')) return [{ total: 1, delivered: 1, failed: 0, pending: 0 }];
       if (sql.includes('SELECT id,created_by,status FROM sms_campaigns')) return [];
       return [];
     },
-    async execute(sql, params = []) { executed.push({ sql, params }); return { affectedRows: 1 }; },
+    async execute(sql, params = []) { executed.push({ sql, params }); if (sql.includes('SET status=?,last_error=?,delivered_at=?,updated_at=?')) recipientStatus = params[0]; return { affectedRows: 1 }; },
     async transaction(callback) { return callback({ execute: this.execute.bind(this) }); }
   };
   return db;
@@ -183,5 +184,6 @@ test('provider callbacks distinguish delivered, failed, rejected, and prevent st
   assert.deepEqual(await service.deliveryCallback({ token: 'callback-secret', smsId: 'provider-0', status: 'DELIVERED' }), { accepted: true, status: 'DELIVERED' });
   assert.ok(db.executed.some((item) => item.sql.includes('SET status=?,last_error=?,delivered_at=?,updated_at=?')));
   const downgraded = await service.deliveryCallback({ token: 'callback-secret', smsId: 'provider-0', status: 'QUEUED' });
-  assert.deepEqual(downgraded, { accepted: true, status: 'SUBMITTED' });
+  assert.deepEqual(downgraded, { accepted: true, status: 'DELIVERED' });
+  assert.equal(db.executed.filter((item) => item.sql.includes('SET status=?,last_error=?,delivered_at=?,updated_at=?')).length, 1);
 });
