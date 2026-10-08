@@ -548,10 +548,14 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
 
   async function resultStudents(input = {}, actor) {
     assertActor(actor);
-    if (!authorized(actor, 'results.read') && !authorized(actor, 'results.generate') && !authorized(actor, 'examinations.read')) fail('Forbidden.', 403, 'ACADEMIC_PERMISSION_REQUIRED');
+    const mockContext = String(input.resultType ?? input.examination ?? '').toUpperCase() === 'MOCK';
+    const hasResultAccess = authorized(actor, 'results.read') || authorized(actor, 'results.generate') || authorized(actor, 'examinations.read');
+    const hasMockAccess = authorized(actor, 'mock.results.read') || authorized(actor, 'mock.results.generate');
+    if (!hasResultAccess && !(mockContext && hasMockAccess)) fail('Forbidden.', 403, 'ACADEMIC_PERMISSION_REQUIRED');
     const classId = text(input.classId);
     if (!classId) return [];
     assertClassScope(classId, actor);
+    if (mockContext) await assertMockClass(classId);
     const period = await resolvePeriod(input);
     await classFor(classId);
     const rosterProjection = `SELECT DISTINCT s.id AS studentId,s.permanent_student_id AS permanentStudentId,s.first_name AS firstName,s.middle_name AS middleName,s.last_name AS surname,e.class_id AS classId
@@ -586,10 +590,14 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
 
   async function resultContext(input = {}, actor) {
     assertActor(actor);
-    if (!authorized(actor, 'results.read') && !authorized(actor, 'results.generate') && !authorized(actor, 'results.publish') && !authorized(actor, 'examinations.read')) fail('Forbidden.', 403, 'ACADEMIC_PERMISSION_REQUIRED');
+    const mockContext = String(input.resultType ?? input.examination ?? '').toUpperCase() === 'MOCK';
+    const hasResultAccess = authorized(actor, 'results.read') || authorized(actor, 'results.generate') || authorized(actor, 'results.publish') || authorized(actor, 'examinations.read');
+    const hasMockAccess = authorized(actor, 'mock.results.read') || authorized(actor, 'mock.results.generate');
+    if (!hasResultAccess && !(mockContext && hasMockAccess)) fail('Forbidden.', 403, 'ACADEMIC_PERMISSION_REQUIRED');
     const classId = text(input.classId);
     if (!classId) fail('Class is required.', 400, 'RESULT_CONTEXT_REQUIRED');
     assertClassScope(classId, actor);
+    if (mockContext) await assertMockClass(classId);
     const [period, classRow] = await Promise.all([resolvePeriod(input), classFor(classId)]);
     return { classId, className: classRow.name, academicYearId: period.yearId, academicYear: period.yearName, termId: period.termId, term: period.termName };
   }

@@ -122,3 +122,41 @@ test('Result Slip student API scopes real students and returns only existing sam
     else process.env.OSAAH_SCHOOL_ID = previousSchoolId;
   }
 });
+
+
+test('Mock Results-only permission loads the Mock roster without granting terminal-result roster access', async () => {
+  const students = createStudentService({ schoolId });
+  const real = students.createStudent({ firstName: 'Mock', surname: 'Learner', classId: 'JHS 1', academicYearId: '2026/2027', termId: 'First Term' });
+  const mockReader = { id: 'mock-reader', roleKey: 'TEACHER', portal: 'school', schoolId, assignedClassIds: ['JHS 1'], permissions: new Set(['mock.results.read']) };
+  const auth = { authenticateAsync: async (token) => token === 'mock-reader-token' ? mockReader : null };
+  const previousSchoolId = process.env.OSAAH_SCHOOL_ID;
+  process.env.OSAAH_SCHOOL_ID = schoolId;
+  const app = createApp({ auth, students });
+  const server = http.createServer(app);
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const headers = { Authorization: 'Bearer mock-reader-token' };
+    const optionsResponse = await fetch(`${base}/api/academic/options`, { headers });
+    assert.equal(optionsResponse.status, 200, 'Mock-only permission must load the class and exam selectors');
+    assert.ok((await optionsResponse.json()).classes.length > 0);
+    const terminalQuery = new URLSearchParams({ academicYear: '2026/2027', term: 'First Term', classId: 'JHS 1', sampleMode: 'false', resultType: 'TERMINAL' });
+    const terminalResponse = await fetch(`${base}/api/academic/result-students?${terminalQuery}`, { headers });
+    assert.equal(terminalResponse.status, 403, 'Mock-only permission must not grant terminal-result roster access');
+
+    const mockQuery = new URLSearchParams({ academicYear: '2026/2027', term: 'First Term', classId: 'JHS 1', sampleMode: 'false', resultType: 'MOCK' });
+    const mockResponse = await fetch(`${base}/api/academic/result-students?${mockQuery}`, { headers });
+    assert.equal(mockResponse.status, 200);
+    assert.deepEqual((await mockResponse.json()).students.map((student) => student.id), [real.id]);
+
+    mockQuery.set('sampleMode', 'true');
+    const sampleResponse = await fetch(`${base}/api/academic/result-students?${mockQuery}`, { headers });
+    assert.equal(sampleResponse.status, 200);
+    const sampleStudents = (await sampleResponse.json()).students;
+    assert.deepEqual(sampleStudents.map((student) => student.permanentStudentId), ['OSAAH-DEMO-001', 'OSAAH-DEMO-002']);
+  } finally {
+    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    if (previousSchoolId === undefined) delete process.env.OSAAH_SCHOOL_ID;
+    else process.env.OSAAH_SCHOOL_ID = previousSchoolId;
+  }
+});
