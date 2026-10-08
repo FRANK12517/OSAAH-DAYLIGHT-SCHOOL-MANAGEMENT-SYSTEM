@@ -1,3 +1,5 @@
+import { resolveDashboardRoute } from './dashboard-route.js';
+
 const state = { portal: null };
 let dashboardBuildPromise = null;
 const form = document.querySelector('#login-form');
@@ -76,10 +78,30 @@ document.querySelector('#back-button')?.addEventListener('click', () => { form.h
 const passwordInput = document.querySelector('#password-input');
 const passwordToggle = document.querySelector('#password-toggle');
 passwordToggle?.addEventListener('click', () => { const shouldShow = passwordInput.type === 'password'; passwordInput.type = shouldShow ? 'text' : 'password'; const label = shouldShow ? 'Hide password' : 'Show password'; passwordToggle.setAttribute('aria-label', label); passwordToggle.setAttribute('aria-pressed', String(shouldShow)); passwordToggle.title = label; passwordInput.focus({ preventScroll: true }); });
-form.addEventListener('submit', async (event) => { event.preventDefault(); const data = Object.fromEntries(new FormData(form)); data.portal = state.portal; if (state.portal === 'parent') { delete data.username; delete data.password; delete data.role; } else delete data.phone; const submit = form.querySelector('button[type="submit"]'); submit.disabled = true; submit.textContent = 'Signing in…'; document.querySelector('#login-error').textContent = ''; try { const response = await fetchWithTimeout('/api/auth/login', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }, 'Sign-in'); const result = await response.json(); if (!response.ok || result.error) { document.querySelector('#login-error').textContent = result.error || 'Incorrect username or password.'; return; } await renderDashboard(result.user, result.redirectTo); } catch (error) { document.querySelector('#login-error').textContent = error?.message || 'Sign-in could not be completed. Please try again.'; } finally { submit.disabled = false; submit.textContent = 'Sign in securely'; } });
+form.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(form));
+  data.portal = state.portal;
+  if (state.portal === 'parent') { delete data.username; delete data.password; delete data.role; } else delete data.phone;
+  const submit = form.querySelector('button[type="submit"]');
+  submit.disabled = true;
+  submit.textContent = 'Signing in…';
+  document.querySelector('#login-error').textContent = '';
+  try {
+    const response = await fetchWithTimeout('/api/auth/login', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }, 'Sign-in');
+    const result = await response.json();
+    if (!response.ok || result.error) { document.querySelector('#login-error').textContent = result.error || 'Incorrect username or password.'; return; }
+    await renderDashboard(result.user, result.redirectTo, { freshLogin: true });
+  } catch (error) {
+    document.querySelector('#login-error').textContent = error?.message || 'Sign-in could not be completed. Please try again.';
+  } finally {
+    submit.disabled = false;
+    submit.textContent = 'Sign in securely';
+  }
+});
 restoreSession();
 async function restoreSession() { try { const response = await fetch('/api/auth/session', { credentials: 'same-origin', headers: { Accept: 'application/json' } }); if (!response.ok) return; const result = await response.json(); if (result.user) { document.querySelector('.portal-grid').hidden = true; await renderDashboard(result.user, result.redirectTo); } } catch {} }
-function renderDashboard(user) {
+function renderDashboard(user, redirectTo = '/', { freshLogin = false } = {}) {
   if (dashboardBuildPromise) return dashboardBuildPromise;
   dashboardBuildPromise = (async () => { const dashboard = document.querySelector('#dashboard'); dashboard.hidden = false; if (dashboard.querySelector('.app-shell')) return; const sidebarResponse = await fetchWithTimeout('/api/sidebar', { credentials: 'same-origin', headers: { Accept: 'application/json' } }, 'Dashboard loading'); if (!sidebarResponse.ok) { const body = await sidebarResponse.json().catch(() => ({})); throw new Error(body.error || 'Dashboard loading failed. Please try again.'); } const sidebar = await sidebarResponse.json(); document.querySelectorAll('.login-brand, .portal-grid, #login-form, #connection-status, #login-gallery, #public-school-website, .portal-switch').forEach((element) => element.remove()); document.querySelector('main.login-page').classList.add('dashboard-active'); if (dashboard.querySelector('.app-shell')) return; dashboard.innerHTML = `<div class="app-shell"><button class="sidebar-menu-button" type="button" aria-expanded="false" aria-controls="primary-sidebar">☰ Menu</button><div class="sidebar-backdrop" hidden></div><aside class="sidebar" id="primary-sidebar" aria-label="Primary navigation"><div class="brand"><div class="logo-frame"><img src="/assets/osaah-daylight-logo.png" alt="Official school logo"></div><div><strong>OSAAH DAYLIGHT</strong><small>SCHOOL MANAGEMENT</small></div></div><nav>${sidebar.categories.map(renderNavGroup).join('')}</nav></aside><div class="workspace"><header class="topbar"><div><p class="eyebrow">${escapeHtml(user.roleKey.replaceAll('_', ' '))} · ${escapeHtml(user.portal.toUpperCase())} PORTAL</p><h2>${user.portal === 'parent' ? 'Parent Dashboard' : user.roleKey === 'PROPRIETOR' ? 'Proprietor Dashboard' : 'School Dashboard'}</h2></div></header><section id="dashboard-overview"><section class="hero"><p class="eyebrow">AUTHORIZED ACCESS</p><h3>${user.portal === 'parent' ? 'My Children' : 'Welcome to your school workspace'}</h3><p class="muted">${user.portal === 'parent' ? 'Switch between your children to view authorized information.' : 'Your modules are determined by your role and server-side permissions.'}</p></section></section><section id="module-workspace" class="module-workspace" aria-live="polite" hidden><p id="module-status" class="module-status">Loading module…</p><iframe id="module-frame" class="module-frame" title="School module" hidden></iframe></section></div></div>`;
   if (user.portal === 'parent') {
@@ -90,6 +112,9 @@ function renderDashboard(user) {
   menuButton.addEventListener('click', () => setDrawer(!shell.classList.contains('sidebar-open'))); backdrop.addEventListener('click', () => setDrawer(false));
   dashboard.querySelectorAll('.sidebar-group-toggle').forEach((button) => button.addEventListener('click', () => { const open = button.getAttribute('aria-expanded') === 'true'; button.setAttribute('aria-expanded', String(!open)); document.getElementById(button.getAttribute('aria-controls')).hidden = open; }));
   dashboard.querySelectorAll('.sidebar-link:not([data-module="logout"])').forEach((link) => link.addEventListener('click', (event) => { setDrawer(false); if (user.portal !== 'school') return; event.preventDefault(); const route = link.dataset.moduleRoute || new URL(link.href, location.origin).pathname; navigateToRoute(dashboard, route, link.dataset.moduleName || 'School Module', { navigationKey: link.dataset.navigationKey, exactView: link.dataset.exactView, replace: false }); }));
+  const currentPath = window.location.pathname + window.location.search + window.location.hash;
+  const initialRoute = resolveDashboardRoute({ portal: user.portal, currentPath, redirectTo, freshLogin });
+  if (freshLogin && initialRoute !== currentPath) history.replaceState({}, '', initialRoute);
   if (user.portal === 'school') { const renderCurrent = () => { const requestedKey = new URLSearchParams(location.search).get('navigationKey'); const link = [...dashboard.querySelectorAll('.sidebar-link')].find((item) => requestedKey ? item.dataset.navigationKey === requestedKey : (item.dataset.moduleRoute || item.dataset.route || new URL(item.href, location.origin).pathname) === location.pathname); navigateToRoute(dashboard, location.pathname, link?.dataset.moduleName || link?.dataset.moduleLabel || document.body.dataset.currentModule || 'School Module', { navigationKey: link?.dataset.navigationKey || requestedKey || location.pathname, exactView: link?.dataset.exactView || new URLSearchParams(location.search).get('view') || document.body.dataset.currentView, replace: true }); }; if (location.pathname !== '/') renderCurrent(); window.onpopstate = () => renderCurrent(); }
   dashboard.querySelectorAll('[data-module="logout"]').forEach((link) => link.addEventListener('click', (event) => { event.preventDefault(); logoutToPublicHome().catch((error) => console.error('OSAAH logout failed', error)); })); })();
   return dashboardBuildPromise;
