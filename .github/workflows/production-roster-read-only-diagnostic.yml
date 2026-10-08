@@ -1,0 +1,60 @@
+name: Production roster read-only SQL diagnostic
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-roster-read-only-diagnostic
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    name: Explain official roster SQL without returning student rows
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 15
+    steps:
+      - name: Check out diagnostic workflow revision
+        uses: actions/checkout@v4
+
+      - name: Check out the exact production release
+        uses: actions/checkout@v4
+        with:
+          ref: 2b9bab37bc73f3b4bc78f6609447b14bc4beef75
+          path: release-source
+          persist-credentials: false
+
+      - name: Verify pinned release checkout
+        shell: bash
+        run: test "$(git -C release-source rev-parse HEAD^{commit})" = "2b9bab37bc73f3b4bc78f6609447b14bc4beef75"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Confirm protected database secret is available
+        shell: bash
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "Protected DATABASE_URL is unavailable."
+            exit 1
+          fi
+          echo "Protected DATABASE_URL is available."
+
+      - name: Run EXPLAIN-only roster compatibility diagnostic
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          OSAAH_SCHOOL_ID: ${{ vars.OSAAH_SCHOOL_ID }}
+          RELEASE_SOURCE_DIR: release-source
+        run: node scripts/production-roster-read-only-diagnostic.mjs
