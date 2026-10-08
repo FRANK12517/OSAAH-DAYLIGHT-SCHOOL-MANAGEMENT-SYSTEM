@@ -52,5 +52,11 @@ test('Mock Result UI normalizes durable class objects and requests a context-sco
   assert.match(client, /JHS\.has\(classNameOf\(c\)\)/);
   assert.match(client, /\/api\/academic\/result-students/);
   assert.match(client, /sampleMode/);
-  assert.match(client, /No students found for this academic context/);
+  assert.match(client, /No students enrolled in this class/);
+  assert.match(client, /requestId!==rosterRequest/);
+  assert.match(client, /host\.replaceChildren\(\)/);
+  assert.match(client, /textContent='Retry'/);
+  assert.match(client, /Select one student before generating a Mock Result/);
+  assert.match(client, /SAMPLE \/ TEST RESULT — NOT OFFICIAL/);
+  assert.match(client, /No Mock Result Available/);
 });
