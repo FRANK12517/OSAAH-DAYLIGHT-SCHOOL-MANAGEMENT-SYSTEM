@@ -78,6 +78,10 @@ test('Part 3 uses the existing School Portal route, preserves sessions, applies 
     assert.equal(session.status, 200);
     assert.equal(session.body.user.roleKey, 'ACCOUNTANT_BURSAR');
     assert.equal((await http(server, '/api/management', { cookie })).status, 403);
+    assert.equal((await http(server, '/api/users', { cookie })).status, 403);
+    const sidebar = await http(server, '/api/sidebar', { cookie });
+    assert.equal(sidebar.status, 200);
+    assert.match(JSON.stringify(sidebar.body).toLowerCase(), /fee/);
     assert.equal((await http(server, '/api/fees/collections', { cookie })).status, 503);
     const logout = await http(server, '/api/auth/logout', { method: 'POST', cookie });
     assert.equal(logout.status, 204);
