@@ -1,0 +1,59 @@
+name: Production SMS migration 077
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Read-only preflight or protected apply
+        required: true
+        type: choice
+        options:
+          - dry-run
+          - apply
+      backup_confirmation:
+        description: Type BACKUP_CONFIRMED only after verifying the latest production backup
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    name: Read-only production schema preflight
+    if: ${{ inputs.mode == 'dry-run' || inputs.mode == 'apply' }}
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Inspect production schema and print exact Migration 077 dry-run plan
+        run: node scripts/production-sms-migration-077.mjs dry-run
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          OSAAH_DATABASE_ADAPTER_MODULE: src/ai/tidb-database-adapter.js
+
+  protected-apply:
+    name: Apply Migration 077 after approval
+    if: ${{ inputs.mode == 'apply' && inputs.backup_confirmation == 'BACKUP_CONFIRMED' }}
+    needs: preflight
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Apply exact Migration 077 and verify schema, grants, and preserved records
+        run: node scripts/production-sms-migration-077.mjs apply
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          OSAAH_DATABASE_ADAPTER_MODULE: src/ai/tidb-database-adapter.js
+          EXECUTION_TOKEN: ${{ secrets.SMS_MIGRATION_077_EXECUTION_TOKEN }}
+          BACKUP_CONFIRMATION: ${{ inputs.backup_confirmation }}
