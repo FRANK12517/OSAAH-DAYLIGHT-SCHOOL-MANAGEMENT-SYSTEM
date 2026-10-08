@@ -513,9 +513,6 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
         break;
       } catch (error) {
         if (missingOptionalStudentTestRecordColumn(error) && query.includes('COALESCE(s.is_test_record,0)=0')) {
-          // Older production student tables identify sample rows only by their
-          // permanent ID. Keep official mode isolated without requiring a
-          // column that the legacy schema never declared.
           query = query.replace("COALESCE(s.is_test_record,0)=0", "s.permanent_student_id NOT LIKE 'OSAAH-DEMO-%'");
           continue;
         }
@@ -560,31 +557,10 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     await classFor(classId);
     const rosterProjection = `SELECT DISTINCT s.id AS studentId,s.permanent_student_id AS permanentStudentId,s.first_name AS firstName,s.middle_name AS middleName,s.last_name AS surname,e.class_id AS classId
       FROM student_enrollments e JOIN students s ON s.id=e.student_id
-      WHERE e.school_id=? AND e.class_id=? AND e.academic_year_id=? AND e.term_id=? AND s.school_id=? AND COALESCE(s.student_status,'ACTIVE')='ACTIVE' AND COALESCE(s.is_test_record,0)=0`;
+      WHERE e.school_id=? AND e.class_id=? AND e.academic_year_id=? AND e.term_id=? AND s.school_id=? AND s.permanent_student_id NOT LIKE 'OSAAH-DEMO-%'`;
     const params = [schoolId, classId, period.yearId, period.termId, schoolId];
-    let query = `${rosterProjection} AND COALESCE(e.enrollment_status,'ACTIVE')='ACTIVE' AND COALESCE(e.is_current,1)=1 ORDER BY s.last_name,s.first_name,s.id`;
-    let result;
-    for (let attempt = 0; attempt < 4; attempt += 1) {
-      try {
-        result = await database.query(query, params);
-        break;
-      } catch (error) {
-        if (missingOptionalEnrollmentStateColumn(error) && query.includes('COALESCE(e.enrollment_status')) {
-          query = query.replace(" AND COALESCE(e.enrollment_status,'ACTIVE')='ACTIVE' AND COALESCE(e.is_current,1)=1", '');
-          continue;
-        }
-        if (missingOptionalStudentTestRecordColumn(error) && query.includes('COALESCE(s.is_test_record,0)=0')) {
-          query = query.replace('COALESCE(s.is_test_record,0)=0', "s.permanent_student_id NOT LIKE 'OSAAH-DEMO-%'");
-          continue;
-        }
-        if (missingOptionalStudentStatusColumn(error) && query.includes("COALESCE(s.student_status,'ACTIVE')='ACTIVE'")) {
-          query = query.replace(" AND COALESCE(s.student_status,'ACTIVE')='ACTIVE'", '');
-          continue;
-        }
-        throw error;
-      }
-    }
-    if (!result) throw new Error('Result-student roster query did not return a result.');
+    const query = `${rosterProjection} ORDER BY s.last_name,s.first_name,s.id`;
+    const result = await database.query(query, params);
     return rows(result).map((item) => ({ id: item.studentId, studentId: item.studentId, indexNumber: item.permanentStudentId, permanentStudentId: item.permanentStudentId, name: [item.firstName, item.middleName, item.surname].filter(Boolean).join(' '), classId: item.classId, isTestRecord: false }));
   }
 
@@ -631,14 +607,21 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
   async function mockRoster(input = {}, actor) {
     assertActor(actor);
     if (String(input.sampleMode ?? '').toLowerCase() === 'true' || input.sampleMode === true) {
+      const classId = text(input.classId), subjectId = text(input.subjectId), mockLabel = text(input.mockLabel);
+      await assertMockClass(classId);
+      if (!subjectId || !MOCK_TYPES.includes(mockLabel)) fail('Class, subject, and Mock Examination are required.');
+      assertClassScope(classId, actor);
+      const period = await resolvePeriod(input);
+      await classFor(classId);
+      if (!await scoringSubjectAssigned({ classId, subjectId, academicYearId: period.yearId }, actor)) fail('Subject is invalid for this class and academic context.', 400, 'INVALID_CLASS_SUBJECT');
       const fixtures = students?.listStudents?.({ requestedSchoolId: schoolId, includeTestRecords: true }) ?? [];
-      const sample = fixtures.find((student) => student.schoolId === schoolId && student.isTestRecord === true && student.permanentStudentId === 'OSAAH-DEMO-001');
-      if (!sample) return [];
-      const mockLabel = text(input.mockLabel);
-      if (!mockLabel) fail('Class, subject, and Mock Examination are required.');
-      const scores = await listScores({ ...input, studentId: sample.id }, actor, { mock: true });
-      const score = scores.find((row) => row.subjectId === text(input.subjectId));
-      return [{ studentId: sample.id, permanentStudentId: sample.permanentStudentId, studentName: [sample.firstName, sample.middleName, sample.surname].filter(Boolean).join(' '), classId: text(input.classId), subjectId: text(input.subjectId), totalScore: score?.totalScore ?? null, grade: score?.grade ?? null, saved: Boolean(score), isTestRecord: true }];
+      const samples = fixtures.filter((student) => student.schoolId === schoolId && student.isTestRecord === true && ['OSAAH-DEMO-001', 'OSAAH-DEMO-002'].includes(student.permanentStudentId));
+      if (!samples.length) return [];
+      return Promise.all(samples.map(async (sample) => {
+        const scores = await listScores({ ...input, studentId: sample.id }, actor, { mock: true });
+        const score = scores.find((row) => row.subjectId === text(input.subjectId));
+        return { studentId: sample.id, permanentStudentId: sample.permanentStudentId, studentName: [sample.firstName, sample.middleName, sample.surname].filter(Boolean).join(' '), classId: text(input.classId), subjectId: text(input.subjectId), totalScore: score?.totalScore ?? null, grade: score?.grade ?? null, saved: Boolean(score), isTestRecord: true };
+      }));
     }
     if (!authorized(actor, 'mock.scores.read') && !authorized(actor, 'mock.scores.write')) fail('Forbidden.', 403, 'ACADEMIC_PERMISSION_REQUIRED');
     const classId = text(input.classId), subjectId = text(input.subjectId), mockLabel = text(input.mockLabel);
@@ -653,8 +636,8 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
       FROM student_enrollments e JOIN students s ON s.id=e.student_id
       LEFT JOIN student_profiles sp ON sp.school_id=s.school_id AND (sp.student_master_id=s.id OR sp.student_id=s.permanent_student_id)
       LEFT JOIN academic_score_records r ON r.school_id=e.school_id AND r.student_id=sp.id AND r.subject_id=? AND r.class_id=e.class_id AND r.academic_year_id=? AND r.term_id=? AND r.record_type='MOCK' AND r.mock_label=?
-      WHERE e.school_id=? AND e.class_id=? AND e.academic_year_id=? AND COALESCE(e.enrollment_status,'ACTIVE')='ACTIVE' AND COALESCE(e.is_current,1)=1 AND s.school_id=? AND COALESCE(s.student_status,'ACTIVE')='ACTIVE' AND COALESCE(s.is_test_record,0)=0
-      ORDER BY s.last_name,s.first_name,s.id`, [subjectId, period.yearId, period.termId, mockLabel, schoolId, classId, period.yearId, schoolId]);
+      WHERE e.school_id=? AND e.class_id=? AND e.academic_year_id=? AND e.term_id=? AND s.school_id=? AND s.permanent_student_id NOT LIKE 'OSAAH-DEMO-%'
+      ORDER BY s.last_name,s.first_name,s.id`, [subjectId, period.yearId, period.termId, mockLabel, schoolId, classId, period.yearId, period.termId, schoolId]);
     return rows(result).map((item) => ({ studentId: item.studentId, permanentStudentId: item.permanentStudentId, studentName: [item.firstName, item.middleName, item.surname].filter(Boolean).join(' '), classId, subjectId, totalScore: item.totalScore == null ? null : Number(item.totalScore), grade: item.grade ?? null, saved: Boolean(item.scoreId) }));
   }
 
@@ -669,7 +652,7 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     assertClassScope(classId, actor);
     const period = await resolvePeriod(input);
     await classFor(classId);
-    const enrolled = rows(await database.query('SELECT e.student_id,s.permanent_student_id,c.name AS className FROM student_enrollments e JOIN students s ON s.id=e.student_id JOIN classes c ON c.id=e.class_id WHERE e.school_id=? AND e.student_id=? AND e.class_id=? AND e.academic_year_id=? AND COALESCE(e.enrollment_status,"ACTIVE")="ACTIVE" AND COALESCE(e.is_current,1)=1 LIMIT 1', [schoolId, studentId, classId, period.yearId]))[0];
+    const enrolled = rows(await database.query("SELECT e.student_id,s.permanent_student_id,c.name AS className FROM student_enrollments e JOIN students s ON s.id=e.student_id JOIN classes c ON c.id=e.class_id WHERE e.school_id=? AND e.student_id=? AND e.class_id=? AND e.academic_year_id=? AND e.term_id=? AND s.school_id=? AND s.permanent_student_id NOT LIKE 'OSAAH-DEMO-%' LIMIT 1", [schoolId, studentId, classId, period.yearId, period.termId, schoolId]))[0];
     if (!enrolled) fail('Student is not enrolled in the selected class and academic year.', 400);
     if (!await scoringSubjectAssigned({ classId, subjectId, academicYearId: period.yearId }, actor)) fail('Subject is not assigned as a scoring subject for the selected class.', 400);
     const [grade, remark] = gradeForTotal(totalScore, { classId: enrolled.className, examination: 'MOCK' });

@@ -19,6 +19,32 @@ for (const classId of ['JHS 1', 'JHS 2', 'JHS 3']) test(`sample Mock uses the pr
   const reloaded = academicResults.result({ studentId: sample.id, classId, academicYear: '2026/2027', term: 'First Term', mockLabel: '1st Mock' }, actor, { mock: true }); assert.deepEqual(reloaded.subjects.map((row) => row.totalScore), result.subjects.map((row) => row.totalScore)); assert.equal(reloaded.lifecycle.status, 'SAVED'); assert.deepEqual(reloaded.assessment, result.assessment);
 });
 
+test('Mock Sample Mode roster loads both designated students without enrollment records', () => {
+  const { students, subjects, academicResults } = context();
+  students.seedSampleStudents();
+  const subjectId = subjects.list({ classId: 'JHS 1' }, actor).find((item) => item.active).id;
+  const roster = academicResults.mockScoreEntryRoster({ classId: 'JHS 1', subjectId, academicYear: '2026/2027', term: 'First Term', mockLabel: '1st Mock', sampleMode: true }, actor);
+  assert.deepEqual(roster.map((student) => student.permanentStudentId), ['OSAAH-DEMO-001', 'OSAAH-DEMO-002']);
+  assert.ok(roster.every((student) => student.isTestRecord && student.classId === 'JHS 1'));
+});
+
+test('Mock Sample Mode generates the exact selected student and isolates Mock Examination scores', () => {
+  const { students, workflow } = context();
+  const [first, second] = students.seedSampleStudents();
+  for (const classId of ['JHS 1', 'JHS 2', 'JHS 3']) {
+    const firstMock = workflow.generateMock({ classId, studentId: first.id, academicYear: '2026/2027', term: 'First Term', mockLabel: '1st Mock' }, actor);
+    const secondMock = workflow.generateMock({ classId, studentId: second.id, academicYear: '2026/2027', term: 'First Term', mockLabel: '1st Mock' }, actor);
+    assert.equal(firstMock.studentId, first.id);
+    assert.equal(firstMock.studentIndexNumber, 'OSAAH-DEMO-001');
+    assert.equal(secondMock.studentId, second.id);
+    assert.equal(secondMock.studentIndexNumber, 'OSAAH-DEMO-002');
+    const otherMock = workflow.generateMock({ classId, studentId: second.id, academicYear: '2026/2027', term: 'First Term', mockLabel: '2nd Mock' }, actor);
+    assert.equal(otherMock.studentId, second.id);
+    assert.equal(otherMock.mockLabel, '2nd Mock');
+    assert.notDeepEqual(otherMock.subjects.map((row) => row.totalScore), secondMock.subjects.map((row) => row.totalScore));
+  }
+});
+
 test('sample and real Mock cohorts remain isolated and sample reset is safe', () => {
   const { students, subjects, academicResults, workflow } = context(); const sample = students.seedSampleStudents()[0]; const real = students.createStudent({ firstName: 'Real', surname: 'Student', classId: 'JHS 3', admissionYearId: '2026' }); const subject = subjects.list({ classId: 'JHS 3' }, actor)[0];
   academicResults.saveMockScore({ studentId: real.id, classId: 'JHS 3', subjectId: subject.id, academicYear: '2026/2027', term: 'First Term', mockLabel: '1st Mock', totalScore: 50 }, actor); const result = workflow.generateMock({ classId: 'JHS 3', studentId: sample.id, academicYear: '2026/2027', term: 'First Term', mockLabel: '1st Mock' }, actor); assert.equal(result.classPosition, '1st'); assert.equal(academicResults.broadsheet({ classId: 'JHS 3', academicYear: '2026/2027', term: 'First Term', mockLabel: '1st Mock' }, actor, { mock: true })[0].isSample, false); assert.throws(() => workflow.resetMock({ permanentStudentId: real.permanentStudentId, academicYear: '2026/2027', term: 'First Term', mockLabel: '1st Mock' }, actor), /sample/); const reset = workflow.resetMock({ permanentStudentId: sample.permanentStudentId, classId: 'JHS 3', academicYear: '2026/2027', term: 'First Term', mockLabel: '1st Mock' }, actor); assert.equal(reset.isSample, true); assert.ok(reset.removed > 0); assert.equal(academicResults.listScores({ studentId: real.id, classId: 'JHS 3', academicYear: '2026/2027', term: 'First Term', mockLabel: '1st Mock' }, actor, { mock: true }).length, 1);
