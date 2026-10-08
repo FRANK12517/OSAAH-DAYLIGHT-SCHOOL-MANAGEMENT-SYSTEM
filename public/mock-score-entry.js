@@ -23,7 +23,7 @@ async function loadSubjects() {
   const classId = context.elements.classId.value;
   const academicYear = context.elements.academicYear.value;
   const term = context.elements.term.value;
-  const query = new URLSearchParams({ mock: 'true' });
+  const query = new URLSearchParams({ mock: 'true', sampleMode: String(context.elements.sampleMode.checked) });
   if (classId && academicYear && term) { query.set('classId', classId); query.set('academicYearId', academicYear); query.set('termId', term); }
   const result = await api(`/api/subjects?${query}`);
   const subjects = (result.subjects || []).filter((subject) => subject.active !== false && (!classId || !subject.classId || subject.classId === classId));
@@ -48,6 +48,7 @@ function render(list) {
       const totalScore = Number(input.value);
       if (!Number.isFinite(totalScore) || totalScore < 0 || totalScore > 100) { status.textContent = 'Score must be between 0 and 100.'; return; }
       const body = Object.fromEntries(selectedContext());
+      body.sampleMode = context.elements.sampleMode.checked;
       body.studentId = row.dataset.student;
       body.totalScore = String(totalScore);
       try { await api('/api/academic/mock-scores', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); row.querySelector('.save-status').firstChild.textContent = 'Saved '; status.textContent = 'Mock score saved.'; }
@@ -58,5 +59,6 @@ function render(list) {
 context.elements.classId.addEventListener('change', () => loadSubjects().catch((error) => { status.textContent = error.message; }));
 context.elements.academicYear.addEventListener('change', () => loadSubjects().catch((error) => { status.textContent = error.message; }));
 context.elements.term.addEventListener('change', () => loadSubjects().catch((error) => { status.textContent = error.message; }));
+context.elements.sampleMode.addEventListener('change', () => loadSubjects().catch((error) => { status.textContent = error.message; }));
 context.onsubmit = async (event) => { event.preventDefault(); status.textContent = 'Loading Students…'; try { const query = selectedContext(); const data = await api(`/api/academic/mock-scores/roster?${query}`); render(data.students || []); status.textContent = `${(data.students || []).length} student(s) loaded.`; } catch (error) { status.textContent = error.message; } };
 load().catch((error) => { status.textContent = error.message; });
