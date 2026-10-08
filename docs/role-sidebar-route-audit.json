@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-27T22:59:20.523Z",
+  "generatedAt": "2026-10-08T03:18:13.096Z",
   "part": 29,
   "baseline": {
     "source": "Part 28 release-gate report supplied with the implementation specification",
@@ -15,8 +15,8 @@
       "ASSISTANT_HEADTEACHER",
       "TEACHER"
     ],
-    "roleDestinationRecords": 215,
-    "componentTargetPasses": 215,
+    "roleDestinationRecords": 220,
+    "componentTargetPasses": 220,
     "missingComponentTargetBlockers": 0,
     "sharedRouteContracts": 0,
     "duplicateRouteBlockers": 0,
@@ -599,6 +599,19 @@
       "result": "PASS"
     },
     {
+      "navigationKey": "change-password",
+      "role": "ACCOUNTANT_BURSAR",
+      "parent": null,
+      "child": "Change Password",
+      "oldRoute": "/change-password.html",
+      "existingImplementationFound": true,
+      "newRoute": "/change-password.html",
+      "exactView": "change-password",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
       "navigationKey": "dashboard",
       "role": "HEADTEACHER",
       "parent": null,
@@ -683,12 +696,15 @@
       "role": "HEADTEACHER",
       "parent": null,
       "child": "Academic Calendar",
-      "oldRoute": "/communication/calendar",
+      "oldRoute": "/academic-calendar",
       "existingImplementationFound": true,
-      "newRoute": "/communication/calendar",
+      "newRoute": "/academic-calendar",
       "exactView": "academic-calendar",
-      "component": "/communication.html",
-      "apiDependencies": [],
+      "component": "/academic-calendar.html",
+      "apiDependencies": [
+        "/api/academic-calendar",
+        "/api/academic-calendar/options"
+      ],
       "result": "PASS"
     },
     {
@@ -999,12 +1015,12 @@
       "navigationKey": "attendance-dashboard",
       "role": "HEADTEACHER",
       "parent": null,
-      "child": "Attendance Dashboard",
+      "child": "Attendance Overview",
       "oldRoute": "/attendance",
       "existingImplementationFound": true,
       "newRoute": "/attendance",
       "exactView": "attendance-overview",
-      "component": "/operations-canonical.html",
+      "component": "/attendance-overview.html",
       "apiDependencies": [
         "/api/attendance/students"
       ],
@@ -1014,29 +1030,14 @@
       "navigationKey": "student-attendance",
       "role": "HEADTEACHER",
       "parent": null,
-      "child": "Student Attendance",
+      "child": "Today's Attendance",
       "oldRoute": "/attendance/students",
       "existingImplementationFound": true,
       "newRoute": "/attendance/students",
       "exactView": "student-attendance-register",
       "component": "/attendance.html",
       "apiDependencies": [
-        "/api/attendance/students"
-      ],
-      "result": "PASS"
-    },
-    {
-      "navigationKey": "staff-attendance",
-      "role": "HEADTEACHER",
-      "parent": null,
-      "child": "Staff Attendance",
-      "oldRoute": "/attendance/staff",
-      "existingImplementationFound": true,
-      "newRoute": "/attendance/staff",
-      "exactView": "staff-attendance-register",
-      "component": "/staff-attendance.html",
-      "apiDependencies": [
-        "/api/attendance/students"
+        "/api/attendance/register"
       ],
       "result": "PASS"
     },
@@ -1066,7 +1067,7 @@
       "exactView": "attendance-alerts",
       "component": "/operations-canonical.html",
       "apiDependencies": [
-        "/api/attendance/students"
+        "/api/attendance/alerts"
       ],
       "result": "PASS"
     },
@@ -1074,7 +1075,7 @@
       "navigationKey": "examinations",
       "role": "HEADTEACHER",
       "parent": null,
-      "child": "Examinations",
+      "child": "Score Entry",
       "oldRoute": "/examinations",
       "existingImplementationFound": true,
       "newRoute": "/examinations",
@@ -1484,7 +1485,7 @@
       "exactView": "staff-attendance-register",
       "component": "/staff-attendance.html",
       "apiDependencies": [
-        "/api/attendance/students"
+        "/api/attendance/staff"
       ],
       "result": "PASS"
     },
@@ -2050,6 +2051,19 @@
       "result": "PASS"
     },
     {
+      "navigationKey": "change-password",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Change Password",
+      "oldRoute": "/change-password.html",
+      "existingImplementationFound": true,
+      "newRoute": "/change-password.html",
+      "exactView": "change-password",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
       "navigationKey": "single-school-panel",
       "role": "ASSISTANT_HEADTEACHER",
       "parent": null,
@@ -2162,6 +2176,36 @@
       "result": "PASS"
     },
     {
+      "navigationKey": "attendance-dashboard",
+      "role": "ASSISTANT_HEADTEACHER",
+      "parent": null,
+      "child": "Attendance Overview",
+      "oldRoute": "/attendance",
+      "existingImplementationFound": true,
+      "newRoute": "/attendance",
+      "exactView": "attendance-overview",
+      "component": "/attendance-overview.html",
+      "apiDependencies": [
+        "/api/attendance/students"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "student-attendance",
+      "role": "ASSISTANT_HEADTEACHER",
+      "parent": null,
+      "child": "Today's Attendance",
+      "oldRoute": "/attendance/students",
+      "existingImplementationFound": true,
+      "newRoute": "/attendance/students",
+      "exactView": "student-attendance-register",
+      "component": "/attendance.html",
+      "apiDependencies": [
+        "/api/attendance/register"
+      ],
+      "result": "PASS"
+    },
+    {
       "navigationKey": "mock-score-entry",
       "role": "ASSISTANT_HEADTEACHER",
       "parent": null,
@@ -2217,6 +2261,21 @@
       "result": "PASS"
     },
     {
+      "navigationKey": "staff-attendance-hr",
+      "role": "ASSISTANT_HEADTEACHER",
+      "parent": null,
+      "child": "Staff Attendance",
+      "oldRoute": "/staff/attendance",
+      "existingImplementationFound": true,
+      "newRoute": "/staff/attendance",
+      "exactView": "staff-attendance-register",
+      "component": "/staff-attendance.html",
+      "apiDependencies": [
+        "/api/attendance/staff"
+      ],
+      "result": "PASS"
+    },
+    {
       "navigationKey": "shep-activities",
       "role": "ASSISTANT_HEADTEACHER",
       "parent": null,
@@ -2265,6 +2324,19 @@
       "newRoute": "/copyright",
       "exactView": "copyright",
       "component": "/copyright.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "change-password",
+      "role": "ASSISTANT_HEADTEACHER",
+      "parent": null,
+      "child": "Change Password",
+      "oldRoute": "/change-password.html",
+      "existingImplementationFound": true,
+      "newRoute": "/change-password.html",
+      "exactView": "change-password",
+      "component": "/operations-canonical.html",
       "apiDependencies": [],
       "result": "PASS"
     },
@@ -2591,12 +2663,12 @@
       "navigationKey": "attendance-dashboard",
       "role": "TEACHER",
       "parent": null,
-      "child": "Attendance Dashboard",
+      "child": "Attendance Overview",
       "oldRoute": "/attendance",
       "existingImplementationFound": true,
       "newRoute": "/attendance",
       "exactView": "attendance-overview",
-      "component": "/operations-canonical.html",
+      "component": "/attendance-overview.html",
       "apiDependencies": [
         "/api/attendance/students"
       ],
@@ -2606,14 +2678,14 @@
       "navigationKey": "student-attendance",
       "role": "TEACHER",
       "parent": null,
-      "child": "Student Attendance",
+      "child": "Today's Attendance",
       "oldRoute": "/attendance/students",
       "existingImplementationFound": true,
       "newRoute": "/attendance/students",
       "exactView": "student-attendance-register",
       "component": "/attendance.html",
       "apiDependencies": [
-        "/api/attendance/students"
+        "/api/attendance/register"
       ],
       "result": "PASS"
     },
@@ -2628,7 +2700,7 @@
       "exactView": "attendance-alerts",
       "component": "/operations-canonical.html",
       "apiDependencies": [
-        "/api/attendance/students"
+        "/api/attendance/alerts"
       ],
       "result": "PASS"
     },
@@ -2636,24 +2708,11 @@
       "navigationKey": "examinations",
       "role": "TEACHER",
       "parent": null,
-      "child": "Examinations",
+      "child": "Score Entry",
       "oldRoute": "/examinations",
       "existingImplementationFound": true,
       "newRoute": "/examinations",
       "exactView": "examinations",
-      "component": "/operations-canonical.html",
-      "apiDependencies": [],
-      "result": "PASS"
-    },
-    {
-      "navigationKey": "marks-entry",
-      "role": "TEACHER",
-      "parent": null,
-      "child": "Marks Entry",
-      "oldRoute": "/examinations/marks",
-      "existingImplementationFound": true,
-      "newRoute": "/examinations/marks",
-      "exactView": "marks-entry",
       "component": "/operations-canonical.html",
       "apiDependencies": [],
       "result": "PASS"
@@ -3062,6 +3121,19 @@
       "newRoute": "/copyright",
       "exactView": "copyright",
       "component": "/copyright.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "change-password",
+      "role": "TEACHER",
+      "parent": null,
+      "child": "Change Password",
+      "oldRoute": "/change-password.html",
+      "existingImplementationFound": true,
+      "newRoute": "/change-password.html",
+      "exactView": "change-password",
+      "component": "/operations-canonical.html",
       "apiDependencies": [],
       "result": "PASS"
     }
