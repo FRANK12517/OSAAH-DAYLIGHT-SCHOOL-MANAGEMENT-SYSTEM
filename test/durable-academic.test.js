@@ -253,7 +253,7 @@ test('inactive normalized assignments do not leak back through legacy class_subj
   assert.deepEqual(await service.listSubjects({ classId: 'class-basic-1' }, manager), []);
 });
 
-test('Result Slip roster falls back when production enrollment status columns are absent', async () => {
+test('Result Slip roster uses selected term enrollment scope without optional enrollment-state columns', async () => {
   const calls = [];
   const database = {
     async query(sql, params = []) {
@@ -277,13 +277,13 @@ test('Result Slip roster falls back when production enrollment status columns ar
   const roster = await service.resultStudents({ classId: 'class-basic-1', academicYear: '2026/2027', term: 'First Term' }, actor);
   assert.deepEqual(roster.map((student) => student.id), ['student-1', 'student-2']);
   const enrollmentQueries = calls.filter(({ sql }) => sql.includes('FROM student_enrollments e JOIN students s'));
-  assert.equal(enrollmentQueries.length, 2);
-  assert.match(enrollmentQueries[0].sql, /enrollment_status/);
-  assert.doesNotMatch(enrollmentQueries[1].sql, /enrollment_status|is_current/);
-  assert.match(enrollmentQueries[1].sql, /SELECT DISTINCT/);
+  assert.equal(enrollmentQueries.length, 1);
+  assert.doesNotMatch(enrollmentQueries[0].sql, /enrollment_status|is_current|is_test_record|student_status/);
+  assert.match(enrollmentQueries[0].sql, /e\.term_id=\?/);
+  assert.match(enrollmentQueries[0].sql, /permanent_student_id NOT LIKE 'OSAAH-DEMO-%'/);
 });
 
-test('Result-student roster retries legacy enrollment and student columns without exposing reserved sample IDs', async () => {
+test('Result-student roster uses canonical enrollment and reserved-ID sample exclusion without optional student columns', async () => {
   const calls = [];
   const database = {
     async query(sql) {
@@ -306,12 +306,10 @@ test('Result-student roster retries legacy enrollment and student columns withou
   const roster = await service.resultStudents({ classId: 'class-jhs-1', academicYear: '2026/2027', term: 'First Term' }, actor);
   assert.deepEqual(roster.map((student) => student.permanentStudentId), ['OSAAH-2026-001']);
   const attempts = calls.filter((sql) => sql.includes('FROM student_enrollments e JOIN students s'));
-  assert.equal(attempts.length, 4);
-  assert.match(attempts[0], /enrollment_status/);
-  assert.doesNotMatch(attempts[1], /enrollment_status|is_current/);
-  assert.match(attempts[2], /permanent_student_id NOT LIKE 'OSAAH-DEMO-%'/);
-  assert.doesNotMatch(attempts[3], /student_status/);
-  assert.match(attempts[3], /permanent_student_id NOT LIKE 'OSAAH-DEMO-%'/);
+  assert.equal(attempts.length, 1);
+  assert.doesNotMatch(attempts[0], /enrollment_status|is_current|is_test_record|student_status/);
+  assert.match(attempts[0], /e\.term_id=\?/);
+  assert.match(attempts[0], /permanent_student_id NOT LIKE 'OSAAH-DEMO-%'/);
 });
 
 test('Score Entry roster falls back when production enrollment status columns are absent', async () => {
