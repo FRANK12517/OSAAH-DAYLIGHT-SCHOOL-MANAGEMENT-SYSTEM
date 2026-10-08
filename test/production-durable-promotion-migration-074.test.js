@@ -10,7 +10,8 @@ const script = await readFile(new URL('../scripts/production-durable-promotion-m
 test('Migration 074 is the unique additive migration version and retains the legacy student FK contract', async () => {
   const migrations = await discoverMigrations(new URL('../schema/', import.meta.url));
   assert.equal(migrations.find((item) => item.version === 74)?.name, '074_durable_promotion_rollover.sql');
-  assert.equal(migrations.at(-1)?.version, 74);
+  assert.equal(new Set(migrations.map((item) => item.version)).size, migrations.length);
+  assert.ok(migrations.at(-1)?.version >= 74);
   for (const column of ['class_id', 'term_id', 'to_class_id', 'next_academic_year_id', 'next_term_id', 'completion_year', 'source_enrollment_id', 'idempotency_key']) {
     assert.match(migration, new RegExp(`ADD COLUMN IF NOT EXISTS ${column}\\b`, 'i'));
   }
