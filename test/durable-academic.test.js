@@ -283,6 +283,37 @@ test('Result Slip roster falls back when production enrollment status columns ar
   assert.match(enrollmentQueries[1].sql, /SELECT DISTINCT/);
 });
 
+test('Result-student roster retries legacy enrollment and student columns without exposing reserved sample IDs', async () => {
+  const calls = [];
+  const database = {
+    async query(sql) {
+      calls.push(sql);
+      if (sql.includes('FROM academic_years')) return [{ id: 'year-2026', name: '2026/2027', isCurrent: 1 }];
+      if (sql.includes('FROM terms')) return [{ id: 'term-1', academicYearId: 'year-2026', name: 'First Term' }];
+      if (sql.includes('FROM classes WHERE school_id')) return [{ id: 'class-jhs-1', name: 'JHS 1' }];
+      if (sql.includes('FROM student_enrollments e JOIN students s')) {
+        if (sql.includes('enrollment_status') || sql.includes('is_current')) throw new Error("Unknown column 'e.enrollment_status' in 'where clause'");
+        if (sql.includes('is_test_record')) throw new Error("Unknown column 's.is_test_record' in 'where clause'");
+        if (sql.includes('student_status')) throw new Error("Unknown column 's.student_status' in 'where clause'");
+        return [{ studentId: 'student-1', permanentStudentId: 'OSAAH-2026-001', firstName: 'Ama', middleName: null, surname: 'Learner', classId: 'class-jhs-1' }];
+      }
+      return [];
+    },
+    async execute() { return { affectedRows: 1 }; }
+  };
+  const service = createDurableAcademicService({ database, schoolId });
+  const actor = { ...manager, permissions: new Set(['results.read']) };
+  const roster = await service.resultStudents({ classId: 'class-jhs-1', academicYear: '2026/2027', term: 'First Term' }, actor);
+  assert.deepEqual(roster.map((student) => student.permanentStudentId), ['OSAAH-2026-001']);
+  const attempts = calls.filter((sql) => sql.includes('FROM student_enrollments e JOIN students s'));
+  assert.equal(attempts.length, 4);
+  assert.match(attempts[0], /enrollment_status/);
+  assert.doesNotMatch(attempts[1], /enrollment_status|is_current/);
+  assert.match(attempts[2], /permanent_student_id NOT LIKE 'OSAAH-DEMO-%'/);
+  assert.doesNotMatch(attempts[3], /student_status/);
+  assert.match(attempts[3], /permanent_student_id NOT LIKE 'OSAAH-DEMO-%'/);
+});
+
 test('Score Entry roster falls back when production enrollment status columns are absent', async () => {
   const calls = [];
   const database = {
