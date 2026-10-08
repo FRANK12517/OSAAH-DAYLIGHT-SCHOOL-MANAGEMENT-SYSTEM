@@ -16,6 +16,8 @@ test('Migration 076 is uniquely numbered, additive, and protects existing data',
   assert.match(migration, /priority\s+VARCHAR\(32\)\s+NOT NULL DEFAULT 'NORMAL'/i);
   assert.match(migration, /status\s+VARCHAR\(32\)\s+NOT NULL DEFAULT 'DRAFT'/i);
   assert.doesNotMatch(migration, /(?:TEXT|BLOB|JSON)\s+NOT NULL\s+DEFAULT/i);
+  assert.doesNotMatch(migration, /TEXT\s+PRIMARY KEY/i);
+  assert.doesNotMatch(migration, /scheduled_for\s+TEXT/i);
   for (const table of ['announcement_records', 'announcement_recipients', 'announcement_reads']) assert.match(migration, new RegExp(`CREATE TABLE IF NOT EXISTS ${table}`, 'i'));
   for (const index of ['idx_announcement_recipient', 'idx_announcement_due', 'idx_announcement_reads']) assert.match(migration, new RegExp(`CREATE INDEX IF NOT EXISTS ${index}`, 'i'));
 });
