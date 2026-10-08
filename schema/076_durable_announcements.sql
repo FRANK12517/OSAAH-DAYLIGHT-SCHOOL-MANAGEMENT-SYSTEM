@@ -1,32 +1,32 @@
 CREATE TABLE IF NOT EXISTS announcement_records (
-  id TEXT PRIMARY KEY,
-  school_id TEXT NOT NULL REFERENCES schools(id),
+  id VARCHAR(64) PRIMARY KEY,
+  school_id VARCHAR(64) NOT NULL REFERENCES schools(id),
   title TEXT NOT NULL,
   message TEXT NOT NULL,
   priority VARCHAR(32) NOT NULL DEFAULT 'NORMAL',
-  recipient_category TEXT NOT NULL,
+  recipient_category VARCHAR(32) NOT NULL,
   status VARCHAR(32) NOT NULL DEFAULT 'DRAFT',
-  scheduled_for TEXT,
-  published_at TEXT,
-  sender_id TEXT NOT NULL REFERENCES users(id),
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  scheduled_for VARCHAR(64),
+  published_at VARCHAR(64),
+  sender_id VARCHAR(64) NOT NULL REFERENCES users(id),
+  created_at VARCHAR(64) NOT NULL,
+  updated_at VARCHAR(64) NOT NULL
 );
 CREATE TABLE IF NOT EXISTS announcement_recipients (
-  id TEXT PRIMARY KEY,
-  school_id TEXT NOT NULL REFERENCES schools(id),
-  announcement_id TEXT NOT NULL REFERENCES announcement_records(id),
-  recipient_id TEXT NOT NULL REFERENCES users(id),
-  recipient_type TEXT NOT NULL,
-  assigned_at TEXT NOT NULL,
+  id VARCHAR(64) PRIMARY KEY,
+  school_id VARCHAR(64) NOT NULL REFERENCES schools(id),
+  announcement_id VARCHAR(64) NOT NULL REFERENCES announcement_records(id),
+  recipient_id VARCHAR(64) NOT NULL REFERENCES users(id),
+  recipient_type VARCHAR(32) NOT NULL,
+  assigned_at VARCHAR(64) NOT NULL,
   UNIQUE(school_id,announcement_id,recipient_id)
 );
 CREATE TABLE IF NOT EXISTS announcement_reads (
-  id TEXT PRIMARY KEY,
-  school_id TEXT NOT NULL REFERENCES schools(id),
-  announcement_id TEXT NOT NULL REFERENCES announcement_records(id),
-  recipient_id TEXT NOT NULL REFERENCES users(id),
-  read_at TEXT NOT NULL,
+  id VARCHAR(64) PRIMARY KEY,
+  school_id VARCHAR(64) NOT NULL REFERENCES schools(id),
+  announcement_id VARCHAR(64) NOT NULL REFERENCES announcement_records(id),
+  recipient_id VARCHAR(64) NOT NULL REFERENCES users(id),
+  read_at VARCHAR(64) NOT NULL,
   UNIQUE(school_id,announcement_id,recipient_id)
 );
 CREATE INDEX IF NOT EXISTS idx_announcement_recipient ON announcement_recipients(school_id,recipient_id,announcement_id);
