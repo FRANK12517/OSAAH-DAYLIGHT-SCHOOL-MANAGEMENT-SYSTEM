@@ -24,7 +24,7 @@ function scoreFixture() {
 
 test('canonical Score Entry class catalogue presents school labels and preserves canonical backend values', () => {
   assert.deepEqual(SCHOOL_CLASS_CATALOGUE.map(({ id }) => id), CORE_LEVELS);
-  assert.deepEqual(SCHOOL_CLASS_CATALOGUE.map(({ label }) => label), ['Nursery', 'Nursery 2', 'KG 1', 'KG 2', 'Basic 1', 'Basic 2', 'Basic 3', 'Basic 4', 'Basic 5', 'Basic 6', 'JHS 1', 'JHS 2', 'JHS 3']);
+  assert.deepEqual(SCHOOL_CLASS_CATALOGUE.map(({ label }) => label), ['Nursery 1', 'Nursery 2', 'KG 1', 'KG 2', 'Primary 1', 'Primary 2', 'Primary 3', 'Primary 4', 'Primary 5', 'Primary 6', 'JHS 1', 'JHS 2', 'JHS 3']);
   const html = fs.readFileSync(new URL('../public/examinations.html', import.meta.url), 'utf8');
   assert.match(html, /<select name="classId" required>/);
   assert.doesNotMatch(html, /<select name="classId"[^>]*multiple/);
