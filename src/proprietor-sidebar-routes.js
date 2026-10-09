@@ -60,7 +60,7 @@ export const PROPRIETOR_SIDEBAR_ROUTES = Object.freeze([
     ['appraisals', 'Appraisal', '/staff/appraisal'], ['hr-documents', 'HR Documents', '/staff/documents']
     ]).map((item) => ({ ...item, page: item.moduleKey === 'leave' ? '/leave.html' : item.moduleKey === 'staff-attendance-hr' ? '/staff-attendance.html' : '/staff-canonical.html' })),
   ...group('STUDENTS MANAGEMENT', '/students.html', [
-    ['class-database', 'Class Database', '/class-database.html'], ['student-profiles', 'Student Profiles', '/students'], ['admissions', 'Admissions', '/admissions'], ['student-search', 'Student Search', '/students/search'],
+    ['class-database', 'Class Database', '/class-database.html'], ['student-profiles', 'Student Profiles', '/students'], ['admissions', 'Admission / Admissions Workflow', '/admissions'], ['student-search', 'Student Search', '/students/search'],
     ['admission-prospectus', 'Admission Prospectus Management', '/admissions/prospectus'], ['student-directory', 'Student Directory', '/students/directory'],
     ['admission-enquiries', 'Enquiries', '/admissions/enquiries'], ['student-ids', 'Student IDs', '/students/ids'],
     ['admission-applications', 'Applications', '/admissions/applications'], ['student-transfers', 'Transfers', '/students/transfers'],

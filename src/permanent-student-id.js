@@ -1,4 +1,4 @@
-export const PERMANENT_STUDENT_ID_PATTERN = /^OSAAH\/(\d{4})\/(\d{4,})$/;
+export const PERMANENT_STUDENT_ID_PATTERN = /^OSAAH\/(\d{4})\/(\d{3,})$/;
 
 export function isPermanentStudentId(value) {
   return PERMANENT_STUDENT_ID_PATTERN.test(String(value ?? '').trim());
@@ -19,9 +19,8 @@ export function createPermanentStudentIdAllocator({ sequences = new Map(), issue
   function reserve(yearInput) {
     const year = admissionYearFor(yearInput, clock().getFullYear());
     let next = sequences.get(year) ?? 0;
-    do { next += 1; } while (issued.has(`OSAAH/${year}/${String(next).padStart(4, '0')}`));
-    if (next > 9999) throw new Error('Annual permanent Student ID capacity exceeded.');
-    const permanentStudentId = `OSAAH/${year}/${String(next).padStart(4, '0')}`;
+    do { next += 1; } while (issued.has(`OSAAH/${year}/${String(next).padStart(3, '0')}`) || issued.has(`OSAAH/${year}/${String(next).padStart(4, '0')}`));
+    const permanentStudentId = `OSAAH/${year}/${String(next).padStart(3, '0')}`;
     sequences.set(year, next);
     issued.add(permanentStudentId);
     return permanentStudentId;

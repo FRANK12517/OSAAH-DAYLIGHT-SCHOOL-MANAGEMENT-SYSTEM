@@ -17,7 +17,7 @@ test('academic results persist terminal and mock scores with native Osaah IDs', 
   const manager = { id: 'head-1', roleKey: 'HEADTEACHER', schoolId: 'school-osaah-daylight', permissions: new Set(['*']) };
   const teacher = { id: 'teacher-1', roleKey: 'TEACHER', schoolId: 'school-osaah-daylight', assignedClassIds: ['Primary 1'], assignedSubjectIds: [] , permissions: new Set(['marks.write', 'mock.scores.write', 'results.read', 'mock.results.read']) };
   const student = students.createStudent({ firstName: 'Ama', surname: 'Mensah', classId: 'Primary 1', admissionYearId: '2026' });
-  assert.equal(student.permanentStudentId, 'OSAAH/2026/0001');
+  assert.equal(student.permanentStudentId, 'OSAAH/2026/001');
   const subject = subjects.list({}, teacher)[0];
   const saved = results.saveScore({ studentId: student.id, classId: 'Primary 1', subjectId: subject.id, academicYear: '2026/2027', term: 'First Term', caScore: 42, examScore: 45 }, teacher);
   assert.equal(saved.totalScore, 87);
@@ -33,7 +33,7 @@ test('academic results persist terminal and mock scores with native Osaah IDs', 
   assert.equal(results.listScores({ academicYear: '2026/2027' }, mockTeacher, { mock: true }).length, 1);
   signatures.upload({ signatoryRole: 'HEADTEACHER', mimeType: 'image/png', size: 100, storageKey: 'signatures/headteacher.png' }, manager);
   const report = results.result({ studentId: student.id, classId: 'Primary 1', academicYear: '2026/2027', term: 'First Term' }, teacher);
-  assert.equal(report.studentIndexNumber, 'OSAAH/2026/0001');
+  assert.equal(report.studentIndexNumber, 'OSAAH/2026/001');
   assert.equal(report.subjects[0].grade, 1);
   assert.equal(report.signatures.length, 1);
   assert.equal(results.result({ studentId: mockStudent.id, classId: 'JHS 1', academicYear: '2026/2027', term: 'First Term', mockLabel: '1st Mock' }, mockTeacher, { mock: true }).resultType, 'MOCK');

@@ -28,23 +28,24 @@ test('official admission form preserves five sections, class divisions, snapshot
   assert.equal(submitted.status, 'SUBMITTED');
   assert.equal(submitted.feeSnapshot.totalTermlyFee, 750);
   assert.equal(service.listDocuments(application.applicationNumber, parent).length, 4);
+  for (const document of service.listDocuments(application.applicationNumber, parent)) service.reviewDocument(application.applicationNumber, document.id, { status: 'APPROVED' }, { id: 'headteacher-1', roleKey: 'HEADTEACHER' });
   const reviewed = service.reviewApplication(application.applicationNumber, { status: 'ACCEPTED', entranceAssessmentScore: 82, classAssigned: 'basic-4a' }, { id: 'headteacher-1', roleKey: 'HEADTEACHER' });
-  assert.equal(reviewed.officialUse.permanentStudentId, 'OSAAH/2026/0001');
-  assert.equal(service.reviewApplication(application.applicationNumber, { status: 'ACCEPTED' }, { id: 'headteacher-1', roleKey: 'HEADTEACHER' }).officialUse.permanentStudentId, 'OSAAH/2026/0001');
+  assert.equal(reviewed.officialUse.permanentStudentId, null);
+  assert.equal(service.reviewApplication(application.applicationNumber, { status: 'ACCEPTED' }, { id: 'headteacher-1', roleKey: 'HEADTEACHER' }).officialUse.permanentStudentId, null);
   assert.throws(() => service.reviewApplication(application.applicationNumber, { status: 'REJECTED', rejectionReason: 'Late review' }, { id: 'headteacher-1', roleKey: 'HEADTEACHER' }), /eligible/);
 });
 
 test('admission review requires rejection reasons and protects annual permanent ID capacity', () => {
   const service = createAdmissionFormService({ now: () => '2026-09-02T00:00:00.000Z' });
   const reviewer = { id: 'assistant-1', roleKey: 'ASSISTANT_HEADTEACHER', portal: 'school' };
-  const createSubmitted = (firstName) => { const record = service.createApplication({ studentSurname: 'Abban', studentFirstName: firstName, dateOfBirth: '2018-01-01', gender: 'Male', hometown: 'Bogoso', region: 'Western', nationality: 'Ghanaian', classAppliedFor: 'Basic 4', residentialAddress: 'Bogoso', digitalAddress: 'WS-000-0000', nearestLandmark: 'School', academicYear: '2026', admissionTerm: 'TERM_1' }, { id: `parent-${firstName}`, portal: 'parent' }); service.updateApplication(record.applicationNumber, { parentDeclarationAccepted: true }, { id: `parent-${firstName}`, portal: 'parent' }); for (const documentType of ['PASSPORT_PHOTOGRAPHS', 'BIRTH_CERTIFICATE_OR_GHANA_CARD', 'NHIS_CARD', 'LAST_ACADEMIC_REPORT']) service.attachDocument(record.applicationNumber, { documentType, fileReference: documentType }, { id: `parent-${firstName}`, portal: 'parent' }); return service.submitApplication(record.applicationNumber, { id: `parent-${firstName}`, portal: 'parent' }); };
+  const createSubmitted = (firstName) => { const actor = { id: `parent-${firstName}`, portal: 'parent' }; const record = service.createApplication({ studentSurname: 'Abban', studentFirstName: firstName, dateOfBirth: '2018-01-01', gender: 'Male', hometown: 'Bogoso', region: 'Western', nationality: 'Ghanaian', classAppliedFor: 'Basic 4', residentialAddress: 'Bogoso', digitalAddress: 'WS-000-0000', nearestLandmark: 'School', academicYear: '2026', admissionTerm: 'TERM_1' }, actor); service.updateApplication(record.applicationNumber, { parentDeclarationAccepted: true }, actor); for (const documentType of ['PASSPORT_PHOTOGRAPHS', 'BIRTH_CERTIFICATE_OR_GHANA_CARD', 'NHIS_CARD', 'LAST_ACADEMIC_REPORT']) service.attachDocument(record.applicationNumber, { documentType, fileReference: documentType }, actor); const submitted = service.submitApplication(record.applicationNumber, actor); for (const document of service.listDocuments(record.applicationNumber, actor)) service.reviewDocument(record.applicationNumber, document.id, { status: 'APPROVED' }, reviewer); return submitted; };
   const first = createSubmitted('Frank');
   assert.throws(() => service.reviewApplication(first.applicationNumber, { status: 'REJECTED' }, reviewer), /reason/);
   const rejected = service.reviewApplication(first.applicationNumber, { status: 'REJECTED', rejectionReason: 'Incomplete assessment' }, reviewer);
   assert.equal(rejected.officialUse.permanentStudentId, null);
   const second = createSubmitted('George');
   const accepted = service.reviewApplication(second.applicationNumber, { status: 'ACCEPTED', entranceAssessmentScore: 75, classAssigned: 'basic-4a' }, reviewer);
-  assert.equal(accepted.officialUse.permanentStudentId, 'OSAAH/2026/0001');
+  assert.equal(accepted.officialUse.permanentStudentId, null);
 });
 
 test('admission analytics uses accepted applications, fee snapshots, and verified admission payments', () => {
@@ -54,6 +55,8 @@ test('admission analytics uses accepted applications, fee snapshots, and verifie
   const application = service.createApplication({ studentSurname: 'Abban', studentFirstName: 'Frank', dateOfBirth: '2017-01-01', gender: 'Male', hometown: 'Bogoso', region: 'Western', nationality: 'Ghanaian', classAppliedFor: 'Basic 3', residentialAddress: 'Bogoso', digitalAddress: 'WS-000-0000', nearestLandmark: 'School', academicYear: '2026', admissionTerm: 'TERM_1', primaryGuardianFullName: 'Kwame Abban', primaryGuardianPrimaryPhone: '0241111111' }, parent);
   service.updateApplication(application.applicationNumber, { parentDeclarationAccepted: true }, parent);
   for (const documentType of ['PASSPORT_PHOTOGRAPHS', 'BIRTH_CERTIFICATE_OR_GHANA_CARD', 'NHIS_CARD', 'LAST_ACADEMIC_REPORT']) service.attachDocument(application.applicationNumber, { documentType, fileReference: documentType }, parent);
+  const documents = service.listDocuments(application.applicationNumber, parent);
+  for (const document of documents) service.reviewDocument(application.applicationNumber, document.id, { status: 'APPROVED' }, { id: 'headteacher-1', roleKey: 'HEADTEACHER' });
   const fee = service.createFeeStructure({ level: 'PRIMARY', academicYear: '2026', term: 'TERM_1', ...DEFAULT_ADMISSION_FEES.PRIMARY }, { userId: 'bursar-1' });
   service.publishFeeStructure(fee.id, { userId: 'proprietor-1', roleKey: 'PROPRIETOR' });
   service.submitApplication(application.applicationNumber, parent, service.activeFeeFor('Basic 3', '2026', 'TERM_1'));

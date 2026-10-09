@@ -1,6 +1,6 @@
 const LEGACY_COMPETING_SCORE_VERSION = 55;
 const LEGACY_COMPETING_SCORE_NAME = '055_canonical_academic_scores.sql';
-const PROTECTED_RELEASE_VERSIONS = new Set([67, 68, 75]);
+const PROTECTED_RELEASE_VERSIONS = new Set([67, 68, 75, 78]);
 
 /**
  * Enforce academic migration policy at the production execution boundary.
@@ -18,7 +18,7 @@ export function assertProductionAcademicMigrationAllowed(migration, { authorized
   }
   if (PROTECTED_RELEASE_VERSIONS.has(version) && authorizedMigrationVersion !== version) {
     throw Object.assign(new Error(`Migration ${String(version).padStart(3, '0')} requires its dedicated protected release workflow and explicit authorization.`), {
-      code: version === 67 ? 'ACADEMIC_LIFECYCLE_MIGRATION_REQUIRES_PROTECTED_RELEASE' : version === 68 ? 'ACADEMIC_SCORE_FOUNDATION_REQUIRES_PROTECTED_RELEASE' : 'RESULT_BLOCKING_MIGRATION_REQUIRES_PROTECTED_RELEASE',
+      code: version === 67 ? 'ACADEMIC_LIFECYCLE_MIGRATION_REQUIRES_PROTECTED_RELEASE' : version === 68 ? 'ACADEMIC_SCORE_FOUNDATION_REQUIRES_PROTECTED_RELEASE' : version === 78 ? 'ADMISSIONS_MIGRATION_REQUIRES_PROTECTED_RELEASE' : 'RESULT_BLOCKING_MIGRATION_REQUIRES_PROTECTED_RELEASE',
       migration: migration?.name
     });
   }
