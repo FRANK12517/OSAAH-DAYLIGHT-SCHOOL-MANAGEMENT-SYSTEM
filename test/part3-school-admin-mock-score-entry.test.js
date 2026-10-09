@@ -53,7 +53,7 @@ test('Administrator Mock Score Entry uses the existing JHS-only total-score cont
 test('Administrator Mock Score Entry permission is additive and historical RBAC remains unchanged', async () => {
   const historical = await readFile(new URL('../schema/032_production_rbac_reconciliation.sql', import.meta.url), 'utf8');
   const forward = await readFile(new URL('../schema/072_school_admin_mock_score_entry_permission.sql', import.meta.url), 'utf8');
-  const administratorBlock = historical.match(/FROM roles r JOIN permissions p ON p\.permission_key IN \([^;]+\)\nWHERE r\.role_key = 'SCHOOL_ADMIN';/s)?.[0] ?? '';
+  const administratorBlock = historical.match(/INSERT IGNORE INTO role_permissions\s*\(role_id, permission_id\)\s*SELECT r\.id, p\.id\s+FROM roles r JOIN permissions p ON p\.permission_key IN \([^;]+\)\s*WHERE r\.role_key = 'SCHOOL_ADMIN';/s)?.[0] ?? '';
   assert.notEqual(administratorBlock, '');
   assert.doesNotMatch(administratorBlock, /mock\.scores\.(read|write)/);
   assert.match(forward, /mock\.scores\.read/);
