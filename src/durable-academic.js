@@ -657,14 +657,26 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     const period = await resolvePeriod(input);
     await classFor(classId);
     if (!await scoringSubjectAssigned({ classId, subjectId, academicYearId: period.yearId }, actor)) return [];
-    const result = await database.query(`SELECT s.id AS studentId,s.permanent_student_id AS permanentStudentId,s.first_name AS firstName,s.middle_name AS middleName,s.last_name AS surname,
+    const rosterProjection = `SELECT s.id AS studentId,s.permanent_student_id AS permanentStudentId,s.first_name AS firstName,s.middle_name AS middleName,s.last_name AS surname,s.gender,
       r.total_score AS totalScore,r.grade,r.id AS scoreId
       FROM student_enrollments e JOIN students s ON s.id=e.student_id
       LEFT JOIN student_profiles sp ON sp.school_id=s.school_id AND (sp.student_master_id=s.id OR sp.student_id=s.permanent_student_id)
       LEFT JOIN academic_score_records r ON r.school_id=e.school_id AND r.student_id=sp.id AND r.subject_id=? AND r.class_id=e.class_id AND r.academic_year_id=? AND r.term_id=? AND r.record_type='MOCK' AND r.mock_label=?
-      WHERE e.school_id=? AND e.class_id=? AND e.academic_year_id=? AND COALESCE(e.enrollment_status,'ACTIVE')='ACTIVE' AND COALESCE(e.is_current,1)=1 AND s.school_id=? AND COALESCE(s.student_status,'ACTIVE')='ACTIVE' AND COALESCE(s.is_test_record,0)=0
-      ORDER BY s.last_name,s.first_name,s.id`, [subjectId, period.yearId, period.termId, mockLabel, schoolId, classId, period.yearId, schoolId]);
-    return rows(result).map((item) => ({ studentId: item.studentId, permanentStudentId: item.permanentStudentId, studentName: [item.firstName, item.middleName, item.surname].filter(Boolean).join(' '), classId, subjectId, totalScore: item.totalScore == null ? null : Number(item.totalScore), grade: item.grade ?? null, saved: Boolean(item.scoreId) }));
+      WHERE e.school_id=? AND e.class_id=? AND e.academic_year_id=? AND e.term_id=? AND s.school_id=? AND COALESCE(s.student_status,'ACTIVE')='ACTIVE' AND COALESCE(s.is_test_record,0)=0`;
+    const rosterParams = [subjectId, period.yearId, period.termId, mockLabel, schoolId, classId, period.yearId, period.termId, schoolId];
+    let query = `${rosterProjection} AND COALESCE(e.enrollment_status,'ACTIVE')='ACTIVE' AND COALESCE(e.is_current,1)=1 ORDER BY s.last_name,s.first_name,s.id`;
+    let result;
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      try { result = await database.query(query, rosterParams); break; }
+      catch (error) {
+        if (missingOptionalEnrollmentStateColumn(error) && query.includes('COALESCE(e.enrollment_status')) { query = query.replace(" AND COALESCE(e.enrollment_status,'ACTIVE')='ACTIVE' AND COALESCE(e.is_current,1)=1", ''); continue; }
+        if (missingOptionalStudentTestRecordColumn(error) && query.includes('COALESCE(s.is_test_record,0)=0')) { query = query.replace('COALESCE(s.is_test_record,0)=0', "s.permanent_student_id NOT LIKE 'OSAAH-DEMO-%'"); continue; }
+        if (missingOptionalStudentStatusColumn(error) && query.includes("COALESCE(s.student_status,'ACTIVE')='ACTIVE'")) { query = query.replace(" AND COALESCE(s.student_status,'ACTIVE')='ACTIVE'", ''); continue; }
+        throw error;
+      }
+    }
+    if (!result) throw new Error('Mock Score Entry roster query did not return a result.');
+    return rows(result).map((item) => ({ studentId: item.studentId, permanentStudentId: item.permanentStudentId, studentName: [item.firstName, item.middleName, item.surname].filter(Boolean).join(' '), gender: item.gender ?? null, classId, subjectId, totalScore: item.totalScore == null ? null : Number(item.totalScore), grade: item.grade ?? null, saved: Boolean(item.scoreId) }));
   }
 
   async function saveMockScore(input = {}, actor) {
@@ -678,7 +690,15 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     assertClassScope(classId, actor);
     const period = await resolvePeriod(input);
     await classFor(classId);
-    const enrolled = rows(await database.query('SELECT e.student_id,s.permanent_student_id,c.name AS className FROM student_enrollments e JOIN students s ON s.id=e.student_id JOIN classes c ON c.id=e.class_id WHERE e.school_id=? AND e.student_id=? AND e.class_id=? AND e.academic_year_id=? AND COALESCE(e.enrollment_status,"ACTIVE")="ACTIVE" AND COALESCE(e.is_current,1)=1 LIMIT 1', [schoolId, studentId, classId, period.yearId]))[0];
+    const enrollmentSql = 'SELECT e.student_id,s.permanent_student_id,c.name AS className FROM student_enrollments e JOIN students s ON s.id=e.student_id JOIN classes c ON c.id=e.class_id WHERE e.school_id=? AND e.student_id=? AND e.class_id=? AND e.academic_year_id=? AND e.term_id=?';
+    const enrollmentParams = [schoolId, studentId, classId, period.yearId, period.termId];
+    let enrolledRows;
+    try { enrolledRows = await database.query(`${enrollmentSql} AND COALESCE(e.enrollment_status,"ACTIVE")="ACTIVE" AND COALESCE(e.is_current,1)=1 LIMIT 1`, enrollmentParams); }
+    catch (error) {
+      if (!missingOptionalEnrollmentStateColumn(error)) throw error;
+      enrolledRows = await database.query(`${enrollmentSql} LIMIT 1`, enrollmentParams);
+    }
+    const enrolled = rows(enrolledRows)[0];
     if (!enrolled) fail('Student is not enrolled in the selected class and academic year.', 400);
     if (!await scoringSubjectAssigned({ classId, subjectId, academicYearId: period.yearId }, actor)) fail('Subject is not assigned as a scoring subject for the selected class.', 400);
     const [grade, remark] = gradeForTotal(totalScore, { classId: enrolled.className, examination: 'MOCK' });
@@ -713,14 +733,14 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     return rows(result).map((item) => ({ ...item, caScore: item.caScore == null ? null : Number(item.caScore), examScore: item.examScore == null ? null : Number(item.examScore), totalScore: item.totalScore == null ? null : Number(item.totalScore) }));
   }
 
-  async function canonicalResult(input = {}, actor, { mock = false } = {}) {
+  async function canonicalResult(input = {}, actor, { mock = false, skipRank = false } = {}) {
     assertActor(actor);
     if (!authorized(actor, mock ? 'mock.results.read' : 'results.read') && !authorized(actor, mock ? 'mock.results.generate' : 'results.generate')) fail('Forbidden.', 403, 'ACADEMIC_PERMISSION_REQUIRED');
     const classId = text(input.classId), studentId = text(input.studentId), mockLabel = mock ? text(input.mockLabel) : null;
     if (!classId || !studentId) fail('Class and student are required.');
     if (mock) await assertMockClass(classId);
     const period = await resolvePeriod(input);
-    await classFor(classId);
+    const classRow = await classFor(classId);
     const studentQuery = `SELECT s.id,s.permanent_student_id AS permanentStudentId,s.first_name AS firstName,s.middle_name AS middleName,s.last_name AS surname,s.gender,e.class_id AS classId
       FROM students s JOIN student_enrollments e ON e.student_id=s.id AND e.school_id=s.school_id
       WHERE s.school_id=? AND s.id=? AND e.class_id=? AND e.academic_year_id=? AND e.term_id=?`;
@@ -737,15 +757,22 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     const scoreRows = rows(await database.query(`SELECT r.subject_id AS subjectId,sub.name AS subjectName,r.ca_score AS caScore,r.examination_score AS examScore,r.total_score AS totalScore,r.updated_at AS updatedAt
       FROM academic_score_records r JOIN student_profiles sp ON sp.id=r.student_id AND sp.school_id=r.school_id JOIN subjects sub ON sub.id=r.subject_id AND sub.school_id=r.school_id
       WHERE r.school_id=? AND (sp.student_master_id=? OR sp.student_id=?) AND r.class_id=? AND r.academic_year_id=? AND r.term_id=? AND r.record_type=? AND ((r.mock_label IS NULL AND ? IS NULL) OR r.mock_label=?) ORDER BY sub.name,sub.id`, [schoolId, student.id, student.permanentStudentId, classId, period.yearId, period.termId, mock ? 'MOCK' : 'TERMINAL', mockLabel, mockLabel]));
-    const subjects = scoreRows.map((row) => { const totalScore = Number(row.totalScore); const [grade, remark] = gradeForTotal(totalScore, { classId, examination: mock ? 'MOCK' : 'TERMINAL' }); return { ...row, caScore: Number(row.caScore), examScore: Number(row.examScore), totalScore, grade, remark, submitted: true }; });
-    const canonical = calculateStudentResult(subjects, { classId, examination: mock ? 'MOCK' : 'TERMINAL' });
+    const subjects = scoreRows.map((row) => { const totalScore = Number(row.totalScore); const [grade, remark] = gradeForTotal(totalScore, { classId: classRow.name, examination: mock ? 'MOCK' : 'TERMINAL' }); return { ...row, caScore: Number(row.caScore), examScore: Number(row.examScore), totalScore, grade, remark, submitted: true }; });
+    const canonical = calculateStudentResult(subjects, { classId: classRow.name, examination: mock ? 'MOCK' : 'TERMINAL' });
     const lifecycle = rows(await database.query(`SELECT id,attendance_json AS attendanceJson,assessment_json AS assessmentJson,status,version,saved_at AS savedAt,updated_at AS updatedAt,published_at AS publishedAt
       FROM academic_result_records WHERE school_id=? AND student_id=? AND class_id=? AND academic_year_id=? AND term_id=? AND examination=? AND ((mock_label IS NULL AND ? IS NULL) OR mock_label=?) LIMIT 1`, [schoolId, student.id, classId, period.yearId, period.termId, mock ? 'MOCK' : 'TERMINAL', mockLabel, mockLabel]))[0];
     const decode = (value) => { if (!value) return null; if (typeof value === 'object') return value; try { return JSON.parse(value); } catch { return null; } };
     const resolvedSignatures = signatures?.resolveForStudent?.(student, { academicYear: period.yearName, term: period.termName });
-    return { headerAsset: '/assets/osaah-result-header.png', resultType: mock ? 'MOCK' : 'TERMINAL', studentId: student.id, studentIndexNumber: student.permanentStudentId, studentName: [student.firstName, student.middleName, student.surname].filter(Boolean).join(' '), gender: student.gender ?? null, classId, academicYear: period.yearName, term: period.termName, mockLabel, subjects, totalScore: canonical.totalScore, average: canonical.average ?? 0, percentage: canonical.percentage, subjectsSat: canonical.subjectsSat, totalMaximum: canonical.totalMaximum, aggregateMaximum: canonical.aggregateMaximum, aggregateStatus: canonical.aggregateStatus, aggregate: canonical.aggregate, aggregateSubjects: canonical.aggregateSubjects.map((row) => row.subjectId), grade: gradeForTotal(canonical.average ?? 0, { classId, examination: mock ? 'MOCK' : 'TERMINAL' })[0], remark: gradeForTotal(canonical.average ?? 0, { classId, examination: mock ? 'MOCK' : 'TERMINAL' })[1], attendance: decode(lifecycle?.attendanceJson), assessment: decode(lifecycle?.assessmentJson), signatures: [{ signatoryRole: 'CLASS_TEACHER', name: resolvedSignatures?.classTeacher?.name, ...(resolvedSignatures?.classTeacher?.signature ?? {}) }, { signatoryRole: 'HEADTEACHER', name: resolvedSignatures?.headteacher?.name, ...(resolvedSignatures?.headteacher?.signature ?? {}) }].filter((item) => item.id), lifecycle: lifecycle ? { status: lifecycle.status, dirty: false, version: Number(lifecycle.version), savedAt: lifecycle.savedAt, publishedAt: lifecycle.publishedAt } : { status: 'UNSAVED/INCOMPLETE', dirty: true, version: 0, savedAt: null }, isSample: false };
+    const report = { headerAsset: '/assets/osaah-result-header.png', resultType: mock ? 'MOCK' : 'TERMINAL', studentId: student.id, studentIndexNumber: student.permanentStudentId, studentName: [student.firstName, student.middleName, student.surname].filter(Boolean).join(' '), gender: student.gender ?? null, classId, className: classRow.name, academicYear: period.yearName, term: period.termName, mockLabel, subjects, totalScore: canonical.totalScore, average: canonical.average ?? 0, percentage: canonical.percentage, subjectsSat: canonical.subjectsSat, totalMaximum: canonical.totalMaximum, aggregateMaximum: canonical.aggregateMaximum, aggregateStatus: canonical.aggregateStatus, aggregate: canonical.aggregate, aggregateSubjects: canonical.aggregateSubjects.map((row) => row.subjectId), grade: gradeForTotal(canonical.average ?? 0, { classId: classRow.name, examination: mock ? 'MOCK' : 'TERMINAL' })[0], remark: gradeForTotal(canonical.average ?? 0, { classId: classRow.name, examination: mock ? 'MOCK' : 'TERMINAL' })[1], attendance: decode(lifecycle?.attendanceJson), assessment: decode(lifecycle?.assessmentJson), signatures: [{ signatoryRole: 'CLASS_TEACHER', name: resolvedSignatures?.classTeacher?.name, ...(resolvedSignatures?.classTeacher?.signature ?? {}) }, { signatoryRole: 'HEADTEACHER', name: resolvedSignatures?.headteacher?.name, ...(resolvedSignatures?.headteacher?.signature ?? {}) }].filter((item) => item.id), lifecycle: lifecycle ? { status: lifecycle.status, dirty: false, version: Number(lifecycle.version), savedAt: lifecycle.savedAt, publishedAt: lifecycle.publishedAt } : { status: 'UNSAVED/INCOMPLETE', dirty: true, version: 0, savedAt: null }, isSample: false };
+    if (mock && !skipRank) {
+      const cohort = await buildMockBroadsheet({ ...input, classId, academicYear: period.yearId, term: period.termId, mockLabel }, actor);
+      const selected = cohort.find((item) => item.studentId === student.id);
+      report.classPosition = selected?.classPosition ?? "—";
+      report.position = report.classPosition;
+      report.classGenderDistribution = selected?.classGenderDistribution ?? { totalBoys: 0, totalGirls: 0, totalStudents: cohort.length };
+    }
+    return report;
   }
-
   async function saveResult(input = {}, actor) {
     assertActor(actor);
     if (!authorized(actor, 'results.write') && !authorized(actor, 'marks.write')) fail('Forbidden.', 403, 'ACADEMIC_PERMISSION_REQUIRED');
@@ -818,7 +845,54 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     return results.map((item) => ({ ...item, classPosition: positions.get(item.studentId) ?? '—' }));
   }
 
-  return Object.freeze({ options, listSubjects, subjectCatalog, mockSubjectCatalog, subjectConfiguration, createSubject, updateSubject, deactivateSubject, subjectCascade, configureDefaultSubjects, listAssignments, assignSubject, deactivateSubjectAssignment, roster, sampleScoreEntryRoster, resultStudents, resultContext, saveScore, mockRoster, saveMockScore, listScores, resolvePeriod, result: canonicalResult, saveResult, publishResults: publishResult, publicationFor, savedResultFor: async (input, actor) => canonicalResult(input, actor), broadsheet });
+  async function buildMockBroadsheet(input = {}, actor) {
+    const classId = text(input.classId), mockLabel = text(input.mockLabel);
+    await assertMockClass(classId);
+    if (!MOCK_TYPES.includes(mockLabel)) fail('Mock Examination is required.');
+    assertClassScope(classId, actor);
+    const period = await resolvePeriod(input);
+    const classRow = await classFor(classId);
+    const roster = await resultStudents({ ...input, classId, academicYear: period.yearId, term: period.termId, resultType: 'MOCK' }, actor);
+    const reports = await Promise.all(roster.map((student) => canonicalResult({ ...input, studentId: student.id, classId, academicYear: period.yearId, term: period.termId, mockLabel }, actor, { mock: true, skipRank: true })));
+    const rankingRows = reports.map((result) => {
+      const subjects = result.subjects.filter((subject) => !subject.placeholder);
+      const aggregateIds = new Set(result.aggregateSubjects.map(String));
+      const aggregateRows = subjects.filter((subject) => aggregateIds.has(String(subject.subjectId)));
+      const coreNames = new Set(['english language', 'mathematics', 'integrated science', 'science', 'social studies']);
+      const coreRows = subjects.filter((subject) => coreNames.has(String(subject.subjectName).trim().toLowerCase()));
+      return { studentId: result.studentId, totalScore: result.totalScore, aggregate: result.aggregate, aggregateTotal: aggregateRows.reduce((sum, subject) => sum + Number(subject.totalScore || 0), 0), aggregateCoreGradeSum: coreRows.length === 4 ? coreRows.reduce((sum, subject) => sum + Number(subject.grade || 0), 0) : null };
+    });
+    const positions = calculateClassPositions(rankingRows, { classId: classRow.name });
+    return reports.map((result) => {
+      const subjects = result.subjects.filter((subject) => !subject.placeholder);
+      return {
+        studentId: result.studentId,
+        permanentStudentId: result.studentIndexNumber,
+        studentName: result.studentName,
+        gender: result.gender ?? null,
+        classId,
+        subjectTotals: Object.fromEntries(subjects.map((subject) => [subject.subjectName, subject.totalScore])),
+        subjectGrades: Object.fromEntries(subjects.map((subject) => [subject.subjectName, subject.grade])),
+        totalScore: result.totalScore,
+        aggregate: result.aggregate,
+        classPosition: positions.get(result.studentId) ?? '—',
+        classGenderDistribution: {
+          totalBoys: reports.filter((item) => String(item.gender ?? '').toUpperCase() === 'MALE').length,
+          totalGirls: reports.filter((item) => String(item.gender ?? '').toUpperCase() === 'FEMALE').length,
+          totalStudents: reports.length
+        },
+        isSample: false
+      };
+    });
+  }
+
+  async function mockBroadsheet(input = {}, actor) {
+    assertActor(actor);
+    if (!authorized(actor, 'mock.results.read')) fail('Forbidden.', 403, 'ACADEMIC_PERMISSION_REQUIRED');
+    return buildMockBroadsheet(input, actor);
+  }
+
+  return Object.freeze({ options, listSubjects, subjectCatalog, mockSubjectCatalog, subjectConfiguration, createSubject, updateSubject, deactivateSubject, subjectCascade, configureDefaultSubjects, listAssignments, assignSubject, deactivateSubjectAssignment, roster, sampleScoreEntryRoster, resultStudents, resultContext, saveScore, mockRoster, saveMockScore, listScores, resolvePeriod, result: canonicalResult, saveResult, publishResults: publishResult, publicationFor, savedResultFor: async (input, actor) => canonicalResult(input, actor), broadsheet, mockBroadsheet });
 }
 
 export default createDurableAcademicService;
