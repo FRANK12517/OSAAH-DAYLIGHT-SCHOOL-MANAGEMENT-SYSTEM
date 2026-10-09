@@ -3,6 +3,7 @@ import bcrypt from 'bcrypt';
 import { admissionYearFor } from './permanent-student-id.js';
 import { requireStudentGender } from './student-gender.js';
 import { canonicalClassId } from './student-classes.js';
+import { normalizeGhanaPhone } from './ghana-phone.js';
 
 function fail(code, message, status = 400) { throw Object.assign(new Error(message), { code, status }); }
 function value(...items) { return items.find((item) => item !== undefined && item !== null && item !== '') ?? null; }
@@ -27,23 +28,45 @@ export function createAdmissionEnrollmentService({ database, clock = () => new D
     const year = admissionYearFor(yearInput);
     await tx.execute('INSERT INTO student_id_sequences (admission_year,next_sequence,updated_at) VALUES (?,?,?) ON DUPLICATE KEY UPDATE updated_at=VALUES(updated_at)', [year, 1, timestamp]);
     const sequenceRow = rows(await tx.query('SELECT next_sequence FROM student_id_sequences WHERE admission_year=? FOR UPDATE', [year]))[0];
-    const sequence = Number(sequenceRow?.next_sequence);
-    if (!Number.isInteger(sequence) || sequence < 1 || sequence > 9999) fail('STUDENT_ID_CAPACITY_EXCEEDED', 'Annual permanent Student ID capacity exceeded.', 409);
-    const permanentStudentId = `OSAAH/${year}/${String(sequence).padStart(4, '0')}`;
+    let sequence = Number(sequenceRow?.next_sequence);
+    if (!Number.isInteger(sequence) || sequence < 1) fail('STUDENT_ID_SEQUENCE_INVALID', 'Annual permanent Student ID sequence is invalid.', 409);
+    // Reconcile stale counters against all IDs already allocated for this year,
+    // including legacy four-digit IDs, before creating a new identity.
+    const existingIds = rows(await tx.query('SELECT permanent_student_id FROM students WHERE permanent_student_id LIKE ? FOR UPDATE', [`OSAAH/${year}/%`]))
+      .map((row) => /^OSAAH\/\d{4}\/(\d+)$/.exec(String(row.permanent_student_id ?? '')))
+      .filter(Boolean)
+      .map((match) => Number(match[1]));
+    const profileIds = rows(await tx.query('SELECT student_id FROM student_profiles WHERE student_id LIKE ? FOR UPDATE', [`OSAAH/${year}/%`]))
+      .map((row) => /^OSAAH\/\d{4}\/(\d+)$/.exec(String(row.student_id ?? '')))
+      .filter(Boolean)
+      .map((match) => Number(match[1]));
+    existingIds.push(...profileIds);
+    if (existingIds.some((value) => !Number.isSafeInteger(value) || value < 1)) fail('STUDENT_ID_SEQUENCE_CONFLICT', 'Existing Student IDs for this admission year need reconciliation before another ID can be issued.', 409);
+    sequence = Math.max(sequence, ...existingIds.map((value) => value + 1));
+    const permanentStudentId = `OSAAH/${year}/${String(sequence).padStart(3, '0')}`;
     await tx.execute('UPDATE student_id_sequences SET next_sequence=?,updated_at=? WHERE admission_year=?', [sequence + 1, timestamp, year]);
     return permanentStudentId;
   }
 
   async function resolveParent(tx, application, applicant, timestamp) {
     const email = String(value(application.parent_email, applicant.primaryGuardianEmail, applicant.guardianEmail, applicant.email) ?? '').trim().toLowerCase();
-    if (email) {
-      const parent = rows(await tx.query('SELECT id FROM users WHERE school_id=? AND LOWER(email)=? LIMIT 1', [application.school_id, email]))[0];
-      if (parent) return parent.id;
+    const phone = normalizeGhanaPhone(value(applicant.primaryGuardianPrimaryPhone, application.parent_phone));
+    if (!phone) fail('PARENT_IDENTITY_REQUIRED', 'A valid parent telephone number is required before enrollment.', 409);
+    const parents = rows(await tx.query(`SELECT u.id,u.email,u.phone,u.username FROM users u
+      JOIN user_roles ur ON ur.user_id=u.id
+      JOIN roles r ON r.id=ur.role_id AND r.school_id=u.school_id AND r.role_key='PARENT'
+      WHERE u.school_id=?`, [application.school_id]));
+    const parent = parents.find((item) => (email && String(item.email ?? '').trim().toLowerCase() === email) || normalizeGhanaPhone(item.phone) === phone || String(item.username ?? '') === phone);
+    if (parent) return parent.id;
+    if (email && rows(await tx.query('SELECT id FROM users WHERE school_id=? AND LOWER(email)=? LIMIT 1', [application.school_id, email])).length) {
+      fail('PARENT_IDENTITY_CONFLICT', 'The parent email belongs to another account; verify the parent record before enrollment.', 409);
     }
-    if (!email) fail('PARENT_IDENTITY_REQUIRED', 'An authorized parent identity is required before enrollment.', 409);
     const parentId = idFactory();
     const passwordHash = await bcrypt.hash(randomBytes(32).toString('base64url'), 12);
-    await tx.execute('INSERT INTO users (id,school_id,email,password_hash,full_name,phone,role,status,created_at) VALUES (?,?,?,?,?,?,?,?,?)', [parentId, application.school_id, email, passwordHash, value(application.parent_name, applicant.primaryGuardianFullName, 'Parent'), value(application.parent_phone, applicant.primaryGuardianPrimaryPhone), 'PARENT', 'ACTIVE', timestamp]);
+    await tx.execute('INSERT INTO users (id,school_id,username,email,password_hash,full_name,phone,role,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)', [parentId, application.school_id, phone, email || null, passwordHash, value(application.parent_name, applicant.primaryGuardianFullName, 'Parent'), phone, 'PARENT', 'ACTIVE', timestamp]);
+    const parentRole = rows(await tx.query("SELECT id FROM roles WHERE school_id=? AND role_key='PARENT' LIMIT 1", [application.school_id]))[0];
+    if (!parentRole) fail('PARENT_ROLE_UNAVAILABLE', 'Parent role configuration is unavailable.', 503);
+    await tx.execute('INSERT IGNORE INTO user_roles (id,user_id,role_id,created_at) VALUES (?,?,?,?)', [idFactory(), parentId, parentRole.id, timestamp]);
     return parentId;
   }
 
@@ -67,8 +90,8 @@ export function createAdmissionEnrollmentService({ database, clock = () => new D
         applicant = { ...application, ...(applicant ?? {}) };
         const timestamp = clock();
         const studentId = await nextStudentId(tx);
-        const permanentStudentId = await nextPermanentStudentId(tx, value(application.academic_year_id, applicant.academicYear, application.admission_date, timestamp), timestamp);
-        const requestedClassId = value(application.class_id, applicant.classAssigned, applicant.classId);
+        const permanentStudentId = await nextPermanentStudentId(tx, value(applicant.admissionYear, applicant.academicYear, application.academic_year_id, application.admission_date, timestamp), timestamp);
+        const requestedClassId = value(application.class_id, applicant.classAssigned, applicant.officialUse?.classAssigned, applicant.classId, applicant.classAppliedFor);
         const classId = canonicalClassId(requestedClassId) ?? requestedClassId;
         const admissionNumber = value(application.admission_number, applicant.admissionNumber, application.application_number);
         const firstName = value(applicant.firstName, applicant.studentFirstName);
@@ -79,7 +102,7 @@ export function createAdmissionEnrollmentService({ database, clock = () => new D
 
         await tx.execute('INSERT INTO students (id,permanent_student_id,school_id,admission_number,current_class_id,first_name,middle_name,last_name,gender,date_of_birth,admission_date,admission_type,student_status,is_test_record,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [studentId, permanentStudentId, application.school_id, admissionNumber, classId, firstName, middleName, lastName, gender, value(applicant.dateOfBirth), value(application.admission_date, applicant.applicationDate, timestamp.slice(0, 10)), value(applicant.admissionType, 'NEW'), 'ACTIVE', 0, timestamp, timestamp]);
         const profileId = idFactory();
-        await tx.execute('INSERT INTO student_profiles (id,student_master_id,student_id,school_id,class_id,stream_id,admission_number,admission_date,first_name,last_name,gender,date_of_birth,enrollment_status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [profileId, studentId, permanentStudentId, application.school_id, classId, value(application.stream_id, applicant.streamId), admissionNumber, value(application.admission_date, applicant.applicationDate, timestamp.slice(0, 10)), firstName, lastName, gender, value(applicant.dateOfBirth), 'ACTIVE', timestamp]);
+        await tx.execute('INSERT INTO student_profiles (id,student_master_id,student_id,permanent_student_id,school_id,class_id,stream_id,admission_number,admission_date,first_name,last_name,gender,date_of_birth,enrollment_status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [profileId, studentId, permanentStudentId, permanentStudentId, application.school_id, classId, value(application.stream_id, applicant.streamId), admissionNumber, value(application.admission_date, applicant.applicationDate, timestamp.slice(0, 10)), firstName, lastName, gender, value(applicant.dateOfBirth), 'ACTIVE', timestamp]);
         const enrollmentId = idFactory();
         const academicYearId = value(application.academic_year_id, applicant.academicYearId, applicant.academicYear);
         const termId = value(application.term_id, applicant.termId, applicant.term);

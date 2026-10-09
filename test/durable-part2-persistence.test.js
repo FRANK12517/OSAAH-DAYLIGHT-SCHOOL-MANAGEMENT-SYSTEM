@@ -13,6 +13,8 @@ function databaseFixture() {
       if (sql.includes('FROM students')) return students.filter((row) => row.school_id === params[0] && (row.id === params[1] || row.permanent_student_id === params[2]));
       if (sql.includes('FROM student_profiles') && sql.includes('student_master_id')) return profiles.filter((row) => row.school_id === params[0] && (row.student_master_id === params[1] || row.student_id === params[2]));
       if (sql.includes('FROM student_family_contacts')) return contacts.filter((row) => row.student_id === params[0]);
+      if (sql.includes('FROM classes')) return [{ id: 'class-basic-4', name: 'Basic 4' }];
+      if (sql.includes('enquiry_request_id=?')) return admissions.filter((row) => row.school_id === params[0] && row.enquiry_request_id === params[1]);
       if (sql.includes('FROM admission_applications') && sql.includes('application_number=?')) return admissions.filter((row) => row.school_id === params[0] && row.application_number === params[1]);
       if (sql.includes('FROM admission_applications') && sql.includes('ORDER BY created_at')) return admissions.filter((row) => row.school_id === params[0]).slice(-1);
       if (sql.includes('FROM admission_applications')) return admissions.filter((row) => row.school_id === params[0]);
@@ -21,7 +23,7 @@ function databaseFixture() {
     async execute(sql, params = []) {
       if (sql.startsWith('UPDATE students SET')) { const row = students.find((item) => item.id === params.at(-2) && item.school_id === params.at(-1)); const assignments = sql.slice('UPDATE students SET '.length).split(' WHERE ')[0].split(','); assignments.forEach((assignment, index) => { row[assignment.split('=')[0]] = params[index]; }); return; }
       if (sql.startsWith('UPDATE student_profiles SET')) { const row = profiles.find((item) => item.id === params.at(-2) && item.school_id === params.at(-1)); const assignments = sql.slice('UPDATE student_profiles SET '.length).split(' WHERE ')[0].split(','); assignments.forEach((assignment, index) => { row[assignment.split('=')[0]] = params[index]; }); return; }
-      if (sql.startsWith('INSERT INTO admission_applications')) { admissions.push({ id: params[0], school_id: params[1], application_number: params[2], stage: params[3], applicant_data: params[4], created_at: params[5], updated_at: params[6] }); return; }
+      if (sql.startsWith('INSERT INTO admission_applications')) { admissions.push({ id: params[0], school_id: params[1], application_number: params[2], enquiry_request_id: params[3], stage: params[4], applicant_data: params[5], created_at: params[6], updated_at: params[7] }); return; }
       if (sql.startsWith('UPDATE admission_applications SET')) { const row = admissions.find((item) => item.school_id === params.at(-2) && item.application_number === params.at(-1)); const assignmentNames = sql.slice('UPDATE admission_applications SET '.length).split(' WHERE ')[0].split(',').map((x) => x.split('=')[0]); assignmentNames.forEach((name, index) => { row[name] = params[index]; }); }
     }
   };
@@ -43,4 +45,14 @@ test('admission form values persist, reopen, and update without allocating an id
   assert.equal(edited.section1.primaryGuardianFullName, 'Esi Asare'); assert.equal(edited.officialUse.permanentStudentId, null);
   const reopened = await createDurableAdmissionsService({ database: fixture.database, schoolId: 'school-1' }).getApplication(created.applicationNumber, actor);
   assert.equal(reopened.section3.primaryGuardianFullName, 'Esi Asare'); assert.equal(reopened.applicationNumber, created.applicationNumber); assert.equal(reopened.officialUse.permanentStudentId, null);
+});
+
+test('retries of the same durable enquiry token return one application and normalize the Ghanaian phone', async () => {
+  const fixture = databaseFixture(); const service = createDurableAdmissionsService({ database: fixture.database, schoolId: 'school-1', clock: () => '2026-10-05T00:00:00.000Z' }); const actor = { schoolId: 'school-1', portal: 'school', id: 'headteacher-1' };
+  const input = { studentFirstName: 'Ama', studentSurname: 'Asare', classAppliedFor: 'class-basic-4', primaryGuardianPrimaryPhone: '0240000000', enquiryRequestId: 'retry-token-20261005' };
+  const first = await service.createApplication(input, actor), retry = await service.createApplication(input, actor);
+  assert.equal(retry.applicationNumber, first.applicationNumber);
+  assert.equal(retry.section1.primaryGuardianPrimaryPhone, '+233240000000');
+  assert.equal(fixture.admissions.length, 1);
+  assert.equal(fixture.admissions[0].enquiry_request_id, input.enquiryRequestId);
 });

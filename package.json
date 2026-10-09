@@ -13,6 +13,7 @@
     "migration:validate": "node scripts/migrate.mjs validate",
     "production:three-terms": "node scripts/production-three-term-configure.mjs",
     "reconciliation:preflight": "node scripts/production-reconciliation-preflight.mjs",
+    "admissions:migration-preflight": "node scripts/admission-workflow-migration-preflight.mjs",
     "migration:baseline": "node scripts/record-production-baseline.mjs",
     "migration:forward-reconciliation": "node scripts/production-forward-reconciliation.mjs",
     "protection:verify": "node scripts/verify-protected-components.mjs"
@@ -21,6 +22,7 @@
     "node": ">=20"
   },
   "dependencies": {
+    "@vercel/blob": "^2.8.1",
     "bcrypt": "^6.0.0",
     "mysql2": "^3.24.4",
     "pdfkit": "^0.20.2"

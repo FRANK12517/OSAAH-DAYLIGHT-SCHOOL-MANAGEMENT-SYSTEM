@@ -41,16 +41,23 @@ test('Part 2 prepares the canonical staff role identifiers without hard-coding u
   assert.doesNotMatch(sql, /password/i);
 });
 
-test('migration inventory remains uniquely versioned through durable SMS campaigns', async () => {
+test('migration inventory remains uniquely versioned through admission workflow access', async () => {
   const migrations = await discoverMigrations(new URL('../schema', import.meta.url));
   assert.equal(new Set(migrations.map((item) => item.version)).size, migrations.length);
-  assert.equal(migrations.at(-9).name, '069_production_user_login_identifiers.sql');
-  assert.equal(migrations.at(-8).name, '070_school_admin_score_entry_permission.sql');
-  assert.equal(migrations.at(-7).name, '071_school_admin_results_reports_permission.sql');
-  assert.equal(migrations.at(-6).name, '072_school_admin_mock_score_entry_permission.sql');
-  assert.equal(migrations.at(-5).name, '073_subject_updated_at.sql');
-  assert.equal(migrations.at(-4).name, '074_durable_promotion_rollover.sql');
-  assert.equal(migrations.at(-3).name, '075_result_blocking_examination_scope.sql');
-  assert.equal(migrations.at(-2).name, '076_durable_announcements.sql');
-  assert.equal(migrations.at(-1).name, '077_durable_sms_messages.sql');
+  assert.equal(migrations.at(-10).name, '069_production_user_login_identifiers.sql');
+  assert.equal(migrations.at(-9).name, '070_school_admin_score_entry_permission.sql');
+  assert.equal(migrations.at(-8).name, '071_school_admin_results_reports_permission.sql');
+  assert.equal(migrations.at(-7).name, '072_school_admin_mock_score_entry_permission.sql');
+  assert.equal(migrations.at(-6).name, '073_subject_updated_at.sql');
+  assert.equal(migrations.at(-5).name, '074_durable_promotion_rollover.sql');
+  assert.equal(migrations.at(-4).name, '075_result_blocking_examination_scope.sql');
+  assert.equal(migrations.at(-3).name, '076_durable_announcements.sql');
+  assert.equal(migrations.at(-2).name, '077_durable_sms_messages.sql');
+  assert.equal(migrations.at(-1).name, '078_admissions_leadership_access.sql');
+  const admissionMigration = await readFile(new URL('../schema/078_admissions_leadership_access.sql', import.meta.url), 'utf8');
+  assert.match(admissionMigration, /ADD COLUMN IF NOT EXISTS permanent_student_id/i);
+  assert.match(admissionMigration, /uq_admission_application_permanent_student_id/i);
+  assert.match(admissionMigration, /uq_admission_application_student_id/i);
+  assert.match(admissionMigration, /uq_student_enrollment_context/i);
+  assert.doesNotMatch(admissionMigration, /\b(DROP|DELETE|TRUNCATE)\b/i);
 });

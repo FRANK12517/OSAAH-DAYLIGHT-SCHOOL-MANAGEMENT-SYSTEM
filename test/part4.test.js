@@ -40,7 +40,7 @@ test('Part 4 role dashboards and server-side authority matrix', async () => {
 
     const accepted = await request(port, `/api/admissions/${application.body.applicationNumber}/decision`, { method: 'POST', token: logins.HEADTEACHER.token, body: { decision: 'ACCEPTED', year: 2026 } });
     assert.equal(accepted.status, 200);
-    assert.equal(accepted.body.permanentStudentId, 'OSAAH/2026/0001');
+    assert.equal(accepted.body.permanentStudentId, 'OSAAH/2026/001');
 
     const fee = await request(port, '/api/fees/structures', { method: 'POST', token: proprietor.token, body: { type: 'TUITION', amount: 1200 } });
     assert.equal(fee.status, 201);
