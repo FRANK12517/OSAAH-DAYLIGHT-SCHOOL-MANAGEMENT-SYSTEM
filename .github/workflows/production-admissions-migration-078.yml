@@ -63,9 +63,15 @@ jobs:
       - name: Run read-only Migration 078 data and schema preflight
         run: |
           set -euo pipefail
-          node scripts/admission-workflow-migration-preflight.mjs > "$RUNNER_TEMP/admissions-078-preflight.json"
-          jq -e '.ok == true and .mode == "READ_ONLY_PREFLIGHT" and .writesPerformed == false and .databaseEngine == "TiDB"' "$RUNNER_TEMP/admissions-078-preflight.json" > /dev/null
-          cat "$RUNNER_TEMP/admissions-078-preflight.json"
+          report="$RUNNER_TEMP/admissions-078-preflight.json"
+          set +e
+          node scripts/admission-workflow-migration-preflight.mjs > "$report" 2> "$RUNNER_TEMP/admissions-078-preflight.stderr"
+          preflight_status=$?
+          PREFLIGHT_EXIT_CODE="$preflight_status" node scripts/summarize-admissions-078-preflight.mjs "$report"
+          summary_status=$?
+          set -e
+          if (( preflight_status != 0 )); then exit "$preflight_status"; fi
+          exit "$summary_status"
 
   protected-apply:
     name: Apply Migration 078 after approval
@@ -104,8 +110,14 @@ jobs:
       - name: Repeat the live read-only preflight immediately before apply
         run: |
           set -euo pipefail
-          node scripts/admission-workflow-migration-preflight.mjs > "$RUNNER_TEMP/admissions-078-preflight.json"
-          jq -e '.ok == true and .mode == "READ_ONLY_PREFLIGHT" and .writesPerformed == false and .databaseEngine == "TiDB"' "$RUNNER_TEMP/admissions-078-preflight.json" > /dev/null
-          cat "$RUNNER_TEMP/admissions-078-preflight.json"
+          report="$RUNNER_TEMP/admissions-078-preflight.json"
+          set +e
+          node scripts/admission-workflow-migration-preflight.mjs > "$report" 2> "$RUNNER_TEMP/admissions-078-preflight.stderr"
+          preflight_status=$?
+          PREFLIGHT_EXIT_CODE="$preflight_status" node scripts/summarize-admissions-078-preflight.mjs "$report"
+          summary_status=$?
+          set -e
+          if (( preflight_status != 0 )); then exit "$preflight_status"; fi
+          exit "$summary_status"
       - name: Apply and verify Migration 078 only
         run: node scripts/production-admissions-migration-078.mjs apply
