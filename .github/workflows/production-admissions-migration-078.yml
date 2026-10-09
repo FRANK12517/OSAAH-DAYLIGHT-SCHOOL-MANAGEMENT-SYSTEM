@@ -1,0 +1,111 @@
+name: Production Admissions migration 078
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Run the read-only preflight, or run preflight followed by protected apply
+        required: true
+        type: choice
+        options:
+          - preflight
+          - apply
+      release_ref:
+        description: Exact 40-character GitHub main SHA to verify and test
+        required: true
+        type: string
+      backup_confirmation:
+        description: Type BACKUP_CONFIRMED only after verifying a recent recoverable production backup
+        required: false
+        type: string
+      apply_confirmation:
+        description: Type APPLY_ADMISSIONS_MIGRATION_078 to authorize only Migration 078
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-admissions-migration-078
+  cancel-in-progress: false
+
+jobs:
+  read-only-preflight:
+    name: Read-only production Migration 078 preflight
+    if: ${{ inputs.mode == 'preflight' || inputs.mode == 'apply' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: production
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      RELEASE_REF: ${{ inputs.release_ref }}
+      OSAAH_DATABASE_ADAPTER_MODULE: src/ai/tidb-database-adapter.js
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_ref }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Verify exact release SHA is current main
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_REF" =~ ^[0-9a-f]{40}$ ]]
+          git fetch origin main --no-tags --depth=1
+          test "$(git rev-parse HEAD)" = "$RELEASE_REF"
+          test "$(git rev-parse origin/main)" = "$RELEASE_REF"
+      - run: npm ci
+      - name: Validate production migration ledger without writes
+        run: npm run migration:validate
+      - name: Run read-only Migration 078 data and schema preflight
+        run: |
+          set -euo pipefail
+          node scripts/admission-workflow-migration-preflight.mjs > "$RUNNER_TEMP/admissions-078-preflight.json"
+          jq -e '.ok == true and .mode == "READ_ONLY_PREFLIGHT" and .writesPerformed == false and .databaseEngine == "TiDB"' "$RUNNER_TEMP/admissions-078-preflight.json" > /dev/null
+          cat "$RUNNER_TEMP/admissions-078-preflight.json"
+
+  protected-apply:
+    name: Apply Migration 078 after approval
+    if: ${{ inputs.mode == 'apply' }}
+    needs: read-only-preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    environment: production
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      RELEASE_REF: ${{ inputs.release_ref }}
+      BACKUP_CONFIRMATION: ${{ inputs.backup_confirmation }}
+      EXECUTION_TOKEN: ${{ inputs.apply_confirmation }}
+      OSAAH_DATABASE_ADAPTER_MODULE: src/ai/tidb-database-adapter.js
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_ref }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Verify exact release SHA and required confirmations
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_REF" =~ ^[0-9a-f]{40}$ ]]
+          git fetch origin main --no-tags --depth=1
+          test "$(git rev-parse HEAD)" = "$RELEASE_REF"
+          test "$(git rev-parse origin/main)" = "$RELEASE_REF"
+          test "$BACKUP_CONFIRMATION" = "BACKUP_CONFIRMED"
+          test "$EXECUTION_TOKEN" = "APPLY_ADMISSIONS_MIGRATION_078"
+      - run: npm ci
+      - name: Revalidate live migration ledger before apply
+        run: npm run migration:validate
+      - name: Repeat the live read-only preflight immediately before apply
+        run: |
+          set -euo pipefail
+          node scripts/admission-workflow-migration-preflight.mjs > "$RUNNER_TEMP/admissions-078-preflight.json"
+          jq -e '.ok == true and .mode == "READ_ONLY_PREFLIGHT" and .writesPerformed == false and .databaseEngine == "TiDB"' "$RUNNER_TEMP/admissions-078-preflight.json" > /dev/null
+          cat "$RUNNER_TEMP/admissions-078-preflight.json"
+      - name: Apply and verify Migration 078 only
+        run: node scripts/production-admissions-migration-078.mjs apply
