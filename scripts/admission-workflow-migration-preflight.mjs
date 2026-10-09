@@ -1,10 +1,7 @@
 import mysql from 'mysql2/promise';
+import { EXPECTED_ADMISSIONS_078_COLUMNS, columnDefinitionMismatch } from './admissions-078-schema-contract.mjs';
 
 const expectedDatabase = 'osaahdaylightschool';
-const expectedColumns = [
-  { table: 'admission_applications', name: 'enquiry_request_id', type: 'varchar(64)', nullable: 'YES' },
-  { table: 'admission_applications', name: 'permanent_student_id', type: 'varchar(128)', nullable: 'YES' }
-];
 const expectedIndexes = [
   { table: 'admission_applications', name: 'uq_admission_applications_enquiry_request', columns: ['school_id', 'enquiry_request_id'] },
   { table: 'admission_applications', name: 'uq_admission_application_student_id', columns: ['student_id'] },
@@ -35,7 +32,7 @@ if (!process.env.DATABASE_URL) {
       admission_applications: ['id','school_id','student_id','application_number','stage','applicant_data'],
       student_enrollments: ['school_id','student_id','class_id','academic_year_id','term_id','is_current'],
       students: ['id','school_id','permanent_student_id'],
-      student_profiles: ['id','school_id','student_master_id','student_id','permanent_student_id'],
+      student_profiles: ['id','school_id','student_master_id','student_id'],
       classes: ['id'], academic_years: ['id','school_id'], terms: ['id','academic_year_id'],
       student_id_sequences: ['admission_year','next_sequence'],
       parent_student_links: ['parent_user_id','student_id','link_status'],
@@ -52,11 +49,10 @@ if (!process.env.DATABASE_URL) {
       if (tables.has(table) && !missingColumns.length) return [];
       return [{ table, tableStatus: tables.has(table) ? 'PRESENT' : 'MISSING', tableType: tableTypes.get(table) ?? 'MISSING', missingColumns }];
     });
-    const columnDefinitionMismatches = expectedColumns.flatMap(({ table, name, type, nullable }) => {
+    const columnDefinitionMismatches = EXPECTED_ADMISSIONS_078_COLUMNS.flatMap(({ table, name }) => {
       const actual = columnMetadata.get(`${table}.${name}`);
-      return actual && (actual.type !== type || actual.nullable !== nullable)
-        ? [{ table, name, expectedType: type, expectedNullable: nullable, actualType: actual.type, actualNullable: actual.nullable }]
-        : [];
+      const mismatch = columnDefinitionMismatch(table, name, actual);
+      return mismatch ? [mismatch] : [];
     });
     const indexGroups = new Map();
     for (const row of indexRows) {
