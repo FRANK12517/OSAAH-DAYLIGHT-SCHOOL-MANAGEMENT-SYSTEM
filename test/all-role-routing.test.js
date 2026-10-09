@@ -11,7 +11,7 @@ const publicFile = (page) => new URL(`../public/${page.replace(/^\//, '')}`, imp
 test('broken academic links resolve to their intended existing module pages', async () => {
   const expected = {
     '/examinations/timetable': ['/exam-timetable.html', /Examination Timetable/],
-    '/results/broadsheets': ['/academic-modules.html', /Academic Module/],
+    '/results/broadsheets': ['/academic-modules.html', /Broadsheet/],
     '/academics/classes': ['/academic-modules.html', /academic-classes/],
     '/results/report-cards': ['/results.html', /Student Result Slip/],
     '/academics/subjects/list': ['/subjects.html', /Subject Configuration/],
