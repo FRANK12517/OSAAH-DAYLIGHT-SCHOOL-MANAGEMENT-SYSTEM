@@ -93,20 +93,21 @@ test('wrong engine, writesPerformed, and exact missing schema objects fail close
   const writes = healthyReport(); writes.writesPerformed = true;
   assert.equal(buildSummary(writes, 0).ok, false);
   const prerequisites = healthyReport();
-  prerequisites.missingPrerequisites = ['student_profiles.student_master_id', 'student_enrollments.*', 'student_enrollments.school_id', 'student_enrollments.student_id', 'student_enrollments.class_id', 'student_enrollments.academic_year_id', 'student_enrollments.term_id', 'student_enrollments.is_current'];
+  prerequisites.missingPrerequisites = ['student_enrollments.is_current'];
   prerequisites.schemaObjectFindings = [
-    { table: 'student_profiles', tableStatus: 'PRESENT', tableType: 'BASE TABLE', missingColumns: ['student_master_id'] },
-    { table: 'student_enrollments', tableStatus: 'MISSING', tableType: 'MISSING', missingColumns: ['school_id', 'student_id', 'class_id', 'academic_year_id', 'term_id', 'is_current'] }
+    { table: 'student_enrollments', tableStatus: 'PRESENT', tableType: 'BASE TABLE', missingColumns: ['is_current'] }
   ];
   prerequisites.duplicateGroups = {}; prerequisites.orphanCounts = {};
   prerequisites.ok = false;
   const summary = buildSummary(prerequisites, 2);
   assert.equal(summary.failureCategory, 'MIGRATION_PREREQUISITES_MISSING');
-  assert.deepEqual(summary.migrationPrerequisites.missingSchemaObjects, [
-    'student_enrollments.*', 'student_enrollments.academic_year_id', 'student_enrollments.class_id',
-    'student_enrollments.is_current', 'student_enrollments.school_id', 'student_enrollments.student_id',
-    'student_enrollments.term_id', 'student_profiles.student_master_id'
-  ]);
+  assert.deepEqual(summary.migrationPrerequisites.missingSchemaObjects, ['student_enrollments.is_current']);
+  assert.equal(summary.duplicateCheckStatus, 'NOT_CHECKED');
+  assert.equal(summary.duplicateCheckReason, 'MISSING_SCHEMA_PREREQUISITES');
+  assert.equal(summary.duplicateRecordTotal, null);
+  assert.equal(summary.orphanCheckStatus, 'NOT_CHECKED');
+  assert.equal(summary.orphanCheckReason, 'MISSING_SCHEMA_PREREQUISITES');
+  assert.equal(summary.orphanRecordTotal, null);
 });
 
 test('duplicate, orphan, index, and sequence findings each block success', () => {
@@ -124,14 +125,14 @@ test('expected and actual column definitions are exposed only for approved schem
   const report = healthyReport(); report.ok = false;
   report.columnDefinitionMismatches = [{
     table: 'admission_applications', name: 'permanent_student_id',
-    expectedType: 'varchar(128)', expectedNullable: 'YES',
+    expectedType: 'varchar(128)', expectedTypes: ['varchar(100)', 'varchar(128)'], expectedNullable: 'YES',
     actualType: 'varchar(32)', actualNullable: 'NO', extra: 'PRIVATE_VALUE'
   }];
   const summary = buildSummary(report, 2);
   assert.equal(summary.failureCategory, 'SCHEMA_DEFINITION_MISMATCH');
   assert.deepEqual(summary.columnDefinitionMismatches, [{
     object: 'admission_applications.permanent_student_id',
-    expected: { type: 'varchar(128)', nullable: 'YES' },
+    expected: { types: ['varchar(100)', 'varchar(128)'], nullable: 'YES' },
     actual: { type: 'varchar(32)', nullable: 'NO' }
   }]);
   assert.equal(JSON.stringify(summary).includes('PRIVATE_VALUE'), false);
@@ -145,14 +146,16 @@ test('unknown mismatch identifiers or prerequisite strings make the report inval
   assert.equal(buildSummary(prerequisite, 2).failureCategory, 'PREFLIGHT_REPORT_INVALID');
 });
 
-test('data checks skipped for missing prerequisites are reported as skipped, not as zero findings', () => {
+test('data checks blocked by missing prerequisites are NOT_CHECKED, not zero findings', () => {
   const report = healthyReport(); report.ok = false;
-  report.missingPrerequisites = ['student_profiles.*', 'student_profiles.id', 'student_profiles.school_id', 'student_profiles.student_master_id', 'student_profiles.student_id', 'student_profiles.permanent_student_id'];
-  report.schemaObjectFindings = [{ table: 'student_profiles', tableStatus: 'MISSING', tableType: 'MISSING', missingColumns: ['id', 'school_id', 'student_master_id', 'student_id', 'permanent_student_id'] }];
+  report.missingPrerequisites = ['student_profiles.*', 'student_profiles.id', 'student_profiles.school_id', 'student_profiles.student_master_id', 'student_profiles.student_id'];
+  report.schemaObjectFindings = [{ table: 'student_profiles', tableStatus: 'MISSING', tableType: 'MISSING', missingColumns: ['id', 'school_id', 'student_master_id', 'student_id'] }];
   report.duplicateGroups = {}; report.orphanCounts = {};
   const summary = buildSummary(report, 2);
-  assert.equal(summary.duplicateCheckStatus, 'SKIPPED_PREREQUISITES_MISSING');
-  assert.equal(summary.orphanCheckStatus, 'SKIPPED_PREREQUISITES_MISSING');
+  assert.equal(summary.duplicateCheckStatus, 'NOT_CHECKED');
+  assert.equal(summary.duplicateCheckReason, 'MISSING_SCHEMA_PREREQUISITES');
+  assert.equal(summary.orphanCheckStatus, 'NOT_CHECKED');
+  assert.equal(summary.orphanCheckReason, 'MISSING_SCHEMA_PREREQUISITES');
   assert.equal(summary.duplicateRecordTotal, null);
   assert.equal(summary.orphanRecordTotal, null);
   assert.equal(summary.ok, false);
@@ -160,6 +163,20 @@ test('data checks skipped for missing prerequisites are reported as skipped, not
   const unsafeSummary = buildSummary(contradictory, 2);
   assert.equal(unsafeSummary.failureCategory, 'PREFLIGHT_REPORT_INVALID');
   assert.equal(unsafeSummary.duplicateRecordTotal, null);
+});
+
+test('unavailable duplicate and orphan aggregates are NOT_CHECKED and cannot become zero', () => {
+  const report = healthyReport();
+  delete report.duplicateGroups;
+  delete report.orphanCounts;
+  const summary = buildSummary(report, 0);
+  assert.equal(summary.ok, false);
+  assert.equal(summary.duplicateCheckStatus, 'NOT_CHECKED');
+  assert.equal(summary.duplicateCheckReason, 'DIAGNOSTICS_UNAVAILABLE');
+  assert.equal(summary.orphanCheckStatus, 'NOT_CHECKED');
+  assert.equal(summary.orphanCheckReason, 'DIAGNOSTICS_UNAVAILABLE');
+  assert.equal(summary.duplicateRecordTotal, null);
+  assert.equal(summary.orphanRecordTotal, null);
 });
 
 test('schema-object findings distinguish missing tables from missing columns and views', () => {

@@ -28,7 +28,7 @@ function adapter({ failOn = null, initialApplication = application(), authorized
       if (failOn && sql.includes(failOn)) throw new Error('private database detail');
       if (sql.startsWith('UPDATE student_id_sequences')) state.sequence = params[0];
       if (sql.startsWith('INSERT INTO students ')) state.students.push({ id: params[0], permanent_student_id: params[1], school_id: params[2], is_test_record: params[13] });
-      if (sql.startsWith('INSERT INTO student_profiles ')) state.profiles.push({ id: params[0], student_master_id: params[1], student_id: params[2], permanent_student_id: params[3] });
+      if (sql.startsWith('INSERT INTO student_profiles ')) state.profiles.push({ id: params[0], student_master_id: params[1], student_id: params[2] });
       if (sql.startsWith('INSERT INTO student_enrollments ')) state.enrollments.push({ id: params[0], student_id: params[1] });
       if (sql.startsWith('INSERT INTO parent_student_links ')) state.links.push({ parent_user_id: params[0], student_id: params[1], permanent_student_id: params[2] });
       if (sql.startsWith('UPDATE admission_applications ')) Object.assign(state.application, { student_id: params[0], permanent_student_id: params[1], stage: params[2] });
@@ -62,7 +62,7 @@ function concurrentEnrollmentAdapter() {
     async execute(sql, params = []) {
       if (sql.startsWith('UPDATE student_id_sequences')) state.sequence = params[0];
       if (sql.startsWith('INSERT INTO students ')) state.students.push({ id: params[0], permanent_student_id: params[1], school_id: params[2], admission_number: params[4] });
-      if (sql.startsWith('INSERT INTO student_profiles ')) state.profiles.push({ id: params[0], student_master_id: params[1], student_id: params[2], permanent_student_id: params[3] });
+      if (sql.startsWith('INSERT INTO student_profiles ')) state.profiles.push({ id: params[0], student_master_id: params[1], student_id: params[2] });
       if (sql.startsWith('INSERT INTO student_enrollments ')) state.enrollments.push({ id: params[0], student_id: params[1] });
       if (sql.startsWith('INSERT INTO parent_student_links ')) state.links.push({ parent_user_id: params[0], student_id: params[1] });
       if (sql.startsWith('UPDATE admission_applications ')) Object.assign(state.applications.find((item) => item.id === params[4]), { student_id: params[0], permanent_student_id: params[1], stage: params[2] });
@@ -87,7 +87,9 @@ test('accepted admission atomically creates the master, profile, enrollment and 
   assert.equal(first.student.permanentStudentId, 'OSAAH/2026/001');
   assert.equal(state.students.length, 1);
   assert.equal(state.students[0].is_test_record, 0);
-  assert.deepEqual(state.profiles[0], { id: 'uuid-1', student_master_id: 'STD-000001', student_id: 'OSAAH/2026/001', permanent_student_id: 'OSAAH/2026/001' });
+  assert.deepEqual(state.profiles[0], { id: 'uuid-1', student_master_id: 'STD-000001', student_id: 'OSAAH/2026/001' });
+  const profileInsert = state.calls.find(([kind, sql]) => kind === 'execute' && sql.startsWith('INSERT INTO student_profiles '))[1];
+  assert.doesNotMatch(profileInsert, /permanent_student_id/);
   assert.equal(state.enrollments[0].student_id, 'STD-000001');
   assert.deepEqual(state.links[0], { parent_user_id: 'parent-1', student_id: 'uuid-1', permanent_student_id: 'OSAAH/2026/001' });
   assert.equal(state.audits.length, 1);

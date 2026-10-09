@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { EXPECTED_ADMISSIONS_078_COLUMNS } from './admissions-078-schema-contract.mjs';
 
 const knownErrorCodes = new Set([
   'DATABASE_URL_MISSING', 'DATABASE_TARGET_MISMATCH', 'ADMISSIONS_PREFLIGHT_FAILED',
@@ -21,7 +22,7 @@ const schemaColumns = {
   admission_applications: ['id', 'school_id', 'student_id', 'application_number', 'stage', 'applicant_data'],
   student_enrollments: ['school_id', 'student_id', 'class_id', 'academic_year_id', 'term_id', 'is_current'],
   students: ['id', 'school_id', 'permanent_student_id'],
-  student_profiles: ['id', 'school_id', 'student_master_id', 'student_id', 'permanent_student_id'],
+  student_profiles: ['id', 'school_id', 'student_master_id', 'student_id'],
   classes: ['id'], academic_years: ['id', 'school_id'], terms: ['id', 'academic_year_id'],
   student_id_sequences: ['admission_year', 'next_sequence'],
   parent_student_links: ['parent_user_id', 'student_id', 'link_status'],
@@ -29,10 +30,9 @@ const schemaColumns = {
   permissions: ['id', 'permission_key'], role_permissions: ['role_id', 'permission_id']
 };
 const schemaObjectNames = new Set(Object.entries(schemaColumns).flatMap(([table, columns]) => [`${table}.*`, ...columns.map((column) => `${table}.${column}`)]));
-const expectedColumnDefinitions = new Map([
-  ['admission_applications.enquiry_request_id', { type: 'varchar(64)', nullable: 'YES' }],
-  ['admission_applications.permanent_student_id', { type: 'varchar(128)', nullable: 'YES' }]
-]);
+const expectedColumnDefinitions = new Map(EXPECTED_ADMISSIONS_078_COLUMNS.map(({ table, name, preferredType, compatibleTypes, nullable }) => [
+  `${table}.${name}`, { type: preferredType, types: [...compatibleTypes], nullable }
+]));
 const correctiveActions = {
   PREFLIGHT_REPORT_INVALID: 'Inspect diagnostic generation; do not apply Migration 078.',
   PREFLIGHT_EXECUTION_FAILED: 'Inspect the sanitized error category and correct the connection or runtime issue.',
@@ -104,10 +104,11 @@ function safeColumnMismatches(report) {
     if (!item || typeof item !== 'object' || Array.isArray(item)) { valid = false; continue; }
     const object = `${item.table}.${item.name}`;
     const expected = expectedColumnDefinitions.get(object);
-    if (!expected || item.expectedType !== expected.type || item.expectedNullable !== expected.nullable) { valid = false; continue; }
+    if (!expected || item.expectedType !== expected.type || item.expectedNullable !== expected.nullable
+      || !Array.isArray(item.expectedTypes) || JSON.stringify(item.expectedTypes) !== JSON.stringify(expected.types)) { valid = false; continue; }
     details.push({
       object,
-      expected: { type: expected.type, nullable: expected.nullable },
+      expected: { types: [...expected.types], nullable: expected.nullable },
       actual: { type: safeType(item.actualType), nullable: safeNullable(item.actualNullable) }
     });
   }
@@ -140,8 +141,10 @@ export function buildSummary(report, nodeExitCode) {
   const engine = hasJson && report.databaseEngine === 'TiDB' ? 'TiDB' : (hasJson && report.databaseEngine === 'UNKNOWN' ? 'UNKNOWN' : 'UNRECOGNIZED');
   const migrationPrerequisites = hasJson && Array.isArray(report.missingPrerequisites)
     ? (missingObjects.length ? 'MISSING' : 'PRESENT') : 'UNKNOWN';
-  const duplicateCheckStatus = checksSkipped ? 'SKIPPED_PREREQUISITES_MISSING' : duplicatesAvailable ? 'COMPLETE' : 'INCOMPLETE';
-  const orphanCheckStatus = checksSkipped ? 'SKIPPED_PREREQUISITES_MISSING' : orphansAvailable ? 'COMPLETE' : 'INCOMPLETE';
+  const duplicateCheckStatus = duplicatesAvailable ? 'COMPLETE' : 'NOT_CHECKED';
+  const duplicateCheckReason = checksSkipped ? 'MISSING_SCHEMA_PREREQUISITES' : duplicatesAvailable ? null : 'DIAGNOSTICS_UNAVAILABLE';
+  const orphanCheckStatus = orphansAvailable ? 'COMPLETE' : 'NOT_CHECKED';
+  const orphanCheckReason = checksSkipped ? 'MISSING_SCHEMA_PREREQUISITES' : orphansAvailable ? null : 'DIAGNOSTICS_UNAVAILABLE';
   const validDataCheckShape = checksSkipped
     ? Object.keys(report.duplicateGroups ?? {}).length === 0 && Object.keys(report.orphanCounts ?? {}).length === 0
     : duplicatesAvailable && orphansAvailable;
@@ -176,9 +179,11 @@ export function buildSummary(report, nodeExitCode) {
     migrationPrerequisites: { status: migrationPrerequisites, missingCategories, missingSchemaObjects: missingObjects, schemaObjectFindings: schemaFindings.findings },
     missingSchemaObjectCategoryCount: missingCategories.length,
     duplicateCheckStatus,
+    duplicateCheckReason,
     duplicateRecordCounts: duplicates,
     duplicateRecordTotal: duplicateTotal,
     orphanCheckStatus,
+    orphanCheckReason,
     orphanRecordCounts: orphans,
     orphanRecordTotal: orphanTotal,
     studentIdSequenceCompatibility: hasJson
