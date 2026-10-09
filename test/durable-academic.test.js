@@ -143,6 +143,15 @@ test('Score Entry options survive production class tables without optional order
   assert.equal(calls.some((sql) => sql.includes('c.level_id')), false);
 });
 
+test('Teacher academic scope requires class and subject assignments while class catalog remains browseable', async () => {
+  const database = fakeDatabase();
+  const service = createDurableAcademicService({ database, schoolId });
+  const teacher = { ...manager, roleKey: 'TEACHER', permissions: new Set(['results.read', 'marks.write']), assignedClassIds: [], assignedSubjectIds: [] };
+  assert.equal((await service.options(teacher)).classes.length, 0, 'fake database has no configured class rows');
+  await assert.rejects(() => service.subjectCascade({ classId: 'class-basic-1', academicYear: '2026/2027', term: 'First Term' }, teacher), (error) => error.status === 403);
+  await assert.rejects(() => service.saveScore({ classId: 'class-basic-1', subjectId: 'subject-math', studentId: 'student-1', academicYear: '2026/2027', term: 'First Term', caScore: 20, examScore: 20 }, teacher), (error) => error.status === 403);
+});
+
 test('year-scoped subject configuration prefers a year override, displays inactive assignments and excludes other years', async () => {
   const assignments = [
     { assignmentId: 'global-english', id: 'subject-english', code: 'ENG', name: 'English Language', departmentId: null, subjectType: 'CORE', isScoring: 1, subjectActive: 1, classId: 'class-primary-1', className: 'Primary 1', academicYearId: null, assignmentActive: 1 },
@@ -420,6 +429,39 @@ test('Result Slip retrieves durable saved scores after enrollment-flag compatibi
   assert.ok(calls.some(({ sql }) => sql.includes('FROM academic_score_records r')));
   assert.ok(calls.some(({ sql }) => sql.includes('FROM academic_result_records')));
   assert.equal(calls.filter(({ sql }) => sql.includes('FROM students s JOIN student_enrollments e')).length, 2);
+});
+
+test('durable terminal Broadsheet reads persisted scores, excludes demo IDs, and enforces teacher subject assignments', async () => {
+  const calls = [];
+  const database = {
+    async query(sql, params = []) {
+      calls.push({ sql, params });
+      if (sql.includes('FROM academic_years')) return [{ id: 'year-2026', name: '2026/2027' }];
+      if (sql.includes('FROM terms')) return [{ id: 'term-1', academicYearId: 'year-2026', name: 'First Term' }];
+      if (sql.includes('FROM classes WHERE school_id')) return [{ id: 'class-basic-1', name: 'Basic 1' }];
+      if (sql.includes('FROM subject_class_assignments a JOIN subjects s') && sql.includes('WHERE a.school_id=? AND a.class_id=?')) return [{ id: 'subject-math', code: 'MATH', name: 'Mathematics', subjectType: 'CORE', isScoring: 1, subjectActive: 1, classId: 'class-basic-1', className: 'Basic 1', academicYearId: null, assignmentActive: 1 }];
+      if (sql.includes('FROM students s JOIN student_enrollments e')) return [{ studentId: 'student-1', permanentStudentId: 'OSAAH-2026-001', firstName: 'Ama', middleName: null, surname: 'Learner' }];
+      if (sql.includes('FROM academic_score_records r JOIN student_profiles sp')) return [{ profileId: 'profile-1', studentId: 'student-1', totalScore: 92, caScore: 44, examScore: 48, subjectId: 'subject-math', subjectName: 'Mathematics' }];
+      if (sql.includes('FROM academic_score_records r') && sql.includes('JOIN subjects sub')) return [{ subjectId: 'subject-math', subjectName: 'Mathematics', caScore: 44, examScore: 48, totalScore: 92 }];
+      if (sql.includes('FROM academic_result_records')) return [];
+      return [];
+    },
+    async execute() { return { affectedRows: 0 }; }
+  };
+  const service = createDurableAcademicService({ database, schoolId });
+  const teacher = { ...manager, roleKey: 'TEACHER', permissions: new Set(['results.read']), assignedClassIds: ['class-basic-1'], assignedSubjectIds: ['subject-math'] };
+  const report = await service.broadsheet({ classId: 'class-basic-1', subjectId: 'subject-math', academicYear: '2026/2027', term: 'First Term' }, teacher);
+  assert.equal(report.length, 1);
+  assert.equal(report[0].permanentStudentId, 'OSAAH-2026-001');
+  assert.equal(report[0].subjectTotals.Mathematics, 92);
+  assert.equal(report[0].subjectCas.Mathematics, 44);
+  assert.equal(report[0].subjectExams.Mathematics, 48);
+  assert.equal(report[0].isSample, false);
+  assert.ok(calls.some(({ sql }) => sql.includes('permanent_student_id NOT LIKE')));
+  await assert.rejects(() => service.broadsheet({ classId: 'class-other', subjectId: 'subject-math', academicYear: '2026/2027', term: 'First Term' }, teacher), (error) => error.status === 403);
+  await assert.rejects(() => service.broadsheet({ classId: 'class-basic-1', subjectId: 'subject-math', academicYear: '2026/2027', term: 'First Term' }, { ...teacher, assignedSubjectIds: [] }), (error) => error.status === 403);
+  await assert.rejects(() => service.broadsheet({ classId: 'class-basic-1', subjectId: 'subject-math', academicYear: '2026/2027', term: 'First Term' }, { ...teacher, assignedSubjectIds: ['subject-other'] }), (error) => error.status === 403);
+  await assert.rejects(() => service.broadsheet({ classId: 'class-basic-1', subjectId: 'subject-other', academicYear: '2026/2027', term: 'First Term' }, { ...manager, permissions: new Set(['results.read']) }), (error) => error.code === 'CLASS_SUBJECT_MISMATCH');
 });
 
 test('Score Entry cascade excludes inactive subjects and inactive assignments', async () => {

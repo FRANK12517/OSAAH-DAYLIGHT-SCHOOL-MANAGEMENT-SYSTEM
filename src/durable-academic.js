@@ -58,7 +58,10 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
 
   function assertClassScope(classId, actor) {
     if (!classId) fail('Class is required.');
-    if (actor?.assignedClassIds?.length && !actor.assignedClassIds.includes(classId)) fail('Class is outside your assignment.', 403, 'CLASS_SCOPE_DENIED');
+    if (actor?.roleKey === 'TEACHER' && !authorized(actor, 'academics.manage')) {
+      const assigned = new Set((actor.assignedClassIds ?? []).map(String));
+      if (!assigned.size || !assigned.has(String(classId))) fail('Class is outside your assignment.', 403, 'CLASS_SCOPE_DENIED');
+    }
   }
 
   async function classFor(classId) {
@@ -98,7 +101,9 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
         classes = await database.query('SELECT c.id,c.name,c.display_order AS displayOrder,l.name AS levelName FROM classes c JOIN levels l ON l.id=c.level_id WHERE l.school_id=? ORDER BY c.display_order,c.id', [schoolId]);
       }
     }
-    const allowedClasses = rows(classes).filter((item) => !actor?.assignedClassIds?.length || actor.assignedClassIds.includes(item.id));
+    // The selector is a catalogue for browsing. Record reads and writes are
+    // scoped separately by assertClassScope and subject assignment checks.
+    const allowedClasses = rows(classes);
     return { academicYears: rows(academicYears), terms: rows(terms), classes: allowedClasses, mockTypes: [...MOCK_TYPES] };
   }
 
@@ -233,9 +238,12 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
       if (typeof assessmentComponents === 'string') { try { assessmentComponents = JSON.parse(assessmentComponents); } catch { assessmentComponents = []; } }
       return { id: subject.id, code: subject.code, name: subject.name, departmentId: subject.departmentId ?? null, subjectType: subject.subjectType ?? 'ELECTIVE', isScoring: Number(subject.isScoring ?? 1) !== 0, active, classIds: [...new Set(assignments.map((item) => item.classId))], classNames: [...new Set(assignments.map((item) => item.className ?? item.classId))], assessmentComponents: Array.isArray(assessmentComponents) ? assessmentComponents : [] };
     });
-    const scoped = actor?.assignedClassIds?.length
+    const scoped = actor?.roleKey === 'TEACHER' && !authorized(actor, 'academics.manage')
       ? result.map((subject) => {
-        const allowedAssignments = assignmentRows.filter((item) => item.subjectId === subject.id && actor.assignedClassIds.includes(item.classId));
+        const assignedClasses = new Set((actor.assignedClassIds ?? []).map(String));
+        const assignedSubjects = new Set((actor.assignedSubjectIds ?? []).map(String));
+        if (!assignedClasses.size || !assignedSubjects.size) return { ...subject, classIds: [], classNames: [] };
+        const allowedAssignments = assignmentRows.filter((item) => item.subjectId === subject.id && assignedClasses.has(String(item.classId)) && assignedSubjects.has(String(item.subjectId)));
         return { ...subject, classIds: [...new Set(allowedAssignments.map((item) => item.classId))], classNames: [...new Set(allowedAssignments.map((item) => item.className ?? item.classId))] };
       }).filter((subject) => subject.classIds.length > 0)
       : result;
@@ -392,6 +400,7 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
 
   async function subjectAssigned(input, actor) {
     const subjectId = text(input.subjectId);
+    if (actor?.roleKey === 'TEACHER' && !authorized(actor, 'academics.manage') && !(actor.assignedSubjectIds ?? []).map(String).includes(subjectId)) return false;
     const configured = await listSubjects({ classId: input.classId, academicYearId: input.academicYearId || input.academicYear }, actor);
     return configured.some((subject) => text(subject.id) === subjectId);
   }
@@ -771,15 +780,42 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     assertActor(actor);
     if (!authorized(actor, mock ? 'mock.results.read' : 'results.read')) fail('Forbidden.', 403, 'ACADEMIC_PERMISSION_REQUIRED');
     const classId = text(input.classId);
+    assertClassScope(classId, actor);
     const period = await resolvePeriod(input);
-    const students = rows(await database.query(`SELECT DISTINCT s.id AS studentId,s.permanent_student_id AS permanentStudentId,s.first_name AS firstName,s.middle_name AS middleName,s.last_name AS surname
+    await classFor(classId);
+    if (mock) await assertMockClass(classId);
+    const subjectId = text(input.subjectId);
+    if (!subjectId) fail('Subject is required.', 400, 'SUBJECT_REQUIRED');
+    const catalog = await listSubjects({ classId, academicYearId: period.yearId }, actor);
+    if (!catalog.some((subject) => String(subject.id) === subjectId)) fail('Subject is not configured for the selected class and academic context.', 400, 'CLASS_SUBJECT_MISMATCH');
+    if (actor?.roleKey === 'TEACHER' && !authorized(actor, 'academics.manage') && !(actor.assignedSubjectIds ?? []).map(String).includes(subjectId)) fail('Subject is outside your assignment.', 403, 'SUBJECT_SCOPE_DENIED');
+    let rosterSql = `SELECT DISTINCT s.id AS studentId,s.permanent_student_id AS permanentStudentId,s.first_name AS firstName,s.middle_name AS middleName,s.last_name AS surname
       FROM students s JOIN student_enrollments e ON e.student_id=s.id AND e.school_id=s.school_id
-      WHERE s.school_id=? AND e.class_id=? AND e.academic_year_id=? AND e.term_id=? AND COALESCE(e.enrollment_status,'ACTIVE')='ACTIVE' AND COALESCE(e.is_current,1)=1 AND COALESCE(s.is_test_record,0)=0 ORDER BY s.last_name,s.first_name,s.id`, [schoolId, classId, period.yearId, period.termId]));
-    return Promise.all(students.map(async (student) => {
+      WHERE s.school_id=? AND e.class_id=? AND e.academic_year_id=? AND e.term_id=? AND s.permanent_student_id NOT LIKE 'OSAAH-DEMO-%' ORDER BY s.last_name,s.first_name,s.id`;
+    const rosterParams = [schoolId, classId, period.yearId, period.termId];
+    let students;
+    try { students = rows(await database.query(`${rosterSql.replace(' ORDER BY', " AND COALESCE(e.enrollment_status,'ACTIVE')='ACTIVE' AND COALESCE(e.is_current,1)=1 ORDER BY")}`, rosterParams)); }
+    catch (error) {
+      if (!missingOptionalEnrollmentStateColumn(error)) throw error;
+      rosterSql = rosterSql.replace(' AND COALESCE(e.enrollment_status,\'ACTIVE\')=\'ACTIVE\' AND COALESCE(e.is_current,1)=1', '');
+      students = rows(await database.query(rosterSql, rosterParams));
+    }
+    const assignedSubjects = actor?.roleKey === 'TEACHER' && !authorized(actor, 'academics.manage') ? new Set((actor.assignedSubjectIds ?? []).map(String)) : null;
+    if (actor?.roleKey === 'TEACHER' && !assignedSubjects.size) fail('Subject is outside your assignment.', 403, 'SUBJECT_SCOPE_DENIED');
+    const results = await Promise.all(students.map(async (student) => {
       const result = await canonicalResult({ ...input, studentId: student.studentId, classId, academicYear: period.yearId, term: period.termId }, actor, { mock });
-      const subjectTotals = Object.fromEntries(result.subjects.map((row) => [row.subjectName, row.totalScore]));
-      return { studentId: result.studentId, permanentStudentId: result.studentIndexNumber, studentName: result.studentName, classId, subjectTotals, totalScore: result.totalScore, aggregate: result.aggregate, averageScore: result.average, percentage: result.percentage, classPosition: result.classPosition ?? '—', isSample: false };
+      const subjects = result.subjects.filter((item) => !assignedSubjects || assignedSubjects.has(String(item.subjectId)));
+      const subjectTotals = Object.fromEntries(subjects.map((row) => [row.subjectName, row.totalScore]));
+      const subjectGrades = Object.fromEntries(subjects.map((row) => [row.subjectName, row.grade]));
+      const subjectCas = Object.fromEntries(subjects.map((row) => [row.subjectName, row.caScore]));
+      const subjectExams = Object.fromEntries(subjects.map((row) => [row.subjectName, row.examScore]));
+      const calculation = calculateStudentResult(subjects, { classId, examination: mock ? 'MOCK' : 'TERMINAL' });
+      const aggregateIds = new Set(result.aggregateSubjects);
+      const aggregateRows = subjects.filter((row) => aggregateIds.has(String(row.subjectId)));
+      return { studentId: result.studentId, permanentStudentId: result.studentIndexNumber, studentName: result.studentName, gender: result.gender ?? null, classId, subjectTotals, subjectGrades, subjectCas, subjectExams, totalScore: calculation.totalScore, averageScore: calculation.average ?? 0, aggregate: calculation.aggregate, aggregateTotal: aggregateRows.reduce((sum, row) => sum + Number(row.totalScore || 0), 0), aggregateCoreGradeSum: calculation.aggregateStatus === 'COMPLETE' ? aggregateRows.slice(0, 4).reduce((sum, row) => sum + Number(row.grade || 0), 0) : null, percentage: calculation.percentage, classPosition: '—', subjectsSat: calculation.subjectsSat, isSample: false };
     }));
+    const positions = calculateClassPositions(results.map(({ studentId, totalScore, aggregate, aggregateTotal, aggregateCoreGradeSum }) => ({ studentId, totalScore, aggregate, aggregateTotal, aggregateCoreGradeSum })), { classId });
+    return results.map((item) => ({ ...item, classPosition: positions.get(item.studentId) ?? '—' }));
   }
 
   return Object.freeze({ options, listSubjects, subjectCatalog, mockSubjectCatalog, subjectConfiguration, createSubject, updateSubject, deactivateSubject, subjectCascade, configureDefaultSubjects, listAssignments, assignSubject, deactivateSubjectAssignment, roster, sampleScoreEntryRoster, resultStudents, resultContext, saveScore, mockRoster, saveMockScore, listScores, resolvePeriod, result: canonicalResult, saveResult, publishResults: publishResult, publicationFor, savedResultFor: async (input, actor) => canonicalResult(input, actor), broadsheet });

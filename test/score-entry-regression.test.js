@@ -226,7 +226,7 @@ test('durable Score Entry HTTP contract keeps empty, sample, validation, authori
     },
     async execute() { return { affectedRows: 1 }; }
   };
-  const actor = { ...teacher, assignedClassIds: ['class_bs4_01'] };
+  const actor = { ...teacher, assignedClassIds: ['class_bs4_01'], assignedSubjectIds: ['subj_math'] };
   const auth = { authenticateAsync: async (token) => token === 'authorized' ? actor : null };
   const server = http.createServer(createApp({ auth, database, aiEnabled: false }));
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
