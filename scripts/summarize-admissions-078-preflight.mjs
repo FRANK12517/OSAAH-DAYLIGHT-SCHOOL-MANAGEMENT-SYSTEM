@@ -17,26 +17,102 @@ const orphanKeys = [
   'student_enrollment_academic_years', 'student_enrollment_terms',
   'parent_student_links'
 ];
-const missingCategories = new Set([
-  'admission_applications', 'student_enrollments', 'students', 'student_profiles',
-  'classes', 'academic_years', 'terms', 'student_id_sequences',
-  'parent_student_links', 'users', 'roles', 'permissions', 'role_permissions'
+const schemaColumns = {
+  admission_applications: ['id', 'school_id', 'student_id', 'application_number', 'stage', 'applicant_data'],
+  student_enrollments: ['school_id', 'student_id', 'class_id', 'academic_year_id', 'term_id', 'is_current'],
+  students: ['id', 'school_id', 'permanent_student_id'],
+  student_profiles: ['id', 'school_id', 'student_master_id', 'student_id', 'permanent_student_id'],
+  classes: ['id'], academic_years: ['id', 'school_id'], terms: ['id', 'academic_year_id'],
+  student_id_sequences: ['admission_year', 'next_sequence'],
+  parent_student_links: ['parent_user_id', 'student_id', 'link_status'],
+  users: ['id', 'school_id'], roles: ['id', 'school_id', 'role_key'],
+  permissions: ['id', 'permission_key'], role_permissions: ['role_id', 'permission_id']
+};
+const schemaObjectNames = new Set(Object.entries(schemaColumns).flatMap(([table, columns]) => [`${table}.*`, ...columns.map((column) => `${table}.${column}`)]));
+const expectedColumnDefinitions = new Map([
+  ['admission_applications.enquiry_request_id', { type: 'varchar(64)', nullable: 'YES' }],
+  ['admission_applications.permanent_student_id', { type: 'varchar(128)', nullable: 'YES' }]
 ]);
 const correctiveActions = {
-  PREFLIGHT_REPORT_INVALID: 'Inspect workflow artifact generation; do not apply Migration 078.',
+  PREFLIGHT_REPORT_INVALID: 'Inspect diagnostic generation; do not apply Migration 078.',
   PREFLIGHT_EXECUTION_FAILED: 'Inspect the sanitized error category and correct the connection or runtime issue.',
   DATABASE_ENGINE_UNSUPPORTED: 'Confirm the authorized production database engine before proceeding.',
-  MIGRATION_PREREQUISITES_MISSING: 'Review and reconcile the required schema prerequisites before rerunning preflight.',
-  SCHEMA_DEFINITION_MISMATCH: 'Review the required column, index, or constraint definitions before rerunning preflight.',
-  DUPLICATE_RECORDS_FOUND: 'Reconcile duplicate records through an independently reviewed, authorized procedure.',
-  ORPHAN_RECORDS_FOUND: 'Reconcile orphan relationships through an independently reviewed, authorized procedure.',
+  MIGRATION_PREREQUISITES_MISSING: 'Compare the exact missing objects with canonical schema history and equivalents; do not add parallel tables or apply Migration 078.',
+  SCHEMA_DEFINITION_MISMATCH: 'Review the expected and actual column definitions against canonical migrations before any schema change.',
+  DUPLICATE_RECORDS_FOUND: 'Reconcile duplicates only through an independently reviewed, authorized procedure.',
+  ORPHAN_RECORDS_FOUND: 'Reconcile orphan relationships only through an independently reviewed, authorized procedure.',
   STUDENT_ID_SEQUENCE_INCOMPATIBLE: 'Review student ID sequence compatibility before rerunning preflight.',
   PREFLIGHT_SAFETY_CHECK_FAILED: 'Keep Migration 078 blocked until all read-only safety checks pass.',
   PREFLIGHT_PASSED: 'Eligible for the separately protected apply procedure, subject to backup confirmation and authorization.'
 };
 
 const countValue = (value) => Number.isSafeInteger(value) && value >= 0 ? value : null;
-const countMap = (source, keys) => Object.fromEntries(keys.map((key) => [key, countValue(source?.[key]) ?? 0]));
+const countsAvailable = (source, keys) => keys.every((key) => countValue(source?.[key]) !== null);
+const countMap = (source, keys, available) => Object.fromEntries(keys.map((key) => [key, available ? countValue(source?.[key]) : null]));
+const safeType = (value) => {
+  if (typeof value !== 'string') return 'UNKNOWN';
+  const type = value.toLowerCase();
+  if (/^(?:varchar|char)\(\d+\)$/.test(type)) return type;
+  if (['tinytext', 'text', 'mediumtext', 'longtext', 'tinyblob', 'blob', 'mediumblob', 'longblob'].includes(type)) return type;
+  if (/^(?:tinyint|smallint|mediumint|int|integer|bigint)(?:\(\d+\))?(?: unsigned)?$/.test(type)) return type;
+  if (/^(?:decimal|numeric)\(\d+,\d+\)$/.test(type)) return type;
+  if (['date', 'datetime', 'timestamp', 'time', 'year', 'float', 'double', 'json', 'boolean'].includes(type)) return type;
+  return 'OTHER';
+};
+const safeNullable = (value) => value === 'YES' || value === 'NO' ? value : 'UNKNOWN';
+
+function safeMissingObjects(report) {
+  if (!Array.isArray(report?.missingPrerequisites)) return { names: [], valid: false };
+  const valid = report.missingPrerequisites.every((item) => typeof item === 'string' && schemaObjectNames.has(item));
+  return { names: [...new Set(report.missingPrerequisites.filter((item) => typeof item === 'string' && schemaObjectNames.has(item)))].sort(), valid };
+}
+
+function safeSchemaFindings(report, missingObjects) {
+  if (!Array.isArray(report?.schemaObjectFindings)) return { findings: [], valid: false };
+  const findings = [];
+  const represented = [];
+  let valid = true;
+  for (const item of report.schemaObjectFindings) {
+    if (!item || typeof item !== 'object' || Array.isArray(item) || !Object.hasOwn(schemaColumns, item.table) || !Array.isArray(item.missingColumns)) {
+      valid = false;
+      continue;
+    }
+    const allowedColumns = schemaColumns[item.table];
+    if (!item.missingColumns.every((column) => allowedColumns.includes(column))) { valid = false; continue; }
+    const missingColumns = [...new Set(item.missingColumns)].sort();
+    if (item.tableStatus === 'MISSING' && item.tableType === 'MISSING') {
+      if (missingColumns.length !== allowedColumns.length) valid = false;
+      represented.push(`${item.table}.*`, ...missingColumns.map((column) => `${item.table}.${column}`));
+    } else if (item.tableStatus === 'PRESENT' && ['BASE TABLE', 'VIEW'].includes(item.tableType) && missingColumns.length) {
+      represented.push(...missingColumns.map((column) => `${item.table}.${column}`));
+    } else {
+      valid = false;
+      continue;
+    }
+    findings.push({ table: item.table, tableStatus: item.tableStatus, tableType: item.tableType, missingColumns });
+  }
+  const normalizedRepresented = [...new Set(represented)].sort();
+  if (JSON.stringify(normalizedRepresented) !== JSON.stringify(missingObjects)) valid = false;
+  return { findings, valid };
+}
+
+function safeColumnMismatches(report) {
+  if (!Array.isArray(report?.columnDefinitionMismatches)) return { details: [], valid: false };
+  const details = [];
+  let valid = true;
+  for (const item of report.columnDefinitionMismatches) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) { valid = false; continue; }
+    const object = `${item.table}.${item.name}`;
+    const expected = expectedColumnDefinitions.get(object);
+    if (!expected || item.expectedType !== expected.type || item.expectedNullable !== expected.nullable) { valid = false; continue; }
+    details.push({
+      object,
+      expected: { type: expected.type, nullable: expected.nullable },
+      actual: { type: safeType(item.actualType), nullable: safeNullable(item.actualNullable) }
+    });
+  }
+  return { details, valid: valid && details.length === report.columnDefinitionMismatches.length };
+}
 
 export function buildSummary(report, nodeExitCode) {
   const validObject = report !== null && typeof report === 'object' && !Array.isArray(report);
@@ -44,40 +120,49 @@ export function buildSummary(report, nodeExitCode) {
   const hasJson = validObject && typeof report.ok === 'boolean';
   const safeErrorCode = hasJson && typeof report.error?.code === 'string' && knownErrorCodes.has(report.error.code)
     ? report.error.code : (hasJson && report.error ? 'ADMISSIONS_PREFLIGHT_FAILED' : null);
-  const missing = hasJson && Array.isArray(report.missingPrerequisites)
-    ? [...new Set(report.missingPrerequisites.map((item) => String(item).split('.')[0]).filter((item) => missingCategories.has(item)))].sort()
-    : [];
-  const duplicates = hasJson ? countMap(report.duplicateGroups, duplicateKeys) : {};
-  const orphans = hasJson ? countMap(report.orphanCounts, orphanKeys) : {};
+  const missingResult = hasJson ? safeMissingObjects(report) : { names: [], valid: false };
+  const missingObjects = missingResult.names;
+  const missingCategories = [...new Set(missingObjects.map((item) => item.split('.')[0]))].sort();
+  const schemaFindings = hasJson ? safeSchemaFindings(report, missingObjects) : { findings: [], valid: false };
+  const columnResult = hasJson ? safeColumnMismatches(report) : { details: [], valid: false };
+  const checksSkipped = hasJson && missingObjects.length > 0;
+  const duplicatesAvailable = hasJson && !checksSkipped && countsAvailable(report.duplicateGroups, duplicateKeys);
+  const orphansAvailable = hasJson && !checksSkipped && countsAvailable(report.orphanCounts, orphanKeys);
+  const duplicates = hasJson ? countMap(report.duplicateGroups, duplicateKeys, duplicatesAvailable) : {};
+  const orphans = hasJson ? countMap(report.orphanCounts, orphanKeys, orphansAvailable) : {};
+  const duplicateTotal = duplicatesAvailable ? Object.values(duplicates).reduce((sum, n) => sum + n, 0) : null;
+  const orphanTotal = orphansAvailable ? Object.values(orphans).reduce((sum, n) => sum + n, 0) : null;
   const columnMismatchCount = hasJson && Array.isArray(report.columnDefinitionMismatches) ? report.columnDefinitionMismatches.length : 0;
   const indexMismatchCount = hasJson && Array.isArray(report.indexDefinitionMismatches) ? report.indexDefinitionMismatches.length : 0;
   const invalidSequenceCount = hasJson && Array.isArray(report.invalidSequenceYears) ? report.invalidSequenceYears.length : 0;
   const counterBehindCount = hasJson && Array.isArray(report.counterBehindYears) ? report.counterBehindYears.length : 0;
   const malformedIdCount = hasJson ? countValue(report.malformedStudentIdCount) ?? 0 : 0;
   const engine = hasJson && report.databaseEngine === 'TiDB' ? 'TiDB' : (hasJson && report.databaseEngine === 'UNKNOWN' ? 'UNKNOWN' : 'UNRECOGNIZED');
-  const prerequisites = hasJson ? (missing.length ? 'MISSING' : 'PRESENT') : 'UNKNOWN';
-  const migrationPrerequisites = hasJson && Array.isArray(report.missingPrerequisites) ? prerequisites : 'UNKNOWN';
-  const duplicateTotal = Object.values(duplicates).reduce((sum, n) => sum + n, 0);
-  const orphanTotal = Object.values(orphans).reduce((sum, n) => sum + n, 0);
-  const completeDiagnostics = hasJson && Array.isArray(report.missingPrerequisites)
-    && report.missingPrerequisites.every((item) => typeof item === 'string' && missingCategories.has(item.split('.')[0]))
-    && Array.isArray(report.columnDefinitionMismatches) && Array.isArray(report.indexDefinitionMismatches)
-    && Array.isArray(report.invalidSequenceYears) && Array.isArray(report.counterBehindYears)
-    && Array.isArray(report.annualSequenceReconciliation) && Number.isSafeInteger(report.malformedStudentIdCount)
-    && duplicateKeys.every((key) => countValue(report.duplicateGroups?.[key]) !== null)
-    && orphanKeys.every((key) => countValue(report.orphanCounts?.[key]) !== null);
-  const safetyValid = hasJson && validStatus && completeDiagnostics && report.mode === 'READ_ONLY_PREFLIGHT' && report.writesPerformed === false && engine === 'TiDB';
+  const migrationPrerequisites = hasJson && Array.isArray(report.missingPrerequisites)
+    ? (missingObjects.length ? 'MISSING' : 'PRESENT') : 'UNKNOWN';
+  const duplicateCheckStatus = checksSkipped ? 'SKIPPED_PREREQUISITES_MISSING' : duplicatesAvailable ? 'COMPLETE' : 'INCOMPLETE';
+  const orphanCheckStatus = checksSkipped ? 'SKIPPED_PREREQUISITES_MISSING' : orphansAvailable ? 'COMPLETE' : 'INCOMPLETE';
+  const validDataCheckShape = checksSkipped
+    ? Object.keys(report.duplicateGroups ?? {}).length === 0 && Object.keys(report.orphanCounts ?? {}).length === 0
+    : duplicatesAvailable && orphansAvailable;
+  const completeDiagnostics = hasJson && validStatus && missingResult.valid && schemaFindings.valid && columnResult.valid
+    && Array.isArray(report.indexDefinitionMismatches) && Array.isArray(report.invalidSequenceYears)
+    && Array.isArray(report.counterBehindYears) && Array.isArray(report.annualSequenceReconciliation)
+    && Number.isSafeInteger(report.malformedStudentIdCount) && validDataCheckShape
+    && (!checksSkipped || !report.ok);
+  const safetyValid = completeDiagnostics && report.mode === 'READ_ONLY_PREFLIGHT' && report.writesPerformed === false && engine === 'TiDB';
   const passed = safetyValid && report.ok === true && nodeExitCode === 0 && migrationPrerequisites === 'PRESENT'
+    && duplicateCheckStatus === 'COMPLETE' && orphanCheckStatus === 'COMPLETE'
     && duplicateTotal === 0 && orphanTotal === 0 && columnMismatchCount === 0 && indexMismatchCount === 0
     && invalidSequenceCount === 0 && counterBehindCount === 0 && malformedIdCount === 0;
   let failureCategory = 'PREFLIGHT_REPORT_INVALID';
-  if (!hasJson || !validStatus) failureCategory = 'PREFLIGHT_REPORT_INVALID';
+  if (!hasJson || !validStatus || !completeDiagnostics) failureCategory = 'PREFLIGHT_REPORT_INVALID';
   else if (safeErrorCode) failureCategory = 'PREFLIGHT_EXECUTION_FAILED';
   else if (engine !== 'TiDB') failureCategory = 'DATABASE_ENGINE_UNSUPPORTED';
   else if (migrationPrerequisites === 'MISSING') failureCategory = 'MIGRATION_PREREQUISITES_MISSING';
   else if (columnMismatchCount || indexMismatchCount) failureCategory = 'SCHEMA_DEFINITION_MISMATCH';
-  else if (duplicateTotal) failureCategory = 'DUPLICATE_RECORDS_FOUND';
-  else if (orphanTotal) failureCategory = 'ORPHAN_RECORDS_FOUND';
+  else if (duplicateTotal !== null && duplicateTotal > 0) failureCategory = 'DUPLICATE_RECORDS_FOUND';
+  else if (orphanTotal !== null && orphanTotal > 0) failureCategory = 'ORPHAN_RECORDS_FOUND';
   else if (invalidSequenceCount || counterBehindCount || malformedIdCount) failureCategory = 'STUDENT_ID_SEQUENCE_INCOMPATIBLE';
   else if (nodeExitCode !== 0 || !report.ok || !safetyValid) failureCategory = 'PREFLIGHT_SAFETY_CHECK_FAILED';
   else failureCategory = 'PREFLIGHT_PASSED';
@@ -88,16 +173,19 @@ export function buildSummary(report, nodeExitCode) {
     errorCode: safeErrorCode,
     nodeExitCode: validStatus ? nodeExitCode : null,
     databaseEngine: engine,
-    migrationPrerequisites: { status: migrationPrerequisites, missingCategories: missing },
-    missingSchemaObjectCategoryCount: missing.length,
+    migrationPrerequisites: { status: migrationPrerequisites, missingCategories, missingSchemaObjects: missingObjects, schemaObjectFindings: schemaFindings.findings },
+    missingSchemaObjectCategoryCount: missingCategories.length,
+    duplicateCheckStatus,
     duplicateRecordCounts: duplicates,
     duplicateRecordTotal: duplicateTotal,
+    orphanCheckStatus,
     orphanRecordCounts: orphans,
     orphanRecordTotal: orphanTotal,
     studentIdSequenceCompatibility: hasJson
       ? (invalidSequenceCount || counterBehindCount || malformedIdCount ? 'INCOMPATIBLE' : 'COMPATIBLE') : 'UNKNOWN',
-    schemaCompatibility: hasJson && (columnMismatchCount || indexMismatchCount) ? 'MISMATCH' : hasJson ? 'COMPATIBLE' : 'UNKNOWN',
+    schemaCompatibility: hasJson && (missingObjects.length || columnMismatchCount || indexMismatchCount) ? 'MISMATCH' : hasJson ? 'COMPATIBLE' : 'UNKNOWN',
     columnDefinitionMismatchCount: columnMismatchCount,
+    columnDefinitionMismatches: columnResult.details,
     indexConstraintMismatchCount: indexMismatchCount,
     requiredCorrectiveAction: correctiveActions[passed ? 'PREFLIGHT_PASSED' : failureCategory]
   };

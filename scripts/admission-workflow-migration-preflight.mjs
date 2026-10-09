@@ -2,8 +2,8 @@ import mysql from 'mysql2/promise';
 
 const expectedDatabase = 'osaahdaylightschool';
 const expectedColumns = [
-  { table: 'admission_applications', name: 'enquiry_request_id', type: 'varchar(64)' },
-  { table: 'admission_applications', name: 'permanent_student_id', type: 'varchar(128)' }
+  { table: 'admission_applications', name: 'enquiry_request_id', type: 'varchar(64)', nullable: 'YES' },
+  { table: 'admission_applications', name: 'permanent_student_id', type: 'varchar(128)', nullable: 'YES' }
 ];
 const expectedIndexes = [
   { table: 'admission_applications', name: 'uq_admission_applications_enquiry_request', columns: ['school_id', 'enquiry_request_id'] },
@@ -24,10 +24,11 @@ if (!process.env.DATABASE_URL) {
     const [[versionRow]] = await pool.query('SELECT VERSION() AS server_version');
     const serverVersion = String(versionRow?.server_version ?? 'unknown');
     const isTiDB = /tidb/i.test(serverVersion);
-    const [tableRows] = await pool.query('SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE()');
+    const [tableRows] = await pool.query('SELECT TABLE_NAME,TABLE_TYPE FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE()');
     const [columnRows] = await pool.query('SELECT TABLE_NAME,COLUMN_NAME,COLUMN_TYPE,IS_NULLABLE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE()');
     const [indexRows] = await pool.query('SELECT TABLE_NAME,INDEX_NAME,COLUMN_NAME,SEQ_IN_INDEX,NON_UNIQUE FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN (\'admission_applications\',\'student_enrollments\') ORDER BY TABLE_NAME,INDEX_NAME,SEQ_IN_INDEX');
-    const tables = new Set(tableRows.map((row) => String(row.TABLE_NAME).toLowerCase()));
+    const tableTypes = new Map(tableRows.map((row) => [String(row.TABLE_NAME).toLowerCase(), String(row.TABLE_TYPE ?? '').toUpperCase()]));
+    const tables = new Set(tableTypes.keys());
     const columns = new Set(columnRows.map((row) => `${String(row.TABLE_NAME).toLowerCase()}.${String(row.COLUMN_NAME).toLowerCase()}`));
     const columnMetadata = new Map(columnRows.map((row) => [`${String(row.TABLE_NAME).toLowerCase()}.${String(row.COLUMN_NAME).toLowerCase()}`, { type: String(row.COLUMN_TYPE ?? '').toLowerCase(), nullable: String(row.IS_NULLABLE ?? '').toUpperCase() }]));
     const required = {
@@ -46,10 +47,17 @@ if (!process.env.DATABASE_URL) {
       if (!tables.has(table)) missing.push(`${table}.*`);
       for (const column of names) if (!columns.has(`${table}.${column}`)) missing.push(`${table}.${column}`);
     }
-    const columnDefinitionMismatches = expectedColumns.filter(({ table, name, type }) => {
+    const schemaObjectFindings = Object.entries(required).flatMap(([table, names]) => {
+      const missingColumns = names.filter((column) => !columns.has(`${table}.${column}`));
+      if (tables.has(table) && !missingColumns.length) return [];
+      return [{ table, tableStatus: tables.has(table) ? 'PRESENT' : 'MISSING', tableType: tableTypes.get(table) ?? 'MISSING', missingColumns }];
+    });
+    const columnDefinitionMismatches = expectedColumns.flatMap(({ table, name, type, nullable }) => {
       const actual = columnMetadata.get(`${table}.${name}`);
-      return actual && (actual.type !== type || actual.nullable !== 'YES');
-    }).map(({ table, name }) => `${table}.${name}`);
+      return actual && (actual.type !== type || actual.nullable !== nullable)
+        ? [{ table, name, expectedType: type, expectedNullable: nullable, actualType: actual.type, actualNullable: actual.nullable }]
+        : [];
+    });
     const indexGroups = new Map();
     for (const row of indexRows) {
       const key = `${String(row.TABLE_NAME).toLowerCase()}.${String(row.INDEX_NAME)}`;
@@ -101,7 +109,7 @@ if (!process.env.DATABASE_URL) {
     const report = {
       ok: isTiDB && missing.length === 0 && columnDefinitionMismatches.length === 0 && indexDefinitionMismatches.length === 0 && !Object.values(duplicateGroups).some(Boolean) && !Object.values(orphanCounts).some(Boolean) && malformedStudentIds === 0 && invalidSequenceRows.length === 0 && counterBehindYears.length === 0,
       mode: 'READ_ONLY_PREFLIGHT', migration: '078_admissions_leadership_access.sql', connectedDatabase: database.database_name,
-      databaseEngine: isTiDB ? 'TiDB' : 'UNKNOWN', serverVersion, missingPrerequisites: missing,
+      databaseEngine: isTiDB ? 'TiDB' : 'UNKNOWN', serverVersion, missingPrerequisites: missing, schemaObjectFindings,
       columnDefinitionMismatches, indexDefinitionMismatches, duplicateGroups, orphanCounts,
       existingStudentIdSequenceRows: sequences, annualSequenceReconciliation, malformedStudentIdCount: malformedStudentIds, invalidSequenceYears: invalidSequenceRows, counterBehindYears,
       indexesRelevantToMigration: indexRows.map((row) => ({ table: row.TABLE_NAME, name: row.INDEX_NAME, column: row.COLUMN_NAME, sequence: Number(row.SEQ_IN_INDEX), nonUnique: Number(row.NON_UNIQUE) })),
