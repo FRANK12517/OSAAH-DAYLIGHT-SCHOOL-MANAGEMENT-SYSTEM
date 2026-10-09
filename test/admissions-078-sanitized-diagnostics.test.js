@@ -18,7 +18,7 @@ const orphans = Object.fromEntries([
 ].map((key) => [key, 0]));
 const healthyReport = () => ({
   ok: true, mode: 'READ_ONLY_PREFLIGHT', writesPerformed: false, databaseEngine: 'TiDB',
-  missingPrerequisites: [], columnDefinitionMismatches: [], indexDefinitionMismatches: [],
+  missingPrerequisites: [], schemaObjectFindings: [], columnDefinitionMismatches: [], indexDefinitionMismatches: [],
   duplicateGroups: { ...duplicates }, orphanCounts: { ...orphans }, malformedStudentIdCount: 0,
   invalidSequenceYears: [], counterBehindYears: [], annualSequenceReconciliation: []
 });
@@ -75,7 +75,7 @@ test('missing, empty, and malformed reports fail closed', async () => {
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
-test('unexpected fields are ignored and sensitive values never appear in summary output', () => {
+test('unexpected and sensitive fields are ignored by the explicit allow-list', () => {
   const report = { ...healthyReport(), studentName: 'PRIVATE_STUDENT', DATABASE_URL: 'mysql://secret', rawSql: 'SECRET_SQL', unexpected: 'TOKEN_SECRET' };
   const output = JSON.stringify(buildSummary(report, 0));
   for (const secret of ['PRIVATE_STUDENT', 'mysql://secret', 'SECRET_SQL', 'TOKEN_SECRET']) assert.equal(output.includes(secret), false);
@@ -87,13 +87,26 @@ test('unknown or unsafe error codes are reduced to a fixed safe code', () => {
   assert.equal(buildSummary(report, 1).errorCode, 'ADMISSIONS_PREFLIGHT_FAILED');
 });
 
-test('wrong engine, writesPerformed, and missing prerequisites fail closed', () => {
+test('wrong engine, writesPerformed, and exact missing schema objects fail closed', () => {
   const wrongEngine = healthyReport(); wrongEngine.databaseEngine = 'MySQL';
   assert.equal(buildSummary(wrongEngine, 0).ok, false);
   const writes = healthyReport(); writes.writesPerformed = true;
   assert.equal(buildSummary(writes, 0).ok, false);
-  const prerequisites = healthyReport(); prerequisites.missingPrerequisites = ['students.permanent_student_id'];
-  assert.equal(buildSummary(prerequisites, 0).failureCategory, 'MIGRATION_PREREQUISITES_MISSING');
+  const prerequisites = healthyReport();
+  prerequisites.missingPrerequisites = ['student_profiles.student_master_id', 'student_enrollments.*', 'student_enrollments.school_id', 'student_enrollments.student_id', 'student_enrollments.class_id', 'student_enrollments.academic_year_id', 'student_enrollments.term_id', 'student_enrollments.is_current'];
+  prerequisites.schemaObjectFindings = [
+    { table: 'student_profiles', tableStatus: 'PRESENT', tableType: 'BASE TABLE', missingColumns: ['student_master_id'] },
+    { table: 'student_enrollments', tableStatus: 'MISSING', tableType: 'MISSING', missingColumns: ['school_id', 'student_id', 'class_id', 'academic_year_id', 'term_id', 'is_current'] }
+  ];
+  prerequisites.duplicateGroups = {}; prerequisites.orphanCounts = {};
+  prerequisites.ok = false;
+  const summary = buildSummary(prerequisites, 2);
+  assert.equal(summary.failureCategory, 'MIGRATION_PREREQUISITES_MISSING');
+  assert.deepEqual(summary.migrationPrerequisites.missingSchemaObjects, [
+    'student_enrollments.*', 'student_enrollments.academic_year_id', 'student_enrollments.class_id',
+    'student_enrollments.is_current', 'student_enrollments.school_id', 'student_enrollments.student_id',
+    'student_enrollments.term_id', 'student_profiles.student_master_id'
+  ]);
 });
 
 test('duplicate, orphan, index, and sequence findings each block success', () => {
@@ -105,6 +118,58 @@ test('duplicate, orphan, index, and sequence findings each block success', () =>
   assert.equal(buildSummary(index, 0).failureCategory, 'SCHEMA_DEFINITION_MISMATCH');
   const sequence = healthyReport(); sequence.counterBehindYears = ['private-year-data'];
   assert.equal(buildSummary(sequence, 0).failureCategory, 'STUDENT_ID_SEQUENCE_INCOMPATIBLE');
+});
+
+test('expected and actual column definitions are exposed only for approved schema identifiers', () => {
+  const report = healthyReport(); report.ok = false;
+  report.columnDefinitionMismatches = [{
+    table: 'admission_applications', name: 'permanent_student_id',
+    expectedType: 'varchar(128)', expectedNullable: 'YES',
+    actualType: 'varchar(32)', actualNullable: 'NO', extra: 'PRIVATE_VALUE'
+  }];
+  const summary = buildSummary(report, 2);
+  assert.equal(summary.failureCategory, 'SCHEMA_DEFINITION_MISMATCH');
+  assert.deepEqual(summary.columnDefinitionMismatches, [{
+    object: 'admission_applications.permanent_student_id',
+    expected: { type: 'varchar(128)', nullable: 'YES' },
+    actual: { type: 'varchar(32)', nullable: 'NO' }
+  }]);
+  assert.equal(JSON.stringify(summary).includes('PRIVATE_VALUE'), false);
+});
+
+test('unknown mismatch identifiers or prerequisite strings make the report invalid', () => {
+  const mismatch = healthyReport(); mismatch.ok = false;
+  mismatch.columnDefinitionMismatches = [{ table: 'private_table', name: 'private_column', expectedType: 'secret', expectedNullable: 'NO', actualType: 'secret', actualNullable: 'NO' }];
+  assert.equal(buildSummary(mismatch, 2).failureCategory, 'PREFLIGHT_REPORT_INVALID');
+  const prerequisite = healthyReport(); prerequisite.ok = false; prerequisite.missingPrerequisites = ['private_table.private_column'];
+  assert.equal(buildSummary(prerequisite, 2).failureCategory, 'PREFLIGHT_REPORT_INVALID');
+});
+
+test('data checks skipped for missing prerequisites are reported as skipped, not as zero findings', () => {
+  const report = healthyReport(); report.ok = false;
+  report.missingPrerequisites = ['student_profiles.*', 'student_profiles.id', 'student_profiles.school_id', 'student_profiles.student_master_id', 'student_profiles.student_id', 'student_profiles.permanent_student_id'];
+  report.schemaObjectFindings = [{ table: 'student_profiles', tableStatus: 'MISSING', tableType: 'MISSING', missingColumns: ['id', 'school_id', 'student_master_id', 'student_id', 'permanent_student_id'] }];
+  report.duplicateGroups = {}; report.orphanCounts = {};
+  const summary = buildSummary(report, 2);
+  assert.equal(summary.duplicateCheckStatus, 'SKIPPED_PREREQUISITES_MISSING');
+  assert.equal(summary.orphanCheckStatus, 'SKIPPED_PREREQUISITES_MISSING');
+  assert.equal(summary.duplicateRecordTotal, null);
+  assert.equal(summary.orphanRecordTotal, null);
+  assert.equal(summary.ok, false);
+  const contradictory = { ...report, duplicateGroups: { ...duplicates }, orphanCounts: { ...orphans } };
+  const unsafeSummary = buildSummary(contradictory, 2);
+  assert.equal(unsafeSummary.failureCategory, 'PREFLIGHT_REPORT_INVALID');
+  assert.equal(unsafeSummary.duplicateRecordTotal, null);
+});
+
+test('schema-object findings distinguish missing tables from missing columns and views', () => {
+  const report = healthyReport(); report.ok = false;
+  report.missingPrerequisites = ['student_profiles.student_id'];
+  report.schemaObjectFindings = [{ table: 'student_profiles', tableStatus: 'PRESENT', tableType: 'VIEW', missingColumns: ['student_id'] }];
+  const summary = buildSummary(report, 2);
+  assert.deepEqual(summary.migrationPrerequisites.schemaObjectFindings, [
+    { table: 'student_profiles', tableStatus: 'PRESENT', tableType: 'VIEW', missingColumns: ['student_id'] }
+  ]);
 });
 
 test('malformed success shape and unsafe booleans cannot pass', () => {
