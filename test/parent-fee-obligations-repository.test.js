@@ -18,6 +18,7 @@ test('parent obligation reads are authenticated, parameterized, and grouped by c
   assert.match(seen.sql, /s\.last_name AS surname/);
   assert.doesNotMatch(seen.sql, /s\.surname/);
   assert.match(seen.sql, /link_status='ACTIVE'/);
+  assert.match(seen.sql, /fo\.status='PUBLISHED'/);
 });
 
 test('non-parent actors cannot read parent obligations', async () => {
@@ -35,4 +36,5 @@ test('Parent obligation class filters use the stored period obligation class and
   assert.deepEqual(seen.params, ['school-a', 'parent-1', 'school-a', 'year-1', 'term-1', 'PUBLISHED', 'class-historical']);
   assert.match(seen.sql, /\(fo\.class_id=\? OR fo\.class_id IS NULL\)/);
   assert.doesNotMatch(seen.sql, /sp\.class_id=\?/);
+  assert.match(seen.sql, /fo\.status='PUBLISHED'/);
 });

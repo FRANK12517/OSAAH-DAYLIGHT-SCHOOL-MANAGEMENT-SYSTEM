@@ -17,15 +17,10 @@ test('Migration 068 is uniquely numbered and has a stable checksum for the commi
   assert.ok(foundation);
   assert.equal(foundation.name, '068_academic_score_records_foundation.sql');
   assert.equal(foundation.checksum, createHash('sha256').update(schema).digest('hex'));
-  assert.deepEqual(migrations.slice(-8).map((item) => item.version), [71, 72, 73, 74, 75, 76, 77, 78]);
-  assert.equal(migrations.at(-8).name, '071_school_admin_results_reports_permission.sql');
-  assert.equal(migrations.at(-7).name, '072_school_admin_mock_score_entry_permission.sql');
-  assert.equal(migrations.at(-6).name, '073_subject_updated_at.sql');
-  assert.equal(migrations.at(-5).name, '074_durable_promotion_rollover.sql');
-  assert.equal(migrations.at(-4).name, '075_result_blocking_examination_scope.sql');
-  assert.equal(migrations.at(-3).name, '076_durable_announcements.sql');
-  assert.equal(migrations.at(-2).name, '077_durable_sms_messages.sql');
-  assert.equal(migrations.at(-1).name, '078_admissions_leadership_access.sql');
+  assert.deepEqual(migrations.filter((item) => item.version >= 71).map((item) => item.version), [71, 72, 73, 74, 75, 76, 77, 78, 79]);
+  for (const [version, name] of [[71, '071_school_admin_results_reports_permission.sql'], [72, '072_school_admin_mock_score_entry_permission.sql'], [73, '073_subject_updated_at.sql'], [74, '074_durable_promotion_rollover.sql'], [75, '075_result_blocking_examination_scope.sql'], [76, '076_durable_announcements.sql'], [77, '077_durable_sms_messages.sql'], [78, '078_admissions_leadership_access.sql'], [79, '079_attendance_legacy_schema_compatibility.sql']]) {
+    assert.equal(migrations.find((item) => item.version === version).name, name);
+  }
   assert.equal(new Set(migrations.map((item) => item.version)).size, migrations.length);
 });
 

@@ -8,6 +8,9 @@ const classSelect = context.elements.classId;
 const subjectSelect = context.elements.subjectId;
 const timers = new WeakMap();
 const sequences = new WeakMap();
+const latestSaves = new WeakMap();
+const activeSaves = new WeakSet();
+const queuedSaves = new WeakSet();
 const classNames = new Map(SCHOOL_CLASS_CATALOGUE.map((item) => [item.id, item.label]));
 let options = { classes: [] };
 let currentClass = '';
@@ -40,6 +43,8 @@ function clearRoster(message = 'Choose a class and subject.') {
   studentsHost.querySelectorAll('tr[data-student]').forEach((row) => {
     clearTimeout(timers.get(row));
     sequences.set(row, (sequences.get(row) || 0) + 1);
+    latestSaves.delete(row);
+    queuedSaves.delete(row);
   });
   studentsHost.innerHTML = `<tr><td colspan="7">${esc(message)}</td></tr>`;
 }
@@ -100,6 +105,7 @@ function render(students, classId) {
     const total = student.totalScore ?? 0;
     return `<tr data-student="${esc(student.studentId)}" data-sample="${Boolean(student.isTestRecord)}"><td data-label="Student ID">${esc(student.permanentStudentId)}${student.isTestRecord ? ' <small>(SAMPLE DATA)</small>' : ''}</td><td data-label="Student Name">${esc(student.studentName)}</td><td data-label="CA / 50"><input class="ca" type="number" min="0" max="50" step="0.01" value="${esc(ca)}" aria-label="CA score for ${esc(student.studentName)}"></td><td data-label="Exam / 50"><input class="exam" type="number" min="0" max="50" step="0.01" value="${esc(exam)}" aria-label="Exam score for ${esc(student.studentName)}"></td><td data-label="Total" class="total">${Number(total).toFixed(2)}</td><td data-label="Grade" class="grade">${esc(student.grade ?? grade(total, classId))}</td><td data-label="Save Status" class="save-status">${student.saved ? 'Saved' : 'Not saved'}</td></tr>`;
   }).join('') || '<tr><td colspan="7">No students found for the selected class, term and academic year.</td></tr>';
+  const classLabel = classSelect.selectedOptions?.[0]?.textContent?.trim() || classNames.get(classId) || classId;
   studentsHost.querySelectorAll('tr[data-student]').forEach((row) => {
     const totalCell = row.querySelector('.total');
     const gradeCell = row.querySelector('.grade');
@@ -109,15 +115,17 @@ function render(students, classId) {
       const examInput = row.querySelector('.exam');
       const ca = Number(caInput.value);
       const exam = Number(examInput.value);
-      if (!Number.isFinite(ca) || ca < 0 || ca > 50 || !Number.isFinite(exam) || exam < 0 || exam > 50) {
+      if (!caInput.value.trim() || !examInput.value.trim() || !Number.isFinite(ca) || ca < 0 || ca > 50 || !Number.isFinite(exam) || exam < 0 || exam > 50) {
         clearTimeout(timers.get(row));
         sequences.set(row, (sequences.get(row) || 0) + 1);
+        latestSaves.delete(row);
+        queuedSaves.delete(row);
         stateCell.textContent = 'Invalid score: use 0–50';
         return;
       }
       const total = ca + exam;
       totalCell.textContent = total.toFixed(2);
-      gradeCell.textContent = grade(total, classId);
+      gradeCell.textContent = grade(total, classLabel);
       stateCell.textContent = 'Unsaved changes';
       scheduleSave(row, ca, exam, stateCell);
     };
@@ -129,22 +137,54 @@ function scheduleSave(row, caScore, examScore, stateCell) {
   clearTimeout(timers.get(row));
   const sequence = (sequences.get(row) || 0) + 1;
   sequences.set(row, sequence);
-  timers.set(row, setTimeout(() => save(row, caScore, examScore, stateCell, sequence), 450));
+  // Capture the canonical IDs and context for this edit. Do not read mutable
+  // selectors later when the debounce expires or a network retry is requested.
+  const data = { academicYear: academicYearSelect.value.trim(), term: termSelect.value, classId: classSelect.value, subjectId: subjectSelect.value, studentId: row.dataset.student, caScore, examScore, sampleMode: row.dataset.sample === 'true' };
+  latestSaves.set(row, { sequence, data, stateCell });
+  timers.set(row, setTimeout(() => {
+    timers.delete(row);
+    save(row, sequence);
+  }, 450));
 }
 
-async function save(row, caScore, examScore, stateCell, sequence) {
+function showSaveFailure(row, pending, error) {
+  const message = document.createElement('span');
+  message.textContent = `Error saving: ${error.message}`;
+  const retry = document.createElement('button');
+  retry.type = 'button';
+  retry.className = 'retry-score-save';
+  retry.textContent = 'Retry';
+  retry.setAttribute('aria-label', 'Retry saving score');
+  retry.addEventListener('click', () => save(row, pending.sequence));
+  pending.stateCell.replaceChildren(message, document.createTextNode(' '), retry);
+}
+
+async function save(row, sequence) {
   if (sequence !== sequences.get(row)) return;
-  stateCell.textContent = 'Saving…';
-  const data = { academicYear: context.elements.academicYear.value.trim(), term: context.elements.term.value, classId: classSelect.value, subjectId: subjectSelect.value, studentId: row.dataset.student, caScore, examScore, sampleMode: row.dataset.sample === 'true' };
+  if (activeSaves.has(row)) {
+    queuedSaves.add(row);
+    return;
+  }
+  const pending = latestSaves.get(row);
+  if (!pending || pending.sequence !== sequence) return;
+  activeSaves.add(row);
+  pending.stateCell.textContent = 'Saving…';
   try {
-    const saved = await api('/api/academic/scores', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+    const saved = await api('/api/academic/scores', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(pending.data) });
     if (sequence === sequences.get(row)) {
-      stateCell.textContent = 'Saved';
+      pending.stateCell.textContent = 'Saved';
       row.querySelector('.total').textContent = Number(saved.totalScore).toFixed(2);
       row.querySelector('.grade').textContent = String(saved.grade);
     }
   } catch (error) {
-    if (sequence === sequences.get(row)) stateCell.textContent = `Error saving: ${error.message}`;
+    if (sequence === sequences.get(row)) showSaveFailure(row, pending, error);
+  } finally {
+    activeSaves.delete(row);
+    if (queuedSaves.has(row)) {
+      queuedSaves.delete(row);
+      const latest = latestSaves.get(row);
+      if (latest && latest.sequence === sequences.get(row) && latest.sequence !== sequence) save(row, latest.sequence);
+    }
   }
 }
 

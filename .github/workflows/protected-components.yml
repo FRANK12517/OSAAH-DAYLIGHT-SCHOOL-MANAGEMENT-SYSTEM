@@ -5,6 +5,7 @@ on:
     branches: [main]
 jobs:
   verify:
+    name: Verify attendance integrity and protected components
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -13,4 +14,14 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Install Chromium for Staff Attendance responsive safeguard
+        run: npx playwright install --with-deps chromium
       - run: npm run protection:verify
+      - name: Fee Hub preservation regression suite
+        run: npm run test:fee-hub
+      - name: Attendance integrity regression suite
+        run: node --test test/attendance-*.test.js test/student-attendance-*.test.js test/part1-mobile-attendance-result-slip.test.js
+      - name: Staff Attendance protection suite
+        run: npm run test:staff-attendance
+      - name: Validate migration inventory
+        run: npm run migration:validate

@@ -29,7 +29,7 @@ function databaseFixture() {
   return {
     async query(sql) {
       if (sql.includes('FROM academic_years')) return [{ id: 'ay-1', name: '2026/2027' }];
-      if (sql.includes('FROM terms')) return [{ id: 'term-1', name: 'First Term' }];
+      if (sql.includes('FROM terms')) return [{ id: 'term-1', name: 'First Term', academicYearId: 'ay-1' }];
       if (sql.includes('FROM fee_types')) return [];
       if (sql.includes('FROM classes c')) return [{ id: 'class-1', name: 'Basic 1', level: '1' }];
       return [];
@@ -37,7 +37,7 @@ function databaseFixture() {
   };
 }
 
-test('Receive Payments options reuse the canonical fee-type source when database rows are empty', async () => {
+test('Fee options preserve configured year-specific terms and reuse the canonical fee-type source when database rows are empty', async () => {
   const auth = { authenticateAsync: async () => accountant };
   const feeTypes = createFeeTypeRegistry({ schoolId: SCHOOL_ID });
   const server = createServer(createApp({ auth, database: databaseFixture(), feeTypes, aiEnabled: false }));
@@ -47,7 +47,10 @@ test('Receive Payments options reuse the canonical fee-type source when database
     const canonical = await request(server, '/api/fees/types');
     assert.equal(options.status, 200);
     assert.equal(canonical.status, 200);
-    assert.deepEqual(options.body.terms.map((item) => item.name), ['1st Term', '2nd Term', '3rd Term']);
+    assert.deepEqual(options.body.terms.map((item) => item.name), ['1st Term']);
+    assert.equal(options.body.terms[0].id, 'term-1');
+    assert.equal(options.body.terms[0].academicYearId, 'ay-1');
+    assert.equal(options.body.canPublish, false);
     assert.equal(options.body.feeTypes.length, 39);
     assert.equal(canonical.body.feeTypes.length, 39);
     assert.deepEqual(new Set(options.body.feeTypes.map((item) => item.id)), new Set(canonical.body.feeTypes.map((item) => item.id)));

@@ -56,7 +56,7 @@
     },
     {
       "id": "student-attendance-register",
-      "description": "Canonical attendance register with desktop preservation, mobile cards, sample isolation, and versioned persistence.",
+      "description": "Protected attendance register API, authoritative enrollment roster, isolated sample fixtures, responsive controls, and versioned durable writes.",
       "route": "/attendance/students",
       "files": [
         {
@@ -64,7 +64,9 @@
           "requiredMarkers": [
             "id=\"attendance-register\"",
             "id=\"attendance-mobile-cards\"",
-            "id=\"save-attendance\""
+            "id=\"save-attendance\"",
+            "id=\"attendance-sample-mode\"",
+            "id=\"attendance-date\""
           ]
         },
         {
@@ -73,22 +75,192 @@
             "/api/attendance/register",
             "/api/attendance/students/sync",
             "attendance-mobile-cards",
-            "version"
+            "requestAttendanceJson",
+            "attendanceData",
+            "function isReadOnly",
+            "changedEntries.push",
+            "Changing register mode will discard unsaved attendance marks"
           ]
         },
         {
           "path": "src/server.mjs",
           "requiredMarkers": [
-            "existingAttendance",
-            "attendanceRepository.listStudentRecords",
-            "const save = (entry)"
+            "attendanceRegister.resolvePeriod",
+            "attendanceRegister.enrolledStudents",
+            "attendanceRegister.saveSampleAttendance",
+            "ATTENDANCE_CORRECTION_FORBIDDEN",
+            "success: false, data: null"
           ]
         },
         {
-          "path": "test/part1-mobile-attendance-result-slip.test.js",
+          "path": "src/attendance-register-service.js",
           "requiredMarkers": [
-            "mobile attendance",
-            "existing attendance"
+            "schoolInformation",
+            "FROM student_enrollments e",
+            "e.academic_year_id=? AND e.term_id=?",
+            "fixtureType: 'attendance'"
+          ]
+        },
+        {
+          "path": "src/attendance-repository.js",
+          "requiredMarkers": [
+            "async function saveStudentAttendanceBatch",
+            "adapter.transaction",
+            "ATTENDANCE_VERSION_REQUIRED",
+            "ATTENDANCE_TRANSACTION_UNAVAILABLE"
+          ]
+        },
+        {
+          "path": "schema/034_attendance_academic_scope.sql",
+          "requiredMarkers": [
+            "uq_student_attendance_scope_identity",
+            "attendance_date, class_id, student_id, subject_key"
+          ]
+        },
+        {
+          "path": "test/attendance-register-reliability.test.js",
+          "requiredMarkers": [
+            "HTML, blank bodies, malformed JSON",
+            "HTTP Sample / Test saves use isolated fixtures",
+            "attendance endpoints preserve 401/403",
+            "genuine empty enrollment set",
+            "attendance batch corrections require attendance.correct"
+          ]
+        },
+        {
+          "path": "test/attendance-repository-integrity.test.js",
+          "requiredMarkers": [
+            "transaction-backed",
+            "rolls back an earlier row",
+            "exact current version",
+            "cannot guarantee transactions"
+          ]
+        },
+        {
+          "path": "public/styles.css",
+          "requiredMarkers": [
+            "@media(max-width:1023px)",
+            "max-width:1220px",
+            "@media(min-width:1024px)"
+          ]
+        },
+        {
+          "path": ".github/workflows/protected-components.yml",
+          "requiredMarkers": [
+            "test/attendance-*.test.js",
+            "Attendance integrity regression suite"
+          ]
+        },
+        {
+          "path": "docs/attendance-register-integrity.md",
+          "requiredMarkers": [
+            "Attendance API contract",
+            "Migration and recovery procedure",
+            "Release checklist"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "staff-attendance-protection-contract",
+      "description": "Role-scoped Staff Attendance workflows, school-scoped durable records, atomic audit history, schema invariants, and mandatory regression coverage.",
+      "route": "/attendance/staff",
+      "files": [
+        {
+          "path": "src/server.mjs",
+          "requiredMarkers": [
+            "canAccess(user, 'staff.attendance.write')",
+            "canAccess(user, 'staff.attendance.read')",
+            "reportType === 'STAFF' ? canAccess(user, 'attendance.read') && canAccess(user, 'staff.attendance.read') : canAccess(user, 'attendance.read')",
+            "required record version"
+          ]
+        },
+        {
+          "path": "src/attendance-repository.js",
+          "requiredMarkers": [
+            "STAFF_ATTENDANCE_TRANSACTION_UNAVAILABLE",
+            "adapter.transaction(async (tx)",
+            "LIMIT 1 FOR UPDATE",
+            "STAFF_ATTENDANCE_VERSION_CONFLICT",
+            "previousReason = personType === 'STAFF'",
+            "INSERT INTO attendance_audit_history"
+          ]
+        },
+        {
+          "path": "schema/034_attendance_academic_scope.sql",
+          "requiredMarkers": [
+            "uq_staff_attendance_scope_identity",
+            "attendance_date, staff_id, attendance_type"
+          ]
+        },
+        {
+          "path": "test/staff-attendance-access.test.js",
+          "requiredMarkers": [
+            "student-attendance access alone must not expose the staff register",
+            "authorized report roles with staff.read retain the STAFF-only report",
+            "last-seen record version",
+            "superseded update timestamp must not overwrite a newer record"
+          ]
+        },
+        {
+          "path": "public/staff-attendance.html",
+          "requiredMarkers": [
+            "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">",
+            "class=\"responsive-table\"",
+            "async function saveAttendance()",
+            "payload.expectedUpdatedAt = row.dataset.recordUpdatedAt"
+          ]
+        },
+        {
+          "path": "public/styles.css",
+          "requiredMarkers": [
+            ".responsive-table{width:100%;overflow-x:auto}"
+          ]
+        },
+        {
+          "path": "test/staff-attendance-durable-integrity.test.js",
+          "requiredMarkers": [
+            "durable Staff Attendance saves and their audit events commit atomically",
+            "concurrent duplicate staff submissions",
+            "concurrent stale staff updates serialize",
+            "partial staff updates preserve omitted fields",
+            "rolls back the staff record"
+          ]
+        },
+        {
+          "path": "test/staff-attendance-schema-contract.test.js",
+          "requiredMarkers": [
+            "schema retains canonical school/staff identity",
+            "contains no destructive operation targeting staff_attendance",
+            "dedicated suite and migration inventory validation"
+          ]
+        },
+        {
+          "path": "package.json",
+          "requiredMarkers": [
+            "test:staff-attendance"
+          ]
+        },
+        {
+          "path": ".github/workflows/protected-components.yml",
+          "requiredMarkers": [
+            "Staff Attendance protection suite",
+            "npm run test:staff-attendance"
+          ]
+        },
+        {
+          "path": ".github/workflows/production-db-migration.yml",
+          "requiredMarkers": [
+            "Verify Staff Attendance before production migration",
+            "npm run test:staff-attendance"
+          ]
+        },
+        {
+          "path": "docs/staff-attendance-protection-contract.md",
+          "requiredMarkers": [
+            "Pre-release acceptance",
+            "Gate status limitation",
+            "backward-compatible changes"
           ]
         }
       ]
@@ -120,6 +292,85 @@
           "requiredMarkers": [
             "automatic result slip",
             "stale"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "canonical-fee-hub-publication-and-parent-visibility",
+      "description": "Protected canonical Fee Setup publication, durable Fee Structure reads, exact money validation, and parent-child visibility.",
+      "route": "/fees/structure",
+      "files": [
+        {
+          "path": "public/fee-amount.js",
+          "requiredMarkers": [
+            "parsePositiveGhsAmountToMinorUnits",
+            "MONEY_PATTERN",
+            "Number.MAX_SAFE_INTEGER"
+          ]
+        },
+        {
+          "path": "public/fee-setup.html",
+          "requiredMarkers": [
+            "parsePositiveGhsAmountToMinorUnits",
+            "/api/fees/obligations/publish",
+            "submitting",
+            "Publishing\u2026",
+            "canPublish = data.canPublish === true"
+          ]
+        },
+        {
+          "path": "src/fee-collections-repository.js",
+          "requiredMarkers": [
+            "async function publishFeeObligations",
+            "listPublishedFeeStructures",
+            "idempotency_key",
+            "status='PUBLISHED'"
+          ]
+        },
+        {
+          "path": "src/parent-fee-obligations-repository.js",
+          "requiredMarkers": [
+            "psl.parent_user_id=?",
+            "psl.link_status='ACTIVE'",
+            "fo.status='PUBLISHED'"
+          ]
+        },
+        {
+          "path": "public/finance-canonical.html",
+          "requiredMarkers": [
+            "data-fee-period-filter",
+            "/api/fees/structures?${params}",
+            "No fee structure published for the selected period"
+          ]
+        },
+        {
+          "path": "test/fee-hub-regression.test.js",
+          "requiredMarkers": [
+            "exact pesewas",
+            "idempotent published obligations",
+            "filtered by exact academic year and term",
+            "published-only visibility server-side"
+          ]
+        },
+        {
+          "path": "package.json",
+          "requiredMarkers": [
+            "test:fee-hub"
+          ]
+        },
+        {
+          "path": ".github/workflows/protected-components.yml",
+          "requiredMarkers": [
+            "Fee Hub preservation regression suite",
+            "npm run test:fee-hub"
+          ]
+        },
+        {
+          "path": "docs/fee-hub-preservation.md",
+          "requiredMarkers": [
+            "canonical durable `fee_obligations` contract",
+            "Release checklist"
           ]
         }
       ]

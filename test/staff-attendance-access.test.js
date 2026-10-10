@@ -73,15 +73,21 @@ test('Headteacher and Assistant Headteacher see one Staff Attendance link in Sta
 test('Headteacher and Assistant Headteacher can load, create, and update the same authorized staff attendance record', async (t) => {
   const headteacher = roleUser('headteacher-user', 'HEADTEACHER');
   const assistant = roleUser('assistant-user', 'ASSISTANT_HEADTEACHER');
+  const reportHeadteacher = roleUser('report-headteacher-user', 'HEADTEACHER', DEMO_SCHOOL_ID, ['attendance.read']);
   const teacher = roleUser('classroom-teacher-user', 'TEACHER', DEMO_SCHOOL_ID, ['attendance.read', 'attendance.write']);
-  const auth = createAuthService({ users: [headteacher, assistant, teacher], sessionSecret: SECRET });
-  const staff = createStaffService({ schoolId: DEMO_SCHOOL_ID, now: () => '2026-10-01T08:00:00.000Z' });
+  const auth = createAuthService({ users: [headteacher, assistant, reportHeadteacher, teacher], sessionSecret: SECRET });
+  let timestampMinute = 0;
+  const now = () => `2026-10-01T08:${String(timestampMinute++).padStart(2, '0')}:00.000Z`;
+  const staff = createStaffService({ schoolId: DEMO_SCHOOL_ID, now });
   const member = staff.createProfile({ fullName: 'Ama Mensah', employeeId: 'EMP-AMA', roleKey: 'TEACHER' });
-  const attendance = createAttendanceService({ schoolId: DEMO_SCHOOL_ID, now: () => '2026-10-01T08:00:00.000Z' });
+  const attendance = createAttendanceService({ schoolId: DEMO_SCHOOL_ID, now });
   const auditEvents = [];
-  const base = await startTestServer(t, { auth, staff, attendance, audit: (event) => auditEvents.push(event), aiEnabled: false });
+  const reportData = (filters) => ({ reportType: filters.reportType, title: 'STAFF ATTENDANCE REPORT', school: { name: 'OSAAH TEST SCHOOL' }, period: { label: filters.period ?? 'WEEKLY' }, filters, rows: [{ staffId: 'EMP-AMA', staffName: 'Ama Mensah' }], generatedAt: '2026-10-01T10:00:00.000Z', source: 'isolated-test' });
+  const attendanceReports = { report: async (filters) => reportData(filters), exportReport: async (filters, _actor, format) => ({ content: Buffer.from('%PDF-test'), contentType: format === 'PDF' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', filename: 'staff-report.pdf' }) };
+  const base = await startTestServer(t, { auth, staff, attendance, attendanceReports, audit: (event) => auditEvents.push(event), aiEnabled: false });
   const headToken = await login(auth, 'HEADTEACHER', headteacher.username);
   const assistantToken = await login(auth, 'ASSISTANT_HEADTEACHER', assistant.username);
+  const reportToken = await login(auth, 'HEADTEACHER', reportHeadteacher.username);
   const teacherToken = await login(auth, 'TEACHER', teacher.username);
   const query = '?academicYear=2026%2F2027&term=1st%20Term&date=2026-10-01';
   let response;
@@ -98,6 +104,7 @@ test('Headteacher and Assistant Headteacher can load, create, and update the sam
   assert.deepEqual(data.staff.map(({ id, employeeId }) => ({ id, employeeId })), [{ id: member.id, employeeId: 'EMP-AMA' }]);
   assert.deepEqual(data.records, []);
   assert.deepEqual(data.attendanceOptions.map(({ status }) => status), ['PRESENT', 'ABSENT', 'LATE', 'CHECKED_IN', 'CHECKED_OUT', 'ON_LEAVE', 'EXCUSED']);
+  assert.deepEqual(data.attendanceOptions.map(({ label }) => label), ['Present', 'Absent', 'Late', 'Checked In', 'Checked Out', 'On Leave', 'Excused']);
 
   response = await request(base, headToken, '/api/attendance/options');
   assert.equal(response.status, 200);
@@ -124,6 +131,11 @@ test('Headteacher and Assistant Headteacher can load, create, and update the sam
 
   response = await request(base, teacherToken, `/api/attendance/staff${query}`);
   assert.equal(response.status, 403, 'student-attendance access alone must not expose the staff register');
+  response = await request(base, teacherToken, '/api/attendance/staff/overview');
+  assert.equal(response.status, 403, 'student-attendance access alone must not expose the staff overview');
+  response = await request(base, teacherToken, '/api/attendance/staff', { staffId: member.id, academicYear: '2026/2027', term: '1st Term', date: '2026-10-01', type: 'PRESENT', status: 'PRESENT' });
+  assert.equal(response.status, 403, 'student-attendance write access alone must not create staff records');
+  assert.equal(attendance.listStaffRecords().length, 0);
 
   response = await request(base, headToken, '/api/attendance/staff', {
     staffId: member.id,
@@ -159,6 +171,20 @@ test('Headteacher and Assistant Headteacher can load, create, and update the sam
     type: 'LATE',
     status: 'LATE',
     time: '08:25',
+    note: 'Missing version token'
+  });
+  assert.equal(response.status, 409, 'user-driven updates must carry the last-seen record version');
+
+  response = await request(base, assistantToken, '/api/attendance/staff', {
+    id: created.id,
+    expectedUpdatedAt: created.updatedAt,
+    staffId: member.id,
+    academicYear: '2026/2027',
+    term: '1st Term',
+    date: '2026-10-01',
+    type: 'LATE',
+    status: 'LATE',
+    time: '08:25',
     note: 'Delayed by transport'
   });
   assert.equal(response.status, 200);
@@ -174,11 +200,49 @@ test('Headteacher and Assistant Headteacher can load, create, and update the sam
   assert.ok(updated.recordedAt);
   assert.ok(updated.updatedAt);
 
+  response = await request(base, headToken, '/api/attendance/staff', {
+    id: created.id,
+    expectedUpdatedAt: created.updatedAt,
+    staffId: member.id,
+    academicYear: '2026/2027',
+    term: '1st Term',
+    date: '2026-10-01',
+    type: 'ABSENT',
+    status: 'ABSENT',
+    time: '08:40',
+    note: 'Stale correction'
+  });
+  assert.equal(response.status, 409, 'an edit based on a superseded update timestamp must not overwrite a newer record');
+
   response = await request(base, headToken, `/api/attendance/staff${query}`);
   assert.equal(response.status, 200);
   data = await response.json();
   assert.equal(data.records.length, 1, 'revising a mark must not add a duplicate record');
   assert.equal(data.records[0].status, 'LATE');
+
+  for (const path of [
+    '/api/attendance/reports/canonical?reportType=STAFF&period=WEEKLY',
+    '/api/attendance/reports/export?reportType=STAFF&period=WEEKLY&format=PDF',
+    '/api/attendance/reports/print?reportType=STAFF&period=WEEKLY'
+  ]) {
+    response = await request(base, teacherToken, path);
+    assert.equal(response.status, 403, 'student-attendance permission alone must not disclose staff report/export data');
+  }
+  response = await request(base, headToken, '/api/attendance/reports/canonical?reportType=CLASS&period=WEEKLY');
+  assert.equal(response.status, 403, 'staff-only roles must not gain student or class attendance reports');
+  response = await request(base, headToken, '/api/attendance/reports/canonical?reportType=STAFF&period=WEEKLY');
+  assert.equal(response.status, 403, 'staff register access alone must not bypass the Attendance Reports module permission');
+  response = await request(base, reportToken, '/api/attendance/reports/canonical?reportType=STAFF&period=WEEKLY');
+  assert.equal(response.status, 200, `authorized report roles with staff.read retain the STAFF-only report: ${await response.clone().text()}`);
+  const staffReport = await response.json();
+  assert.equal(staffReport.reportType, 'STAFF');
+  assert.ok(staffReport.rows.some((row) => row.staffId === 'EMP-AMA'));
+  response = await request(base, reportToken, '/api/attendance/reports/export?reportType=STAFF&period=WEEKLY&format=PDF');
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('content-type'), 'application/pdf');
+  response = await request(base, reportToken, '/api/attendance/reports/print?reportType=STAFF&period=WEEKLY');
+  assert.equal(response.status, 200);
+  assert.match(await response.text(), /STAFF ATTENDANCE REPORT/);
 });
 
 test('database-backed Staff Attendance uses school-scoped canonical staff IDs from the staff table', async (t) => {

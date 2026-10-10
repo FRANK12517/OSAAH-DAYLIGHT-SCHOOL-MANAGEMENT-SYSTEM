@@ -47,6 +47,11 @@ jobs:
           fi
           echo "Protected DATABASE_URL is available."
 
+      - name: Verify Staff Attendance before production migration
+        env:
+          DATABASE_URL: ''
+        run: npm run test:staff-attendance
+
       - name: Preflight, migrate, and verify production schema
         run: node scripts/production-admission-migrate.mjs
 

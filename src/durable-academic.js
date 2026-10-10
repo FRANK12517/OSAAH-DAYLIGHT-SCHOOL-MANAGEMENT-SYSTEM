@@ -539,7 +539,7 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     return rows(result).map((item) => ({ studentId: item.studentId, permanentStudentId: item.permanentStudentId, studentName: [item.firstName, item.middleName, item.surname].filter(Boolean).join(' '), classId: item.classId, caScore: item.caScore == null ? null : Number(item.caScore), examScore: item.examScore == null ? null : Number(item.examScore), totalScore: item.totalScore == null ? null : Number(item.totalScore), grade: item.grade ?? null, saved: Boolean(item.scoreId) }));
   }
 
-  async function sampleScoreEntryRoster(input = {}, actor) {
+  async function sampleScoreEntryContext(input = {}, actor) {
     assertActor(actor);
     if (!authorized(actor, 'marks.write') && !authorized(actor, 'results.read')) fail('Forbidden.', 403, 'ACADEMIC_PERMISSION_REQUIRED');
     const classId = text(input.classId);
@@ -547,12 +547,18 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     if (!classId || !subjectId) fail('Class and subject are required.');
     assertClassScope(classId, actor);
     const period = await resolvePeriod(input);
-    await classFor(classId);
-    if (!await scoringSubjectAssigned({ classId, subjectId, academicYearId: period.yearId }, actor)) fail('Subject is invalid for this class and academic context.', 400, 'INVALID_CLASS_SUBJECT');
+    const classRow = await classFor(classId);
+    const subject = (await listSubjects({ classId, academicYearId: period.yearId }, actor)).find((item) => text(item.id) === subjectId && item.isScoring !== false && Number(item.isScoring) !== 0);
+    if (!subject) fail('Subject is invalid for this class and academic context.', 400, 'INVALID_CLASS_SUBJECT');
     const fixtures = students?.listStudents?.({ requestedSchoolId: schoolId, includeTestRecords: true }) ?? [];
-    return fixtures
+    const sampleStudents = fixtures
       .filter((student) => student.schoolId === schoolId && student.isTestRecord === true && student.permanentStudentId === 'OSAAH-DEMO-001')
       .map((student) => ({ studentId: student.id, permanentStudentId: student.permanentStudentId, studentName: [student.firstName, student.middleName, student.surname].filter(Boolean).join(' '), classId, caScore: null, examScore: null, totalScore: null, grade: null, saved: false, isTestRecord: true }));
+    return { class: { id: classRow.id, name: classRow.name }, subject: { id: subject.id, name: subject.name }, academicYearId: period.yearId, termId: period.termId, students: sampleStudents };
+  }
+
+  async function sampleScoreEntryRoster(input = {}, actor) {
+    return (await sampleScoreEntryContext(input, actor)).students;
   }
 
   async function resultStudents(input = {}, actor) {
@@ -621,8 +627,17 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     assertClassScope(classId, actor);
     const period = await resolvePeriod(input);
     await classFor(classId);
-    const enrolled = rows(await database.query('SELECT e.student_id,s.permanent_student_id,c.name AS className FROM student_enrollments e JOIN students s ON s.id=e.student_id JOIN classes c ON c.id=e.class_id WHERE e.school_id=? AND e.student_id=? AND e.class_id=? AND e.academic_year_id=? AND COALESCE(e.enrollment_status,"ACTIVE")="ACTIVE" AND COALESCE(e.is_current,1)=1 LIMIT 1', [schoolId, studentId, classId, period.yearId]))[0];
-    if (!enrolled) fail('Student is not enrolled in the selected class and academic year.', 400);
+    const enrollmentSql = 'SELECT e.student_id,s.permanent_student_id,c.name AS className FROM student_enrollments e JOIN students s ON s.id=e.student_id AND s.school_id=e.school_id JOIN classes c ON c.id=e.class_id AND c.school_id=e.school_id WHERE e.school_id=? AND e.student_id=? AND e.class_id=? AND e.academic_year_id=? AND e.term_id=?';
+    const enrollmentParams = [schoolId, studentId, classId, period.yearId, period.termId];
+    let enrolledRows;
+    try {
+      enrolledRows = await database.query(`${enrollmentSql} AND COALESCE(e.enrollment_status,"ACTIVE")="ACTIVE" AND COALESCE(e.is_current,1)=1 LIMIT 1`, enrollmentParams);
+    } catch (error) {
+      if (!missingOptionalEnrollmentStateColumn(error)) throw error;
+      enrolledRows = await database.query(`${enrollmentSql} LIMIT 1`, enrollmentParams);
+    }
+    const enrolled = rows(enrolledRows)[0];
+    if (!enrolled) fail('Student is not enrolled in the selected class, academic year, and term.', 400, 'STUDENT_ENROLLMENT_NOT_FOUND');
     if (!await scoringSubjectAssigned({ classId, subjectId, academicYearId: period.yearId }, actor)) fail('Subject is not assigned as a scoring subject for the selected class.', 400);
     const totalScore = caScore + examScore;
     const [grade, remark] = gradeForTotal(totalScore, { classId: enrolled.className, examination: 'TERMINAL' });
@@ -892,7 +907,7 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     return buildMockBroadsheet(input, actor);
   }
 
-  return Object.freeze({ options, listSubjects, subjectCatalog, mockSubjectCatalog, subjectConfiguration, createSubject, updateSubject, deactivateSubject, subjectCascade, configureDefaultSubjects, listAssignments, assignSubject, deactivateSubjectAssignment, roster, sampleScoreEntryRoster, resultStudents, resultContext, saveScore, mockRoster, saveMockScore, listScores, resolvePeriod, result: canonicalResult, saveResult, publishResults: publishResult, publicationFor, savedResultFor: async (input, actor) => canonicalResult(input, actor), broadsheet, mockBroadsheet });
+  return Object.freeze({ options, listSubjects, subjectCatalog, mockSubjectCatalog, subjectConfiguration, createSubject, updateSubject, deactivateSubject, subjectCascade, configureDefaultSubjects, listAssignments, assignSubject, deactivateSubjectAssignment, roster, sampleScoreEntryContext, sampleScoreEntryRoster, resultStudents, resultContext, saveScore, mockRoster, saveMockScore, listScores, resolvePeriod, result: canonicalResult, saveResult, publishResults: publishResult, publicationFor, savedResultFor: async (input, actor) => canonicalResult(input, actor), broadsheet, mockBroadsheet });
 }
 
 export default createDurableAcademicService;
