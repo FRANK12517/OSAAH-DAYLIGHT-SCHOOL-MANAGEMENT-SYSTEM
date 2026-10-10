@@ -109,6 +109,8 @@ test('wrong engine, writesPerformed, and exact missing schema objects fail close
   ];
   const blockedDuplicate = prerequisites.checks.duplicate.find((item) => item.name === 'enrollment_context');
   Object.assign(blockedDuplicate, { status: 'NOT_CHECKED', category: 'MISSING_SCHEMA_PREREQUISITES', reason: 'Missing: student_enrollments.is_current', missingPrerequisites: ['student_enrollments.is_current'], count: null });
+  const optionalDuplicate = prerequisites.checks.duplicate.find((item) => item.name === 'enquiry_retry_identity');
+  Object.assign(optionalDuplicate, { status: 'NOT_CHECKED', category: 'MISSING_SCHEMA_PREREQUISITES', reason: 'Missing: admission_applications.enquiry_request_id', missingPrerequisites: ['admission_applications.enquiry_request_id'], count: null });
   prerequisites.ok = false;
   const summary = buildSummary(prerequisites, 2);
   assert.equal(summary.failureCategory, 'MIGRATION_PREREQUISITES_MISSING');

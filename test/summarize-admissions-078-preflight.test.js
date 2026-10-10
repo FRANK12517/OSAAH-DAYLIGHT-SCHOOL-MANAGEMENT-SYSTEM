@@ -13,7 +13,11 @@ function report() {
     schemaObjectFindings: [{ table: 'student_enrollments', tableStatus: 'PRESENT', tableType: 'BASE TABLE', missingColumns: ['is_current'] }],
     columnDefinitionMismatches: [], indexDefinitionMismatches: [], invalidSequenceYears: [], counterBehindYears: [], annualSequenceReconciliation: [], malformedStudentIdCount: 0,
     checks: {
-      duplicate: duplicateNames.map((name) => name === 'enrollment_context' ? check(name, true, 'NOT_CHECKED', null, 'MISSING_SCHEMA_PREREQUISITES', 'Missing: student_enrollments.is_current', ['student_enrollments.is_current']) : check(name, !name.includes('identity') || name === 'application_student_identity')),
+      duplicate: duplicateNames.map((name) => name === 'enrollment_context'
+        ? check(name, true, 'NOT_CHECKED', null, 'MISSING_SCHEMA_PREREQUISITES', 'Missing: student_enrollments.is_current', ['student_enrollments.is_current'])
+        : name === 'enquiry_retry_identity'
+          ? check(name, false, 'NOT_CHECKED', null, 'MISSING_SCHEMA_PREREQUISITES', 'Missing: admission_applications.enquiry_request_id', ['admission_applications.enquiry_request_id'])
+          : check(name, !name.includes('identity') || name === 'application_student_identity')),
       orphan: orphanNames.map((name) => check(name))
     }
   };
@@ -29,4 +33,15 @@ test('summarizer retains runnable checks when one prerequisite is missing', () =
   assert.equal(summary.duplicateCheckStatus, 'NOT_CHECKED');
   assert.equal(summary.orphanCheckStatus, 'COMPLETE');
   assert.equal(summary.ok, false);
+});
+
+test('optional duplicate prerequisite absent from canonical schema does not invalidate real schema findings', () => {
+  const summary = buildSummary(report(), 2);
+  assert.equal(summary.failureCategory, 'MIGRATION_PREREQUISITES_MISSING');
+  assert.deepEqual(summary.migrationPrerequisites.missingSchemaObjects, ['student_enrollments.is_current']);
+  assert.equal(summary.duplicateChecks.find((item) => item.name === 'enquiry_retry_identity').status, 'NOT_CHECKED');
+  assert.equal(summary.duplicateRecordCounts.enquiry_retry_identity, null);
+  assert.equal(summary.duplicateRecordTotal, null);
+  assert.equal(summary.orphanCheckStatus, 'COMPLETE');
+  assert.equal(summary.orphanRecordTotal, 0);
 });
