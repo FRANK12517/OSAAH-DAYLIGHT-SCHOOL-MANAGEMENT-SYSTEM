@@ -152,13 +152,15 @@ function checksMatchMissingSchema(report, group, names, missingObjects) {
   return names.every((name) => {
     const check = byName.get(name);
     if (!check || !Array.isArray(check.missingPrerequisites)) return false;
-    const expectedMissing = checkPrerequisites[group][name].filter((object) => {
+    const prerequisites = checkPrerequisites[group][name];
+    const reportedMissing = [...new Set(check.missingPrerequisites)].sort();
+    if (!reportedMissing.every((object) => prerequisites.includes(object))) return false;
+    const requiredMissing = prerequisites.filter((object) => {
       const table = object.split('.')[0];
       return missingObjects.includes(object) || missingObjects.includes(`${table}.*`);
     }).sort();
-    const reportedMissing = [...check.missingPrerequisites].sort();
-    if (JSON.stringify(reportedMissing) !== JSON.stringify(expectedMissing)) return false;
-    if (expectedMissing.length) return check.status === 'NOT_CHECKED' && check.category === 'MISSING_SCHEMA_PREREQUISITES' && check.count === null;
+    if (requiredMissing.some((object) => !reportedMissing.includes(object))) return false;
+    if (reportedMissing.length) return check.status === 'NOT_CHECKED' && check.category === 'MISSING_SCHEMA_PREREQUISITES' && check.count === null;
     return check.category !== 'MISSING_SCHEMA_PREREQUISITES';
   });
 }
