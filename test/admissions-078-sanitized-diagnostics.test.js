@@ -16,10 +16,18 @@ const orphans = Object.fromEntries([
   'admission_application_students', 'student_profile_master', 'student_enrollment_students',
   'student_enrollment_classes', 'student_enrollment_academic_years', 'student_enrollment_terms', 'parent_student_links'
 ].map((key) => [key, 0]));
+const duplicateChecks = Object.entries(duplicates).map(([name, count]) => ({
+  name, mandatory: !['enquiry_retry_identity', 'application_permanent_student_identity'].includes(name),
+  status: 'PASS', category: 'NONE', reason: null, missingPrerequisites: [], count
+}));
+const orphanChecks = Object.entries(orphans).map(([name, count]) => ({
+  name, mandatory: true, status: 'PASS', category: 'NONE', reason: null, missingPrerequisites: [], count
+}));
 const healthyReport = () => ({
   ok: true, mode: 'READ_ONLY_PREFLIGHT', writesPerformed: false, databaseEngine: 'TiDB',
   missingPrerequisites: [], schemaObjectFindings: [], columnDefinitionMismatches: [], indexDefinitionMismatches: [],
-  duplicateGroups: { ...duplicates }, orphanCounts: { ...orphans }, malformedStudentIdCount: 0,
+  checks: { duplicate: structuredClone(duplicateChecks), orphan: structuredClone(orphanChecks), studentIdSequence: { status: 'PASS' } },
+  duplicateRecordTotal: 0, duplicateGroups: { ...duplicates }, orphanCounts: { ...orphans }, malformedStudentIdCount: 0,
   invalidSequenceYears: [], counterBehindYears: [], annualSequenceReconciliation: []
 });
 
@@ -32,7 +40,9 @@ test('successful complete preflight is summarized as eligible without raw diagno
 });
 
 test('valid failed preflight reports safe category and counts only', () => {
-  const report = healthyReport(); report.ok = false; report.duplicateGroups.student_permanent_id = 2;
+  const report = healthyReport(); report.ok = false;
+  const check = report.checks.duplicate.find((item) => item.name === 'student_permanent_id');
+  Object.assign(check, { status: 'FAIL', category: 'INTEGRITY_VIOLATION', count: 2 });
   const summary = buildSummary(report, 2);
   assert.equal(summary.ok, false);
   assert.equal(summary.failureCategory, 'DUPLICATE_RECORDS_FOUND');
@@ -97,7 +107,8 @@ test('wrong engine, writesPerformed, and exact missing schema objects fail close
   prerequisites.schemaObjectFindings = [
     { table: 'student_enrollments', tableStatus: 'PRESENT', tableType: 'BASE TABLE', missingColumns: ['is_current'] }
   ];
-  prerequisites.duplicateGroups = {}; prerequisites.orphanCounts = {};
+  const blockedDuplicate = prerequisites.checks.duplicate.find((item) => item.name === 'enrollment_context');
+  Object.assign(blockedDuplicate, { status: 'NOT_CHECKED', category: 'MISSING_SCHEMA_PREREQUISITES', reason: 'Missing: student_enrollments.is_current', missingPrerequisites: ['student_enrollments.is_current'], count: null });
   prerequisites.ok = false;
   const summary = buildSummary(prerequisites, 2);
   assert.equal(summary.failureCategory, 'MIGRATION_PREREQUISITES_MISSING');
@@ -105,15 +116,17 @@ test('wrong engine, writesPerformed, and exact missing schema objects fail close
   assert.equal(summary.duplicateCheckStatus, 'NOT_CHECKED');
   assert.equal(summary.duplicateCheckReason, 'MISSING_SCHEMA_PREREQUISITES');
   assert.equal(summary.duplicateRecordTotal, null);
-  assert.equal(summary.orphanCheckStatus, 'NOT_CHECKED');
-  assert.equal(summary.orphanCheckReason, 'MISSING_SCHEMA_PREREQUISITES');
-  assert.equal(summary.orphanRecordTotal, null);
+  assert.equal(summary.orphanCheckStatus, 'COMPLETE');
+  assert.equal(summary.orphanCheckReason, null);
+  assert.equal(summary.orphanRecordTotal, 0);
 });
 
 test('duplicate, orphan, index, and sequence findings each block success', () => {
-  const duplicate = healthyReport(); duplicate.duplicateGroups.enrollment_context = 1;
+  const duplicate = healthyReport();
+  Object.assign(duplicate.checks.duplicate.find((item) => item.name === 'enrollment_context'), { status: 'FAIL', category: 'INTEGRITY_VIOLATION', count: 1 });
   assert.equal(buildSummary(duplicate, 0).failureCategory, 'DUPLICATE_RECORDS_FOUND');
-  const orphan = healthyReport(); orphan.orphanCounts.parent_student_links = 1;
+  const orphan = healthyReport();
+  Object.assign(orphan.checks.orphan.find((item) => item.name === 'parent_student_links'), { status: 'FAIL', category: 'INTEGRITY_VIOLATION', count: 1 });
   assert.equal(buildSummary(orphan, 0).failureCategory, 'ORPHAN_RECORDS_FOUND');
   const index = healthyReport(); index.indexDefinitionMismatches = ['do-not-print'];
   assert.equal(buildSummary(index, 0).failureCategory, 'SCHEMA_DEFINITION_MISMATCH');
@@ -150,7 +163,12 @@ test('data checks blocked by missing prerequisites are NOT_CHECKED, not zero fin
   const report = healthyReport(); report.ok = false;
   report.missingPrerequisites = ['student_profiles.*', 'student_profiles.id', 'student_profiles.school_id', 'student_profiles.student_master_id', 'student_profiles.student_id'];
   report.schemaObjectFindings = [{ table: 'student_profiles', tableStatus: 'MISSING', tableType: 'MISSING', missingColumns: ['id', 'school_id', 'student_master_id', 'student_id'] }];
-  report.duplicateGroups = {}; report.orphanCounts = {};
+  const blockedDuplicate = report.checks.duplicate.find((item) => item.name === 'profile_student_id');
+  Object.assign(blockedDuplicate, { status: 'NOT_CHECKED', category: 'MISSING_SCHEMA_PREREQUISITES', reason: 'Missing: student_profiles.student_master_id, student_profiles.student_id, student_profiles.school_id', missingPrerequisites: ['student_profiles.student_master_id', 'student_profiles.student_id', 'student_profiles.school_id'], count: null });
+  const blockedOrphan = report.checks.orphan.find((item) => item.name === 'student_profile_master');
+  Object.assign(blockedOrphan, { status: 'NOT_CHECKED', category: 'MISSING_SCHEMA_PREREQUISITES', reason: 'Missing: student_profiles.student_master_id, student_profiles.school_id', missingPrerequisites: ['student_profiles.student_master_id', 'student_profiles.school_id'], count: null });
+  const blockedParentLink = report.checks.orphan.find((item) => item.name === 'parent_student_links');
+  Object.assign(blockedParentLink, { status: 'NOT_CHECKED', category: 'MISSING_SCHEMA_PREREQUISITES', reason: 'Missing: student_profiles.id, student_profiles.school_id', missingPrerequisites: ['student_profiles.id', 'student_profiles.school_id'], count: null });
   const summary = buildSummary(report, 2);
   assert.equal(summary.duplicateCheckStatus, 'NOT_CHECKED');
   assert.equal(summary.duplicateCheckReason, 'MISSING_SCHEMA_PREREQUISITES');
@@ -159,7 +177,7 @@ test('data checks blocked by missing prerequisites are NOT_CHECKED, not zero fin
   assert.equal(summary.duplicateRecordTotal, null);
   assert.equal(summary.orphanRecordTotal, null);
   assert.equal(summary.ok, false);
-  const contradictory = { ...report, duplicateGroups: { ...duplicates }, orphanCounts: { ...orphans } };
+  const contradictory = { ...report, checks: { duplicate: structuredClone(duplicateChecks), orphan: structuredClone(orphanChecks) } };
   const unsafeSummary = buildSummary(contradictory, 2);
   assert.equal(unsafeSummary.failureCategory, 'PREFLIGHT_REPORT_INVALID');
   assert.equal(unsafeSummary.duplicateRecordTotal, null);
@@ -167,8 +185,8 @@ test('data checks blocked by missing prerequisites are NOT_CHECKED, not zero fin
 
 test('unavailable duplicate and orphan aggregates are NOT_CHECKED and cannot become zero', () => {
   const report = healthyReport();
-  delete report.duplicateGroups;
-  delete report.orphanCounts;
+  delete report.checks.duplicate;
+  delete report.checks.orphan;
   const summary = buildSummary(report, 0);
   assert.equal(summary.ok, false);
   assert.equal(summary.duplicateCheckStatus, 'NOT_CHECKED');
@@ -190,7 +208,7 @@ test('schema-object findings distinguish missing tables from missing columns and
 });
 
 test('malformed success shape and unsafe booleans cannot pass', () => {
-  const incomplete = healthyReport(); delete incomplete.duplicateGroups.enrollment_context;
+  const incomplete = healthyReport(); incomplete.checks.duplicate.pop();
   assert.equal(buildSummary(incomplete, 0).ok, false);
   const fakePass = { ok: true, mode: 'READ_ONLY_PREFLIGHT', writesPerformed: false, databaseEngine: 'TiDB' };
   assert.equal(buildSummary(fakePass, 0).ok, false);

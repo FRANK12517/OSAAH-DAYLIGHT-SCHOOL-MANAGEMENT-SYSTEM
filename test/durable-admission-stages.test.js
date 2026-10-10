@@ -75,3 +75,14 @@ test('completed admissions cannot be resubmitted to reset their workflow', async
     assert.equal(db.state.row.stage, stage);
   }
 });
+
+test('staff admission types enforce only their required durable documents', async () => {
+  const db = database(); let id = 0;
+  const service = createDurableAdmissionsService({ database: db, schoolId: 'school-1', idFactory: () => `id-${++id}` });
+  const actor = { id: 'leader', portal: 'school', schoolId: 'school-1' };
+  const input = { studentSurname: 'Sample', studentFirstName: 'Applicant', dateOfBirth: '2018-01-01', gender: 'Female', hometown: 'Bogoso', region: 'Western', nationality: 'Ghanaian', classAppliedFor: 'class-jhs1', className: 'JHS 1', residentialAddress: 'Bogoso', digitalAddress: 'WS-000-0000', nearestLandmark: 'School', primaryGuardianFullName: 'Guardian', primaryGuardianRelationship: 'Parent', primaryGuardianPrimaryPhone: '0241234567' };
+  const enrolled = await service.createApplication({ ...input, admissionType: 'ALREADY_ENROLLED' }, actor);
+  assert.equal((await service.submitApplication(enrolled.applicationNumber, actor)).status, 'SUBMITTED');
+  const transfer = await service.createApplication({ ...input, admissionType: 'TRANSFER' }, actor);
+  await assert.rejects(() => service.submitApplication(transfer.applicationNumber, actor), /Missing required document/);
+});

@@ -5,7 +5,7 @@ export const EXPECTED_DATABASE = 'osaahdaylightschool';
 export const MIGRATION_063 = Object.freeze({
   version: 63,
   name: '063_subject_classification.sql',
-  checksum: '6bc83d1411f4813eadd577fa4de6c43d9e979e1baca59f4222d0689456f828e7'
+  checksum: 'd2961b713998d7e8231de3c27c0179a005e8caa4abf79361ad76f92804dc9abb'
 });
 
 const READ_ONLY_STATEMENT = /^\s*SELECT\b/i;

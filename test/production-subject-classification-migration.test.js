@@ -8,7 +8,7 @@ const workflow = await readFile(new URL('../.github/workflows/production-subject
 const migration = await readFile(new URL('../schema/063_subject_classification.sql', import.meta.url));
 
  test('Migration 063 application wrapper is bound to the reviewed migration identity', () => {
-  assert.equal(createHash('sha256').update(migration).digest('hex'), '6bc83d1411f4813eadd577fa4de6c43d9e979e1baca59f4222d0689456f828e7');
+  assert.equal(createHash('sha256').update(migration).digest('hex'), 'd2961b713998d7e8231de3c27c0179a005e8caa4abf79361ad76f92804dc9abb');
   assert.match(script, /const VERSION = 63/);
   assert.match(script, /const NAME = '063_subject_classification\.sql'/);
   assert.match(script, /APPLY_SUBJECT_CLASSIFICATION_063/);

@@ -13,6 +13,12 @@ form.before(offerPanel);
 const saveButton = document.createElement('button');
 saveButton.type = 'button'; saveButton.className = 'text-button'; saveButton.textContent = 'Save Draft';
 form.querySelector('button[type="submit"]').before(saveButton);
+const reviewButton = document.createElement('button'); reviewButton.type = 'button'; reviewButton.className = 'text-button'; reviewButton.textContent = 'Review Admission'; saveButton.after(reviewButton);
+form.querySelector('button[type="submit"]').textContent = 'Confirm and Submit Admission';
+const reviewPanel = document.createElement('section'); reviewPanel.className = 'card'; reviewPanel.hidden = true; reviewPanel.setAttribute('aria-live', 'polite'); form.before(reviewPanel);
+let reviewed = false;
+const receiptFieldset = [...form.querySelectorAll('fieldset')].find((field) => field.querySelector('legend')?.textContent.includes('SUPPORTING DOCUMENTS'));
+if (receiptFieldset && !form.elements.admissionReceipt) { const label = document.createElement('label'); label.textContent = 'Admission Receipt'; const input = document.createElement('input'); input.name = 'admissionReceipt'; input.type = 'file'; input.accept = 'image/jpeg,image/png,application/pdf'; label.append(input); receiptFieldset.append(label); }
 function addTextField(name, label, { type = 'text', required = false, before = null } = {}) {
   if (form.elements.namedItem(name)) return;
   const fieldLabel = document.createElement('label'); fieldLabel.textContent = label;
@@ -32,6 +38,12 @@ const yearField = document.createElement('input'); yearField.type = 'hidden'; ye
 const yearIdField = document.createElement('input'); yearIdField.type = 'hidden'; yearIdField.name = 'academicYearId'; form.append(yearIdField);
 const termField = document.createElement('input'); termField.type = 'hidden'; termField.name = 'admissionTerm'; termField.value = 'TERM_1'; form.append(termField);
 const termIdField = document.createElement('input'); termIdField.type = 'hidden'; termIdField.name = 'termId'; form.append(termIdField);
+const admissionTypeField = document.createElement('input'); admissionTypeField.type = 'hidden'; admissionTypeField.name = 'admissionType'; form.append(admissionTypeField);
+const historicalAdmissionYearLabel = document.createElement('label'); historicalAdmissionYearLabel.textContent = 'Year Admitted into the School';
+const historicalAdmissionYearField = document.createElement('input'); historicalAdmissionYearField.name = 'historicalAdmissionYear'; historicalAdmissionYearField.type = 'text'; historicalAdmissionYearField.inputMode = 'numeric'; historicalAdmissionYearField.pattern = '\\d{4}'; historicalAdmissionYearField.maxLength = 4;
+historicalAdmissionYearLabel.append(historicalAdmissionYearField); form.querySelector('fieldset').append(historicalAdmissionYearLabel);
+function syncHistoricalAdmissionYear() { const isStaffAdmission = ['ALREADY_ENROLLED', 'TRANSFER', 'FIRST_TIME'].includes(admissionTypeField.value); const required = admissionTypeField.value === 'ALREADY_ENROLLED'; historicalAdmissionYearLabel.hidden = !required; historicalAdmissionYearField.required = required; reviewButton.hidden = !isStaffAdmission; }
+syncHistoricalAdmissionYear();
 const money = (value) => `GH₵${Number(value).toFixed(2)}`;
 
 async function request(url, options = {}) {
@@ -53,6 +65,7 @@ function populate(record) {
   }
   const guardianPhone = values.primaryGuardianPrimaryPhone ?? values.parentPhone;
   if (guardianPhone) form.elements.primaryGuardianPrimaryPhone.value = guardianPhone;
+  admissionTypeField.value = String(values.admissionType ?? ''); historicalAdmissionYearField.value = String(values.historicalAdmissionYear ?? ''); syncHistoricalAdmissionYear();
   yearField.value = String(record.academicYear ?? values.academicYear ?? yearField.value);
   termField.value = String(record.admissionTerm ?? values.admissionTerm ?? termField.value);
   yearIdField.value = String(values.academicYearId ?? ''); termIdField.value = String(values.termId ?? '');
@@ -83,7 +96,7 @@ function renderOfferAcceptance(record) {
 }
 
 async function uploadSelectedDocuments() {
-  const fields = { passport: 'PASSPORT_PHOTOGRAPHS', identity: 'BIRTH_CERTIFICATE_OR_GHANA_CARD', nhis: 'NHIS_CARD', report: 'LAST_ACADEMIC_REPORT' };
+  const fields = { passport: 'PASSPORT_PHOTOGRAPHS', identity: 'BIRTH_CERTIFICATE_OR_GHANA_CARD', nhis: 'NHIS_CARD', report: 'LAST_ACADEMIC_REPORT', admissionReceipt: 'ADMISSION_RECEIPT' };
   for (const [fieldName, documentType] of Object.entries(fields)) {
     const files = [...form.elements[fieldName].files];
     for (const [index, file] of files.entries()) {
@@ -151,7 +164,7 @@ async function saveDraft() {
   status.textContent = 'Saving draft…';
   try {
     const data = Object.fromEntries(new FormData(form));
-    for (const field of ['passport', 'identity', 'nhis', 'report']) delete data[field];
+    for (const field of ['passport', 'identity', 'nhis', 'report', 'admissionReceipt']) delete data[field];
     data.academicYear = String(yearField.value); data.admissionTerm = String(termField.value);
     data.parentDeclarationAccepted = form.elements.parentDeclarationAccepted.checked;
     if (!applicationNumber) {
@@ -165,6 +178,15 @@ async function saveDraft() {
   finally { working = false; saveButton.disabled = false; submitButton.disabled = false; }
 }
 
+function showReview() {
+  const data = Object.fromEntries(new FormData(form));
+  const rows = Object.entries(data).filter(([name]) => !['passport', 'identity', 'nhis', 'report', 'admissionReceipt'].includes(name)).map(([name, value]) => `<dt>${name.replace(/([A-Z])/g, ' $1')}</dt><dd>${String(value || 'Not provided').replace(/[&<>]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[character])}</dd>`).join('');
+  const documents = existingDocuments.map((document) => `<li>${document.documentType.replaceAll('_', ' ')}: ${document.uploadStatus ?? 'UPLOADED'}</li>`).join('') || '<li>No documents uploaded.</li>';
+  reviewPanel.innerHTML = `<h2>Review Admission</h2><p>Review the saved details and document status before final submission. Select Edit Admission to make changes.</p><dl>${rows}</dl><h3>Private documents</h3><ul>${documents}</ul><button type="button" class="text-button" data-edit-admission>Edit Admission</button>`;
+  reviewPanel.querySelector('[data-edit-admission]').addEventListener('click', () => { reviewPanel.hidden = true; reviewed = false; status.textContent = 'Edit the draft, then review it again before submitting.'; form.scrollIntoView({ behavior: 'smooth' }); });
+  reviewPanel.hidden = false; reviewed = true;
+}
+
 classField.addEventListener('change', async () => {
   if (!classField.value) return;
   quote.textContent = 'Loading published fees…';
@@ -176,16 +198,19 @@ classField.addEventListener('change', async () => {
 });
 
 saveButton.addEventListener('click', saveDraft);
+reviewButton.addEventListener('click', async () => { if (!form.reportValidity()) return; await saveDraft(); if (applicationNumber) { showReview(); status.textContent = 'Review the saved admission before confirming submission.'; } });
+form.addEventListener('input', () => { reviewed = false; });
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
   if (working) return;
   if (!form.reportValidity()) return;
+  if (!reviewButton.hidden && !reviewed) { await saveDraft(); if (applicationNumber) { showReview(); status.textContent = 'Review the admission, then select Confirm and Submit Admission again.'; } return; }
   working = true; saveButton.disabled = true;
   const submitButton = form.querySelector('button[type="submit"]'); submitButton.disabled = true;
   status.textContent = 'Saving and submitting application…';
   try {
     const data = Object.fromEntries(new FormData(form));
-    for (const field of ['passport', 'identity', 'nhis', 'report']) delete data[field];
+    for (const field of ['passport', 'identity', 'nhis', 'report', 'admissionReceipt']) delete data[field];
     data.academicYear = String(yearField.value); data.admissionTerm = String(termField.value);
     data.parentDeclarationAccepted = form.elements.parentDeclarationAccepted.checked;
     if (!applicationNumber) {
@@ -193,7 +218,7 @@ form.addEventListener('submit', async (event) => {
       applicationNumber = created.applicationNumber;
     }
     await request(`/api/admission-applications/${encodeURIComponent(applicationNumber)}/update`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
-    const selectedFiles = ['passport', 'identity', 'nhis', 'report'].flatMap((field) => [...form.elements[field].files]);
+    const selectedFiles = ['passport', 'identity', 'nhis', 'report', 'admissionReceipt'].flatMap((field) => [...form.elements[field].files]);
     if (selectedFiles.length) await uploadSelectedDocuments();
     const result = await request(`/api/admission-applications/${encodeURIComponent(applicationNumber)}/submit`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
     renderFeeAssessment(result.feeAssessment);

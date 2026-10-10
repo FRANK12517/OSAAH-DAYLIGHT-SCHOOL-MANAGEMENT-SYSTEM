@@ -138,6 +138,19 @@ test('permanent Student ID allocation advances past legacy four-digit IDs when t
   assert.equal(state.sequence, 9);
 });
 
+test('admission type chooses the authoritative permanent Student ID year', async () => {
+  const historical = application(); historical.applicant_data = JSON.stringify({ studentFirstName: 'Ama', studentSurname: 'Mensah', gender: 'Female', dateOfBirth: '2018-01-02', primaryGuardianPrimaryPhone: '0240000000', admissionType: 'ALREADY_ENROLLED', historicalAdmissionYear: '2019' });
+  const enrolled = adapter({ initialApplication: historical });
+  const service = createAdmissionEnrollmentService({ database: enrolled.api, clock: () => '2026-09-13T00:00:00.000Z' });
+  assert.equal((await service.enroll({ applicationId: 'app-1' })).student.permanentStudentId, 'OSAAH/2019/001');
+  const transfer = application(); transfer.applicant_data = JSON.stringify({ studentFirstName: 'Ama', studentSurname: 'Mensah', gender: 'Female', dateOfBirth: '2018-01-02', primaryGuardianPrimaryPhone: '0240000000', admissionType: 'TRANSFER', admissionYear: '2019' });
+  const transferService = createAdmissionEnrollmentService({ database: adapter({ initialApplication: transfer }).api, clock: () => '2026-09-13T00:00:00.000Z' });
+  assert.equal((await transferService.enroll({ applicationId: 'app-1' })).student.permanentStudentId, 'OSAAH/2026/001');
+  const missingHistoricalYear = application(); missingHistoricalYear.applicant_data = JSON.stringify({ studentFirstName: 'Ama', studentSurname: 'Mensah', gender: 'Female', dateOfBirth: '2018-01-02', primaryGuardianPrimaryPhone: '0240000000', admissionType: 'ALREADY_ENROLLED' });
+  const missingHistoricalYearService = createAdmissionEnrollmentService({ database: adapter({ initialApplication: missingHistoricalYear }).api, clock: () => '2026-09-13T00:00:00.000Z' });
+  await assert.rejects(() => missingHistoricalYearService.enroll({ applicationId: 'app-1' }), { code: 'HISTORICAL_ADMISSION_YEAR_REQUIRED' });
+});
+
 test('parent portal resolution requires an active parent/profile authorization link', async () => {
   const allowed = adapter({ authorized: true });
   const service = createAdmissionEnrollmentService({ database: allowed.api });

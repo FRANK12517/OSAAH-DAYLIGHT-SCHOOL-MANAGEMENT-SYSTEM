@@ -19,7 +19,7 @@ test('Migration 078 production preflight is read-only and covers identity, seque
   assert.match(source, /student_enrollment_terms/);
   assert.match(source, /indexDefinitionMismatches/);
   assert.match(source, /duplicateGroups/);
-  assert.match(source, /columnDefinitionMismatch\(table, name, actual\)/);
+  assert.match(source, /columnDefinitionMismatch\(table, name, columnMetadata\.get\(keyFor\(table, name\)\)\)/);
   assert.doesNotMatch(source, /student_profiles:\s*\[[^\]]*permanent_student_id/);
 });
 
