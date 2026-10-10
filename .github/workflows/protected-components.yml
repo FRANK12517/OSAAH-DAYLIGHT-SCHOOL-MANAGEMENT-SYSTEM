@@ -16,6 +16,8 @@ jobs:
       - run: npm ci
       - run: npm run protection:verify
       - name: Attendance integrity regression suite
-        run: node --test test/attendance-*.test.js test/staff-attendance-*.test.js test/student-attendance-*.test.js test/part1-mobile-attendance-result-slip.test.js
+        run: node --test test/attendance-*.test.js test/student-attendance-*.test.js test/part1-mobile-attendance-result-slip.test.js
+      - name: Staff Attendance protection suite
+        run: npm run test:staff-attendance
       - name: Validate migration inventory
         run: npm run migration:validate

@@ -162,6 +162,110 @@
       ]
     },
     {
+      "id": "staff-attendance-protection-contract",
+      "description": "Role-scoped Staff Attendance workflows, school-scoped durable records, atomic audit history, schema invariants, and mandatory regression coverage.",
+      "route": "/attendance/staff",
+      "files": [
+        {
+          "path": "src/server.mjs",
+          "requiredMarkers": [
+            "canAccess(user, 'staff.attendance.write')",
+            "canAccess(user, 'staff.attendance.read')",
+            "reportType === 'STAFF' ? canAccess(user, 'attendance.read') && canAccess(user, 'staff.attendance.read') : canAccess(user, 'attendance.read')",
+            "required record version"
+          ]
+        },
+        {
+          "path": "src/attendance-repository.js",
+          "requiredMarkers": [
+            "STAFF_ATTENDANCE_TRANSACTION_UNAVAILABLE",
+            "adapter.transaction(async (tx)",
+            "LIMIT 1 FOR UPDATE",
+            "STAFF_ATTENDANCE_VERSION_CONFLICT",
+            "previousReason = personType === 'STAFF'",
+            "INSERT INTO attendance_audit_history"
+          ]
+        },
+        {
+          "path": "schema/034_attendance_academic_scope.sql",
+          "requiredMarkers": [
+            "uq_staff_attendance_scope_identity",
+            "attendance_date, staff_id, attendance_type"
+          ]
+        },
+        {
+          "path": "test/staff-attendance-access.test.js",
+          "requiredMarkers": [
+            "student-attendance access alone must not expose the staff register",
+            "authorized report roles with staff.read retain the STAFF-only report",
+            "last-seen record version",
+            "superseded update timestamp must not overwrite a newer record"
+          ]
+        },
+        {
+          "path": "public/staff-attendance.html",
+          "requiredMarkers": [
+            "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">",
+            "class=\"responsive-table\"",
+            "async function saveAttendance()",
+            "payload.expectedUpdatedAt = row.dataset.recordUpdatedAt"
+          ]
+        },
+        {
+          "path": "public/styles.css",
+          "requiredMarkers": [
+            ".responsive-table{width:100%;overflow-x:auto}"
+          ]
+        },
+        {
+          "path": "test/staff-attendance-durable-integrity.test.js",
+          "requiredMarkers": [
+            "durable Staff Attendance saves and their audit events commit atomically",
+            "concurrent duplicate staff submissions",
+            "concurrent stale staff updates serialize",
+            "partial staff updates preserve omitted fields",
+            "rolls back the staff record"
+          ]
+        },
+        {
+          "path": "test/staff-attendance-schema-contract.test.js",
+          "requiredMarkers": [
+            "schema retains canonical school/staff identity",
+            "contains no destructive operation targeting staff_attendance",
+            "dedicated suite and migration inventory validation"
+          ]
+        },
+        {
+          "path": "package.json",
+          "requiredMarkers": [
+            "test:staff-attendance"
+          ]
+        },
+        {
+          "path": ".github/workflows/protected-components.yml",
+          "requiredMarkers": [
+            "Staff Attendance protection suite",
+            "npm run test:staff-attendance"
+          ]
+        },
+        {
+          "path": ".github/workflows/production-db-migration.yml",
+          "requiredMarkers": [
+            "Verify Staff Attendance before production migration",
+            "npm run test:staff-attendance"
+          ]
+        },
+        {
+          "path": "docs/staff-attendance-protection-contract.md",
+          "requiredMarkers": [
+            "Pre-release acceptance",
+            "Gate status limitation",
+            "backward-compatible changes"
+          ]
+        }
+      ]
+    },
+    {
       "id": "student-result-slip-cascade",
       "description": "Automatic academic-year, term, class, and eligible-student result-slip cascade with stale-request protection.",
       "route": "/results",
