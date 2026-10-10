@@ -47,8 +47,7 @@ const correctiveActions = {
 };
 
 const countValue = (value) => Number.isSafeInteger(value) && value >= 0 ? value : null;
-const countsAvailable = (source, keys) => keys.every((key) => countValue(source?.[key]) !== null);
-const countMap = (source, keys, available) => Object.fromEntries(keys.map((key) => [key, available ? countValue(source?.[key]) : null]));
+const allowedCheckStatuses = new Set(['PASS', 'FAIL', 'NOT_CHECKED']);
 const safeType = (value) => {
   if (typeof value !== 'string') return 'UNKNOWN';
   const type = value.toLowerCase();
@@ -115,6 +114,20 @@ function safeColumnMismatches(report) {
   return { details, valid: valid && details.length === report.columnDefinitionMismatches.length };
 }
 
+function safeChecks(report, group, names) {
+  if (!Array.isArray(report?.checks?.[group])) return { checks: [], valid: false };
+  const byName = new Map(report.checks[group].map((check) => [check?.name, check]));
+  if (byName.size !== report.checks[group].length || names.some((name) => !byName.has(name))) return { checks: [], valid: false };
+  const checks = names.map((name) => {
+    const check = byName.get(name);
+    const valid = check && typeof check === 'object' && typeof check.mandatory === 'boolean' && allowedCheckStatuses.has(check.status)
+      && typeof check.category === 'string' && (check.count === null || countValue(check.count) !== null)
+      && (check.status === 'NOT_CHECKED' ? check.count === null && typeof check.reason === 'string' : countValue(check.count) !== null && check.reason === null);
+    return valid ? { name, mandatory: check.mandatory, status: check.status, category: check.category, reason: check.reason, count: check.count } : null;
+  });
+  return { checks, valid: checks.every(Boolean) };
+}
+
 export function buildSummary(report, nodeExitCode) {
   const validObject = report !== null && typeof report === 'object' && !Array.isArray(report);
   const validStatus = Number.isInteger(nodeExitCode) && nodeExitCode >= 0;
@@ -126,13 +139,16 @@ export function buildSummary(report, nodeExitCode) {
   const missingCategories = [...new Set(missingObjects.map((item) => item.split('.')[0]))].sort();
   const schemaFindings = hasJson ? safeSchemaFindings(report, missingObjects) : { findings: [], valid: false };
   const columnResult = hasJson ? safeColumnMismatches(report) : { details: [], valid: false };
-  const checksSkipped = hasJson && missingObjects.length > 0;
-  const duplicatesAvailable = hasJson && !checksSkipped && countsAvailable(report.duplicateGroups, duplicateKeys);
-  const orphansAvailable = hasJson && !checksSkipped && countsAvailable(report.orphanCounts, orphanKeys);
-  const duplicates = hasJson ? countMap(report.duplicateGroups, duplicateKeys, duplicatesAvailable) : {};
-  const orphans = hasJson ? countMap(report.orphanCounts, orphanKeys, orphansAvailable) : {};
-  const duplicateTotal = duplicatesAvailable ? Object.values(duplicates).reduce((sum, n) => sum + n, 0) : null;
-  const orphanTotal = orphansAvailable ? Object.values(orphans).reduce((sum, n) => sum + n, 0) : null;
+  const duplicateResult = hasJson ? safeChecks(report, 'duplicate', duplicateKeys) : { checks: [], valid: false };
+  const orphanResult = hasJson ? safeChecks(report, 'orphan', orphanKeys) : { checks: [], valid: false };
+  const duplicates = Object.fromEntries(duplicateResult.checks.filter(Boolean).map((check) => [check.name, check.count]));
+  const orphans = Object.fromEntries(orphanResult.checks.filter(Boolean).map((check) => [check.name, check.count]));
+  const mandatoryDuplicates = duplicateResult.checks.filter((check) => check?.mandatory);
+  const mandatoryOrphans = orphanResult.checks.filter((check) => check?.mandatory);
+  const duplicatesAvailable = duplicateResult.valid && mandatoryDuplicates.every((check) => check.status !== 'NOT_CHECKED');
+  const orphansAvailable = orphanResult.valid && mandatoryOrphans.every((check) => check.status !== 'NOT_CHECKED');
+  const duplicateTotal = duplicatesAvailable ? mandatoryDuplicates.reduce((sum, check) => sum + check.count, 0) : null;
+  const orphanTotal = orphansAvailable ? mandatoryOrphans.reduce((sum, check) => sum + check.count, 0) : null;
   const columnMismatchCount = hasJson && Array.isArray(report.columnDefinitionMismatches) ? report.columnDefinitionMismatches.length : 0;
   const indexMismatchCount = hasJson && Array.isArray(report.indexDefinitionMismatches) ? report.indexDefinitionMismatches.length : 0;
   const invalidSequenceCount = hasJson && Array.isArray(report.invalidSequenceYears) ? report.invalidSequenceYears.length : 0;
@@ -142,17 +158,14 @@ export function buildSummary(report, nodeExitCode) {
   const migrationPrerequisites = hasJson && Array.isArray(report.missingPrerequisites)
     ? (missingObjects.length ? 'MISSING' : 'PRESENT') : 'UNKNOWN';
   const duplicateCheckStatus = duplicatesAvailable ? 'COMPLETE' : 'NOT_CHECKED';
-  const duplicateCheckReason = checksSkipped ? 'MISSING_SCHEMA_PREREQUISITES' : duplicatesAvailable ? null : 'DIAGNOSTICS_UNAVAILABLE';
+  const duplicateCheckReason = duplicatesAvailable ? null : mandatoryDuplicates.some((check) => check?.category === 'MISSING_SCHEMA_PREREQUISITES') ? 'MISSING_SCHEMA_PREREQUISITES' : 'DIAGNOSTICS_UNAVAILABLE';
   const orphanCheckStatus = orphansAvailable ? 'COMPLETE' : 'NOT_CHECKED';
-  const orphanCheckReason = checksSkipped ? 'MISSING_SCHEMA_PREREQUISITES' : orphansAvailable ? null : 'DIAGNOSTICS_UNAVAILABLE';
-  const validDataCheckShape = checksSkipped
-    ? Object.keys(report.duplicateGroups ?? {}).length === 0 && Object.keys(report.orphanCounts ?? {}).length === 0
-    : duplicatesAvailable && orphansAvailable;
+  const orphanCheckReason = orphansAvailable ? null : mandatoryOrphans.some((check) => check?.category === 'MISSING_SCHEMA_PREREQUISITES') ? 'MISSING_SCHEMA_PREREQUISITES' : 'DIAGNOSTICS_UNAVAILABLE';
+  const validDataCheckShape = duplicateResult.valid && orphanResult.valid;
   const completeDiagnostics = hasJson && validStatus && missingResult.valid && schemaFindings.valid && columnResult.valid
     && Array.isArray(report.indexDefinitionMismatches) && Array.isArray(report.invalidSequenceYears)
     && Array.isArray(report.counterBehindYears) && Array.isArray(report.annualSequenceReconciliation)
-    && Number.isSafeInteger(report.malformedStudentIdCount) && validDataCheckShape
-    && (!checksSkipped || !report.ok);
+    && Number.isSafeInteger(report.malformedStudentIdCount) && validDataCheckShape;
   const safetyValid = completeDiagnostics && report.mode === 'READ_ONLY_PREFLIGHT' && report.writesPerformed === false && engine === 'TiDB';
   const passed = safetyValid && report.ok === true && nodeExitCode === 0 && migrationPrerequisites === 'PRESENT'
     && duplicateCheckStatus === 'COMPLETE' && orphanCheckStatus === 'COMPLETE'
@@ -180,10 +193,12 @@ export function buildSummary(report, nodeExitCode) {
     missingSchemaObjectCategoryCount: missingCategories.length,
     duplicateCheckStatus,
     duplicateCheckReason,
+    duplicateChecks: duplicateResult.checks,
     duplicateRecordCounts: duplicates,
     duplicateRecordTotal: duplicateTotal,
     orphanCheckStatus,
     orphanCheckReason,
+    orphanChecks: orphanResult.checks,
     orphanRecordCounts: orphans,
     orphanRecordTotal: orphanTotal,
     studentIdSequenceCompatibility: hasJson
