@@ -4,7 +4,13 @@ const applicationsStatus = document.querySelector('#applications-status');
 const applicationsList = document.querySelector('#applications-list');
 const classField = enquiryForm.elements.classId;
 const academicYearField = enquiryForm.elements.academicYear;
+const termField = enquiryForm.elements.term;
+const savedApplicationNumber = new URLSearchParams(location.search).get('applicationNumber');
 let submitting = false;
+if (savedApplicationNumber) {
+  const button = enquiryForm.querySelector('button[type="submit"]');
+  button.disabled = true; button.textContent = 'Loading draft…'; enquiryForm.setAttribute('aria-busy', 'true');
+}
 const requestIdKey = 'osaah.admissions.enquiryRequestId';
 const workflowStages = ['ENQUIRY', 'APPLICATION', 'DOCUMENT_REVIEW', 'ASSESSMENT', 'DECISION', 'ADMISSION_OFFER', 'ACCEPTANCE', 'REGISTRATION', 'FEE_ASSESSMENT', 'ENROLLMENT', 'STUDENT_ID', 'CLASS_ASSIGNMENT'];
 
@@ -30,13 +36,39 @@ async function loadOptions() {
     for (const item of options.classes ?? []) classField.add(new Option(item.name, item.id));
     academicYearField.replaceChildren(new Option('Select academic year', ''));
     for (const item of options.academicYears ?? []) academicYearField.add(new Option(item.name, JSON.stringify({ id: item.id, name: item.name, admissionYear: item.admissionYear })));
-    const termField = enquiryForm.elements.term;
     termField.replaceChildren(new Option('Select term', ''));
     for (const item of options.terms ?? []) termField.add(new Option(item.name, JSON.stringify({ id: item.id, name: item.name })));
     if (!academicYearField.options.length) academicYearField.add(new Option(String(new Date().getFullYear()), String(new Date().getFullYear())));
   } catch (error) {
     enquiryStatus.textContent = `Unable to load school classes and years: ${error.message}`;
   }
+}
+
+async function reopenExistingEnquiry() {
+  if (!savedApplicationNumber) return;
+  const button = enquiryForm.querySelector('button[type="submit"]');
+  button.disabled = true; button.textContent = 'Loading draft…'; enquiryForm.setAttribute('aria-busy', 'true');
+  try {
+    const application = await jsonRequest(`/api/admission-applications/${encodeURIComponent(savedApplicationNumber)}`);
+    const student = application.section1 ?? {};
+    const applicantName = student.enquiry?.applicantName || [student.studentFirstName, student.studentSurname].filter(Boolean).join(' ');
+    enquiryForm.elements.admissionType.value = student.admissionType ?? '';
+    enquiryForm.elements.applicantName.value = applicantName;
+    enquiryForm.elements.parentPhone.value = student.primaryGuardianPrimaryPhone ?? student.enquiry?.parentPhone ?? '';
+    classField.value = student.classAppliedFor ?? student.enquiry?.classId ?? '';
+    const year = application.academicYear ?? student.academicYear;
+    const yearOption = [...academicYearField.options].find((option) => {
+      try { const item = JSON.parse(option.value); return item.id === student.academicYearId || item.name === year; } catch { return option.value === year; }
+    });
+    if (yearOption) academicYearField.value = yearOption.value;
+    const term = application.admissionTerm ?? student.admissionTerm;
+    const termOption = [...termField.options].find((option) => {
+      try { const item = JSON.parse(option.value); return item.id === student.termId || item.name === term || item.id === term; } catch { return option.value === term; }
+    });
+    if (termOption) termField.value = termOption.value;
+    enquiryStatus.textContent = `Draft ${savedApplicationNumber} reopened. Your enquiry details are ready to edit.`;
+  } catch (error) { enquiryStatus.textContent = `Unable to reopen this enquiry: ${error.message}`; }
+  finally { button.disabled = false; button.textContent = 'Next'; enquiryForm.removeAttribute('aria-busy'); }
 }
 
 function renderApplications(applications) {
@@ -116,7 +148,7 @@ enquiryForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   if (submitting) return;
   submitting = true;
-  const button = enquiryForm.querySelector('button[type="submit"]'); button.disabled = true;
+  const button = enquiryForm.querySelector('button[type="submit"]'); button.disabled = true; button.textContent = 'Saving enquiry…'; enquiryForm.setAttribute('aria-busy', 'true');
   enquiryStatus.textContent = 'Saving enquiry…';
   try {
     const values = new FormData(enquiryForm);
@@ -124,21 +156,29 @@ enquiryForm.addEventListener('submit', async (event) => {
     const parts = fullName.split(' ');
     if (parts.length < 2) throw new Error('Enter the applicant’s first and last name.');
     const parentPhone = normalizeGhanaPhone(values.get('parentPhone'));
-    let enquiryRequestId = sessionStorage.getItem(requestIdKey);
-    if (!enquiryRequestId) { enquiryRequestId = crypto.randomUUID(); sessionStorage.setItem(requestIdKey, enquiryRequestId); }
     const admissionType = String(values.get('admissionType') ?? '');
     if (!['ALREADY_ENROLLED', 'TRANSFER', 'FIRST_TIME'].includes(admissionType)) throw new Error('Select an admission type.');
     const classId = String(values.get('classId'));
     const className = classField.selectedOptions[0]?.textContent ?? '';
     const yearSelection = JSON.parse(String(values.get('academicYear')));
     const termSelection = JSON.parse(String(values.get('term')));
-    const created = await jsonRequest('/api/admission-applications', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ admissionType, studentFirstName: parts.slice(0, -1).join(' '), studentSurname: parts.at(-1), classAppliedFor: classId, className, primaryGuardianPrimaryPhone: parentPhone, academicYear: yearSelection.name, admissionYear: yearSelection.admissionYear, academicYearId: yearSelection.id, admissionTerm: termSelection.name, termId: termSelection.id, enquiryRequestId, enquiry: { applicantName: fullName, parentPhone, classId, className } }) });
-    sessionStorage.removeItem(requestIdKey);
+    const payload = { admissionType, studentFirstName: parts.slice(0, -1).join(' '), studentSurname: parts.at(-1), classAppliedFor: classId, className, primaryGuardianPrimaryPhone: parentPhone, academicYear: yearSelection.name, admissionYear: yearSelection.admissionYear, academicYearId: yearSelection.id, admissionTerm: termSelection.name, termId: termSelection.id, enquiry: { applicantName: fullName, parentPhone, classId, className } };
+    let created;
+    if (savedApplicationNumber) {
+      created = await jsonRequest(`/api/admission-applications/${encodeURIComponent(savedApplicationNumber)}/update`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      created.applicationNumber = savedApplicationNumber;
+    } else {
+      let enquiryRequestId = sessionStorage.getItem(requestIdKey);
+      if (!enquiryRequestId) { enquiryRequestId = crypto.randomUUID(); sessionStorage.setItem(requestIdKey, enquiryRequestId); }
+      payload.enquiryRequestId = enquiryRequestId;
+      created = await jsonRequest('/api/admission-applications', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      sessionStorage.removeItem(requestIdKey);
+    }
     window.location.assign(`/admission-application.html?applicationNumber=${encodeURIComponent(created.applicationNumber)}&step=2`);
   } catch (error) {
     enquiryStatus.textContent = error.message;
-    submitting = false; button.disabled = false;
+    submitting = false; button.disabled = false; button.textContent = 'Next'; enquiryForm.removeAttribute('aria-busy');
   }
 });
 
-Promise.all([loadOptions(), loadApplications()]);
+Promise.all([loadOptions(), loadApplications()]).then(reopenExistingEnquiry);
