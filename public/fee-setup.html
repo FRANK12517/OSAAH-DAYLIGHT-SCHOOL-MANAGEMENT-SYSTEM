@@ -54,7 +54,7 @@ import { parsePositiveGhsAmountToMinorUnits } from '/fee-amount.js';
       const result = await jsonRequest('/api/fees/obligations/publish', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       if (!Number.isSafeInteger(Number(result.created_count)) || Number(result.created_count) < 0 || !Number.isSafeInteger(Number(result.skipped_count)) || Number(result.skipped_count) < 0) throw new Error('The server response was incomplete; verify the published fee before retrying.');
       await loadPublishedFees();
-      setStatus(`Published successfully · ${result.created_count} student obligations created${result.skipped_count ? ` · ${result.skipped_count} existing obligations safely retained` : ''}.`);
+      setStatus(`Fee published successfully. ${result.created_count} student obligations created${result.skipped_count ? ` · ${result.skipped_count} existing obligations safely retained` : ''}`);
       form.elements.amount.value = '';
     } catch (error) { setStatus(error.message || 'Unable to publish this fee. Please try again.', true); }
     finally { submitting = false; submitButton.textContent = 'Publish fee'; refreshSubmitState(); }

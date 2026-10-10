@@ -40,6 +40,7 @@ test('Fee Setup uses backend canonical options and represents Nursery 1 through 
   const source = await readFile(new URL('../public/fee-setup.html', import.meta.url), 'utf8');
   assert.match(source, /api\/fee-setup\/options/);
   assert.match(source, /classId/);
+  assert.match(source, /Fee published successfully\./);
   assert.doesNotMatch(source, /<option[^>]+value=["']Nursery 1/);
   assert.deepEqual(new Set(classes.map((item) => item.name)).size, 13);
   assert.deepEqual(CORE_LEVELS.length, 13);
