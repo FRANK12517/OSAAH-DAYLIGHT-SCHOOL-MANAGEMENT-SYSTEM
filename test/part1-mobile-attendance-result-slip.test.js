@@ -9,6 +9,8 @@ test('mobile attendance renders cards while preserving the desktop table and exi
   const client = await read('public/attendance-register.js');
   const css = await read('public/styles.css');
   const server = await read('src/server.mjs');
+  const registerService = await read('src/attendance-register-service.js');
+  const attendanceRepository = await read('src/attendance-repository.js');
   assert.match(html, /id="attendance-register"/);
   assert.match(html, /id="attendance-mobile-cards"/);
   assert.match(client, /function mobileCard/);
@@ -16,9 +18,15 @@ test('mobile attendance renders cards while preserving the desktop table and exi
   assert.match(client, /saving = true/);
   assert.match(css, /@media\(max-width:767px\)/);
   assert.match(css, /\.attendance-mobile-cards\{display:block\}/);
-  assert.match(server, /existingAttendance/);
-  assert.match(server, /attendanceRepository\.listStudentRecords/);
-  assert.match(server, /const save = \(entry\)/);
+  assert.match(client, /requestAttendanceJson/);
+  assert.match(client, /function isReadOnly/);
+  assert.match(client, /changedEntries\.push/);
+  assert.match(client, /max-width: 1023px/);
+  assert.match(server, /attendanceRegister\.enrolledStudents/);
+  assert.match(server, /ATTENDANCE_CORRECTION_FORBIDDEN/);
+  assert.match(registerService, /FROM student_enrollments e/);
+  assert.match(attendanceRepository, /saveStudentAttendanceBatch/);
+  assert.match(attendanceRepository, /adapter\.transaction/);
   assert.doesNotMatch(client, /statuses\.map\(\(item\) => `<option>\$\{item\}<\/option>`/);
 });
 

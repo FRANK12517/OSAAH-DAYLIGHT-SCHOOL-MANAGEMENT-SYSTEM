@@ -20,11 +20,16 @@ test('Basic 4 aliases resolve to the canonical Primary 4 class identity', () => 
 });
 
 test('Attendance API exposes authoritative classes and normalizes class scope before enrollment filtering', async () => {
-  const server = await readFile(new URL('../src/server.mjs', import.meta.url), 'utf8');
+  const [server, service] = await Promise.all([
+    readFile(new URL('../src/server.mjs', import.meta.url), 'utf8'),
+    readFile(new URL('../src/attendance-register-service.js', import.meta.url), 'utf8')
+  ]);
   assert.match(server, /async function attendanceClassOptions\(actor\)/);
   assert.match(server, /SELECT id,name,sort_order AS displayOrder FROM classes WHERE school_id=\?/);
-  assert.match(server, /classes: await attendanceClassOptions\(user\)/);
+  assert.match(server, /attendanceClassOptions\(user\)/);
   assert.match(server, /resolveAttendanceClass\(user, requestedClassId\)/);
-  assert.match(server, /sameClass\(entry\.classId\)/);
+  assert.match(server, /attendanceRegister\.enrolledStudents\(/);
+  assert.match(service, /e\.academic_year_id=\? AND e\.term_id=\?/);
+  assert.match(service, /COALESCE\(e\.enrollment_status,'ACTIVE'\)='ACTIVE'/);
   assert.match(server, /throw Object\.assign\(new Error\('Forbidden\.'\), \{ status: 403 \}\)/);
 });
