@@ -15,7 +15,7 @@ test('Administrator can see the authoritative Score Entry module with marks.writ
 });
 
 test('Administrator marks.write is delivered by a forward migration without editing migration 032', async () => {
-  const historical = await readFile(new URL('../schema/032_production_rbac_reconciliation.sql', import.meta.url), 'utf8');
+  const historical = (await readFile(new URL('../schema/032_production_rbac_reconciliation.sql', import.meta.url), 'utf8')).replace(/\r\n/g, '\n');
   const forward = await readFile(new URL('../schema/070_school_admin_score_entry_permission.sql', import.meta.url), 'utf8');
   const administratorBlock = historical.match(/FROM roles r JOIN permissions p ON p\.permission_key IN \([^;]+\)\nWHERE r\.role_key = 'SCHOOL_ADMIN';/s)?.[0] ?? '';
   assert.notEqual(administratorBlock, '');

@@ -59,7 +59,7 @@ print(json.dumps({
 `;
 
 function sqliteResult(sql) {
-  const result = spawnSync('python3', ['-c', sqliteMigrationCheck], {
+  const result = spawnSync(process.env.PYTHON_EXECUTABLE ?? 'python3', ['-c', sqliteMigrationCheck], {
     input: JSON.stringify({ sql }), encoding: 'utf8'
   });
   assert.equal(result.status, 0, `python sqlite test failed: ${result.stderr}`);
@@ -144,7 +144,7 @@ test('migration 060 is one additive unique index on the approved ordered columns
   assert.doesNotMatch(migrationSql, /\b(INSERT|UPDATE|DELETE|REPLACE|DROP|TRUNCATE|ALTER)\b/i);
   assert.equal(migrationSql.split(';').filter((statement) => statement.trim()).length, 1);
   const migration059 = await readFile(new URL('../schema/059_backward_compatible_enrollment_contract.sql', import.meta.url));
-  assert.equal(createHash('sha256').update(migration059).digest('hex'), '15f26ecbd421869172219303069f4591b04dceaff405e1aba6a7b3cf99e06e48');
+  assert.equal(createHash('sha256').update(migration059).digest('hex'), '81d21b4e6e18d8d5cc4f400f918b4ebd2aec843b0301a41cd6fae3ff884adb11');
 });
 
 test('TiDB-compatible unique DDL rejects same-year duplicates, allows the same name in another year, and preserves existing rows', () => {

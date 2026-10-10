@@ -18,6 +18,25 @@ const orphanKeys = [
   'student_enrollment_academic_years', 'student_enrollment_terms',
   'parent_student_links'
 ];
+const checkPrerequisites = {
+  duplicate: {
+    enquiry_retry_identity: ['admission_applications.school_id', 'admission_applications.enquiry_request_id'],
+    application_student_identity: ['admission_applications.student_id'],
+    application_permanent_student_identity: ['admission_applications.school_id', 'admission_applications.permanent_student_id'],
+    enrollment_context: ['student_enrollments.school_id', 'student_enrollments.student_id', 'student_enrollments.academic_year_id', 'student_enrollments.term_id', 'student_enrollments.is_current'],
+    student_permanent_id: ['students.school_id', 'students.permanent_student_id'],
+    profile_student_id: ['student_profiles.school_id', 'student_profiles.student_master_id', 'student_profiles.student_id']
+  },
+  orphan: {
+    admission_application_students: ['admission_applications.student_id', 'admission_applications.school_id', 'students.id', 'students.school_id'],
+    student_profile_master: ['student_profiles.student_master_id', 'student_profiles.school_id', 'students.id', 'students.school_id'],
+    student_enrollment_students: ['student_enrollments.student_id', 'student_enrollments.school_id', 'students.id', 'students.school_id'],
+    student_enrollment_classes: ['student_enrollments.class_id', 'classes.id'],
+    student_enrollment_academic_years: ['student_enrollments.academic_year_id', 'student_enrollments.school_id', 'academic_years.id', 'academic_years.school_id'],
+    student_enrollment_terms: ['student_enrollments.term_id', 'student_enrollments.academic_year_id', 'terms.id', 'terms.academic_year_id'],
+    parent_student_links: ['parent_student_links.parent_user_id', 'parent_student_links.student_id', 'users.id', 'users.school_id', 'student_profiles.id', 'student_profiles.school_id']
+  }
+};
 const schemaColumns = {
   admission_applications: ['id', 'school_id', 'student_id', 'application_number', 'stage', 'applicant_data'],
   student_enrollments: ['school_id', 'student_id', 'class_id', 'academic_year_id', 'term_id', 'is_current'],
@@ -128,6 +147,22 @@ function safeChecks(report, group, names) {
   return { checks, valid: checks.every(Boolean) };
 }
 
+function checksMatchMissingSchema(report, group, names, missingObjects) {
+  const byName = new Map(report?.checks?.[group]?.map((check) => [check.name, check]));
+  return names.every((name) => {
+    const check = byName.get(name);
+    if (!check || !Array.isArray(check.missingPrerequisites)) return false;
+    const expectedMissing = checkPrerequisites[group][name].filter((object) => {
+      const table = object.split('.')[0];
+      return missingObjects.includes(object) || missingObjects.includes(`${table}.*`);
+    }).sort();
+    const reportedMissing = [...check.missingPrerequisites].sort();
+    if (JSON.stringify(reportedMissing) !== JSON.stringify(expectedMissing)) return false;
+    if (expectedMissing.length) return check.status === 'NOT_CHECKED' && check.category === 'MISSING_SCHEMA_PREREQUISITES' && check.count === null;
+    return check.category !== 'MISSING_SCHEMA_PREREQUISITES';
+  });
+}
+
 export function buildSummary(report, nodeExitCode) {
   const validObject = report !== null && typeof report === 'object' && !Array.isArray(report);
   const validStatus = Number.isInteger(nodeExitCode) && nodeExitCode >= 0;
@@ -141,12 +176,15 @@ export function buildSummary(report, nodeExitCode) {
   const columnResult = hasJson ? safeColumnMismatches(report) : { details: [], valid: false };
   const duplicateResult = hasJson ? safeChecks(report, 'duplicate', duplicateKeys) : { checks: [], valid: false };
   const orphanResult = hasJson ? safeChecks(report, 'orphan', orphanKeys) : { checks: [], valid: false };
+  const checkSchemaConsistency = hasJson
+    && checksMatchMissingSchema(report, 'duplicate', duplicateKeys, missingObjects)
+    && checksMatchMissingSchema(report, 'orphan', orphanKeys, missingObjects);
   const duplicates = Object.fromEntries(duplicateResult.checks.filter(Boolean).map((check) => [check.name, check.count]));
   const orphans = Object.fromEntries(orphanResult.checks.filter(Boolean).map((check) => [check.name, check.count]));
   const mandatoryDuplicates = duplicateResult.checks.filter((check) => check?.mandatory);
   const mandatoryOrphans = orphanResult.checks.filter((check) => check?.mandatory);
-  const duplicatesAvailable = duplicateResult.valid && mandatoryDuplicates.every((check) => check.status !== 'NOT_CHECKED');
-  const orphansAvailable = orphanResult.valid && mandatoryOrphans.every((check) => check.status !== 'NOT_CHECKED');
+  const duplicatesAvailable = duplicateResult.valid && checkSchemaConsistency && mandatoryDuplicates.every((check) => check.status !== 'NOT_CHECKED');
+  const orphansAvailable = orphanResult.valid && checkSchemaConsistency && mandatoryOrphans.every((check) => check.status !== 'NOT_CHECKED');
   const duplicateTotal = duplicatesAvailable ? mandatoryDuplicates.reduce((sum, check) => sum + check.count, 0) : null;
   const orphanTotal = orphansAvailable ? mandatoryOrphans.reduce((sum, check) => sum + check.count, 0) : null;
   const columnMismatchCount = hasJson && Array.isArray(report.columnDefinitionMismatches) ? report.columnDefinitionMismatches.length : 0;
@@ -162,7 +200,7 @@ export function buildSummary(report, nodeExitCode) {
   const orphanCheckStatus = orphansAvailable ? 'COMPLETE' : 'NOT_CHECKED';
   const orphanCheckReason = orphansAvailable ? null : mandatoryOrphans.some((check) => check?.category === 'MISSING_SCHEMA_PREREQUISITES') ? 'MISSING_SCHEMA_PREREQUISITES' : 'DIAGNOSTICS_UNAVAILABLE';
   const validDataCheckShape = duplicateResult.valid && orphanResult.valid;
-  const completeDiagnostics = hasJson && validStatus && missingResult.valid && schemaFindings.valid && columnResult.valid
+  const completeDiagnostics = hasJson && validStatus && missingResult.valid && schemaFindings.valid && columnResult.valid && checkSchemaConsistency
     && Array.isArray(report.indexDefinitionMismatches) && Array.isArray(report.invalidSequenceYears)
     && Array.isArray(report.counterBehindYears) && Array.isArray(report.annualSequenceReconciliation)
     && Number.isSafeInteger(report.malformedStudentIdCount) && validDataCheckShape;
