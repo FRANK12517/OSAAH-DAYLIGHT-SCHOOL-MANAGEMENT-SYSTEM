@@ -9,12 +9,15 @@ const directory = resolve('schema');
 const sql = await readFile(resolve(directory, '080_restore_student_enrollment_is_current.sql'), 'utf8');
 const workflow = await readFile(resolve('.github/workflows/production-enrollment-is-current-migration-080.yml'), 'utf8');
 
-async function fixture({ hasColumn = false, count = 17 } = {}) {
+async function fixture({ hasColumn = false, count = 17, productionBaseline = false } = {}) {
   const migrations = await discoverMigrations(directory);
   const migration = migrations.find((item) => item.version === 80);
+  const appliedVersions = productionBaseline
+    ? [50, 51, 52, 53, 57, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 73, 74, 75, 76]
+    : migrations.filter((item) => item.version <= 79 && item.version !== 78).map((item) => item.version);
   const storage = {
-    applied: migrations.filter((item) => item.version <= 79 && item.version !== 78).map((item) => ({ version: item.version, name: item.name, checksum: item.checksum, appliedAt: '2026-10-10T00:00:00.000Z' })),
-    baselines: [], statements: [], locked: false
+    applied: migrations.filter((item) => appliedVersions.includes(item.version)).map((item) => ({ version: item.version, name: item.name, checksum: item.checksum, appliedAt: '2026-10-10T00:00:00.000Z' })),
+    baselines: [{ id: 'baseline-fixture', canonicalDatabase: 'osaahdaylightschool', repositoryCommit: 'a'.repeat(40), schemaFingerprint: 'b'.repeat(64), workflowProvenance: 'fixture/read-only', reconciliationMigration: '049_production_schema_reconciliation.sql', baselineType: 'HISTORICAL_BASELINE', historicalMigrationsExecuted: 0 }], statements: [], locked: false
   };
   let currentColumn = hasColumn ? { columnName: 'is_current', columnType: 'tinyint(1)', isNullable: 'NO', columnDefault: '1' } : null;
   const memory = createInMemoryMigrationAdapter(storage);
@@ -53,14 +56,34 @@ test('Migration 080 restores the exact additive TiDB-compatible column contract 
   ]);
 });
 
-test('Migration 080 dry-run is read-only and plans only version 080 after recorded 079', async () => {
-  const { adapter, storage } = await fixture();
-  const result = await runProductionEnrollmentIsCurrentMigration080({ adapter, mode: 'dry-run', baselineRequired: false });
+test('Migration 080 dry-run uses the verified historical baseline and scopes execution to 080', async () => {
+  const { adapter, storage } = await fixture({ productionBaseline: true });
+  const result = await runProductionEnrollmentIsCurrentMigration080({ adapter, mode: 'dry-run' });
   assert.equal(result.ok, true);
   assert.equal(result.productionWrites, 'NONE');
   assert.deepEqual(result.plan.pending.map((item) => item.version), [80]);
+  assert.deepEqual(result.deferredPendingMigrations.map((item) => item.version), [49, 54, 55, 56, 58, 70, 71, 72, 77, 78, 79]);
   assert.equal(storage.statements.length, 0);
   assert.equal(storage.applied.some((item) => item.version === 80), false);
+});
+
+test('Migration 080 refuses an unavailable or incompatible historical baseline', async () => {
+  const missingBaseline = await fixture();
+  missingBaseline.storage.baselines = [];
+  await assert.rejects(() => runProductionEnrollmentIsCurrentMigration080({ adapter: missingBaseline.adapter }), { code: 'MIGRATION_BASELINE_REQUIRED' });
+
+  const incompatibleBaseline = await fixture();
+  incompatibleBaseline.storage.baselines[0].historicalMigrationsExecuted = 1;
+  await assert.rejects(() => runProductionEnrollmentIsCurrentMigration080({ adapter: incompatibleBaseline.adapter }), { code: 'MIGRATION_BASELINE_INCOMPATIBLE' });
+
+  const unverifiedBaseline = await fixture();
+  unverifiedBaseline.storage.baselines[0].repositoryCommit = 'unverified';
+  await assert.rejects(() => runProductionEnrollmentIsCurrentMigration080({ adapter: unverifiedBaseline.adapter }), { code: 'MIGRATION_BASELINE_INCOMPATIBLE' });
+});
+
+test('Migration 080 refuses to treat an unavailable enrollment count as zero', async () => {
+  const { adapter } = await fixture({ count: null });
+  await assert.rejects(() => runProductionEnrollmentIsCurrentMigration080({ adapter, mode: 'dry-run', baselineRequired: false }), { code: 'MIGRATION_080_COUNT_INVALID' });
 });
 
 test('Migration 080 apply requires both exact authorization and backup confirmation', async () => {
@@ -80,7 +103,7 @@ test('Migration 080 applies one additive statement, preserves enrollment count, 
   assert.deepEqual(storage.applied.filter((item) => item.version === 80).map((item) => item.name), ['080_restore_student_enrollment_is_current.sql']);
 });
 
-test('Migration 080 refuses incompatible columns, wrong databases, and unrelated pending migrations', async () => {
+test('Migration 080 refuses incompatible columns and wrong databases', async () => {
   const incompatible = await fixture({ hasColumn: true });
   incompatible.adapter.query = async (statement) => {
     if (statement.includes('SELECT DATABASE()')) return [{ databaseName: 'osaahdaylightschool' }];
@@ -96,9 +119,6 @@ test('Migration 080 refuses incompatible columns, wrong databases, and unrelated
   wrongDatabase.adapter.query = async (statement) => statement.includes('SELECT DATABASE()') ? [{ databaseName: 'other_database' }] : originalQuery(statement);
   await assert.rejects(() => runProductionEnrollmentIsCurrentMigration080({ adapter: wrongDatabase.adapter, mode: 'dry-run', baselineRequired: false }), { code: 'DATABASE_TARGET_MISMATCH' });
 
-  const pending = await fixture();
-  pending.storage.applied = pending.storage.applied.filter((item) => item.version !== 76);
-  await assert.rejects(() => runProductionEnrollmentIsCurrentMigration080({ adapter: pending.adapter, mode: 'dry-run', baselineRequired: false }), { code: 'UNRELATED_MIGRATIONS_PENDING' });
 });
 
 test('Migration 080 production workflow is exact-main, protected, backup-gated, and limited to this migration', () => {
