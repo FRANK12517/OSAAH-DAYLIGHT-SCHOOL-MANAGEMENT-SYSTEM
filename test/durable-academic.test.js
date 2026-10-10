@@ -73,6 +73,52 @@ test('durable score validation rejects values outside CA and Exam limits', async
   await assert.rejects(() => service.saveScore({ classId: 'class-basic-1', subjectId: 'subject-math', studentId: 'student-1', academicYear: '2026/2027', term: 'First Term', caScore: 0, examScore: -1 }, manager), /Exam score must be between 0 and 50/);
 });
 
+test('durable Score Entry saves with the canonical class ID and rejects a student enrollment from another term', async () => {
+  const database = fakeDatabase();
+  const classId = 'class-jhs1-canonical';
+  const subjectId = 'subject-english';
+  const originalQuery = database.query.bind(database);
+  const scoreWrites = [];
+  database.assignments.push({ id: subjectId, code: 'ENG', name: 'English Language', classId, className: 'JHS 1', academicYearId: null, active: 1, assignmentActive: 1, subjectActive: 1, isScoring: 1 });
+  database.query = async (sql, params = []) => {
+    database.calls.push({ sql, params });
+    if (sql.includes('FROM academic_years')) return [{ id: 'year-2026', name: '2026/2027' }];
+    if (sql.includes('FROM terms t JOIN academic_years')) {
+      return [{ id: 'term-1', name: 'First Term' }, { id: 'term-2', name: 'Second Term' }]
+        .filter((term) => term.id === params[2] || term.name === params[3]);
+    }
+    if (sql.includes('SELECT id,name FROM classes WHERE school_id=? AND id=?')) {
+      return params[1] === classId ? [{ id: classId, name: 'JHS 1' }] : [];
+    }
+    if (sql.includes('FROM student_enrollments e JOIN students s') && sql.includes('e.term_id=?')) {
+      const [tenantId, studentId, enrolledClassId, yearId, termId] = params;
+      return tenantId === schoolId && studentId === 'student-1' && enrolledClassId === classId && yearId === 'year-2026' && termId === 'term-1'
+        ? [{ student_id: studentId, permanent_student_id: 'OSAAH/2026/0001', className: 'JHS 1' }]
+        : [];
+    }
+    if (sql.includes('SELECT id FROM academic_score_records')) return [];
+    if (sql.includes('SELECT id FROM student_profiles')) return [{ id: 'profile-1' }];
+    return originalQuery(sql, params);
+  };
+  const originalExecute = database.execute.bind(database);
+  database.execute = async (sql, params = []) => {
+    if (sql.startsWith('INSERT INTO academic_score_records')) scoreWrites.push({ sql, params });
+    return originalExecute(sql, params);
+  };
+  const service = createDurableAcademicService({ database, schoolId, idFactory: () => 'score-1' });
+  const teacher = { ...manager, roleKey: 'TEACHER', assignedClassIds: [classId], assignedSubjectIds: [subjectId] };
+  const selected = { studentId: 'student-1', classId, subjectId, academicYear: '2026/2027', term: 'First Term', caScore: 42, examScore: 38 };
+
+  const saved = await service.saveScore(selected, teacher);
+  assert.equal(saved.classId, classId);
+  assert.equal(saved.totalScore, 80);
+  assert.equal(scoreWrites.length, 1);
+  const enrollmentRead = database.calls.find(({ sql }) => sql.includes('FROM student_enrollments e JOIN students s') && sql.includes('e.term_id=?'));
+  assert.deepEqual(enrollmentRead.params, [schoolId, 'student-1', classId, 'year-2026', 'term-1']);
+  await assert.rejects(() => service.saveScore({ ...selected, term: 'Second Term' }, teacher), /selected class, academic year, and term/);
+  assert.equal(scoreWrites.length, 1, 'an enrollment in a different term must not create another score');
+});
+
 test('durable Sample Mode accepts production year, term, class, and subject IDs and returns only the canonical demo student', async () => {
   const database = fakeDatabase();
   const originalQuery = database.query.bind(database);

@@ -621,8 +621,17 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     assertClassScope(classId, actor);
     const period = await resolvePeriod(input);
     await classFor(classId);
-    const enrolled = rows(await database.query('SELECT e.student_id,s.permanent_student_id,c.name AS className FROM student_enrollments e JOIN students s ON s.id=e.student_id JOIN classes c ON c.id=e.class_id WHERE e.school_id=? AND e.student_id=? AND e.class_id=? AND e.academic_year_id=? AND COALESCE(e.enrollment_status,"ACTIVE")="ACTIVE" AND COALESCE(e.is_current,1)=1 LIMIT 1', [schoolId, studentId, classId, period.yearId]))[0];
-    if (!enrolled) fail('Student is not enrolled in the selected class and academic year.', 400);
+    const enrollmentSql = 'SELECT e.student_id,s.permanent_student_id,c.name AS className FROM student_enrollments e JOIN students s ON s.id=e.student_id AND s.school_id=e.school_id JOIN classes c ON c.id=e.class_id AND c.school_id=e.school_id WHERE e.school_id=? AND e.student_id=? AND e.class_id=? AND e.academic_year_id=? AND e.term_id=?';
+    const enrollmentParams = [schoolId, studentId, classId, period.yearId, period.termId];
+    let enrolledRows;
+    try {
+      enrolledRows = await database.query(`${enrollmentSql} AND COALESCE(e.enrollment_status,"ACTIVE")="ACTIVE" AND COALESCE(e.is_current,1)=1 LIMIT 1`, enrollmentParams);
+    } catch (error) {
+      if (!missingOptionalEnrollmentStateColumn(error)) throw error;
+      enrolledRows = await database.query(`${enrollmentSql} LIMIT 1`, enrollmentParams);
+    }
+    const enrolled = rows(enrolledRows)[0];
+    if (!enrolled) fail('Student is not enrolled in the selected class, academic year, and term.', 400, 'STUDENT_ENROLLMENT_NOT_FOUND');
     if (!await scoringSubjectAssigned({ classId, subjectId, academicYearId: period.yearId }, actor)) fail('Subject is not assigned as a scoring subject for the selected class.', 400);
     const totalScore = caScore + examScore;
     const [grade, remark] = gradeForTotal(totalScore, { classId: enrolled.className, examination: 'TERMINAL' });
