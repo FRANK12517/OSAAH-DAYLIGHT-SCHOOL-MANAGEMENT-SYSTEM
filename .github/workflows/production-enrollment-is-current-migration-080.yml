@@ -1,0 +1,73 @@
+name: Production enrollment current-flag repair 080
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Exact reviewed main commit SHA containing Migration 080
+        required: true
+        type: string
+      execution_token:
+        description: DRY_RUN_ONLY is read-only; apply requires the separately protected token
+        required: true
+        default: DRY_RUN_ONLY
+        type: string
+      backup_confirmation:
+        description: For apply only, enter BACKUP_CONFIRMED after verifying a recent recoverable backup
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-enrollment-is-current-migration-080
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    name: Preflight and scoped Migration 080 repair
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 25
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      EXECUTION_TOKEN: ${{ inputs.execution_token }}
+      BACKUP_CONFIRMATION: ${{ inputs.backup_confirmation }}
+    steps:
+      - name: Validate exact release and protected inputs
+        shell: bash
+        env:
+          RELEASE_REF: ${{ inputs.release_ref }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_REF" =~ ^[0-9a-f]{40}$ ]]
+          test "$EXECUTION_TOKEN" = 'DRY_RUN_ONLY' || test "$EXECUTION_TOKEN" = 'APPLY_ENROLLMENT_IS_CURRENT_080'
+          if [ "$EXECUTION_TOKEN" = 'APPLY_ENROLLMENT_IS_CURRENT_080' ]; then test "$BACKUP_CONFIRMATION" = 'BACKUP_CONFIRMED'; fi
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_ref }}
+          fetch-depth: 0
+      - name: Verify exact current main SHA
+        shell: bash
+        env:
+          RELEASE_REF: ${{ inputs.release_ref }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$RELEASE_REF"
+          git fetch --no-tags origin main
+          test "$(git rev-parse origin/main)" = "$RELEASE_REF"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Validate production migration inventory without writes
+        run: npm run migration:validate
+      - name: Run focused Migration 080 and migration-ledger tests
+        run: node --test test/production-enrollment-is-current-migration-080.test.js test/migration-runner.test.js
+      - name: Run read-only Migration 080 preflight
+        run: node scripts/production-enrollment-is-current-migrate-080.mjs dry-run
+      - name: Apply only Migration 080 with verified backup and protected token
+        if: ${{ inputs.execution_token == 'APPLY_ENROLLMENT_IS_CURRENT_080' }}
+        run: node scripts/production-enrollment-is-current-migrate-080.mjs apply
