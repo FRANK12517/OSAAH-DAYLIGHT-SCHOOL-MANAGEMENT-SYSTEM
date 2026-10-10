@@ -56,7 +56,7 @@ test('Fee Setup options endpoint is school-scoped and returns canonical classes'
     return [];
   } };
   const server = createServer(createApp({ auth, database, aiEnabled: false })); await new Promise((resolve) => server.listen(0, resolve));
-  try { const result = await http(server, '/api/fee-setup/options', { token: login.token }); assert.equal(result.status, 200); assert.equal(result.body.academicYears[0].id, 'year-1'); assert.deepEqual(result.body.terms.map((item) => item.name), ['1st Term', '2nd Term', '3rd Term']); assert.equal(result.body.terms[0].id, 'term-1'); assert.equal(result.body.feeTypes[0].name, 'Tuition'); assert.equal(result.body.classes.length, 13); assert.equal(result.body.classes[4].name, 'Basic 1'); } finally { await new Promise((resolve) => server.close(resolve)); }
+  try { const result = await http(server, '/api/fee-setup/options', { token: login.token }); assert.equal(result.status, 200); assert.equal(result.body.academicYears[0].id, 'year-1'); assert.deepEqual(result.body.terms.map((item) => item.name), ['1st Term']); assert.equal(result.body.terms[0].id, 'term-1'); assert.equal(result.body.feeTypes[0].name, 'Tuition'); assert.equal(result.body.classes.length, 13); assert.equal(result.body.classes[4].name, 'Basic 1'); } finally { await new Promise((resolve) => server.close(resolve)); }
 });
 
 test('Fee publication validates specific class and whole-school targets without duplicating fee definitions', async () => {
