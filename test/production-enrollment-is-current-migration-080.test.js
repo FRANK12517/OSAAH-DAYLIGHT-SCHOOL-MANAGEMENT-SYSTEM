@@ -67,6 +67,17 @@ test('Migration 080 dry-run uses the verified historical baseline and scopes exe
   assert.equal(storage.applied.some((item) => item.version === 80), false);
 });
 
+test('Migration 080 refuses pending versions outside the verified production ledger gaps', async () => {
+  const { adapter, storage } = await fixture({ productionBaseline: true });
+  storage.applied = storage.applied.filter((item) => item.version !== 50);
+  await assert.rejects(() => runProductionEnrollmentIsCurrentMigration080({ adapter, mode: 'dry-run' }), (error) => {
+    assert.equal(error.code, 'MIGRATION_080_UNREVIEWED_PENDING');
+    assert.deepEqual(error.details.versions, [50]);
+    return true;
+  });
+  assert.equal(storage.statements.length, 0);
+});
+
 test('Migration 080 refuses an unavailable or incompatible historical baseline', async () => {
   const missingBaseline = await fixture();
   missingBaseline.storage.baselines = [];

@@ -7,6 +7,7 @@ const VERSION = 80;
 const NAME = '080_restore_student_enrollment_is_current.sql';
 const EXPECTED_DATABASE = 'osaahdaylightschool';
 const APPLY_TOKEN = 'APPLY_ENROLLMENT_IS_CURRENT_080';
+const ALLOWED_DEFERRED_PENDING_VERSIONS = new Set([49, 54, 55, 56, 58, 70, 71, 72, 77, 78, 79]);
 const directory = resolve(fileURLToPath(new URL('../schema/', import.meta.url)));
 const rows = (value) => Array.isArray(value) ? value : [];
 
@@ -66,8 +67,11 @@ export async function runProductionEnrollmentIsCurrentMigration080({ adapter, mo
     throw Object.assign(new Error('An untracked migration is at or after the recorded baseline boundary.'), { code: 'HISTORICAL_MIGRATIONS_UNTRACKED' });
   }
   // Migration 080 is a standalone, additive compatibility repair. Keep execution
-  // explicitly scoped to version 080; leave all other pending migrations queued.
+  // explicitly scoped to version 080; defer only the pending versions verified
+  // in the current production ledger inventory and reject any new gap.
   const deferredPendingMigrations = status.pending.filter((item) => item.version !== VERSION);
+  const unexpectedPending = deferredPendingMigrations.filter((item) => !ALLOWED_DEFERRED_PENDING_VERSIONS.has(item.version));
+  if (unexpectedPending.length) throw Object.assign(new Error('Unreviewed migrations are pending; refusing the scoped Migration 080 repair.'), { code: 'MIGRATION_080_UNREVIEWED_PENDING', details: { versions: unexpectedPending.map((item) => item.version) } });
   const plan = await runner.applyVersions({ versions: [VERSION], dryRun: true });
   if (mode === 'dry-run') return { ok: true, mode, database, migration: { version: VERSION, name: NAME, checksum: migration.checksum }, before, plan, deferredPendingMigrations, productionWrites: 'NONE' };
   const result = await runner.applyVersions({ versions: [VERSION], verifyMigration: async ({ adapter: tx }) => {
