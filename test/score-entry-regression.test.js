@@ -276,7 +276,14 @@ test('Score Entry UI has dependent single-select subjects, required-selection ga
   assert.match(js, /subjectSelect\.value = ''/);
   assert.match(js, /ca < 0 \|\| ca > 50/);
   assert.match(js, /exam < 0 \|\| exam > 50/);
-  assert.match(js, /setTimeout\(\(\) => save/);
+  assert.match(js, /setTimeout\(\(\) => \{/);
+  assert.match(js, /save\(row, sequence\)/);
+  assert.match(js, /latestSaves\.set\(row, \{ sequence, data, stateCell \}\)/);
+  assert.match(js, /activeSaves\.has\(row\)/);
+  assert.match(js, /queuedSaves\.add\(row\)/);
+  assert.match(js, /retry-score-save/);
+  assert.match(js, /classId: classSelect\.value/);
+  assert.match(js, /!caInput\.value\.trim\(\)/);
   assert.match(js, /Error saving/);
   assert.match(html, /<select name="academicYear" required>/);
   assert.match(html, /<select name="term" required>/);
