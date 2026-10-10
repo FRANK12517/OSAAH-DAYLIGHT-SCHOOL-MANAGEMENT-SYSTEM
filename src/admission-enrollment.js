@@ -90,7 +90,12 @@ export function createAdmissionEnrollmentService({ database, clock = () => new D
         applicant = { ...application, ...(applicant ?? {}) };
         const timestamp = clock();
         const studentId = await nextStudentId(tx);
-        const permanentStudentId = await nextPermanentStudentId(tx, value(applicant.admissionYear, applicant.academicYear, application.academic_year_id, application.admission_date, timestamp), timestamp);
+        const admissionType = String(applicant.admissionType ?? '').trim().toUpperCase().replace(/[ -]+/g, '_');
+        const currentYear = String(new Date(timestamp).getUTCFullYear());
+        const historicalYear = value(applicant.historicalAdmissionYear);
+        if (admissionType === 'ALREADY_ENROLLED' && !/^\d{4}$/.test(String(historicalYear ?? ''))) fail('HISTORICAL_ADMISSION_YEAR_REQUIRED', 'A valid historical admission year is required for an already-enrolled student.', 409);
+        const yearForId = ['TRANSFER', 'FIRST_TIME'].includes(admissionType) ? currentYear : historicalYear ?? value(applicant.admissionYear, applicant.academicYear, application.academic_year_id, application.admission_date, timestamp);
+        const permanentStudentId = await nextPermanentStudentId(tx, yearForId, timestamp);
         const requestedClassId = value(application.class_id, applicant.classAssigned, applicant.officialUse?.classAssigned, applicant.classId, applicant.classAppliedFor);
         const classId = canonicalClassId(requestedClassId) ?? requestedClassId;
         const admissionNumber = value(application.admission_number, applicant.admissionNumber, application.application_number);

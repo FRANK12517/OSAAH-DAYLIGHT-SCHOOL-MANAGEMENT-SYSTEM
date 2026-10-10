@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 
 const MAX_BYTES = 10 * 1024 * 1024;
-const DOCUMENT_TYPES = new Set(['PASSPORT_PHOTOGRAPHS', 'BIRTH_CERTIFICATE_OR_GHANA_CARD', 'NHIS_CARD', 'LAST_ACADEMIC_REPORT']);
+const DOCUMENT_TYPES = new Set(['PASSPORT_PHOTOGRAPHS', 'BIRTH_CERTIFICATE_OR_GHANA_CARD', 'NHIS_CARD', 'LAST_ACADEMIC_REPORT', 'ADMISSION_RECEIPT']);
 const MIME_EXTENSIONS = new Map([
   ['application/pdf', 'pdf'],
   ['image/jpeg', 'jpg'],

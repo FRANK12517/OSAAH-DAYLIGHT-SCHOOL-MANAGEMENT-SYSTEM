@@ -126,11 +126,13 @@ enquiryForm.addEventListener('submit', async (event) => {
     const parentPhone = normalizeGhanaPhone(values.get('parentPhone'));
     let enquiryRequestId = sessionStorage.getItem(requestIdKey);
     if (!enquiryRequestId) { enquiryRequestId = crypto.randomUUID(); sessionStorage.setItem(requestIdKey, enquiryRequestId); }
+    const admissionType = String(values.get('admissionType') ?? '');
+    if (!['ALREADY_ENROLLED', 'TRANSFER', 'FIRST_TIME'].includes(admissionType)) throw new Error('Select an admission type.');
     const classId = String(values.get('classId'));
     const className = classField.selectedOptions[0]?.textContent ?? '';
     const yearSelection = JSON.parse(String(values.get('academicYear')));
     const termSelection = JSON.parse(String(values.get('term')));
-    const created = await jsonRequest('/api/admission-applications', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ studentFirstName: parts.slice(0, -1).join(' '), studentSurname: parts.at(-1), classAppliedFor: classId, className, primaryGuardianPrimaryPhone: parentPhone, academicYear: yearSelection.name, admissionYear: yearSelection.admissionYear, academicYearId: yearSelection.id, admissionTerm: termSelection.name, termId: termSelection.id, enquiryRequestId, enquiry: { applicantName: fullName, parentPhone, classId, className } }) });
+    const created = await jsonRequest('/api/admission-applications', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ admissionType, studentFirstName: parts.slice(0, -1).join(' '), studentSurname: parts.at(-1), classAppliedFor: classId, className, primaryGuardianPrimaryPhone: parentPhone, academicYear: yearSelection.name, admissionYear: yearSelection.admissionYear, academicYearId: yearSelection.id, admissionTerm: termSelection.name, termId: termSelection.id, enquiryRequestId, enquiry: { applicantName: fullName, parentPhone, classId, className } }) });
     sessionStorage.removeItem(requestIdKey);
     window.location.assign(`/admission-application.html?applicationNumber=${encodeURIComponent(created.applicationNumber)}&step=2`);
   } catch (error) {
