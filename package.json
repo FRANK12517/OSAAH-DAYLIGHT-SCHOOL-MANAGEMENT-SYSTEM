@@ -8,6 +8,7 @@
     "assets:verify": "node scripts/verify-login-assets.mjs",
     "start": "node src/server.mjs",
     "test": "node --test",
+    "test:staff-attendance": "node --test test/staff-attendance-*.test.js test/staff-leave-reconciliation-part3.test.js",
     "migration:status": "node scripts/migrate.mjs status",
     "migration:apply": "node scripts/migrate.mjs apply",
     "migration:validate": "node scripts/migrate.mjs validate",

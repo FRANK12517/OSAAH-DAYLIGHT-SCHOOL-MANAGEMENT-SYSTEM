@@ -169,7 +169,7 @@
         const record = recordForStaff(member.id);
         const protectedLeave = record?.source === 'LEAVE_RECONCILIATION' && record.status === 'ON_LEAVE';
         const options = state.attendanceOptions.map((option) => `<option value="${escapeHtml(option.status)}" data-type="${escapeHtml(option.type)}"${record?.status === option.status ? ' selected' : ''}>${escapeHtml(option.label)}</option>`).join('');
-        return `<tr data-staff-id="${escapeHtml(member.id)}" data-record-id="${escapeHtml(record?.id ?? '')}">
+        return `<tr data-staff-id="${escapeHtml(member.id)}" data-record-id="${escapeHtml(record?.id ?? '')}" data-record-updated-at="${escapeHtml(record?.updatedAt ?? '')}">
           <td>${escapeHtml(member.employeeId ?? member.staffNumber ?? member.id)}</td>
           <td>${escapeHtml(member.fullName)}</td>
           <td>${escapeHtml(member.roleKey || 'Staff')}</td>
@@ -278,7 +278,7 @@
           time: row.querySelector('input[data-time]').value || null,
           note: row.querySelector('input[data-note]').value.trim() || null
         };
-        if (row.dataset.recordId) payload.id = row.dataset.recordId;
+        if (row.dataset.recordId) { payload.id = row.dataset.recordId; if (row.dataset.recordUpdatedAt) payload.expectedUpdatedAt = row.dataset.recordUpdatedAt; }
         return getJson('/api/attendance/staff', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) });
       }));
       const saved = results.filter((result) => result.status === 'fulfilled').length;

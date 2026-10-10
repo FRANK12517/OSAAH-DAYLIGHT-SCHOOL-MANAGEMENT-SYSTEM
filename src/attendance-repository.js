@@ -9,23 +9,156 @@ function date(value) { if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value ?? '')) || N
 function source(value) { const result = String(value ?? 'MANUAL').toUpperCase(); if (!ATTENDANCE_SOURCES.includes(result)) throw new Error('Invalid attendance source'); return result; }
 function time(value, label) { if (value == null || value === '') return null; if (!/^([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/.test(String(value))) throw new Error(`Invalid ${label}`); return String(value); }
 function staffTime(value) { if (value == null || value === '') return null; const result = String(value); if (/^([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/.test(result) || !Number.isNaN(Date.parse(result))) return result; throw new Error('Invalid attendance time'); }
+function timestampMillis(value) { const result = value instanceof Date ? value.getTime() : Date.parse(String(value ?? '')); return Number.isFinite(result) ? result : null; }
 function validateReason(status, value) { if (['ABSENT', 'LATE', 'EARLY_DEPARTURE', 'EXCUSED_ABSENCE', 'UNEXCUSED_ABSENCE', 'SICK_ABSENCE'].includes(status) && !String(value ?? '').trim()) throw new Error(`Reason is required for ${status}`); }
 function attendanceRow(row) { return { id: row.id, schoolId: row.schoolId ?? row.school_id, academicYear: row.academicYear ?? row.academic_year, term: row.term, date: row.date ?? row.attendance_date, classId: row.classId ?? row.class_id, studentId: row.studentId ?? row.student_id, subjectId: row.subjectId ?? row.subject_id ?? null, status: row.status, method: row.method, arrivalTime: row.arrivalTime ?? row.arrival_time ?? null, departureTime: row.departureTime ?? row.departure_time ?? null, reason: row.reason ?? null, version: Number(row.version ?? 1), recordedBy: row.recordedBy ?? row.recorded_by ?? row.enteredBy ?? row.entered_by, recordedAt: row.recordedAt ?? row.recorded_at ?? row.enteredAt ?? row.entered_at, updatedBy: row.updatedBy ?? row.updated_by ?? row.enteredBy ?? row.entered_by, updatedAt: row.updatedAt ?? row.updated_at, source: row.source ?? 'MANUAL', enteredBy: row.enteredBy ?? row.entered_by ?? row.recordedBy ?? row.recorded_by, enteredAt: row.enteredAt ?? row.entered_at ?? row.recordedAt ?? row.recorded_at }; }
-function staffRow(row) { const type = row.type ?? row.attendance_type; const status = String(row.status ?? row.attendance_status ?? statusFromStaffAttendanceType(type) ?? '').toUpperCase(); return { id: row.id, schoolId: row.schoolId ?? row.school_id, academicYear: row.academicYear ?? row.academic_year, term: row.term, staffId: row.staffId ?? row.staff_id, date: row.date ?? row.attendance_date, type: type ?? typeFromStaffAttendanceStatus(status), status, source: row.source ?? row.attendance_source ?? 'MANUAL', leaveRequestId: row.leaveRequestId ?? row.leave_request_id ?? null, note: row.note ?? null, previousStatus: row.previousStatus ?? row.previous_status ?? null, time: row.time ?? row.attendance_time, recordedBy: row.recordedBy ?? row.recorded_by ?? row.enteredBy ?? row.entered_by, recordedAt: row.recordedAt ?? row.recorded_at ?? row.createdAt ?? row.created_at, updatedBy: row.updatedBy ?? row.updated_by ?? row.enteredBy ?? row.entered_by, updatedAt: row.updatedAt ?? row.updated_at ?? row.createdAt ?? row.created_at, enteredBy: row.enteredBy ?? row.entered_by ?? row.recordedBy ?? row.recorded_by, createdAt: row.createdAt ?? row.created_at ?? row.recordedAt ?? row.recorded_at }; }
+function staffRow(row) { const type = row.type ?? row.attendance_type; const status = String(row.status ?? row.attendance_status ?? statusFromStaffAttendanceType(type) ?? '').toUpperCase(); return { id: row.id, schoolId: row.schoolId ?? row.school_id, academicYear: row.academicYear ?? row.academic_year, term: row.term, staffId: row.staffId ?? row.staff_id, date: row.date ?? row.attendance_date, type: type ?? typeFromStaffAttendanceStatus(status), status, source: row.source ?? row.attendance_source ?? 'MANUAL', leaveRequestId: row.leaveRequestId ?? row.leave_request_id ?? null, note: row.note ?? null, previousStatus: row.previousStatus ?? row.previous_status ?? null, time: row.time !== undefined ? row.time : row.attendance_time ?? null, recordedBy: row.recordedBy ?? row.recorded_by ?? row.enteredBy ?? row.entered_by, recordedAt: row.recordedAt ?? row.recorded_at ?? row.createdAt ?? row.created_at, updatedBy: row.updatedBy ?? row.updated_by ?? row.enteredBy ?? row.entered_by, updatedAt: row.updatedAt ?? row.updated_at ?? row.createdAt ?? row.created_at, enteredBy: row.enteredBy ?? row.entered_by ?? row.recordedBy ?? row.recorded_by, createdAt: row.createdAt ?? row.created_at ?? row.recordedAt ?? row.recorded_at }; }
 const STUDENT_SELECT = 'id,school_id AS schoolId,academic_year AS academicYear,term,attendance_date AS date,class_id AS classId,student_id AS studentId,subject_id AS subjectId,status,method,arrival_time AS arrivalTime,departure_time AS departureTime,reason,version,entered_by AS enteredBy,entered_at AS enteredAt,recorded_by AS recordedBy,recorded_at AS recordedAt,updated_by AS updatedBy,updated_at AS updatedAt,source';
 const STAFF_SELECT = 'id,school_id AS schoolId,academic_year AS academicYear,term,staff_id AS staffId,attendance_date AS date,attendance_type AS type,attendance_status AS status,attendance_source AS source,leave_request_id AS leaveRequestId,note,previous_status AS previousStatus,attendance_time AS time,entered_by AS enteredBy,created_at AS createdAt,recorded_by AS recordedBy,recorded_at AS recordedAt,updated_by AS updatedBy,updated_at AS updatedAt';
 
-export function createAttendanceRepository({ adapter, now = () => new Date().toISOString() } = {}) {
+function buildAttendanceRepository({ adapter, now, insideTransaction }) {
   if (!adapter?.query || !adapter?.execute) throw new Error('A durable database adapter is required.');
-  async function writeAudit(record, previous, actor, personType) { if (previous && previous.status === record.status && previous.reason === record.reason && previous.arrivalTime === record.arrivalTime && previous.departureTime === record.departureTime) return; await adapter.execute('INSERT INTO attendance_audit_history (id,school_id,attendance_record_id,person_id,person_type,previous_status,new_status,previous_reason,new_reason,changed_by,changed_at,source,action) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)', [randomUUID(), record.schoolId, record.id, record.studentId ?? record.staffId, personType, previous?.status ?? null, record.status, previous?.reason ?? null, record.reason ?? null, actorId(actor), record.updatedAt, record.source, previous ? 'UPDATE' : 'CREATE']); }
-  async function saveStudentAttendance(entry, actor, { correction = false, expectedVersion = null } = {}) { const schoolId = actor.schoolId; assertActor(actor, schoolId); if (!STUDENT_STATUSES.includes(String(entry.status ?? '').toUpperCase())) throw new Error('Invalid attendance status'); if (!ATTENDANCE_METHODS.includes(String(entry.method ?? 'MANUAL').toUpperCase())) throw new Error('Invalid attendance method'); const timestamp = now(); const params = [schoolId, entry.academicYear, entry.term, date(entry.date), entry.classId, entry.studentId, entry.subjectId ?? 'daily']; const existing = rows(await adapter.query(`SELECT ${STUDENT_SELECT} FROM student_attendance WHERE school_id=? AND academic_year=? AND term=? AND attendance_date=? AND class_id=? AND student_id=? AND subject_key=? LIMIT 1`, params))[0]; if (existing && !correction) throw new Error('Attendance already recorded'); if (existing && expectedVersion == null) throw Object.assign(new Error('Attendance version is required for a correction.'), { status: 409, code: 'ATTENDANCE_VERSION_REQUIRED' }); if (existing && Number(existing.version) !== Number(expectedVersion)) throw Object.assign(new Error('Attendance conflict: server record is newer'), { status: 409, code: 'ATTENDANCE_VERSION_CONFLICT' }); if (!existing && expectedVersion != null) throw Object.assign(new Error('Attendance conflict: the server record no longer exists.'), { status: 409, code: 'ATTENDANCE_VERSION_CONFLICT' }); const id = existing?.id ?? randomUUID(); const status = String(entry.status).toUpperCase(); const method = String(entry.method ?? 'MANUAL').toUpperCase(); const arrival = time(entry.arrivalTime, 'arrival time'); const departure = time(entry.departureTime, 'departure time'); const reason = entry.reason == null || String(entry.reason).trim() === '' ? null : String(entry.reason).trim(); validateReason(status, reason); try { if (existing) { const update = await adapter.execute('UPDATE student_attendance SET status=?,method=?,arrival_time=?,departure_time=?,reason=?,version=version+1,updated_by=?,updated_at=?,source=? WHERE id=? AND school_id=? AND version=?', [status, method, arrival, departure, reason, actorId(actor), timestamp, source(entry.source), id, schoolId, existing.version]); if (Number(update?.affectedRows ?? update?.changes ?? update?.rowCount ?? 0) !== 1) throw Object.assign(new Error('Attendance conflict: server record is newer'), { status: 409, code: 'ATTENDANCE_VERSION_CONFLICT' }); } else await adapter.execute('INSERT INTO student_attendance (id,school_id,academic_year,term,attendance_date,class_id,student_id,subject_id,subject_key,status,method,arrival_time,departure_time,reason,version,entered_by,entered_at,recorded_by,recorded_at,updated_by,updated_at,source) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [id, schoolId, entry.academicYear, entry.term, entry.date, entry.classId, entry.studentId, entry.subjectId ?? null, entry.subjectId ?? 'daily', status, method, arrival, departure, reason, 1, actorId(actor), timestamp, actorId(actor), timestamp, actorId(actor), timestamp, source(entry.source)]); } catch (error) { if (/duplicate|unique|1062/i.test(error.message)) throw Object.assign(new Error(existing ? 'Attendance conflict: server record is newer' : 'Attendance already recorded'), { status: 409, code: existing ? 'ATTENDANCE_VERSION_CONFLICT' : 'ATTENDANCE_DUPLICATE' }); throw error; } const record = attendanceRow(rows(await adapter.query(`SELECT ${STUDENT_SELECT} FROM student_attendance WHERE id=? AND school_id=?`, [id, schoolId]))[0]); if (!record?.id) throw new Error('Attendance record could not be read after saving.'); await writeAudit(record, existing ? attendanceRow(existing) : null, actor, 'STUDENT'); return record; }
-  async function saveStudentAttendanceBatch(entries, actor, options = {}) { if (!Array.isArray(entries) || !entries.length) throw Object.assign(new Error('At least one attendance entry is required.'), { status: 400 }); const optionsFor = (entry) => typeof options === 'function' ? options(entry) : options; if (adapter.transaction) return adapter.transaction(async (tx) => { const transactional = createAttendanceRepository({ adapter: tx, now }); const saved = []; for (const entry of entries) saved.push(await transactional.saveStudentAttendance(entry, actor, optionsFor(entry))); return saved; }); if (entries.length > 1) throw Object.assign(new Error('Attendance batch transactions are unavailable.'), { status: 503, code: 'ATTENDANCE_TRANSACTION_UNAVAILABLE' }); return [await saveStudentAttendance(entries[0], actor, optionsFor(entries[0]))]; }
-  async function saveStaffAttendance(entry, actor) { const schoolId = actor.schoolId; assertActor(actor, schoolId); const existing = entry.id ? rows(await adapter.query(`SELECT ${STAFF_SELECT} FROM staff_attendance WHERE id=? AND school_id=? LIMIT 1`, [entry.id, schoolId]))[0] : null; const id = existing?.id ?? entry.id ?? randomUUID(); const timestamp = now(); const type = String(entry.type ?? typeFromStaffAttendanceStatus(entry.status) ?? '').toUpperCase(); const status = String(entry.status ?? statusFromStaffAttendanceType(type) ?? '').toUpperCase(); if (!STAFF_ATTENDANCE_STATUSES.includes(status)) throw new Error('Invalid staff attendance status'); date(entry.date); const normalizedSource = source(entry.source); try { if (existing) await adapter.execute('UPDATE staff_attendance SET academic_year=?,term=?,attendance_date=?,attendance_type=?,attendance_status=?,attendance_source=?,leave_request_id=?,note=?,previous_status=?,attendance_time=?,updated_by=?,updated_at=?,source=? WHERE id=? AND school_id=?', [entry.academicYear, entry.term, entry.date, type, status, normalizedSource, entry.leaveRequestId !== undefined ? entry.leaveRequestId : existing.leaveRequestId ?? null, entry.note ?? existing.note ?? null, entry.previousStatus ?? existing.previousStatus ?? null, staffTime(entry.time) ?? existing.time ?? timestamp, actorId(actor), timestamp, normalizedSource, id, schoolId]); else await adapter.execute('INSERT INTO staff_attendance (id,school_id,academic_year,term,staff_id,attendance_date,attendance_type,attendance_status,attendance_source,leave_request_id,note,previous_status,attendance_time,entered_by,created_at,recorded_by,recorded_at,updated_by,updated_at,source) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [id, schoolId, entry.academicYear, entry.term, entry.staffId, entry.date, type, status, normalizedSource, entry.leaveRequestId ?? null, entry.note ?? null, entry.previousStatus ?? null, staffTime(entry.time) ?? timestamp, actorId(actor), timestamp, actorId(actor), timestamp, actorId(actor), timestamp, normalizedSource]); } catch (error) { if (/duplicate|unique|1062/i.test(error.message)) throw new Error('Staff attendance already recorded'); throw error; } const record = staffRow(rows(await adapter.query(`SELECT ${STAFF_SELECT} FROM staff_attendance WHERE id=? AND school_id=?`, [id, schoolId]))[0]); await writeAudit(record, existing ? staffRow(existing) : null, actor, 'STAFF'); return record; }
-  async function listStudentRecords(filters = {}) { const conditions = ['school_id=?']; const params = [filters.schoolId]; for (const [column, value] of [['academic_year', filters.academicYear], ['term', filters.term], ['attendance_date', filters.date], ['class_id', filters.classId], ['student_id', filters.studentId]]) if (value) { conditions.push(`${column}=?`); params.push(value); } const result = await adapter.query(`SELECT ${STUDENT_SELECT} FROM student_attendance WHERE ${conditions.join(' AND ')} ORDER BY attendance_date,student_id`, params); return rows(result).map(attendanceRow); }
-  async function listStaffRecords(filters = {}) { const conditions = ['school_id=?']; const params = [filters.schoolId]; for (const [column, value] of [['academic_year', filters.academicYear], ['term', filters.term], ['attendance_date', filters.date], ['staff_id', filters.staffId]]) if (value) { conditions.push(`${column}=?`); params.push(value); } const result = await adapter.query(`SELECT ${STAFF_SELECT} FROM staff_attendance WHERE ${conditions.join(' AND ')} ORDER BY attendance_date,staff_id`, params); return rows(result).map(staffRow); }
-  async function findStaffAttendance(entry, actor) { const records = await listStaffRecords({ schoolId: actor.schoolId, academicYear: entry.academicYear, term: entry.term, date: entry.date, staffId: entry.staffId }); const priority = ['PRESENT', 'CHECKED_IN', 'LATE', 'ABSENT', 'ON_LEAVE', 'EXCUSED', 'CHECKED_OUT']; return records.sort((a, b) => priority.indexOf(a.status) - priority.indexOf(b.status))[0] ?? null; }
-  async function upsertStaffAttendance(entry, actor, options = {}) { const existing = await findStaffAttendance(entry, actor); if (existing && (options.forceStatus || existing.type === entry.type || existing.status === entry.status)) { return saveStaffAttendance({ ...entry, id: existing.id }, actor); } return saveStaffAttendance(entry, actor); }
-  async function listAuditHistory({ schoolId, attendanceRecordId, personId } = {}, actor) { assertActor(actor, schoolId); const conditions = ['school_id=?']; const params = [schoolId]; if (attendanceRecordId) { conditions.push('attendance_record_id=?'); params.push(attendanceRecordId); } if (personId) { conditions.push('person_id=?'); params.push(personId); } return rows(await adapter.query(`SELECT id,school_id AS schoolId,attendance_record_id AS attendanceRecordId,person_id AS personId,person_type AS personType,previous_status AS previousStatus,new_status AS newStatus,previous_reason AS previousReason,new_reason AS newReason,changed_by AS changedBy,changed_at AS changedAt,source,action FROM attendance_audit_history WHERE ${conditions.join(' AND ')} ORDER BY changed_at,id`, params)); }
+
+  async function writeAudit(record, previous, actor, personType) {
+    if (previous) {
+      const unchanged = personType === 'STAFF'
+        ? previous.status === record.status && previous.note === record.note && previous.time === record.time && previous.source === record.source && previous.leaveRequestId === record.leaveRequestId && previous.previousStatus === record.previousStatus
+        : previous.status === record.status && previous.reason === record.reason && previous.arrivalTime === record.arrivalTime && previous.departureTime === record.departureTime;
+      if (unchanged) return;
+    }
+    const previousReason = personType === 'STAFF' ? previous?.note ?? null : previous?.reason ?? null;
+    const newReason = personType === 'STAFF' ? record.note ?? null : record.reason ?? null;
+    await adapter.execute('INSERT INTO attendance_audit_history (id,school_id,attendance_record_id,person_id,person_type,previous_status,new_status,previous_reason,new_reason,changed_by,changed_at,source,action) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)', [randomUUID(), record.schoolId, record.id, record.studentId ?? record.staffId, personType, previous?.status ?? null, record.status, previousReason, newReason, actorId(actor), record.updatedAt, record.source, previous ? 'UPDATE' : 'CREATE']);
+  }
+
+  async function saveStudentAttendance(entry, actor, { correction = false, expectedVersion = null } = {}) {
+    const schoolId = actor.schoolId; assertActor(actor, schoolId);
+    if (!STUDENT_STATUSES.includes(String(entry.status ?? '').toUpperCase())) throw new Error('Invalid attendance status');
+    if (!ATTENDANCE_METHODS.includes(String(entry.method ?? 'MANUAL').toUpperCase())) throw new Error('Invalid attendance method');
+    const timestamp = now();
+    const params = [schoolId, entry.academicYear, entry.term, date(entry.date), entry.classId, entry.studentId, entry.subjectId ?? 'daily'];
+    const existing = rows(await adapter.query(`SELECT ${STUDENT_SELECT} FROM student_attendance WHERE school_id=? AND academic_year=? AND term=? AND attendance_date=? AND class_id=? AND student_id=? AND subject_key=? LIMIT 1`, params))[0];
+    if (existing && !correction) throw new Error('Attendance already recorded');
+    if (existing && expectedVersion == null) throw Object.assign(new Error('Attendance version is required for a correction.'), { status: 409, code: 'ATTENDANCE_VERSION_REQUIRED' });
+    if (existing && Number(existing.version) !== Number(expectedVersion)) throw Object.assign(new Error('Attendance conflict: server record is newer'), { status: 409, code: 'ATTENDANCE_VERSION_CONFLICT' });
+    if (!existing && expectedVersion != null) throw Object.assign(new Error('Attendance conflict: the server record no longer exists.'), { status: 409, code: 'ATTENDANCE_VERSION_CONFLICT' });
+    const id = existing?.id ?? randomUUID(); const status = String(entry.status).toUpperCase(); const method = String(entry.method ?? 'MANUAL').toUpperCase();
+    const arrival = time(entry.arrivalTime, 'arrival time'); const departure = time(entry.departureTime, 'departure time');
+    const reason = entry.reason == null || String(entry.reason).trim() === '' ? null : String(entry.reason).trim(); validateReason(status, reason);
+    try {
+      if (existing) {
+        const update = await adapter.execute('UPDATE student_attendance SET status=?,method=?,arrival_time=?,departure_time=?,reason=?,version=version+1,updated_by=?,updated_at=?,source=? WHERE id=? AND school_id=? AND version=?', [status, method, arrival, departure, reason, actorId(actor), timestamp, source(entry.source), id, schoolId, existing.version]);
+        if (Number(update?.affectedRows ?? update?.changes ?? update?.rowCount ?? 0) !== 1) throw Object.assign(new Error('Attendance conflict: server record is newer'), { status: 409, code: 'ATTENDANCE_VERSION_CONFLICT' });
+      } else {
+        await adapter.execute('INSERT INTO student_attendance (id,school_id,academic_year,term,attendance_date,class_id,student_id,subject_id,subject_key,status,method,arrival_time,departure_time,reason,version,entered_by,entered_at,recorded_by,recorded_at,updated_by,updated_at,source) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [id, schoolId, entry.academicYear, entry.term, entry.date, entry.classId, entry.studentId, entry.subjectId ?? null, entry.subjectId ?? 'daily', status, method, arrival, departure, reason, 1, actorId(actor), timestamp, actorId(actor), timestamp, actorId(actor), timestamp, source(entry.source)]);
+      }
+    } catch (error) {
+      if (/duplicate|unique|1062/i.test(error.message)) throw Object.assign(new Error(existing ? 'Attendance conflict: server record is newer' : 'Attendance already recorded'), { status: 409, code: existing ? 'ATTENDANCE_VERSION_CONFLICT' : 'ATTENDANCE_DUPLICATE' });
+      throw error;
+    }
+    const record = attendanceRow(rows(await adapter.query(`SELECT ${STUDENT_SELECT} FROM student_attendance WHERE id=? AND school_id=?`, [id, schoolId]))[0]);
+    if (!record?.id) throw new Error('Attendance record could not be read after saving.');
+    await writeAudit(record, existing ? attendanceRow(existing) : null, actor, 'STUDENT');
+    return record;
+  }
+
+  async function saveStudentAttendanceBatch(entries, actor, options = {}) {
+    if (!Array.isArray(entries) || !entries.length) throw Object.assign(new Error('At least one attendance entry is required.'), { status: 400 });
+    const optionsFor = (entry) => typeof options === 'function' ? options(entry) : options;
+    if (adapter.transaction) return adapter.transaction(async (tx) => {
+      const transactional = buildAttendanceRepository({ adapter: tx, now, insideTransaction: true });
+      const saved = [];
+      for (const entry of entries) saved.push(await transactional.saveStudentAttendance(entry, actor, optionsFor(entry)));
+      return saved;
+    });
+    if (entries.length > 1) throw Object.assign(new Error('Attendance batch transactions are unavailable.'), { status: 503, code: 'ATTENDANCE_TRANSACTION_UNAVAILABLE' });
+    return [await saveStudentAttendance(entries[0], actor, optionsFor(entries[0]))];
+  }
+
+  async function persistStaffAttendance(entry, actor) {
+    const schoolId = actor.schoolId; assertActor(actor, schoolId);
+    const existing = entry.id ? rows(await adapter.query(`SELECT ${STAFF_SELECT} FROM staff_attendance WHERE id=? AND school_id=? LIMIT 1 FOR UPDATE`, [entry.id, schoolId]))[0] : null;
+    if (existing && entry.expectedUpdatedAt != null) {
+      const expectedAt = timestampMillis(entry.expectedUpdatedAt);
+      const currentAt = timestampMillis(existing.updatedAt);
+      if (expectedAt == null || currentAt == null || expectedAt !== currentAt) throw Object.assign(new Error('Staff attendance record has changed.'), { status: 409, code: 'STAFF_ATTENDANCE_VERSION_CONFLICT' });
+    }
+    const id = existing?.id ?? entry.id ?? randomUUID(); const timestamp = now();
+    const type = String(entry.type ?? typeFromStaffAttendanceStatus(entry.status) ?? '').toUpperCase();
+    const status = String(entry.status ?? statusFromStaffAttendanceType(type) ?? '').toUpperCase();
+    if (!STAFF_ATTENDANCE_STATUSES.includes(status)) throw new Error('Invalid staff attendance status');
+    date(entry.date); const normalizedSource = source(entry.source);
+    const leaveRequestId = Object.hasOwn(entry, 'leaveRequestId') ? entry.leaveRequestId ?? null : existing?.leaveRequestId ?? null;
+    const note = Object.hasOwn(entry, 'note') ? entry.note == null ? null : String(entry.note) : existing?.note ?? null;
+    const previousStatus = Object.hasOwn(entry, 'previousStatus') ? entry.previousStatus ?? null : existing?.previousStatus ?? null;
+    const rawTime = Object.hasOwn(entry, 'time') ? entry.time : existing?.time;
+    const normalizedTime = rawTime == null || rawTime === '' ? existing ? Object.hasOwn(entry, 'time') ? null : existing.time ?? null : timestamp : staffTime(rawTime);
+    try {
+      if (existing) {
+        const update = await adapter.execute('UPDATE staff_attendance SET academic_year=?,term=?,attendance_date=?,attendance_type=?,attendance_status=?,attendance_source=?,leave_request_id=?,note=?,previous_status=?,attendance_time=?,updated_by=?,updated_at=?,source=? WHERE id=? AND school_id=? AND updated_at=?', [entry.academicYear, entry.term, entry.date, type, status, normalizedSource, leaveRequestId, note, previousStatus, normalizedTime, actorId(actor), timestamp, normalizedSource, id, schoolId, existing.updatedAt]);
+        if (Number(update?.affectedRows ?? update?.changes ?? update?.rowCount ?? 0) !== 1) throw Object.assign(new Error('Staff attendance record has changed.'), { status: 409, code: 'STAFF_ATTENDANCE_VERSION_CONFLICT' });
+      } else {
+        await adapter.execute('INSERT INTO staff_attendance (id,school_id,academic_year,term,staff_id,attendance_date,attendance_type,attendance_status,attendance_source,leave_request_id,note,previous_status,attendance_time,entered_by,created_at,recorded_by,recorded_at,updated_by,updated_at,source) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [id, schoolId, entry.academicYear, entry.term, entry.staffId, entry.date, type, status, normalizedSource, leaveRequestId, note, previousStatus, normalizedTime, actorId(actor), timestamp, actorId(actor), timestamp, actorId(actor), timestamp, normalizedSource]);
+      }
+    } catch (error) {
+      if (error.code === 'STAFF_ATTENDANCE_VERSION_CONFLICT') throw error;
+      if (/duplicate|unique|1062/i.test(error.message)) throw Object.assign(new Error('Staff attendance already recorded'), { status: 409, code: 'STAFF_ATTENDANCE_DUPLICATE' });
+      throw error;
+    }
+    const record = staffRow(rows(await adapter.query(`SELECT ${STAFF_SELECT} FROM staff_attendance WHERE id=? AND school_id=?`, [id, schoolId]))[0]);
+    if (!record?.id) throw new Error('Staff attendance record could not be read after saving.');
+    await writeAudit(record, existing ? staffRow(existing) : null, actor, 'STAFF');
+    return record;
+  }
+
+  async function saveStaffAttendance(entry, actor) {
+    if (insideTransaction) return persistStaffAttendance(entry, actor);
+    if (typeof adapter.transaction !== 'function') throw Object.assign(new Error('Staff Attendance writes require a transactional database adapter.'), { status: 503, code: 'STAFF_ATTENDANCE_TRANSACTION_UNAVAILABLE' });
+    return adapter.transaction(async (tx) => {
+      if (!tx?.query || !tx?.execute) throw Object.assign(new Error('The database transaction adapter is incomplete.'), { status: 503, code: 'STAFF_ATTENDANCE_TRANSACTION_UNAVAILABLE' });
+      const transactional = buildAttendanceRepository({ adapter: tx, now, insideTransaction: true });
+      return transactional.saveStaffAttendance(entry, actor);
+    });
+  }
+
+  async function listStudentRecords(filters = {}) {
+    const conditions = ['school_id=?']; const params = [filters.schoolId];
+    for (const [column, value] of [['academic_year', filters.academicYear], ['term', filters.term], ['attendance_date', filters.date], ['class_id', filters.classId], ['student_id', filters.studentId]]) if (value) { conditions.push(`${column}=?`); params.push(value); }
+    const result = await adapter.query(`SELECT ${STUDENT_SELECT} FROM student_attendance WHERE ${conditions.join(' AND ')} ORDER BY attendance_date,student_id`, params);
+    return rows(result).map(attendanceRow);
+  }
+
+  async function listStaffRecords(filters = {}) {
+    const conditions = ['school_id=?']; const params = [filters.schoolId];
+    for (const [column, value] of [['academic_year', filters.academicYear], ['term', filters.term], ['attendance_date', filters.date], ['staff_id', filters.staffId]]) if (value) { conditions.push(`${column}=?`); params.push(value); }
+    const result = await adapter.query(`SELECT ${STAFF_SELECT} FROM staff_attendance WHERE ${conditions.join(' AND ')} ORDER BY attendance_date,staff_id`, params);
+    return rows(result).map(staffRow);
+  }
+
+  async function findStaffAttendance(entry, actor) {
+    const records = await listStaffRecords({ schoolId: actor.schoolId, academicYear: entry.academicYear, term: entry.term, date: entry.date, staffId: entry.staffId });
+    const priority = ['PRESENT', 'CHECKED_IN', 'LATE', 'ABSENT', 'ON_LEAVE', 'EXCUSED', 'CHECKED_OUT'];
+    return records.sort((a, b) => priority.indexOf(a.status) - priority.indexOf(b.status))[0] ?? null;
+  }
+
+  async function upsertStaffAttendance(entry, actor, options = {}) {
+    const existing = await findStaffAttendance(entry, actor);
+    if (existing && (options.forceStatus || existing.type === entry.type || existing.status === entry.status)) return saveStaffAttendance({ ...entry, id: existing.id }, actor);
+    return saveStaffAttendance(entry, actor);
+  }
+
+  async function listAuditHistory({ schoolId, attendanceRecordId, personId } = {}, actor) {
+    assertActor(actor, schoolId); const conditions = ['school_id=?']; const params = [schoolId];
+    if (attendanceRecordId) { conditions.push('attendance_record_id=?'); params.push(attendanceRecordId); }
+    if (personId) { conditions.push('person_id=?'); params.push(personId); }
+    return rows(await adapter.query(`SELECT id,school_id AS schoolId,attendance_record_id AS attendanceRecordId,person_id AS personId,person_type AS personType,previous_status AS previousStatus,new_status AS newStatus,previous_reason AS previousReason,new_reason AS newReason,changed_by AS changedBy,changed_at AS changedAt,source,action FROM attendance_audit_history WHERE ${conditions.join(' AND ')} ORDER BY changed_at,id`, params));
+  }
+
   return { saveStudentAttendance, saveStudentAttendanceBatch, saveStaffAttendance, upsertStaffAttendance, findStaffAttendance, listStudentRecords, listStaffRecords, listAuditHistory };
 }
+
+export function createAttendanceRepository({ adapter, now = () => new Date().toISOString() } = {}) {
+  return buildAttendanceRepository({ adapter, now, insideTransaction: false });
+}
+
 export default createAttendanceRepository;
