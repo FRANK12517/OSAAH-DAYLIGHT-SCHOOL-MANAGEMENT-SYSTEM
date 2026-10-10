@@ -295,6 +295,85 @@
           ]
         }
       ]
+    },
+    {
+      "id": "canonical-fee-hub-publication-and-parent-visibility",
+      "description": "Protected canonical Fee Setup publication, durable Fee Structure reads, exact money validation, and parent-child visibility.",
+      "route": "/fees/structure",
+      "files": [
+        {
+          "path": "public/fee-amount.js",
+          "requiredMarkers": [
+            "parsePositiveGhsAmountToMinorUnits",
+            "MONEY_PATTERN",
+            "Number.MAX_SAFE_INTEGER"
+          ]
+        },
+        {
+          "path": "public/fee-setup.html",
+          "requiredMarkers": [
+            "parsePositiveGhsAmountToMinorUnits",
+            "/api/fees/obligations/publish",
+            "submitting",
+            "Publishing\u2026",
+            "canPublish = data.canPublish === true"
+          ]
+        },
+        {
+          "path": "src/fee-collections-repository.js",
+          "requiredMarkers": [
+            "async function publishFeeObligations",
+            "listPublishedFeeStructures",
+            "idempotency_key",
+            "status='PUBLISHED'"
+          ]
+        },
+        {
+          "path": "src/parent-fee-obligations-repository.js",
+          "requiredMarkers": [
+            "psl.parent_user_id=?",
+            "psl.link_status='ACTIVE'",
+            "fo.status='PUBLISHED'"
+          ]
+        },
+        {
+          "path": "public/finance-canonical.html",
+          "requiredMarkers": [
+            "data-fee-period-filter",
+            "/api/fees/structures?${params}",
+            "No fee structure published for the selected period"
+          ]
+        },
+        {
+          "path": "test/fee-hub-regression.test.js",
+          "requiredMarkers": [
+            "exact pesewas",
+            "idempotent published obligations",
+            "filtered by exact academic year and term",
+            "published-only visibility server-side"
+          ]
+        },
+        {
+          "path": "package.json",
+          "requiredMarkers": [
+            "test:fee-hub"
+          ]
+        },
+        {
+          "path": ".github/workflows/protected-components.yml",
+          "requiredMarkers": [
+            "Fee Hub preservation regression suite",
+            "npm run test:fee-hub"
+          ]
+        },
+        {
+          "path": "docs/fee-hub-preservation.md",
+          "requiredMarkers": [
+            "canonical durable `fee_obligations` contract",
+            "Release checklist"
+          ]
+        }
+      ]
     }
   ]
 }
