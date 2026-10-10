@@ -20,6 +20,9 @@ const indexRows = [
 
 async function adapterFixture({ databaseName = 'osaahdaylightschool', appliedThrough = 77, indexFixture = indexRows } = {}) {
   const migrations = await discoverMigrations(schemaDirectory);
+  const directory = await mkdtemp(join(tmpdir(), 'admissions-078-fixture-'));
+  tempDirectories.push(directory);
+  for (const migration of migrations.filter((item) => item.version <= 78)) await copyFile(resolve(schemaDirectory, migration.name), join(directory, migration.name));
   const storage = {
     applied: migrations.filter((item) => item.version <= appliedThrough).map((item) => ({ version: item.version, name: item.name, checksum: item.checksum, appliedAt: '2026-10-09T00:00:00.000Z' })),
     baselines: [], statements: [], locked: false
@@ -39,12 +42,12 @@ async function adapterFixture({ databaseName = 'osaahdaylightschool', appliedThr
     },
     async close() {}
   };
-  return { adapter, storage, migrations };
+  return { adapter, storage, migrations, directory };
 }
 
 test('Migration 078 dry-run produces an exact one-version plan without writes', async () => {
-  const { adapter, storage } = await adapterFixture();
-  const report = await runProductionAdmissionsMigration078({ adapter, mode: 'dry-run', baselineRequired: false });
+  const { adapter, storage, directory } = await adapterFixture();
+  const report = await runProductionAdmissionsMigration078({ adapter, directory, mode: 'dry-run', baselineRequired: false });
   assert.equal(report.ok, true);
   assert.equal(report.productionWrites, 'NONE');
   assert.deepEqual(report.result.pending.map((item) => item.version), [78]);
@@ -53,14 +56,14 @@ test('Migration 078 dry-run produces an exact one-version plan without writes', 
 });
 
 test('Migration 078 apply requires both exact authorization and backup confirmation', async () => {
-  const { adapter } = await adapterFixture();
-  await assert.rejects(() => runProductionAdmissionsMigration078({ adapter, mode: 'apply', executionToken: 'wrong', backupConfirmation: 'BACKUP_CONFIRMED', baselineRequired: false }), /explicit.*authorization/i);
-  await assert.rejects(() => runProductionAdmissionsMigration078({ adapter, mode: 'apply', executionToken: 'APPLY_ADMISSIONS_MIGRATION_078', backupConfirmation: 'wrong', baselineRequired: false }), /backup confirmation/i);
+  const { adapter, directory } = await adapterFixture();
+  await assert.rejects(() => runProductionAdmissionsMigration078({ adapter, directory, mode: 'apply', executionToken: 'wrong', backupConfirmation: 'BACKUP_CONFIRMED', baselineRequired: false }), /explicit.*authorization/i);
+  await assert.rejects(() => runProductionAdmissionsMigration078({ adapter, directory, mode: 'apply', executionToken: 'APPLY_ADMISSIONS_MIGRATION_078', backupConfirmation: 'wrong', baselineRequired: false }), /backup confirmation/i);
 });
 
 test('Migration 078 apply verifies the exact schema and records only version 078', async () => {
-  const { adapter, storage } = await adapterFixture();
-  const report = await runProductionAdmissionsMigration078({ adapter, mode: 'apply', executionToken: 'APPLY_ADMISSIONS_MIGRATION_078', backupConfirmation: 'BACKUP_CONFIRMED', baselineRequired: false });
+  const { adapter, storage, directory } = await adapterFixture();
+  const report = await runProductionAdmissionsMigration078({ adapter, directory, mode: 'apply', executionToken: 'APPLY_ADMISSIONS_MIGRATION_078', backupConfirmation: 'BACKUP_CONFIRMED', baselineRequired: false });
   assert.equal(report.ok, true);
   assert.equal(report.productionWrites, 'MIGRATION_078_ONLY');
   assert.equal(report.applied, 1);
@@ -71,8 +74,8 @@ test('Migration 078 apply verifies the exact schema and records only version 078
 });
 
 test('Migration 078 refuses an unexpected database target before any migration write', async () => {
-  const { adapter, storage } = await adapterFixture({ databaseName: 'not_the_school_database' });
-  await assert.rejects(() => runProductionAdmissionsMigration078({ adapter, mode: 'apply', executionToken: 'APPLY_ADMISSIONS_MIGRATION_078', backupConfirmation: 'BACKUP_CONFIRMED', baselineRequired: false }), /unexpected production database target/i);
+  const { adapter, storage, directory } = await adapterFixture({ databaseName: 'not_the_school_database' });
+  await assert.rejects(() => runProductionAdmissionsMigration078({ adapter, directory, mode: 'apply', executionToken: 'APPLY_ADMISSIONS_MIGRATION_078', backupConfirmation: 'BACKUP_CONFIRMED', baselineRequired: false }), /unexpected production database target/i);
   assert.equal(storage.statements.length, 0);
 });
 
