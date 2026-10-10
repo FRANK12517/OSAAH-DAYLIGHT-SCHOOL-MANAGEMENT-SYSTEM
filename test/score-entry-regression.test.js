@@ -262,6 +262,54 @@ test('durable Score Entry HTTP contract keeps empty, sample, validation, authori
   }
 });
 
+test('durable sample Score Entry maps verified database IDs to the in-memory sample catalogue without widening teacher scope', async () => {
+  const classId = 'class_jhs1_db';
+  const subjectId = 'subject_math_db';
+  const students = createStudentService({ schoolId });
+  students.seedSampleStudents();
+  const subjects = createSubjectService({ schoolId });
+  const academicResults = createAcademicResultsService({ schoolId, students, subjects });
+  const actor = { ...teacher, assignedClassIds: [classId], assignedSubjectIds: [subjectId] };
+  const auth = { authenticateAsync: async (token) => token === 'authorized' ? actor : token === 'other-class' ? { ...actor, assignedClassIds: ['class_other'] } : null };
+  const database = {
+    async query(sql) {
+      if (sql.includes('FROM academic_years')) return [{ id: 'ay_2026_01', name: '2026/2027' }];
+      if (sql.includes('FROM terms')) return [{ id: 'term_2026_01', academicYearId: 'ay_2026_01', name: '1st Term' }];
+      if (sql.includes('FROM classes WHERE school_id=? AND id=?')) return [{ id: classId, name: 'JHS 1' }];
+      if (sql.includes('FROM subject_class_assignments a JOIN subjects s') && sql.includes('WHERE a.school_id=? AND a.class_id=?')) return [{ id: subjectId, code: 'MATH', name: 'Mathematics', subjectType: 'CORE', isScoring: 1, subjectActive: 1, classId, className: 'JHS 1', academicYearId: null, assignmentActive: 1 }];
+      return [];
+    },
+    async execute() { return { affectedRows: 1 }; }
+  };
+  const previousSchoolId = process.env.OSAAH_SCHOOL_ID;
+  process.env.OSAAH_SCHOOL_ID = schoolId;
+  const app = createApp({ auth, database, students, subjects, academicResults, aiEnabled: false });
+  if (previousSchoolId === undefined) delete process.env.OSAAH_SCHOOL_ID;
+  else process.env.OSAAH_SCHOOL_ID = previousSchoolId;
+  const server = http.createServer(app);
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const headers = { Authorization: 'Bearer authorized' };
+    const context = { academicYear: '2026/2027', term: 'term_2026_01', classId, subjectId };
+    const rosterResponse = await fetch(`${base}/api/academic/score-entry/roster?${new URLSearchParams({ ...context, sampleMode: 'true' })}`, { headers });
+    assert.equal(rosterResponse.status, 200);
+    const roster = await rosterResponse.json();
+    assert.equal(roster.students.length, 1);
+    const savedResponse = await fetch(`${base}/api/academic/scores`, { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ ...context, studentId: roster.students[0].studentId, caScore: 25, examScore: 35, sampleMode: true }) });
+    assert.equal(savedResponse.status, 201);
+    const saved = await savedResponse.json();
+    assert.equal(saved.studentIndexNumber, 'OSAAH-DEMO-001');
+    assert.equal(saved.classId, 'JHS 1', 'only the verified DB ID is translated at the in-memory sample-service boundary');
+    assert.equal(saved.totalScore, 60);
+
+    const denied = await fetch(`${base}/api/academic/scores`, { method: 'POST', headers: { Authorization: 'Bearer other-class', 'Content-Type': 'application/json' }, body: JSON.stringify({ ...context, studentId: roster.students[0].studentId, caScore: 25, examScore: 35, sampleMode: true }) });
+    assert.equal(denied.status, 403, 'the sample mapping must not bypass database class assignment checks');
+  } finally {
+    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
 test('Score Entry UI has dependent single-select subjects, required-selection gates, ID display, loading and error states', () => {
   const html = fs.readFileSync(new URL('../public/examinations.html', import.meta.url), 'utf8');
   const js = fs.readFileSync(new URL('../public/score-entry.js', import.meta.url), 'utf8');
