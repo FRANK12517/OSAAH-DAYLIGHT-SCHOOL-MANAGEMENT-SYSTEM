@@ -7,6 +7,7 @@ const VERSION = 80;
 const NAME = '080_restore_student_enrollment_is_current.sql';
 const EXPECTED_DATABASE = 'osaahdaylightschool';
 const APPLY_TOKEN = 'APPLY_ENROLLMENT_IS_CURRENT_080';
+const ALLOWED_DEFERRED_PENDING_VERSIONS = new Set([49, 54, 55, 56, 58, 70, 71, 72, 77, 78, 79]);
 const directory = resolve(fileURLToPath(new URL('../schema/', import.meta.url)));
 const rows = (value) => Array.isArray(value) ? value : [];
 
@@ -32,7 +33,8 @@ async function snapshot(adapter) {
   const columns = rows(await adapter.query("SELECT COLUMN_NAME AS columnName,COLUMN_TYPE AS columnType,IS_NULLABLE AS isNullable,COLUMN_DEFAULT AS columnDefault FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='student_enrollments' AND COLUMN_NAME='is_current'"));
   const currentColumn = isCurrentColumn(columns);
   assertColumnCompatible(currentColumn);
-  const count = Number(rows(await adapter.query('SELECT COUNT(*) AS rowCount FROM student_enrollments'))[0]?.rowCount ?? 0);
+  const rawCount = rows(await adapter.query('SELECT COUNT(*) AS rowCount FROM student_enrollments'))[0]?.rowCount;
+  const count = rawCount === null || rawCount === undefined || rawCount === '' ? NaN : Number(rawCount);
   if (!Number.isSafeInteger(count) || count < 0) throw Object.assign(new Error('Enrollment row count could not be verified.'), { code: 'MIGRATION_080_COUNT_INVALID' });
   const ledger = rows(await adapter.query('SELECT version,name,checksum,applied_at AS appliedAt FROM schema_migrations WHERE version=?', [VERSION]));
   return { enrollmentRowCount: count, isCurrent: currentColumn ? { type: String(currentColumn.columnType ?? currentColumn.COLUMN_TYPE).toLowerCase(), nullable: String(currentColumn.isNullable ?? currentColumn.IS_NULLABLE).toUpperCase(), default: String(currentColumn.columnDefault ?? currentColumn.COLUMN_DEFAULT).replace(/^['"]|['"]$/g, '') } : null, ledger };
@@ -51,14 +53,28 @@ export async function runProductionEnrollmentIsCurrentMigration080({ adapter, mo
   const before = await snapshot(adapter);
   const runner = createMigrationRunner({ adapter, directory: migrationDirectory, baselineRequired });
   const status = await runner.status();
-  if (status.baseline?.canonicalDatabase && status.baseline.canonicalDatabase !== EXPECTED_DATABASE) throw new Error('Production migration baseline targets a different database.');
-  if (status.historicalUntracked.length) throw Object.assign(new Error('Historical migrations are untracked; refusing Migration 080.'), { code: 'HISTORICAL_MIGRATIONS_UNTRACKED' });
-  if (!status.applied.some((item) => item.version === 79)) throw Object.assign(new Error('Required predecessor migration 079 is not recorded.'), { code: 'MIGRATION_PREDECESSOR_MISSING' });
-  const unrelatedPending = status.pending.filter((item) => ![78, VERSION].includes(item.version));
-  if (unrelatedPending.length) throw Object.assign(new Error('Unrelated migrations are pending; refusing the scoped Migration 080 repair.'), { code: 'UNRELATED_MIGRATIONS_PENDING', details: { versions: unrelatedPending.map((item) => item.version) } });
-  const plan = await runner.applyVersions({ versions: [VERSION], requiredAppliedVersions: [79], dryRun: true });
-  if (mode === 'dry-run') return { ok: true, mode, database, migration: { version: VERSION, name: NAME, checksum: migration.checksum }, before, plan, productionWrites: 'NONE' };
-  const result = await runner.applyVersions({ versions: [VERSION], requiredAppliedVersions: [79], verifyMigration: async ({ adapter: tx }) => {
+  const baselineMigration = status.baseline && migrations.find((item) => item.name === status.baseline.reconciliationMigration);
+  if (!status.baseline || !baselineMigration) throw Object.assign(new Error('A verified production schema baseline is required.'), { code: 'MIGRATION_BASELINE_REQUIRED' });
+  if (status.baseline.canonicalDatabase !== EXPECTED_DATABASE) throw new Error('Production migration baseline targets a different database.');
+  if (status.baseline.baselineType !== 'HISTORICAL_BASELINE'
+    || Number(status.baseline.historicalMigrationsExecuted) !== 0
+    || !/^[0-9a-f]{40}$/i.test(String(status.baseline.repositoryCommit ?? ''))
+    || !/^[0-9a-f]{64}$/i.test(String(status.baseline.schemaFingerprint ?? ''))
+    || !String(status.baseline.workflowProvenance ?? '').trim()) {
+    throw Object.assign(new Error('Migration 080 requires the verified historical baseline that explicitly records pre-baseline migrations as unexecuted.'), { code: 'MIGRATION_BASELINE_INCOMPATIBLE' });
+  }
+  if (status.historicalUntracked.some((item) => item.version >= baselineMigration.version)) {
+    throw Object.assign(new Error('An untracked migration is at or after the recorded baseline boundary.'), { code: 'HISTORICAL_MIGRATIONS_UNTRACKED' });
+  }
+  // Migration 080 is a standalone, additive compatibility repair. Keep execution
+  // explicitly scoped to version 080; defer only the pending versions verified
+  // in the current production ledger inventory and reject any new gap.
+  const deferredPendingMigrations = status.pending.filter((item) => item.version !== VERSION);
+  const unexpectedPending = deferredPendingMigrations.filter((item) => !ALLOWED_DEFERRED_PENDING_VERSIONS.has(item.version));
+  if (unexpectedPending.length) throw Object.assign(new Error('Unreviewed migrations are pending; refusing the scoped Migration 080 repair.'), { code: 'MIGRATION_080_UNREVIEWED_PENDING', details: { versions: unexpectedPending.map((item) => item.version) } });
+  const plan = await runner.applyVersions({ versions: [VERSION], dryRun: true });
+  if (mode === 'dry-run') return { ok: true, mode, database, migration: { version: VERSION, name: NAME, checksum: migration.checksum }, before, plan, deferredPendingMigrations, productionWrites: 'NONE' };
+  const result = await runner.applyVersions({ versions: [VERSION], verifyMigration: async ({ adapter: tx }) => {
     const afterDdl = await snapshot(tx);
     if (!afterDdl.isCurrent) throw Object.assign(new Error('Migration 080 did not restore student_enrollments.is_current.'), { code: 'MIGRATION_080_SCHEMA_VERIFICATION_FAILED' });
     if (afterDdl.enrollmentRowCount !== before.enrollmentRowCount) throw Object.assign(new Error('Migration 080 changed the enrollment row count.'), { code: 'MIGRATION_080_DATA_PRESERVATION_FAILED' });
@@ -66,7 +82,7 @@ export async function runProductionEnrollmentIsCurrentMigration080({ adapter, mo
   const after = await snapshot(adapter);
   if (!after.isCurrent || after.enrollmentRowCount !== before.enrollmentRowCount) throw Object.assign(new Error('Migration 080 postconditions failed.'), { code: 'MIGRATION_080_POSTCONDITION_FAILED' });
   if (!after.ledger.some((item) => Number(item.version) === VERSION && item.name === NAME && item.checksum === migration.checksum)) throw Object.assign(new Error('Migration 080 ledger record was not verified.'), { code: 'MIGRATION_080_LEDGER_VERIFICATION_FAILED' });
-  return { ok: true, mode, database, migration: { version: VERSION, name: NAME, checksum: migration.checksum }, before, after, result, productionWrites: result.applied.length ? 'MIGRATION_080_ONLY' : 'NONE_ALREADY_APPLIED' };
+  return { ok: true, mode, database, migration: { version: VERSION, name: NAME, checksum: migration.checksum }, before, after, result, deferredPendingMigrations, productionWrites: result.applied.length ? 'MIGRATION_080_ONLY' : 'NONE_ALREADY_APPLIED' };
 }
 
 async function main() {
