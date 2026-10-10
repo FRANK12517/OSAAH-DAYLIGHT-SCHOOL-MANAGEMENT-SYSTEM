@@ -952,7 +952,7 @@ if (durableAcademic && body.sampleMode === true) {
         try {
           const records = attendanceRepository ? await attendanceRepository.listStaffRecords(filters) : attendance.listStaffRecords().filter((record) => record.schoolId === user.schoolId && (!filters.academicYear || record.academicYear === filters.academicYear) && (!filters.term || record.term === filters.term) && (!filters.date || record.date === filters.date));
           const staffMembers = await registeredAttendanceStaff(user.schoolId);
-          const statusLabels = { PRESENT: 'Present', ABSENT: 'Absent', LATE: 'Late', CHECKED_IN: 'Checked in', CHECKED_OUT: 'Checked out', ON_LEAVE: 'On leave', EXCUSED: 'Excused' };
+          const statusLabels = { PRESENT: 'Present', ABSENT: 'Absent', LATE: 'Late', CHECKED_IN: 'Checked In', CHECKED_OUT: 'Checked Out', ON_LEAVE: 'On Leave', EXCUSED: 'Excused' };
           const counts = Object.fromEntries(STAFF_ATTENDANCE_STATUSES.map((status) => [status, records.filter((record) => record.status === status).length]));
           const attendanceOptions = STAFF_ATTENDANCE_STATUSES.map((status) => ({ status, type: typeFromStaffAttendanceStatus(status), label: statusLabels[status] ?? status }));
           return json(response, { staff: staffMembers, records, total: records.length, counts, statuses: statusLabels, attendanceOptions });

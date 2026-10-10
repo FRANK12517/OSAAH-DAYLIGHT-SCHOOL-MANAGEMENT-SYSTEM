@@ -14,6 +14,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Install Chromium for Staff Attendance responsive safeguard
+        run: npx playwright install --with-deps chromium
       - run: npm run protection:verify
       - name: Fee Hub preservation regression suite
         run: npm run test:fee-hub

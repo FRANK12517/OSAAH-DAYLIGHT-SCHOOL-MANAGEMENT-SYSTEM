@@ -60,18 +60,30 @@ test('protected CI includes the dedicated suite and migration inventory validati
   assert.match(workflow, /pull_request:/);
   assert.match(workflow, /branches:\s*\[main\]/);
   assert.match(workflow, /npm run test:staff-attendance/);
+  assert.match(workflow, /playwright install .*chromium/);
   assert.match(workflow, /npm run migration:validate/);
   assert.match(pkg.scripts['test:staff-attendance'], /test\/staff-attendance-\*\.test\.js/);
   assert.match(pkg.scripts['test:staff-attendance'], /test\/staff-leave-reconciliation-part3\.test\.js/);
+  assert.ok(pkg.devDependencies.playwright, 'the browser safeguard must have a pinned project dependency');
 });
 
-test('Staff Attendance mobile layout keeps wide registers inside scrollable containers and labels controls', async () => {
+test('Staff Attendance mobile layout uses labeled vertical cards without changing the shared attendance tables', async () => {
   const [html, styles] = await Promise.all([read('public/staff-attendance.html'), read('public/styles.css')]);
   assert.match(html, /<meta name="viewport" content="width=device-width,initial-scale=1">/);
   assert.ok((html.match(/class="responsive-table"/g) ?? []).length >= 2);
-  assert.match(html, /@media\(max-width:600px\)/);
+  assert.match(html, /class="form-page staff-attendance-page"/);
+  assert.match(html, /@media\(max-width:1099px\)/);
+  assert.match(html, /overflow-x:visible/);
+  assert.match(html, /min-width:0;max-width:100%/);
+  for (const label of ['STAFF ID', 'STAFF NAME/MEMBER', 'POSITION\/ROLE', 'ATTENDANCE STATUS', 'REPORTING TIME', 'REASONS/REMARKS']) {
+    assert.ok(html.includes(label), `mobile field label ${label} must be present`);
+  }
   assert.match(html, /<label for="attendance-academic-year">/);
   assert.match(html, /aria-live="polite"/);
+  assert.match(html, /scope="col"/);
   assert.match(styles, /\.responsive-table\{width:100%;overflow-x:auto\}/);
   assert.match(html, /async function saveAttendance\(\)/);
+  assert.match(html, /select data-status=/);
+  assert.match(html, /data-time=/);
+  assert.match(html, /data-note=/);
 });

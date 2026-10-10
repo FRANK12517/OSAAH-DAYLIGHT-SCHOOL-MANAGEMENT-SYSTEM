@@ -104,6 +104,7 @@ test('Headteacher and Assistant Headteacher can load, create, and update the sam
   assert.deepEqual(data.staff.map(({ id, employeeId }) => ({ id, employeeId })), [{ id: member.id, employeeId: 'EMP-AMA' }]);
   assert.deepEqual(data.records, []);
   assert.deepEqual(data.attendanceOptions.map(({ status }) => status), ['PRESENT', 'ABSENT', 'LATE', 'CHECKED_IN', 'CHECKED_OUT', 'ON_LEAVE', 'EXCUSED']);
+  assert.deepEqual(data.attendanceOptions.map(({ label }) => label), ['Present', 'Absent', 'Late', 'Checked In', 'Checked Out', 'On Leave', 'Excused']);
 
   response = await request(base, headToken, '/api/attendance/options');
   assert.equal(response.status, 200);
