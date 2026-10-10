@@ -38,8 +38,8 @@ test('Today’s Attendance exposes exactly three UI terms while preserving backe
   assert.match(html, /Loading assigned classes/);
   assert.match(script, /result\.classes/);
   assert.match(script, /date: dateField\.value/);
-  assert.match(script, /Class, Academic Year, Term, and Date/);
-  assert.match(server, /query\.get\('date'\)/);
+  assert.match(script, /Select a valid class, academic year, term, and date/);
+  assert.match(server, /attendanceRegister\.resolvePeriod\(\{ schoolId: user\.schoolId, academicYear, term, date \}\)/);
   assert.doesNotMatch(server, /!student\.history\?\.length && student\.classId === classId/);
 });
 
