@@ -72,6 +72,8 @@ Verification after the local changes: `node --test test/admissions-workflow-ui.t
 
 The required merged/deployed Parts 1 and 2 could not be verified. Local Part 2 commits are `5b9ae4c` and `9f65733`; branch remains `codex/admission-tidb-enrollment`, ahead of its remote at inspection. GitHub was not queried successfully, and no deployed-commit evidence is available. No real production records were touched.
 
+Local Part 3 verification commit: `d97d0e6` (`fix(admissions): show migrated student identifiers`). It is not pushed, merged, or deployed.
+
 The migration interface now renders the service-returned Permanent Student IDs beside each completed student reference. Its successful scope remains limited to records already present in `students`, with exactly one linked profile and an existing enrollment; it does not satisfy scenario A's missing-software-record registration or class placement.
 
 Parent online applications remain a separate `/admissions/apply` route and separate `/api/admission-applications/*` endpoints. The page collects the existing parent candidate, guardian, document, and optional health-insurance fields; submission requires declaration and school-required documents, and staff review requires an assessment score before acceptance. Internal migration endpoints separately require school portal plus `admissions.review` for preview and `admissions.accept` for execution. These are source-level checks only; sandbox HTTP restrictions prevented live endpoint verification.
