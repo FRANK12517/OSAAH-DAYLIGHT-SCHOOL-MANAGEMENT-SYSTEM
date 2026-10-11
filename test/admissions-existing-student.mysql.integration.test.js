@@ -40,7 +40,7 @@ async function createDisposableSchema(admin, name) {
       first_name VARCHAR(100) NOT NULL, middle_name VARCHAR(100) NULL, last_name VARCHAR(100) NOT NULL,
       full_name VARCHAR(255) NULL, gender VARCHAR(32) NOT NULL DEFAULT 'NOT_SPECIFIED',
       date_of_birth DATE NULL, student_status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE',
-      is_test_record TINYINT(1) NOT NULL DEFAULT 0, health_insurance_number VARCHAR(64) NULL,
+      is_test_record TINYINT(1) NOT NULL DEFAULT 0,
       created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL,
       UNIQUE KEY uq_students_school_admission (school_id, admission_number),
       UNIQUE KEY uq_students_school_permanent (school_id, permanent_student_id),
@@ -52,7 +52,7 @@ async function createDisposableSchema(admin, name) {
       first_name VARCHAR(100) NOT NULL, last_name VARCHAR(100) NOT NULL, gender VARCHAR(32) NULL,
       date_of_birth DATE NULL, class_id VARCHAR(64) NULL, stream_id VARCHAR(64) NULL, admission_date DATE NULL,
       enrollment_status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE', created_at DATETIME NOT NULL,
-      updated_at DATETIME NULL, KEY ix_profile_master (school_id, student_master_id),
+      KEY ix_profile_master (school_id, student_master_id),
       KEY ix_profile_student_id (student_id)
     ) ENGINE=InnoDB`,
     `CREATE TABLE classes (
@@ -160,7 +160,7 @@ test('existing-student and admissions safeguards use real disposable MySQL trans
     await database.execute('INSERT INTO user_roles (id,user_id,role_id,created_at) VALUES (?,?,?,?)', ['user-role-parent', 'parent-1', 'role-parent', now]);
     await database.execute('INSERT INTO students (id,school_id,admission_number,permanent_student_id,first_name,last_name,full_name,gender,date_of_birth,student_status,is_test_record,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)', ['student-existing', schoolId, 'ADM-001', 'OSAAH/2022/004', 'Ama', 'Mensah', 'Ama Mensah', 'Female', '2014-02-03', 'ACTIVE', 0, now, now]);
     await database.execute('INSERT INTO students (id,school_id,admission_number,permanent_student_id,first_name,last_name,full_name,gender,date_of_birth,student_status,is_test_record,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)', ['student-duplicate', schoolId, 'ADM-001B', 'OSAAH/2021/002', 'Ama', 'Mensah', 'Ama Mensah', 'Female', '2014-02-03', 'ACTIVE', 0, now, now]);
-    await database.execute('INSERT INTO student_profiles (id,student_master_id,student_id,school_id,admission_number,first_name,last_name,gender,date_of_birth,class_id,enrollment_status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)', ['profile-existing', 'student-existing', 'OSAAH/2022/004', schoolId, 'ADM-001', 'Ama', 'Mensah', 'Female', '2014-02-03', 'class-primary-2', 'ACTIVE', now, now]);
+    await database.execute('INSERT INTO student_profiles (id,student_master_id,student_id,school_id,admission_number,first_name,last_name,gender,date_of_birth,class_id,enrollment_status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)', ['profile-existing', 'student-existing', 'OSAAH/2022/004', schoolId, 'ADM-001', 'Ama', 'Mensah', 'Female', '2014-02-03', 'class-primary-2', 'ACTIVE', now]);
     await database.execute('INSERT INTO student_enrollments (id,student_id,school_id,class_id,academic_year_id,term_id,enrollment_status,is_current,enrolled_at) VALUES (?,?,?,?,?,?,?,?,?)', ['enrollment-existing', 'student-existing', schoolId, 'class-primary-2', 'year-2026', 'term-1', 'ACTIVE', 1, now]);
     await database.execute('INSERT INTO parent_student_links (parent_user_id,student_id,relationship,telephone,created_at) VALUES (?,?,?,?,?)', ['parent-1', 'profile-existing', 'Parent', '0241234567', now]);
     await database.execute('INSERT INTO student_class_history (id,student_id,class_id,academic_year_id,reason,effective_at) VALUES (?,?,?,?,?,?)', ['history-existing', 'profile-existing', 'class-primary-2', 'year-2026', 'PROMOTION', now]);
@@ -221,7 +221,7 @@ test('existing-student and admissions safeguards use real disposable MySQL trans
 
     const existingIdProfileOnly = 'OSAAH/2021/015';
     await database.execute('INSERT INTO students (id,school_id,admission_number,permanent_student_id,first_name,last_name,full_name,gender,date_of_birth,student_status,is_test_record,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)', ['student-profile-id', schoolId, 'ADM-003', null, 'Kojo', 'Owusu', 'Kojo Owusu', 'Male', '2013-06-07', 'ACTIVE', 0, now, now]);
-    await database.execute('INSERT INTO student_profiles (id,student_master_id,student_id,school_id,admission_number,first_name,last_name,gender,date_of_birth,class_id,enrollment_status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)', ['profile-id-only', 'student-profile-id', existingIdProfileOnly, schoolId, 'ADM-003', 'Kojo', 'Owusu', 'Male', '2013-06-07', 'class-primary-2', 'ACTIVE', now, now]);
+    await database.execute('INSERT INTO student_profiles (id,student_master_id,student_id,school_id,admission_number,first_name,last_name,gender,date_of_birth,class_id,enrollment_status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)', ['profile-id-only', 'student-profile-id', existingIdProfileOnly, schoolId, 'ADM-003', 'Kojo', 'Owusu', 'Male', '2013-06-07', 'class-primary-2', 'ACTIVE', now]);
     const profileIdPreview = await linking.preview({ firstName: 'Kojo', lastName: 'Owusu', dateOfBirth: '2013-06-07' }, actor);
     assert.equal(profileIdPreview.student.id, 'student-profile-id');
     assert.equal(profileIdPreview.student.dateOfBirth, '2013-06-07');

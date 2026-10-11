@@ -71,7 +71,7 @@ export function createExistingStudentLinkingService({ database, schoolId, clock 
     if (firstName) { predicates.push('LOWER(s.first_name)=LOWER(?)'); params.push(firstName); }
     if (lastName) { predicates.push('LOWER(s.last_name)=LOWER(?)'); params.push(lastName); }
     if (dateOfBirth) { predicates.push('s.date_of_birth=?'); params.push(dateOfBirth); }
-    return rows(await tx.query(`SELECT s.*,(SELECT sp.student_id FROM student_profiles sp WHERE sp.student_master_id=s.id AND sp.school_id=s.school_id ORDER BY sp.updated_at DESC,sp.id DESC LIMIT 1) AS profile_permanent_student_id FROM students s WHERE s.school_id=? AND COALESCE(s.is_test_record,0)=0 AND ${predicates.join(' AND ')} FOR UPDATE`, params));
+    return rows(await tx.query(`SELECT s.*,(SELECT sp.student_id FROM student_profiles sp WHERE sp.student_master_id=s.id AND sp.school_id=s.school_id ORDER BY sp.created_at DESC,sp.id DESC LIMIT 1) AS profile_permanent_student_id FROM students s WHERE s.school_id=? AND COALESCE(s.is_test_record,0)=0 AND ${predicates.join(' AND ')} FOR UPDATE`, params));
   }
 
   function verifyIdentity(row, input) {
@@ -84,7 +84,7 @@ export function createExistingStudentLinkingService({ database, schoolId, clock 
   async function loadStudent(tx, studentId) {
     const row = rows(await tx.query('SELECT * FROM students WHERE school_id=? AND id=? FOR UPDATE', [schoolId, studentId]))[0];
     if (!row) fail('STUDENT_NOT_FOUND', 'Existing student was not found in this school.', 404);
-    const profile = rows(await tx.query('SELECT * FROM student_profiles WHERE school_id=? AND student_master_id=? ORDER BY updated_at DESC,id DESC LIMIT 1 FOR UPDATE', [schoolId, studentId]))[0] ?? null;
+    const profile = rows(await tx.query('SELECT * FROM student_profiles WHERE school_id=? AND student_master_id=? ORDER BY created_at DESC,id DESC LIMIT 1 FOR UPDATE', [schoolId, studentId]))[0] ?? null;
     return { row, profile };
   }
 
@@ -180,9 +180,9 @@ export function createExistingStudentLinkingService({ database, schoolId, clock 
       const createdProfile = !profileId;
       if (!profileId) {
         profileId = idFactory();
-        await tx.execute('INSERT INTO student_profiles (id,student_master_id,student_id,school_id,admission_number,first_name,last_name,date_of_birth,enrollment_status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)', [profileId, row.id, permanentStudentId, schoolId, row.admission_number, row.first_name, row.last_name, row.date_of_birth ?? null, row.student_status ?? 'ACTIVE', timestamp, timestamp]);
+        await tx.execute('INSERT INTO student_profiles (id,student_master_id,student_id,school_id,admission_number,first_name,last_name,date_of_birth,enrollment_status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)', [profileId, row.id, permanentStudentId, schoolId, row.admission_number, row.first_name, row.last_name, row.date_of_birth ?? null, row.student_status ?? 'ACTIVE', timestamp]);
       } else if (!profileStudentId) {
-        await tx.execute('UPDATE student_profiles SET student_id=?,updated_at=? WHERE school_id=? AND id=? AND (student_id IS NULL OR TRIM(student_id)=\'\')', [permanentStudentId, timestamp, schoolId, profileId]);
+        await tx.execute('UPDATE student_profiles SET student_id=? WHERE school_id=? AND id=? AND (student_id IS NULL OR TRIM(student_id)=\'\')', [permanentStudentId, schoolId, profileId]);
         profile.student_id = permanentStudentId;
       }
       const academicYearId = text(input.academicYearId ?? input.academicYear, 'Academic year', { optional: false });
@@ -225,7 +225,7 @@ export function createExistingStudentLinkingService({ database, schoolId, clock 
     const id = text(identifier, { optional: false });
     const found = rows(await database.query('SELECT * FROM students WHERE school_id=? AND (id=? OR permanent_student_id=? OR admission_number=?) LIMIT 1', [schoolId, id, id, id]))[0];
     if (!found) return null;
-    const profile = rows(await database.query('SELECT * FROM student_profiles WHERE school_id=? AND student_master_id=? ORDER BY updated_at DESC,id DESC LIMIT 1', [schoolId, found.id]))[0] ?? null;
+    const profile = rows(await database.query('SELECT * FROM student_profiles WHERE school_id=? AND student_master_id=? ORDER BY created_at DESC,id DESC LIMIT 1', [schoolId, found.id]))[0] ?? null;
     return publicStudent(found, profile, null);
   }
   return Object.freeze({ preview, link, getStudent });
