@@ -134,3 +134,7 @@ No historical SQL file, expected digest, or checksum validation rule was changed
 
 ### Final suite correction
 The final repository-wide `npm test` run after the migration-080 and inventory expectation corrections completed with **1,391 passed / 3 failed / 1,394 total**. The only failures are the three previously identified immutable checksum assertions for migrations 059 and 063; no new implementation or migration-scope regression remains. The earlier interim 1,386/8 total above was captured before those expectation corrections and is superseded by this final result.
+
+
+### GitHub handoff
+The implementation commit is `bcba013c1b3fb67398df718b27d244e91d6a6ad9`; the subsequent non-rewriting Health Insurance Number read-back test follow-up is `827bc87` (`827bc87` is the final PR head before this audit-only handoff update). The branch was pushed fast-forward only; PR #362 remains open and draft, with no merge or deployment performed.
