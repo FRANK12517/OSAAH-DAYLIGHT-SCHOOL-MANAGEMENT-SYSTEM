@@ -126,3 +126,24 @@ test('login page exposes a public online admission form without weakening protec
   assert.equal((await request('/admissions')).status, 401);
   await new Promise((resolve) => server.close(resolve));
 });
+test('direct online admission application entry creates a guest session for form continuation', async () => {
+  const server = createServer(createApp());
+  await new Promise((resolve) => server.listen(0, resolve));
+  const port = server.address().port;
+  const request = (path, headers = {}) => new Promise((resolve, reject) => {
+    const req = httpRequest({ port, path, headers }, (res) => {
+      let body = '';
+      res.on('data', (chunk) => { body += chunk; });
+      res.on('end', () => resolve({ status: res.statusCode, body, headers: res.headers }));
+    });
+    req.on('error', reject);
+    req.end();
+  });
+  const page = await request('/admission-application.html');
+  assert.equal(page.status, 200);
+  const cookie = page.headers['set-cookie']?.[0]?.split(';', 1)[0];
+  assert.match(cookie ?? '', /^osaah_admission_session=/);
+  const quote = await request('/api/admission-fees/quote?classAppliedFor=Primary%201&academicYear=2026&term=TERM_1', { Cookie: cookie });
+  assert.notEqual(quote.status, 401, 'the public application session must survive the first Next/Continue API request');
+  await new Promise((resolve) => server.close(resolve));
+});

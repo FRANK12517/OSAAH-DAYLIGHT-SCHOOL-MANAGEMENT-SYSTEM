@@ -1273,7 +1273,8 @@ if (durableAcademic && body.sampleMode === true) {
       protectedUser = user;
     }
     let publicAdmissionCookie = null;
-    if (pathname === '/admissions/apply') { const user = await auth.authenticateAsync(readCookie(request, 'osaah_session') ?? bearer(request)); if (user && user.portal !== 'parent') { response.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' }); return response.end('Forbidden'); } if (!user && !readCookie(request, 'osaah_admission_session')) publicAdmissionCookie = `osaah_admission_session=${randomUUID()}; Path=/; HttpOnly; SameSite=Lax${secureCookieSuffix(request)}`; }
+    const publicAdmissionPage = pathname === '/admissions/apply' || pathname === '/admission-application.html';
+    if (publicAdmissionPage) { const user = await auth.authenticateAsync(readCookie(request, 'osaah_session') ?? bearer(request)); if (user && user.portal !== 'parent') { response.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' }); return response.end('Forbidden'); } if (!user && !readCookie(request, 'osaah_admission_session')) publicAdmissionCookie = `osaah_admission_session=${randomUUID()}; Path=/; HttpOnly; SameSite=Lax${secureCookieSuffix(request)}`; }
     const fallbackPage = modulePageFallbacks.find(([prefix]) => pathname.startsWith(prefix))?.[1];
     const schoolShellNavigation = protectedUser?.portal === 'school' && request.headers['sec-fetch-mode'] === 'navigate' && new URL(request.url, 'http://localhost').searchParams.get('embedded') !== '1';
     const file = pathname === '/' || schoolShellNavigation ? '/index.html' : pathname === '/admissions/apply' ? '/admission-application.html' : pageAliases[pathname] ?? fallbackPage ?? pathname;
