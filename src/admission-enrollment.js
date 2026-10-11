@@ -94,6 +94,8 @@ export function createAdmissionEnrollmentService({ database, clock = () => new D
         const currentYear = String(new Date(timestamp).getUTCFullYear());
         const historicalYear = value(applicant.historicalAdmissionYear);
         if (admissionType === 'ALREADY_ENROLLED' && !/^\d{4}$/.test(String(historicalYear ?? ''))) fail('HISTORICAL_ADMISSION_YEAR_REQUIRED', 'A valid historical admission year is required for an already-enrolled student.', 409);
+        const requestedAdmissionYear = value(applicant.admissionYear);
+        if (['TRANSFER', 'FIRST_TIME'].includes(admissionType) && requestedAdmissionYear !== null && (!/^\d{4}$/.test(String(requestedAdmissionYear)) || String(requestedAdmissionYear) !== currentYear)) fail('ADMISSION_YEAR_NOT_AUTHORIZED', 'The OSAAH admission year must match the actual admission event for this category.', 409);
         const yearForId = ['TRANSFER', 'FIRST_TIME'].includes(admissionType) ? currentYear : historicalYear ?? value(applicant.admissionYear, applicant.academicYear, application.academic_year_id, application.admission_date, timestamp);
         const permanentStudentId = await nextPermanentStudentId(tx, yearForId, timestamp);
         const requestedClassId = value(application.class_id, applicant.classAssigned, applicant.officialUse?.classAssigned, applicant.classId, applicant.classAppliedFor);
