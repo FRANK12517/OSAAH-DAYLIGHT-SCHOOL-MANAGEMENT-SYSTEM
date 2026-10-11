@@ -115,3 +115,42 @@ test('admission form endpoints enforce parent and fee authority server-side', as
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test('public admission acceptance does not route the in-memory form into the legacy database enrollment table', async () => {
+  const priorFlag = process.env.OSAAH_ENABLE_DURABLE_ADMISSIONS;
+  process.env.OSAAH_ENABLE_DURABLE_ADMISSIONS = 'true';
+  const auth = createAuthService();
+  const parent = auth.login({ username: 'parent@example.com', password: 'Parent123!', portal: 'parent' });
+  const reviewer = auth.login({ username: 'proprietor@osaah.edu.gh', password: 'Proprietor123!', portal: 'school' });
+  const parentActor = { id: parent.user.id, portal: 'parent', schoolId: parent.user.schoolId };
+  const admissionForms = createAdmissionFormService({ schoolId: parent.user.schoolId });
+  const application = admissionForms.createApplication({ studentSurname: 'Mensah', studentFirstName: 'Ama', dateOfBirth: '2018-01-01', gender: 'Female', hometown: 'Bogoso', region: 'Western', nationality: 'Ghanaian', classAppliedFor: 'Basic 4', residentialAddress: 'Bogoso', digitalAddress: 'WS-000-0000', nearestLandmark: 'School', academicYear: '2026', admissionTerm: 'TERM_1' }, parentActor);
+  admissionForms.updateApplication(application.applicationNumber, { parentDeclarationAccepted: true }, parentActor);
+  for (const documentType of ['PASSPORT_PHOTOGRAPHS', 'BIRTH_CERTIFICATE_OR_GHANA_CARD', 'NHIS_CARD', 'LAST_ACADEMIC_REPORT']) admissionForms.attachDocument(application.applicationNumber, { documentType, fileReference: `secure/${documentType}` }, parentActor);
+  admissionForms.submitApplication(application.applicationNumber, parentActor, null);
+  const databaseCalls = [];
+  const database = { async query(sql) { databaseCalls.push(sql); return []; }, async transaction(work) { return work(database); }, async execute() { return { affectedRows: 1 }; } };
+  const server = createServer(createApp({ auth, admissionForms, database }));
+  await new Promise((resolve) => server.listen(0, resolve));
+  const port = server.address().port;
+  try {
+    const result = await new Promise((resolve, reject) => {
+      const req = httpRequest({ port, path: `/api/admission-applications/${application.applicationNumber}/review`, method: 'POST', headers: { Authorization: `Bearer ${reviewer.token}`, 'Content-Type': 'application/json' } }, (res) => {
+        let body = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => { body += chunk; });
+        res.on('end', () => resolve({ status: res.statusCode, body: JSON.parse(body) }));
+      });
+      req.on('error', reject);
+      req.write(JSON.stringify({ status: 'ACCEPTED', entranceAssessmentScore: 82, classAssigned: 'basic-4a' }));
+      req.end();
+    });
+    assert.equal(result.status, 200);
+    assert.ok(result.body.student);
+    assert.equal(databaseCalls.length, 0);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    if (priorFlag === undefined) delete process.env.OSAAH_ENABLE_DURABLE_ADMISSIONS;
+    else process.env.OSAAH_ENABLE_DURABLE_ADMISSIONS = priorFlag;
+  }
+});
