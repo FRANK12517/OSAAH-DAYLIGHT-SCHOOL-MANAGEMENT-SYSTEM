@@ -24,13 +24,19 @@ test('Fee Hub amount validation rejects empty, zero, negative, malformed, over-p
 function publicationAdapter() {
   const obligations = [];
   const statements = [];
+  const feeTypes = new Map();
   const adapter = {
     obligations,
     statements,
     async query(sql, params = []) {
       statements.push({ sql, params });
       if (sql.includes('FROM fee_structures')) return [];
-      if (sql.includes('FROM fee_types')) return params[0] === 'fee-type-admission' && params[1] === writer.schoolId ? [{ id: params[0] }] : [];
+      if (sql.includes('FROM fee_types')) {
+        if (sql.includes('code=?')) return [...feeTypes.values()].filter((row) => row.schoolId === params[0] && row.code === params[1] && row.isActive);
+        return params[1] === writer.schoolId && (params[0] === 'fee-type-admission' || feeTypes.has(`${params[1]}:${params[0]}`))
+          ? [{ id: params[0] === 'fee-type-admission' ? params[0] : feeTypes.get(`${params[1]}:${params[0]}`).id }]
+          : [];
+      }
       if (sql.includes('FROM academic_years')) return [{ id: 'year-2026' }];
       if (sql.includes('FROM terms')) return [{ id: 'term-1' }];
       if (sql.includes('FROM students')) return [{ id: 'student-1', schoolId: writer.schoolId, classId: 'class-1', status: 'ACTIVE' }];
@@ -40,6 +46,7 @@ function publicationAdapter() {
     },
     async execute(sql, params = []) {
       statements.push({ sql, params });
+      if (sql.startsWith('INSERT INTO fee_types')) feeTypes.set(`${params[1]}:${params[2]}`, { id: params[0], schoolId: params[1], code: params[2], name: params[3], isActive: true });
       if (sql.startsWith('INSERT INTO fee_obligations')) obligations.push({ id: params[0], schoolId: params[1], feeStructureId: params[2], academicYearId: params[3], termId: params[4], scope: params[5], classId: params[6], studentId: params[7], amountMinor: params[8], status: params[10], publishedAt: params[12], idempotencyKey: params[13] });
     },
     async transaction(work) { return work(this); }
@@ -58,6 +65,20 @@ test('Fee Setup canonical fee-type IDs persist idempotent published obligations 
   assert.equal(db.obligations[0].amountMinor, 25050);
   assert.equal(db.obligations[0].status, 'PUBLISHED');
   assert.ok(db.statements.some(({ sql }) => sql.includes('FROM fee_types')));
+});
+
+test('Fee Setup accepts a legacy Admission fee ID when the persisted fee-type list is empty', async () => {
+  const db = publicationAdapter();
+  const repo = createFeeCollectionsRepository({ adapter: db, strictValidation: true });
+  const input = { feeStructureId: 'ADMISSION_FEES', scope: 'WHOLE_SCHOOL', academicYearId: 'year-2026', termId: 'term-1', amountMinor: 15000 };
+
+  assert.deepEqual(await repo.publishFeeObligations(input, writer), { eligible_count: 1, created_count: 1, skipped_count: 0 });
+  assert.equal(db.obligations[0].feeStructureId, 'ADMISSION');
+  assert.equal(db.obligations[0].amountMinor, 15000);
+  assert.ok(db.statements.some(({ sql, params }) => sql.startsWith('INSERT INTO fee_types') && params[2] === 'ADMISSION'));
+
+  assert.deepEqual(await repo.publishFeeObligations(input, writer), { eligible_count: 1, created_count: 0, skipped_count: 1 });
+  assert.equal(db.obligations.length, 1);
 });
 
 test('Fee Structure reads persisted published obligations filtered by exact academic year and term', async () => {
