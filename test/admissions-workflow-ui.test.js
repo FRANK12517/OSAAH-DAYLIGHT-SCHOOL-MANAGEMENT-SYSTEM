@@ -17,6 +17,8 @@ test('Next validates the enquiry, prevents duplicate requests, and opens the off
   assert.doesNotMatch(page, /Start Application/);
   assert.match(workflow, /normalizeGhanaPhone/);
   assert.match(workflow, /enquiryRequestId/);
+  assert.match(workflow, /jsonRequest\('\/api\/admission-applications', \{ method: 'POST', headers: \{ 'Content-Type': 'application\/json' \}, body: JSON\.stringify\(payload\) \}\)/);
+  assert.match(workflow, /window\.location\.assign\(`\/admission-application\.html\?applicationNumber=\$\{encodeURIComponent\(created\.applicationNumber\)\}&step=2`\)/);
   assert.match(workflow, /window\.location\.assign\(`\/admission-application\.html\?applicationNumber=.*step=2`\)/);
   assert.match(workflow, /if \(submitting\) return/);
   assert.match(workflow, /Saving enquiry/);

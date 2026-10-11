@@ -1,13 +1,33 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { existsSync } from 'node:fs';
+import { randomBytes, randomUUID, scryptSync } from 'node:crypto';
 import test from 'node:test';
 import { chromium } from 'playwright';
 import { createAuthService } from '../src/auth.js';
 import { createApp } from '../src/server.mjs';
 
-async function startServer(t) {
-  const auth = createAuthService();
+function createBrowserTestAuth() {
+  const username = 'admission-continuation-browser-test@osaah.invalid';
+  const password = randomBytes(24).toString('base64url');
+  const salt = randomBytes(16).toString('hex');
+  const user = {
+    id: randomUUID(),
+    username,
+    fullName: 'Isolated Admission Browser Test',
+    portal: 'school',
+    roleKey: 'HEADTEACHER',
+    schoolId: 'school-osaah-daylight',
+    passwordHash: `${salt}:${scryptSync(password, salt, 32).toString('hex')}`,
+    permissions: new Set(['students.read', 'admissions.read', 'admissions.write'])
+  };
+  return {
+    credentials: { username, password },
+    auth: createAuthService({ users: [user] })
+  };
+}
+
+async function startServer(t, auth = createAuthService()) {
   const server = createServer(createApp({ auth }));
   await new Promise((resolve, reject) => {
     server.once('error', reject);
@@ -28,24 +48,45 @@ async function startBrowser(t) {
   return browser;
 }
 
-test('authenticated Student Management navigation opens Admission and validates an incomplete enquiry without writing', { timeout: 120_000 }, async (t) => {
-  const base = await startServer(t);
+test('authorized staff can continue through the normal workflow to the application page', { timeout: 120_000 }, async (t) => {
+  const fixture = createBrowserTestAuth();
+  const base = await startServer(t, fixture.auth);
   const browser = await startBrowser(t);
   const context = await browser.newContext();
   const page = await context.newPage();
   const applicationWrites = [];
+  const continuationResponses = [];
+  const authResponses = [];
+  let loginCookieSet = false;
   page.on('request', (request) => {
     const url = new URL(request.url());
-    if (url.pathname === '/api/admission-applications' && request.method() !== 'GET') applicationWrites.push(request.method());
+    if (url.pathname === '/api/admission-applications' && request.method() === 'POST') {
+      applicationWrites.push({ method: request.method(), payload: request.postDataJSON() });
+    }
+  });
+  page.on('response', (response) => {
+    if (new URL(response.url()).pathname === '/admission-application.html') continuationResponses.push({ status: response.status(), url: response.url() });
+    if (['/api/auth/login', '/api/auth/session', '/api/sidebar'].includes(new URL(response.url()).pathname)) {
+      authResponses.push({ path: new URL(response.url()).pathname, status: response.status() });
+      if (new URL(response.url()).pathname === '/api/auth/login') loginCookieSet = Boolean(response.headers()['set-cookie']?.includes('osaah_session='));
+    }
   });
 
   await page.goto(base);
   await page.locator('[data-portal="school"]').click();
-  await page.locator('[name="username"]').fill('proprietor@osaah.edu.gh');
-  await page.locator('[name="password"]').fill('Proprietor123!');
+  await page.locator('[name="role"]').selectOption('HEADTEACHER');
+  await page.locator('[name="username"]').fill(fixture.credentials.username);
+  await page.locator('[name="password"]').fill(fixture.credentials.password);
   await page.locator('#login-form button[type="submit"]').click();
-  await page.getByText('PROPRIETOR · SCHOOL PORTAL').waitFor();
-  await page.getByRole('button', { name: /STUDENT MANAGEMENT/i }).click();
+  try {
+    await page.getByText('HEADTEACHER · SCHOOL PORTAL').waitFor({ timeout: 5000 });
+  } catch {
+    const loginError = await page.locator('#login-error').innerText().catch(() => 'unavailable');
+    const pageText = await page.locator('body').innerText().catch(() => 'unavailable');
+    const cookieNames = (await page.context().cookies()).map((cookie) => cookie.name);
+    throw new Error(`Local browser login did not reach the headteacher dashboard. Login message: ${loginError}. HTTP: ${JSON.stringify(authResponses)}. Login session cookie set: ${loginCookieSet}. Browser cookie names: ${JSON.stringify(cookieNames)}. Visible page: ${pageText.slice(0, 500)}`);
+  }
+  await page.getByRole('button', { name: /STUDENTS? MANAGEMENT/i }).click();
   await page.getByRole('link', { name: 'Admission / Admissions Workflow' }).click();
 
   const admission = page.frameLocator('#module-frame');
@@ -56,14 +97,23 @@ test('authenticated Student Management navigation opens Admission and validates 
   assert.ok(await admission.getByRole('option', { name: 'Already enrolled at OsaaH' }).count());
 
   const category = admission.locator('select[name="admissionType"]');
-  await category.selectOption('ALREADY_ENROLLED');
-  assert.equal(await admission.locator('[data-category-field="ALREADY_ENROLLED"]').first().isVisible(), true);
-  await category.selectOption('TRANSFER');
-  assert.equal(await admission.locator('[data-category-field="TRANSFER"]').isVisible(), true);
   await category.selectOption('FIRST_TIME');
-  assert.equal(await admission.locator('[data-category-field="TRANSFER"]').isVisible(), false);
+  await admission.locator('[name="applicantName"]').fill('Synthetic Browser Candidate');
+  await admission.locator('[name="parentPhone"]').fill('0241234567');
+  await admission.locator('[name="classId"]').selectOption({ label: 'Basic 2' });
+  const academicYearValue = await admission.locator('[name="academicYear"] option').nth(1).getAttribute('value');
+  assert.ok(academicYearValue);
+  await admission.locator('[name="academicYear"]').selectOption(academicYearValue);
+  await admission.locator('[name="term"]').selectOption({ label: '1st Term' });
   await admission.getByRole('button', { name: 'Continue to application' }).click();
-  assert.equal(applicationWrites.length, 0, 'incomplete input must be stopped before the application API is called');
+  await page.frameLocator('#module-frame').getByRole('heading', { name: 'OFFICIAL ADMISSION FORM' }).waitFor();
+  assert.equal(applicationWrites.length, 1, 'the normal UI sends one authorized enquiry request');
+  assert.equal(applicationWrites[0].method, 'POST');
+  assert.equal(applicationWrites[0].payload.admissionType, 'FIRST_TIME');
+  assert.equal(applicationWrites[0].payload.classAppliedFor, 'Basic 2');
+  assert.equal(continuationResponses.at(-1)?.status, 200, 'the authenticated staff session can fetch the application page');
+  assert.match(continuationResponses.at(-1)?.url ?? '', /applicationNumber=APP-/);
+  assert.match(continuationResponses.at(-1)?.url ?? '', /step=2/);
 });
 
 test('public application renders with its scoped admission session and has no application writes on load', { timeout: 120_000 }, async (t) => {
