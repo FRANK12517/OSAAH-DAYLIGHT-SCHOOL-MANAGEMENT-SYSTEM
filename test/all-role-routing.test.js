@@ -2,8 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { access, readFile } from 'node:fs/promises';
 import { createExaminationService, TIMETABLE_CREATOR_ROLES } from '../src/examinations.js';
+import { SCHOOL_PORTAL_DASHBOARDS } from '../src/auth.js';
 import { PROPRIETOR_PAGE_ALIASES, PROPRIETOR_SIDEBAR_ROUTES } from '../src/proprietor-sidebar-routes.js';
 import { SIDEBAR_MODULES, visibleSidebar } from '../src/sidebar-registry.js';
+import { resolveDashboardRoute } from '../public/dashboard-route.js';
 import '../src/module-registry.js';
 
 const publicFile = (page) => new URL(`../public/${page.replace(/^\//, '')}`, import.meta.url);
@@ -162,4 +164,20 @@ test('duplicate visible labels remain isolated by navigation identity', async ()
   assert.match(app, /data-navigation-key/);
   assert.match(app, /link\.dataset\.navigationKey/);
   assert.match(app, /resolvedComponent: navigationKey/);
+});
+
+test('fresh school logins honor the server landing route while refresh preserves the opened route', async () => {
+  for (const redirectTo of Object.values(SCHOOL_PORTAL_DASHBOARDS)) {
+    assert.equal(resolveDashboardRoute({ portal: 'school', currentPath: '/', redirectTo, freshLogin: true }), redirectTo);
+  }
+  assert.equal(resolveDashboardRoute({ portal: 'school', currentPath: '/academics?navigationKey=academics&view=academics-overview', redirectTo: '/reports', freshLogin: false }), '/academics?navigationKey=academics&view=academics-overview');
+  assert.equal(resolveDashboardRoute({ portal: 'parent', currentPath: '/', redirectTo: '/reports', freshLogin: true }), '/');
+  assert.equal(resolveDashboardRoute({ portal: 'school', currentPath: '/', redirectTo: 'https://evil.example/login', freshLogin: true }), '/');
+  assert.equal(resolveDashboardRoute({ portal: 'school', currentPath: '/', redirectTo: '//evil.example/login', freshLogin: true }), '/');
+  assert.equal(resolveDashboardRoute({ portal: 'school', currentPath: '/', redirectTo: '/\\\\evil.example/login', freshLogin: true }), '/');
+
+  const app = await readFile(new URL('../public/app.js', import.meta.url), 'utf8');
+  assert.match(app, /renderDashboard\(result\.user, result\.redirectTo, \{ freshLogin: true \}\)/);
+  assert.match(app, /resolveDashboardRoute\(\{ portal: user\.portal, currentPath, redirectTo, freshLogin \}\)/);
+  assert.match(app, /await renderDashboard\(result\.user, result\.redirectTo\);/);
 });
