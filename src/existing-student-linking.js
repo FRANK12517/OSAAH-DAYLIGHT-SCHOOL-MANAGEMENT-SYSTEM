@@ -110,6 +110,16 @@ export function createExistingStudentLinkingService({ database, schoolId, clock 
     return permanentStudentId;
   }
 
+  async function requireHealthInsuranceColumn(tx) {
+    let columns;
+    try {
+      columns = rows(await tx.query("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='students' AND COLUMN_NAME='health_insurance_number' LIMIT 1"));
+    } catch {
+      fail('HEALTH_INSURANCE_SCHEMA_UNAVAILABLE', 'Health Insurance Number is unavailable until the approved student health-information migration is applied.', 409);
+    }
+    if (!columns.length) fail('HEALTH_INSURANCE_SCHEMA_UNAVAILABLE', 'Health Insurance Number is unavailable until the approved student health-information migration is applied.', 409);
+  }
+
   async function resolveMatch(tx, input) {
     const found = await candidates(tx, input);
     if (found.length > 1) fail('AMBIGUOUS_IDENTITY', 'More than one existing student matches the supplied identity. Provide the Permanent Student ID or admission number.', 409);
@@ -165,6 +175,8 @@ export function createExistingStudentLinkingService({ database, schoolId, clock 
       if (String(input.confirmedStudentId).trim() !== String(row.id)) fail('IDENTITY_CONFIRMATION_MISMATCH', 'The confirmed record does not match the current identity search. Review the student again before linking.', 409);
       const linkedApplication = await validateApplicationLink(tx, text(input.applicationNumber), row, profile);
       const timestamp = clock();
+      const requestedHealthInsuranceNumber = input.healthInsuranceNumber !== undefined;
+      if (requestedHealthInsuranceNumber) await requireHealthInsuranceColumn(tx);
       const masterId = row.permanent_student_id ? String(row.permanent_student_id).trim() : null;
       const profileStudentId = profile?.student_id ? String(profile.student_id).trim() : null;
       if (masterId && profileStudentId && masterId !== profileStudentId) fail('PERMANENT_STUDENT_ID_CONFLICT', 'The student and profile contain different Permanent Student IDs and require controlled review.', 409);
@@ -204,7 +216,7 @@ export function createExistingStudentLinkingService({ database, schoolId, clock 
         await tx.execute('INSERT INTO student_enrollments (id,student_id,school_id,class_id,academic_year_id,term_id,enrollment_status,is_current,enrolled_at) VALUES (?,?,?,?,?,?,?,?,?)', [enrollmentId, row.id, schoolId, classId, canonicalYearId, termId, 'ACTIVE', 1, timestamp]);
         enrollment = { id: enrollmentId, student_id: row.id, school_id: schoolId, class_id: classId, academic_year_id: canonicalYearId, term_id: termId, enrollment_status: 'ACTIVE', is_current: 1 };
       }
-      if (input.healthInsuranceNumber !== undefined) {
+      if (requestedHealthInsuranceNumber) {
         const healthInsuranceNumber = text(input.healthInsuranceNumber);
         if (healthInsuranceNumber && healthInsuranceNumber.length > 64) fail('HEALTH_INSURANCE_NUMBER_INVALID', 'Health Insurance Number must be 64 characters or fewer.', 400);
         await tx.execute('UPDATE students SET health_insurance_number=?,updated_at=? WHERE school_id=? AND id=?', [healthInsuranceNumber, timestamp, schoolId, row.id]);

@@ -12,7 +12,7 @@ async function linkAfterPreview(service, input, who = actor) {
   return service.link({ ...input, confirmIdentity: true, confirmedStudentId: result.student.id }, who);
 }
 
-function fixture({ withProfile = false, withEnrollment = false, permanentStudentId = 'OSAAH/2024/001', profileStudentId = permanentStudentId, existingStudentIds = [], existingProfileIds = [], sequence = 1 } = {}) {
+function fixture({ withProfile = false, withEnrollment = false, permanentStudentId = 'OSAAH/2024/001', profileStudentId = permanentStudentId, existingStudentIds = [], existingProfileIds = [], sequence = 1, healthInsuranceColumn = true } = {}) {
   const student = { id: 'student-1', school_id: SCHOOL, permanent_student_id: permanentStudentId, admission_number: 'ADM-001', first_name: 'Ama', last_name: 'Mensah', date_of_birth: '2014-02-03', student_status: 'ACTIVE', is_test_record: 0, updated_at: '2026-01-01' };
   const profile = withProfile ? { id: 'profile-1', student_master_id: 'student-1', student_id: profileStudentId, school_id: SCHOOL, first_name: 'Ama', last_name: 'Mensah', date_of_birth: student.date_of_birth, updated_at: '2026-01-01' } : null;
   const enrollment = withEnrollment ? { id: 'enrollment-1', student_id: 'student-1', school_id: SCHOOL, class_id: 'class-p2', academic_year_id: 'year-2026', term_id: 'term-1', enrollment_status: 'ACTIVE', is_current: 1 } : null;
@@ -23,6 +23,7 @@ function fixture({ withProfile = false, withEnrollment = false, permanentStudent
     calls,
     async query(sql, params = []) {
       calls.push({ sql, params });
+      if (sql.includes('information_schema.COLUMNS') && sql.includes('health_insurance_number')) return healthInsuranceColumn ? [{ COLUMN_NAME: 'health_insurance_number' }] : [];
       if (sql.includes('FROM students s WHERE')) return [student];
       if (sql.includes('FROM student_id_sequences')) return [{ next_sequence: sequence }];
       if (sql.includes('FROM students WHERE permanent_student_id LIKE')) return existingStudentIds.map((permanent_student_id) => ({ permanent_student_id }));
@@ -120,6 +121,13 @@ test('valid existing IDs are preserved and invalid health-insurance input is rej
   await assert.rejects(() => linkAfterPreview(service, { permanentStudentId: 'OSAAH/2024/001', classId: 'class-p2', academicYearId: 'year-2026', healthInsuranceNumber: 'x'.repeat(65) }, actor), { code: 'HEALTH_INSURANCE_NUMBER_INVALID' });
   const result = await linkAfterPreview(service, { permanentStudentId: 'OSAAH/2024/001', classId: 'class-p2', academicYearId: 'year-2026' }, actor);
   assert.equal(result.student.permanentStudentId, 'OSAAH/2024/001');
+});
+
+test('supplied health-insurance input fails clearly when the optional production column is absent', async () => {
+  const { db } = fixture({ healthInsuranceColumn: false });
+  const service = createExistingStudentLinkingService({ database: db, schoolId: SCHOOL });
+  await assert.rejects(() => linkAfterPreview(service, { permanentStudentId: 'OSAAH/2024/001', classId: 'class-p2', academicYearId: 'year-2026', healthInsuranceNumber: 'NHIS-001' }, actor), { code: 'HEALTH_INSURANCE_SCHEMA_UNAVAILABLE', status: 409 });
+  assert.equal(db.writes.length, 0);
 });
 
 test('preview is read-only and linking requires a fresh explicit confirmation of the matched record', async () => {
