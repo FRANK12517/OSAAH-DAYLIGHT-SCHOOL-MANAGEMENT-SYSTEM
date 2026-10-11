@@ -53,6 +53,8 @@ The implementation is deliberately held at audit/handoff: a staff missing-record
 
 Part 2's dependency on a merged and deployed Part 1 could not be met: the actual branch is still `codex/admission-tidb-enrollment` at `8d1ad97`, ahead of its remote by seven commits; this is the branch containing Part 1's migration work and audit, not a verified merged/deployed implementation. No production writes, PR creation, merge, or deployment were attempted.
 
+Local Part 2 commit: `5b9ae4c` (`feat(admissions): add existing student migration interface`). It is on `codex/admission-tidb-enrollment`; it has not been pushed, opened as a PR, merged, or deployed.
+
 Local code updates made for Part 2:
 
 - `public/admissions.html` now exposes the three registration categories and an accessible status/result region.
