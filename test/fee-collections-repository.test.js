@@ -13,13 +13,14 @@ function adapter({ students = [], fees = [{ id: 'fee-1', schoolId: 'school-a' }]
       if (sql.includes('FROM students')) {
         return state.students.filter((s) => s.schoolId === params[0] && (params[1] == null || s.classId === params[1]) && !['INACTIVE', 'TRANSFERRED_OUT', 'WITHDRAWN', 'DELETED', 'ARCHIVED'].includes(String(s.status ?? 'ACTIVE').toUpperCase()));
       }
-      if (sql.includes('FROM fee_obligations') && sql.includes('idempotency_key')) return state.obligations.filter((o) => o.schoolId === params[0] && o.idempotencyKey === params[1]);
+      if (sql.includes('FROM fee_obligations') && sql.includes('fee_structure_id=?')) return state.obligations.filter((o) => o.schoolId === params[0] && o.feeStructureId === params[1] && o.academicYearId === params[2] && o.termId === params[3] && o.status === 'PUBLISHED');
+      if (sql.includes('FROM fee_obligations') && sql.includes('idempotency_key=?')) return state.obligations.filter((o) => o.schoolId === params[0] && o.idempotencyKey === params[1]);
       if (sql.includes('FROM fee_obligations')) return state.obligations.filter((o) => o.schoolId === params[0]);
       return [];
     },
     async execute(sql, params = []) {
       if (failOnInsert && sql.startsWith('INSERT INTO fee_obligations')) throw new Error('persistence failed');
-      if (sql.startsWith('INSERT INTO fee_obligations')) state.obligations.push({ id: params[0], schoolId: params[1], feeStructureId: params[2], studentId: params[7], idempotencyKey: params[13] });
+      if (sql.startsWith('INSERT INTO fee_obligations')) state.obligations.push({ id: params[0], schoolId: params[1], feeStructureId: params[2], academicYearId: params[3], termId: params[4], scope: params[5], classId: params[6], studentId: params[7], student_id: params[7], amountMinor: params[8], status: params[10], idempotencyKey: params[13], idempotency_key: params[13] });
       return { affectedRows: 1 };
     },
     async transaction(work) {
@@ -74,13 +75,16 @@ test('fee ownership and existence are tenant-safe', async () => {
 test('eligibility and inserts use the transaction client', async () => {
   const db = adapter({ students: [{ id: 'a', schoolId: 'school-a', status: 'ACTIVE' }] });
   const calls = [];
+  const transactionQueries = [];
   const rootQuery = db.query.bind(db), rootExecute = db.execute.bind(db);
   db.query = async (...args) => { calls.push('root-query'); return rootQuery(...args); };
   db.execute = async (...args) => { calls.push('root-execute'); return rootExecute(...args); };
-  const tx = { query: async (...args) => { calls.push('tx-query'); return rootQuery(...args); }, execute: async (...args) => { calls.push('tx-execute'); return rootExecute(...args); } };
+  const tx = { query: async (...args) => { calls.push('tx-query'); transactionQueries.push(args[0]); return rootQuery(...args); }, execute: async (...args) => { calls.push('tx-execute'); return rootExecute(...args); } };
   db.transaction = async (work) => work(tx);
   await publish(createFeeCollectionsRepository({ adapter: db }), actor());
   assert.deepEqual(calls, ['tx-query', 'tx-query', 'tx-query', 'tx-execute']);
+  assert.ok(transactionQueries.some((sql) => sql.includes('FROM students') && sql.endsWith('FOR UPDATE')));
+  assert.ok(transactionQueries.some((sql) => sql.includes('FROM fee_obligations') && sql.endsWith('FOR UPDATE')));
 });
 
 test('unrelated database errors propagate instead of being swallowed', async () => {
