@@ -1,7 +1,10 @@
+import { createAdmissionFormNavigator, requiredAdmissionDocumentTypes } from './admission-form-navigation.js';
+
 const form = document.querySelector('#admission-form');
 const classField = document.querySelector('#class-applied');
 const quote = document.querySelector('#fee-quote');
 const status = document.querySelector('#form-status');
+form.before(status);
 const documentStorageStatus = document.querySelector('#document-storage-status');
 const feeAssessment = document.createElement('section');
 feeAssessment.className = 'card'; feeAssessment.hidden = true; feeAssessment.setAttribute('aria-live', 'polite');
@@ -12,11 +15,11 @@ offerPanel.className = 'card'; offerPanel.hidden = true; offerPanel.setAttribute
 form.before(offerPanel);
 const saveButton = document.createElement('button');
 saveButton.type = 'button'; saveButton.className = 'text-button'; saveButton.textContent = 'Save Draft';
-form.querySelector('button[type="submit"]').before(saveButton);
-const reviewButton = document.createElement('button'); reviewButton.type = 'button'; reviewButton.className = 'text-button'; reviewButton.textContent = 'Review Admission'; saveButton.after(reviewButton);
-form.querySelector('button[type="submit"]').textContent = 'Confirm and Submit Admission';
+const backButton = document.createElement('button'); backButton.type = 'button'; backButton.className = 'text-button'; backButton.textContent = 'Back'; backButton.disabled = true;
+const nextButton = form.querySelector('button[type="submit"]'); nextButton.textContent = 'Next'; nextButton.type = 'button';
+form.noValidate = true;
+nextButton.before(saveButton, backButton);
 const reviewPanel = document.createElement('section'); reviewPanel.className = 'card'; reviewPanel.hidden = true; reviewPanel.setAttribute('aria-live', 'polite'); form.before(reviewPanel);
-let reviewed = false;
 const receiptFieldset = [...form.querySelectorAll('fieldset')].find((field) => field.querySelector('legend')?.textContent.includes('SUPPORTING DOCUMENTS'));
 if (receiptFieldset && !form.elements.admissionReceipt) { const label = document.createElement('label'); label.textContent = 'Admission Receipt'; const input = document.createElement('input'); input.name = 'admissionReceipt'; input.type = 'file'; input.accept = 'image/jpeg,image/png,application/pdf'; label.append(input); receiptFieldset.append(label); }
 function addTextField(name, label, { type = 'text', required = false, before = null } = {}) {
@@ -34,6 +37,39 @@ const query = new URLSearchParams(location.search);
 let applicationNumber = query.get('applicationNumber');
 let working = false;
 let existingDocuments = [];
+const stepProgress = document.createElement('ol'); stepProgress.className = 'admission-step-progress'; stepProgress.setAttribute('aria-label', 'Admission form progress');
+const stepStatus = document.createElement('p'); stepStatus.className = 'muted'; stepStatus.setAttribute('role', 'status'); stepStatus.setAttribute('aria-live', 'polite');
+form.before(stepProgress, stepStatus);
+const allFieldsets = [...form.querySelectorAll('fieldset')];
+const officialUseFieldset = allFieldsets.find((fieldset) => fieldset.querySelector('legend')?.textContent.includes('OFFICIAL USE ONLY'));
+if (officialUseFieldset) officialUseFieldset.hidden = true;
+const stepFieldsets = allFieldsets.filter((fieldset) => fieldset !== officialUseFieldset);
+for (const fieldset of stepFieldsets) {
+  const item = document.createElement('li'); item.textContent = fieldset.querySelector('legend')?.textContent.replace(/\s+/g, ' ').trim() ?? 'Admission details'; stepProgress.append(item);
+}
+const stepIndicators = [...stepProgress.children];
+let staffAdmission = false;
+const wizard = createAdmissionFormNavigator({
+  steps: stepFieldsets,
+  validateStep: (fieldset) => {
+    const invalid = [...fieldset.querySelectorAll('input, select, textarea')].find((control) => control.willValidate && !control.checkValidity());
+    if (!invalid) return true;
+    invalid.reportValidity();
+    return false;
+  },
+  onStepChange: ({ currentStep, totalSteps }) => {
+    stepStatus.textContent = `Section ${currentStep + 1} of ${totalSteps}: ${stepIndicators[currentStep]?.textContent ?? 'Admission details'}`;
+    stepIndicators.forEach((indicator, index) => {
+      if (index === currentStep) indicator.setAttribute('aria-current', 'step');
+      else indicator.removeAttribute('aria-current');
+    });
+    backButton.disabled = currentStep === 0 && !applicationNumber;
+    backButton.textContent = currentStep === 0 ? 'Back to Enquiry' : 'Back';
+    nextButton.textContent = currentStep === totalSteps - 1
+      ? (staffAdmission ? 'Review Admission' : 'Submit Application')
+      : 'Next';
+  },
+});
 const yearField = document.createElement('input'); yearField.type = 'hidden'; yearField.name = 'academicYear'; yearField.value = String(new Date().getFullYear()); form.append(yearField);
 const yearIdField = document.createElement('input'); yearIdField.type = 'hidden'; yearIdField.name = 'academicYearId'; form.append(yearIdField);
 const termField = document.createElement('input'); termField.type = 'hidden'; termField.name = 'admissionTerm'; termField.value = 'TERM_1'; form.append(termField);
@@ -42,7 +78,52 @@ const admissionTypeField = document.createElement('input'); admissionTypeField.t
 const historicalAdmissionYearLabel = document.createElement('label'); historicalAdmissionYearLabel.textContent = 'Year Admitted into the School';
 const historicalAdmissionYearField = document.createElement('input'); historicalAdmissionYearField.name = 'historicalAdmissionYear'; historicalAdmissionYearField.type = 'text'; historicalAdmissionYearField.inputMode = 'numeric'; historicalAdmissionYearField.pattern = '\\d{4}'; historicalAdmissionYearField.maxLength = 4;
 historicalAdmissionYearLabel.append(historicalAdmissionYearField); form.querySelector('fieldset').append(historicalAdmissionYearLabel);
-function syncHistoricalAdmissionYear() { const isStaffAdmission = ['ALREADY_ENROLLED', 'TRANSFER', 'FIRST_TIME'].includes(admissionTypeField.value); const required = admissionTypeField.value === 'ALREADY_ENROLLED'; historicalAdmissionYearLabel.hidden = !required; historicalAdmissionYearField.required = required; reviewButton.hidden = !isStaffAdmission; }
+function syncHistoricalAdmissionYear() {
+  staffAdmission = ['ALREADY_ENROLLED', 'TRANSFER', 'FIRST_TIME'].includes(admissionTypeField.value);
+  const required = admissionTypeField.value === 'ALREADY_ENROLLED';
+  historicalAdmissionYearLabel.hidden = !required;
+  historicalAdmissionYearField.required = required;
+  nextButton.textContent = wizard.isLastStep ? (staffAdmission ? 'Review Admission' : 'Submit Application') : 'Next';
+  updateDocumentRequirementNote();
+}
+const documentFields = { passport: 'PASSPORT_PHOTOGRAPHS', identity: 'BIRTH_CERTIFICATE_OR_GHANA_CARD', nhis: 'NHIS_CARD', report: 'LAST_ACADEMIC_REPORT', admissionReceipt: 'ADMISSION_RECEIPT' };
+const documentFieldset = stepFieldsets.find((fieldset) => fieldset.querySelector('legend')?.textContent.includes('SUPPORTING DOCUMENTS'));
+const documentRequirementNote = document.createElement('p'); documentRequirementNote.className = 'muted'; documentRequirementNote.setAttribute('role', 'status');
+documentFieldset?.insertBefore(documentRequirementNote, documentFieldset.querySelector('label'));
+function requiredDocumentTypes() {
+  const className = String(classField.selectedOptions?.[0]?.textContent ?? classField.value ?? '');
+  return requiredAdmissionDocumentTypes({ admissionType: admissionTypeField.value, className });
+}
+function updateDocumentRequirementNote() {
+  if (!documentRequirementNote) return;
+  const required = requiredDocumentTypes();
+  documentRequirementNote.textContent = admissionTypeField.value === 'ALREADY_ENROLLED'
+    ? 'Supporting documents and the admission receipt are optional for this Already-Enrolled application.'
+    : `Required for this application: ${required.map((type) => type.replaceAll('_', ' ').toLowerCase()).join(', ')}.`;
+}
+function missingRequiredDocuments({ uploadedOnly = false } = {}) {
+  return requiredDocumentTypes().filter((type) => {
+    const uploaded = existingDocuments.some((item) => item.documentType === type && item.uploadStatus === 'UPLOADED');
+    if (uploaded) return false;
+    if (uploadedOnly) return true;
+    const fieldName = Object.keys(documentFields).find((key) => documentFields[key] === type);
+    return !fieldName || ![...(form.elements[fieldName]?.files ?? [])].length;
+  });
+}
+function showDocumentRequirementError(missing) {
+  const names = missing.map((type) => type.replaceAll('_', ' ').toLowerCase());
+  status.textContent = `Upload the required document${names.length === 1 ? '' : 's'} before continuing: ${names.join(', ')}.`;
+  const fieldName = Object.keys(documentFields).find((key) => documentFields[key] === missing[0]);
+  const input = form.elements[fieldName];
+  focusStepControl(input);
+}
+function focusStepControl(control) {
+  form.hidden = false; stepProgress.hidden = false; stepStatus.hidden = false; reviewPanel.hidden = true;
+  const targetStep = stepFieldsets.indexOf(control?.closest('fieldset'));
+  while (targetStep >= 0 && wizard.currentStep > targetStep) wizard.back();
+  form.scrollIntoView({ behavior: 'smooth' });
+  control?.focus();
+}
 syncHistoricalAdmissionYear();
 const money = (value) => `GH₵${Number(value).toFixed(2)}`;
 
@@ -96,19 +177,21 @@ function renderOfferAcceptance(record) {
 }
 
 async function uploadSelectedDocuments() {
-  const fields = { passport: 'PASSPORT_PHOTOGRAPHS', identity: 'BIRTH_CERTIFICATE_OR_GHANA_CARD', nhis: 'NHIS_CARD', report: 'LAST_ACADEMIC_REPORT', admissionReceipt: 'ADMISSION_RECEIPT' };
-  for (const [fieldName, documentType] of Object.entries(fields)) {
+  for (const [fieldName, documentType] of Object.entries(documentFields)) {
     const files = [...form.elements[fieldName].files];
-    for (const [index, file] of files.entries()) {
-      if (!['application/pdf', 'image/jpeg', 'image/png'].includes(file.type)) throw new Error(`${file.name} must be a PDF, JPEG, or PNG file.`);
-      if (!file.size || file.size > 10 * 1024 * 1024) throw new Error(`${file.name} must be between 1 byte and 10 MB.`);
-      const replace = index === 0 ? existingDocuments.find((item) => item.documentType === documentType) : null;
-      const url = `/api/admission-applications/${encodeURIComponent(applicationNumber)}/documents${replace ? `/${encodeURIComponent(replace.id)}` : ''}`;
-      const response = await fetch(url, { method: replace ? 'PUT' : 'POST', credentials: 'same-origin', headers: { 'Content-Type': file.type, 'X-Document-Type': documentType, 'X-Original-Name': file.name }, body: file });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error ?? `Could not upload ${file.name}.`);
-      existingDocuments = replace ? existingDocuments.map((item) => item.id === replace.id ? result : item) : [...existingDocuments, result];
-    }
+    try {
+      for (const [index, file] of files.entries()) {
+        if (!['application/pdf', 'image/jpeg', 'image/png'].includes(file.type)) throw new Error(`${file.name} must be a PDF, JPEG, or PNG file.`);
+        if (!file.size || file.size > 10 * 1024 * 1024) throw new Error(`${file.name} must be between 1 byte and 10 MB.`);
+        const replace = index === 0 ? existingDocuments.find((item) => item.documentType === documentType) : null;
+        const url = `/api/admission-applications/${encodeURIComponent(applicationNumber)}/documents${replace ? `/${encodeURIComponent(replace.id)}` : ''}`;
+        const response = await fetch(url, { method: replace ? 'PUT' : 'POST', credentials: 'same-origin', headers: { 'Content-Type': file.type, 'X-Document-Type': documentType, 'X-Original-Name': file.name }, body: file });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error ?? `Could not upload ${file.name}.`);
+        existingDocuments = replace ? existingDocuments.map((item) => item.id === replace.id ? result : item) : [...existingDocuments, result];
+      }
+    } catch (error) { focusStepControl(form.elements[fieldName]); throw error; }
+    if (files.length) form.elements[fieldName].value = '';
   }
 }
 
@@ -158,9 +241,8 @@ async function loadOptions() {
 }
 
 async function saveDraft() {
-  if (working) return;
-  working = true; saveButton.disabled = true;
-  const submitButton = form.querySelector('button[type="submit"]'); submitButton.disabled = true;
+  if (working) return false;
+  working = true; setFormBusy(true);
   status.textContent = 'Saving draft…';
   try {
     const data = Object.fromEntries(new FormData(form));
@@ -174,20 +256,56 @@ async function saveDraft() {
     }
     const updated = await request(`/api/admission-applications/${encodeURIComponent(applicationNumber)}/update`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
     status.textContent = `Draft ${updated.applicationNumber} saved. You can return to it from Admissions Workflow.`;
-  } catch (error) { status.textContent = error.message; }
-  finally { working = false; saveButton.disabled = false; submitButton.disabled = false; }
+    return true;
+  } catch (error) { status.textContent = error.message; return false; }
+  finally { working = false; setFormBusy(false); }
 }
 
 function showReview() {
   const data = Object.fromEntries(new FormData(form));
   const rows = Object.entries(data).filter(([name]) => !['passport', 'identity', 'nhis', 'report', 'admissionReceipt'].includes(name)).map(([name, value]) => `<dt>${name.replace(/([A-Z])/g, ' $1')}</dt><dd>${String(value || 'Not provided').replace(/[&<>]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[character])}</dd>`).join('');
   const documents = existingDocuments.map((document) => `<li>${document.documentType.replaceAll('_', ' ')}: ${document.uploadStatus ?? 'UPLOADED'}</li>`).join('') || '<li>No documents uploaded.</li>';
-  reviewPanel.innerHTML = `<h2>Review Admission</h2><p>Review the saved details and document status before final submission. Select Edit Admission to make changes.</p><dl>${rows}</dl><h3>Private documents</h3><ul>${documents}</ul><button type="button" class="text-button" data-edit-admission>Edit Admission</button>`;
-  reviewPanel.querySelector('[data-edit-admission]').addEventListener('click', () => { reviewPanel.hidden = true; reviewed = false; status.textContent = 'Edit the draft, then review it again before submitting.'; form.scrollIntoView({ behavior: 'smooth' }); });
-  reviewPanel.hidden = false; reviewed = true;
+  reviewPanel.innerHTML = `<h2>Review Admission</h2><p>Review the saved details and document status before final submission. Select Edit Admission to make changes.</p><dl>${rows}</dl><h3>Private documents</h3><ul>${documents}</ul><button type="button" class="text-button" data-edit-admission>Edit Admission</button><button type="button" class="primary-button" data-confirm-admission>Confirm and Submit Admission</button>`;
+  reviewPanel.querySelector('[data-edit-admission]').addEventListener('click', () => { reviewPanel.hidden = true; form.hidden = false; stepProgress.hidden = false; stepStatus.hidden = false; status.textContent = 'Edit the draft, then review it again before submitting.'; form.scrollIntoView({ behavior: 'smooth' }); });
+  reviewPanel.querySelector('[data-confirm-admission]').addEventListener('click', submitApplication);
+  form.hidden = true; stepProgress.hidden = true; stepStatus.hidden = true; reviewPanel.hidden = false;
+}
+
+function setFormBusy(busy) {
+  saveButton.disabled = busy;
+  nextButton.disabled = busy;
+  backButton.disabled = busy || wizard.currentStep === 0;
+}
+
+async function reviewAndSubmit() {
+  if (working || !wizard.validateCurrentStep()) return;
+  const missing = missingRequiredDocuments();
+  if (missing.length) { showDocumentRequirementError(missing); return; }
+  if (!staffAdmission) { await submitApplication(); return; }
+  if (!(await saveDraft())) return;
+  setFormBusy(true);
+  status.textContent = 'Uploading private supporting documents…';
+  try {
+    await uploadSelectedDocuments();
+    const notUploaded = missingRequiredDocuments({ uploadedOnly: true });
+    if (notUploaded.length) { showDocumentRequirementError(notUploaded); return; }
+    showReview();
+    status.textContent = `Application ${applicationNumber} is saved. Review the details, then confirm submission.`;
+  } catch (error) { status.textContent = error.message; }
+  finally { setFormBusy(false); }
+}
+
+async function handleNext() {
+  if (working) return;
+  if (!wizard.isLastStep) {
+    if (wizard.next()) status.textContent = '';
+    return;
+  }
+  await reviewAndSubmit();
 }
 
 classField.addEventListener('change', async () => {
+  updateDocumentRequirementNote();
   if (!classField.value) return;
   quote.textContent = 'Loading published fees…';
   try {
@@ -198,15 +316,26 @@ classField.addEventListener('change', async () => {
 });
 
 saveButton.addEventListener('click', saveDraft);
-reviewButton.addEventListener('click', async () => { if (!form.reportValidity()) return; await saveDraft(); if (applicationNumber) { showReview(); status.textContent = 'Review the saved admission before confirming submission.'; } });
-form.addEventListener('input', () => { reviewed = false; });
+backButton.addEventListener('click', () => {
+  if (working) return;
+  if (wizard.currentStep === 0 && applicationNumber) {
+    window.location.assign(`/admissions?applicationNumber=${encodeURIComponent(applicationNumber)}`);
+    return;
+  }
+  wizard.back(); status.textContent = '';
+});
+nextButton.addEventListener('click', handleNext);
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
+  await handleNext();
+});
+
+async function submitApplication(event) {
   if (working) return;
-  if (!form.reportValidity()) return;
-  if (!reviewButton.hidden && !reviewed) { await saveDraft(); if (applicationNumber) { showReview(); status.textContent = 'Review the admission, then select Confirm and Submit Admission again.'; } return; }
-  working = true; saveButton.disabled = true;
-  const submitButton = form.querySelector('button[type="submit"]'); submitButton.disabled = true;
+  let submissionSucceeded = false;
+  working = true; setFormBusy(true);
+  const confirmButton = reviewPanel.querySelector('[data-confirm-admission]');
+  if (confirmButton) confirmButton.disabled = true;
   status.textContent = 'Saving and submitting application…';
   try {
     const data = Object.fromEntries(new FormData(form));
@@ -220,16 +349,29 @@ form.addEventListener('submit', async (event) => {
     await request(`/api/admission-applications/${encodeURIComponent(applicationNumber)}/update`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
     const selectedFiles = ['passport', 'identity', 'nhis', 'report', 'admissionReceipt'].flatMap((field) => [...form.elements[field].files]);
     if (selectedFiles.length) await uploadSelectedDocuments();
+    const missingDocuments = missingRequiredDocuments({ uploadedOnly: true });
+    if (missingDocuments.length) { showDocumentRequirementError(missingDocuments); if (confirmButton) confirmButton.disabled = false; return; }
     const result = await request(`/api/admission-applications/${encodeURIComponent(applicationNumber)}/submit`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
     renderFeeAssessment(result.feeAssessment);
     status.textContent = `Application ${result.applicationNumber} submitted on ${result.updatedAt}. Status: ${result.status}.`;
-  } catch (error) { status.textContent = error.message; }
-  finally { working = false; saveButton.disabled = false; submitButton.disabled = false; }
-});
+    submissionSucceeded = true;
+    if (confirmButton) confirmButton.disabled = true;
+    nextButton.disabled = true; backButton.disabled = true; saveButton.disabled = true;
+  } catch (error) { status.textContent = error.message; if (confirmButton) confirmButton.disabled = false; }
+  finally {
+    working = false;
+    if (!submissionSucceeded) {
+      if (confirmButton) confirmButton.disabled = false;
+      setFormBusy(false);
+    }
+  }
+}
 
+if (applicationNumber) { setFormBusy(true); stepStatus.textContent = 'Loading saved application…'; }
 loadOptions().then(async () => {
   if (applicationNumber) {
     try { populate(await request(`/api/admission-applications/${encodeURIComponent(applicationNumber)}`)); }
     catch (error) { status.textContent = `Unable to open this application: ${error.message}`; }
+    finally { setFormBusy(false); }
   }
 });
