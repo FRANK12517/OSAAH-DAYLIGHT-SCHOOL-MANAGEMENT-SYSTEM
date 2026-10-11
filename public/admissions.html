@@ -11,29 +11,58 @@
     <a class="text-button" href="/">← Dashboard</a>
     <p class="eyebrow">ADMISSIONS</p>
     <h1>Admissions and Registration</h1>
-    <p>Choose the student’s admission category. Existing students, transfer students, and first-time applicants have different requirements. Parent applications continue through the school’s review and approval process.</p>
+    <p>Existing OSAAH students must be matched and linked to their current school record. Transfer and first-time applicants continue through the new-student review and approval process.</p>
     <ol class="workflow" aria-label="New applicant workflow stages">
       <li>Application</li><li>Document Review</li><li>Assessment / Interview</li><li>Decision</li><li>Admission Offer</li><li>Acceptance</li><li>Registration</li><li>Fee Assessment</li><li>Enrollment</li><li>Student ID</li><li>Class Assignment</li>
     </ol>
+    <section id="existing-student-linker" class="card" aria-labelledby="existing-student-linking-heading">
+      <h2 id="existing-student-linking-heading">Link an existing OSAAH student</h2>
+      <p>Search using a student record ID, Permanent Student ID, admission number, or the complete first name, last name, and date of birth from reliable school records. Review the match before confirming. Unmatched records require manual review and are not imported.</p>
+      <form id="existing-student-search" class="student-form">
+        <fieldset>
+          <legend>Existing student identity</legend>
+          <label>Student record ID (if known)<input name="studentId" autocomplete="off"></label>
+          <label>Permanent Student ID<input name="permanentStudentId" autocomplete="off" placeholder="OSAAH/YYYY/NNN"></label>
+          <label>Admission number<input name="admissionNumber" autocomplete="off"></label>
+          <label>First name<input name="firstName" autocomplete="given-name"></label>
+          <label>Last name<input name="lastName" autocomplete="family-name"></label>
+          <label>Date of birth<input name="dateOfBirth" type="date"></label>
+          <label>Already-Enrolled application number (optional)<input name="applicationNumber" autocomplete="off"></label>
+        </fieldset>
+        <p id="existing-student-search-status" role="status" aria-live="polite"></p>
+        <button class="primary-button" type="submit">Preview matching student</button>
+      </form>
+      <section id="existing-student-confirmation" hidden aria-labelledby="existing-student-confirmation-heading">
+        <h3 id="existing-student-confirmation-heading">Confirm the existing record</h3>
+        <p id="existing-student-match" role="status" aria-live="polite"></p>
+        <form id="existing-student-confirm-form" class="student-form">
+          <fieldset>
+            <legend>Link context</legend>
+            <label>Current class<select name="classId" required><option value="">Loading classes…</option></select></label>
+            <label>Academic year<select name="academicYearId" required><option value="">Loading academic years…</option></select></label>
+            <label>Term (optional)<select name="termId"><option value="">No term selected</option></select></label>
+            <label>Historical OSAAH admission year (required only if the record has no Permanent Student ID)<input name="historicalAdmissionYear" inputmode="numeric" pattern="\d{4}" maxlength="4" placeholder="e.g. 2019"></label>
+          </fieldset>
+          <label><input name="confirmIdentity" type="checkbox" required> I verified this is the same student using reliable existing school records.</label>
+          <p id="existing-student-link-status" role="status" aria-live="polite"></p>
+          <button class="primary-button" type="submit">Confirm identity and link existing record</button>
+        </form>
+      </section>
+    </section>
     <form id="admission-enquiry" class="student-form">
       <fieldset>
-        <legend>Student registration details</legend>
+        <legend>New-applicant intake</legend>
         <label>Admission category
           <select name="admissionType" required aria-describedby="category-help">
             <option value="">Select a category</option>
-            <option value="ALREADY_ENROLLED">Already enrolled at OsaaH</option>
             <option value="TRANSFER">Transfer from another school</option>
             <option value="FIRST_TIME">First-time applicant</option>
           </select>
         </label>
-        <p id="category-help" class="muted">Already-enrolled students are not new applicants. Transfer and first-time applicants remain subject to applicable school review and approval.</p>
+        <p id="category-help" class="muted">Already-enrolled students use the separate confirmed-linking path above and do not enter new-student assessment or document review.</p>
         <label>Student full name<input name="applicantName" autocomplete="name" required></label>
         <label>Parent / guardian telephone<input name="parentPhone" type="tel" inputmode="tel" autocomplete="tel" placeholder="0241234567" required></label>
         <label>Intended class<select name="classId" required><option value="">Loading classes…</option></select></label>
-        <label data-category-field="ALREADY_ENROLLED" hidden>Actual year admitted to OsaaH
-          <input name="historicalAdmissionYear" inputmode="numeric" pattern="\d{4}" maxlength="4" placeholder="e.g. 2019" aria-describedby="historical-year-help">
-        </label>
-        <small id="historical-year-help" class="muted" data-category-field="ALREADY_ENROLLED" hidden>Enter the student’s actual school admission year; do not estimate it.</small>
         <label data-category-field="TRANSFER" hidden>Previous school<input name="previousSchool" autocomplete="organization"></label>
         <label>Health Insurance Number <span class="muted">(optional)</span><input name="healthInsuranceNumber" autocomplete="off"></label>
         <label>Admission academic year<select name="academicYear" required><option value="">Loading academic years…</option></select></label>

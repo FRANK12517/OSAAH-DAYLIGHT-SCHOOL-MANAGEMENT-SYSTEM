@@ -29,9 +29,9 @@ test('durable admission workflow saves document review, assessment, decision, of
   const db = database(); let id = 0;
   const service = createDurableAdmissionsService({ database: db, schoolId: 'school-1', clock: () => '2026-10-09T10:00:00.000Z', idFactory: () => `id-${++id}` });
   const actor = { id: 'headteacher-1', roleKey: 'HEADTEACHER', schoolId: 'school-1', portal: 'school' };
-  const application = await service.createApplication({ studentSurname: 'Sample', studentFirstName: 'Applicant', dateOfBirth: '2018-01-01', gender: 'Female', hometown: 'Bogoso', region: 'Western', nationality: 'Ghanaian', classAppliedFor: 'class-jhs1', className: 'JHS 1', residentialAddress: 'Bogoso', digitalAddress: 'WS-000-0000', nearestLandmark: 'School', primaryGuardianFullName: 'Sample Guardian', primaryGuardianRelationship: 'Parent', primaryGuardianPrimaryPhone: '0241234567', academicYear: '2026', admissionTerm: 'TERM_1', parentDeclarationAccepted: true }, actor);
+  const application = await service.createApplication({ studentSurname: 'Sample', studentFirstName: 'Applicant', dateOfBirth: '2018-01-01', gender: 'Female', hometown: 'Bogoso', region: 'Western', nationality: 'Ghanaian', classAppliedFor: 'class-jhs1', className: 'JHS 1', admissionType: 'TRANSFER', residentialAddress: 'Bogoso', digitalAddress: 'WS-000-0000', nearestLandmark: 'School', primaryGuardianFullName: 'Sample Guardian', primaryGuardianRelationship: 'Parent', primaryGuardianPrimaryPhone: '0241234567', academicYear: '2026', admissionTerm: 'TERM_1', parentDeclarationAccepted: true }, actor);
   await service.updateApplication(application.applicationNumber, { parentDeclarationAccepted: true }, actor);
-  for (const documentType of ['PASSPORT_PHOTOGRAPHS', 'BIRTH_CERTIFICATE_OR_GHANA_CARD', 'NHIS_CARD', 'LAST_ACADEMIC_REPORT']) await service.attachDocument(application.applicationNumber, { documentType, storageKey: `private/${documentType}.pdf`, mimeType: 'application/pdf', size: 100 }, actor);
+  for (const documentType of ['PASSPORT_PHOTOGRAPHS', 'BIRTH_CERTIFICATE_OR_GHANA_CARD', 'NHIS_CARD', 'LAST_ACADEMIC_REPORT', 'ADMISSION_RECEIPT']) await service.attachDocument(application.applicationNumber, { documentType, storageKey: `private/${documentType}.pdf`, mimeType: 'application/pdf', size: 100 }, actor);
   let submitted = await service.submitApplication(application.applicationNumber, actor);
   assert.equal(submitted.workflow.currentStage, 'DOCUMENT_REVIEW');
   for (const document of submitted.documents) await service.reviewDocument(application.applicationNumber, document.id, { status: 'APPROVED', note: 'Verified' }, actor);
@@ -76,13 +76,24 @@ test('completed admissions cannot be resubmitted to reset their workflow', async
   }
 });
 
-test('staff admission types enforce only their required durable documents', async () => {
+test('ALREADY_ENROLLED is blocked from new-student transitions while transfer document requirements remain enforced', async () => {
   const db = database(); let id = 0;
   const service = createDurableAdmissionsService({ database: db, schoolId: 'school-1', idFactory: () => `id-${++id}` });
   const actor = { id: 'leader', portal: 'school', schoolId: 'school-1' };
   const input = { studentSurname: 'Sample', studentFirstName: 'Applicant', dateOfBirth: '2018-01-01', gender: 'Female', hometown: 'Bogoso', region: 'Western', nationality: 'Ghanaian', classAppliedFor: 'class-jhs1', className: 'JHS 1', residentialAddress: 'Bogoso', digitalAddress: 'WS-000-0000', nearestLandmark: 'School', primaryGuardianFullName: 'Guardian', primaryGuardianRelationship: 'Parent', primaryGuardianPrimaryPhone: '0241234567' };
   const enrolled = await service.createApplication({ ...input, admissionType: 'ALREADY_ENROLLED' }, actor);
-  assert.equal((await service.submitApplication(enrolled.applicationNumber, actor)).status, 'SUBMITTED');
+  const before = db.state.writes.length;
+  await assert.rejects(() => service.updateApplication(enrolled.applicationNumber, { admissionType: 'TRANSFER' }, actor), { status: 409 });
+  for (const run of [
+    () => service.submitApplication(enrolled.applicationNumber, actor),
+    () => service.attachDocument(enrolled.applicationNumber, { documentType: 'NHIS_CARD', storageKey: 'private/x' }, actor),
+    () => service.reviewDocument(enrolled.applicationNumber, 'doc-1', { status: 'APPROVED' }, actor),
+    () => service.reviewApplication(enrolled.applicationNumber, { status: 'UNDER_REVIEW', assessmentDate: '2026-10-09', assessmentScore: 88, assessmentRemarks: 'Reviewed' }, actor),
+    () => service.acceptOffer(enrolled.applicationNumber, actor),
+    () => service.attachStudent(enrolled.applicationNumber, { id: 'unrelated', permanentStudentId: 'OSAAH/2026/009' }, actor),
+  ]) await assert.rejects(run, { code: 'EXISTING_STUDENT_LINK_REQUIRED', status: 409 });
+  assert.equal(db.state.writes.length, before);
+  assert.equal(db.state.row.stage, 'DRAFT');
   const transfer = await service.createApplication({ ...input, admissionType: 'TRANSFER' }, actor);
   await assert.rejects(() => service.submitApplication(transfer.applicationNumber, actor), /Missing required document/);
 });

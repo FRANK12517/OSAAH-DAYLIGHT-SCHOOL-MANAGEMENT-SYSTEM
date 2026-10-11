@@ -5,6 +5,11 @@ const applicationsList = document.querySelector('#applications-list');
 const classField = enquiryForm.elements.classId;
 const academicYearField = enquiryForm.elements.academicYear;
 const termField = enquiryForm.elements.term;
+const existingStudentSearchForm = document.querySelector('#existing-student-search');
+const existingStudentConfirmation = document.querySelector('#existing-student-confirmation');
+const existingStudentSearchStatus = document.querySelector('#existing-student-search-status');
+const existingStudentMatch = document.querySelector('#existing-student-match');
+const existingStudentConfirmForm = document.querySelector('#existing-student-confirm-form');
 const admissionTypeField = enquiryForm.elements.admissionType;
 const categoryFields = [...enquiryForm.querySelectorAll('[data-category-field]')];
 const savedApplicationNumber = new URLSearchParams(location.search).get('applicationNumber');
@@ -14,7 +19,9 @@ if (savedApplicationNumber) {
   button.disabled = true; button.textContent = 'Loading draft…'; enquiryForm.setAttribute('aria-busy', 'true');
 }
 const requestIdKey = 'osaah.admissions.enquiryRequestId';
-const workflowStages = ['ENQUIRY', 'APPLICATION', 'DOCUMENT_REVIEW', 'ASSESSMENT', 'DECISION', 'ADMISSION_OFFER', 'ACCEPTANCE', 'REGISTRATION', 'FEE_ASSESSMENT', 'ENROLLMENT', 'STUDENT_ID', 'CLASS_ASSIGNMENT'];
+const workflowStages = ['APPLICATION', 'DOCUMENT_REVIEW', 'ASSESSMENT', 'DECISION', 'ADMISSION_OFFER', 'ACCEPTANCE', 'REGISTRATION', 'FEE_ASSESSMENT', 'ENROLLMENT', 'STUDENT_ID', 'CLASS_ASSIGNMENT'];
+const workflowStageLabels = Object.freeze({ APPLICATION: 'Application', DOCUMENT_REVIEW: 'Document Review', ASSESSMENT: 'Assessment / Interview', DECISION: 'Decision', ADMISSION_OFFER: 'Admission Offer', ACCEPTANCE: 'Acceptance', REGISTRATION: 'Registration', FEE_ASSESSMENT: 'Fee Assessment', ENROLLMENT: 'Enrollment', STUDENT_ID: 'Student ID', CLASS_ASSIGNMENT: 'Class Assignment' });
+const workflowStageLabel = (stage) => workflowStageLabels[stage] ?? String(stage ?? '').replaceAll('_', ' ');
 
 function syncAdmissionCategory() {
   for (const field of categoryFields) {
@@ -52,6 +59,15 @@ async function loadOptions() {
     termField.replaceChildren(new Option('Select term', ''));
     for (const item of options.terms ?? []) termField.add(new Option(item.name, JSON.stringify({ id: item.id, name: item.name })));
     if (!academicYearField.options.length) academicYearField.add(new Option(String(new Date().getFullYear()), String(new Date().getFullYear())));
+    const linkClass = existingStudentConfirmForm.elements.classId;
+    linkClass.replaceChildren(new Option('Select current class', ''));
+    for (const item of options.classes ?? []) linkClass.add(new Option(item.name, item.id));
+    const linkYear = existingStudentConfirmForm.elements.academicYearId;
+    linkYear.replaceChildren(new Option('Select academic year', ''));
+    for (const item of options.academicYears ?? []) linkYear.add(new Option(item.name, item.id));
+    const linkTerm = existingStudentConfirmForm.elements.termId;
+    linkTerm.replaceChildren(new Option('No term selected', ''));
+    for (const item of options.terms ?? []) linkTerm.add(new Option(item.name, item.id));
   } catch (error) {
     enquiryStatus.textContent = `Unable to load school classes and years: ${error.message}`;
   }
@@ -68,7 +84,6 @@ async function reopenExistingEnquiry() {
     enquiryForm.elements.admissionType.value = student.admissionType ?? '';
     enquiryForm.elements.applicantName.value = applicantName;
     enquiryForm.elements.parentPhone.value = student.primaryGuardianPrimaryPhone ?? student.enquiry?.parentPhone ?? '';
-    enquiryForm.elements.historicalAdmissionYear.value = student.historicalAdmissionYear ?? '';
     enquiryForm.elements.previousSchool.value = student.previousSchool ?? '';
     enquiryForm.elements.healthInsuranceNumber.value = student.healthInsuranceNumber ?? '';
     syncAdmissionCategory();
@@ -99,7 +114,7 @@ function renderApplications(applications) {
     const link = document.createElement('a');
     link.href = `/admission-application.html?applicationNumber=${encodeURIComponent(application.applicationNumber)}`;
     link.textContent = `${name} — ${application.applicationNumber} (${application.status})`;
-    const stage = document.createElement('p'); stage.textContent = `Current stage: ${String(application.workflow?.currentStage ?? 'APPLICATION').replaceAll('_', ' ')}`;
+    const stage = document.createElement('p'); stage.textContent = `Current stage: ${workflowStageLabel(application.workflow?.currentStage ?? 'APPLICATION')}`;
     item.append(link, stage);
     if (application.workflow?.assessment) { const assessment = document.createElement('p'); assessment.textContent = `Assessment: ${application.workflow.assessment.assessmentDate ?? 'date not recorded'} · ${application.workflow.assessment.score ?? 'score pending'}/100 · ${application.workflow.assessment.remarks ?? 'No remarks'}`; item.append(assessment); }
     if (application.workflow?.decision) { const decision = document.createElement('p'); decision.textContent = `Decision: ${application.workflow.decision.status} · ${application.workflow.decision.decidedAt ?? ''}${application.workflow.decision.reason ? ` · ${application.workflow.decision.reason}` : ''}`; item.append(decision); }
@@ -107,7 +122,7 @@ function renderApplications(applications) {
     if (application.feeAssessment) { const fee = document.createElement('p'); fee.textContent = `Fee assessment: GH₵${Number(application.feeAssessment.total ?? 0).toFixed(2)} · ${application.feeAssessment.paymentStatus ?? 'NOT_PAID'}`; item.append(fee); }
     const progress = document.createElement('ol'); progress.setAttribute('aria-label', `Workflow progress for ${application.applicationNumber}`);
     const completed = new Set(application.workflow?.completedStages ?? []);
-    for (const workflowStage of workflowStages) { const step = document.createElement('li'); step.textContent = `${completed.has(workflowStage) ? '✓' : '○'} ${workflowStage.replaceAll('_', ' ')}`; progress.append(step); }
+    for (const workflowStage of workflowStages) { const step = document.createElement('li'); step.textContent = `${completed.has(workflowStage) ? '✓' : '○'} ${workflowStageLabel(workflowStage)}`; progress.append(step); }
     item.append(progress);
     const action = (label, run) => { const button = document.createElement('button'); button.type = 'button'; button.className = 'text-button'; button.textContent = label; button.addEventListener('click', async () => { button.disabled = true; try { await run(); await loadApplications(); } catch (error) { applicationsStatus.textContent = error.message; button.disabled = false; } }); item.append(button); };
     for (const document of application.documents ?? []) {
@@ -173,15 +188,13 @@ enquiryForm.addEventListener('submit', async (event) => {
     const parts = fullName.split(' ');
     if (parts.length < 2) throw new Error('Enter the applicant’s first and last name.');
     const admissionType = String(values.get('admissionType') ?? '');
-    if (!['ALREADY_ENROLLED', 'TRANSFER', 'FIRST_TIME'].includes(admissionType)) throw new Error('Select an admission type.');
+    if (!['TRANSFER', 'FIRST_TIME'].includes(admissionType)) throw new Error('Select an admission type.');
     const parentPhone = normalizeGhanaPhone(values.get('parentPhone'));
-    const historicalAdmissionYear = String(values.get('historicalAdmissionYear') ?? '').trim();
-    if (admissionType === 'ALREADY_ENROLLED' && !/^\d{4}$/.test(historicalAdmissionYear)) throw new Error('Enter the student’s actual four-digit year of admission to OsaaH.');
     const classId = String(values.get('classId'));
     const className = classField.selectedOptions[0]?.textContent ?? '';
     const yearSelection = JSON.parse(String(values.get('academicYear')));
     const termSelection = JSON.parse(String(values.get('term')));
-    const payload = { admissionType, studentFirstName: parts.slice(0, -1).join(' '), studentSurname: parts.at(-1), classAppliedFor: classId, className, primaryGuardianPrimaryPhone: parentPhone, academicYear: yearSelection.name, admissionYear: yearSelection.admissionYear, academicYearId: yearSelection.id, admissionTerm: termSelection.name, termId: termSelection.id, ...(admissionType === 'ALREADY_ENROLLED' ? { historicalAdmissionYear } : {}), ...(admissionType === 'TRANSFER' ? { previousSchool: String(values.get('previousSchool') ?? '').trim() } : {}), healthInsuranceNumber: String(values.get('healthInsuranceNumber') ?? '').trim(), enquiry: { applicantName: fullName, parentPhone, classId, className } };
+    const payload = { admissionType, studentFirstName: parts.slice(0, -1).join(' '), studentSurname: parts.at(-1), classAppliedFor: classId, className, primaryGuardianPrimaryPhone: parentPhone, academicYear: yearSelection.name, admissionYear: yearSelection.admissionYear, academicYearId: yearSelection.id, admissionTerm: termSelection.name, termId: termSelection.id, ...(admissionType === 'TRANSFER' ? { previousSchool: String(values.get('previousSchool') ?? '').trim() } : {}), healthInsuranceNumber: String(values.get('healthInsuranceNumber') ?? '').trim(), enquiry: { applicantName: fullName, parentPhone, classId, className } };
     let created;
     if (savedApplicationNumber) {
       created = await jsonRequest(`/api/admission-applications/${encodeURIComponent(savedApplicationNumber)}/update`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
@@ -198,6 +211,51 @@ enquiryForm.addEventListener('submit', async (event) => {
     enquiryStatus.textContent = error.message;
     submitting = false; button.disabled = false; button.textContent = 'Next'; enquiryForm.removeAttribute('aria-busy');
   }
+});
+
+existingStudentSearchForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const payload = Object.fromEntries(new FormData(existingStudentSearchForm));
+  for (const key of Object.keys(payload)) if (!String(payload[key] ?? '').trim()) delete payload[key];
+  const stableId = payload.studentId || payload.permanentStudentId || payload.admissionNumber;
+  if (!stableId && !(payload.firstName && payload.lastName && payload.dateOfBirth)) {
+    existingStudentSearchStatus.textContent = 'Provide a student record ID, Permanent Student ID, admission number, or the complete first name, last name, and date of birth.';
+    existingStudentConfirmation.hidden = true;
+    return;
+  }
+  const button = existingStudentSearchForm.querySelector('button[type="submit"]');
+  button.disabled = true; existingStudentSearchStatus.textContent = 'Searching school records…'; existingStudentConfirmation.hidden = true;
+  try {
+    const result = await jsonRequest('/api/students/link-existing/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const student = result.student;
+    existingStudentMatch.textContent = `Matched: ${[student.firstName, student.middleName, student.lastName].filter(Boolean).join(' ')} · Date of birth: ${student.dateOfBirth ?? 'not recorded'} · Admission number: ${student.admissionNumber ?? 'not recorded'} · Permanent Student ID: ${student.permanentStudentId ?? 'not assigned'}${student.enrollment?.classId ? ` · Current class record: ${student.enrollment.classId}` : ''}. Verify these details against the original school records before confirming.`;
+    existingStudentConfirmation.dataset.confirmedStudentId = student.id;
+    existingStudentConfirmation.dataset.existingPermanentStudentId = student.permanentStudentId ?? '';
+    existingStudentConfirmation.hidden = false;
+    existingStudentSearchStatus.textContent = 'One existing canonical student matched. No record has been changed yet.';
+  } catch (error) { existingStudentSearchStatus.textContent = error.message; }
+  finally { button.disabled = false; }
+});
+
+existingStudentConfirmForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const linkStatus = document.querySelector('#existing-student-link-status');
+  if (!existingStudentConfirmation.dataset.confirmedStudentId) { linkStatus.textContent = 'Preview a matching student record before confirming.'; return; }
+  if (!existingStudentConfirmForm.elements.confirmIdentity.checked) { linkStatus.textContent = 'Confirm that you verified the student identity against reliable school records.'; return; }
+  const requestedHistoricalYear = String(existingStudentConfirmForm.elements.historicalAdmissionYear.value ?? '').trim();
+  if (!existingStudentConfirmation.dataset.existingPermanentStudentId && !/^\d{4}$/.test(requestedHistoricalYear)) { linkStatus.textContent = 'Enter the actual four-digit OSAAH admission year before assigning the student’s first Permanent Student ID.'; return; }
+  const payload = Object.fromEntries(new FormData(existingStudentSearchForm));
+  for (const key of Object.keys(payload)) if (!String(payload[key] ?? '').trim()) delete payload[key];
+  Object.assign(payload, Object.fromEntries(new FormData(existingStudentConfirmForm)), { confirmIdentity: true, confirmedStudentId: existingStudentConfirmation.dataset.confirmedStudentId });
+  const button = existingStudentConfirmForm.querySelector('button[type="submit"]');
+  button.disabled = true; linkStatus.textContent = 'Linking the confirmed existing record…';
+  try {
+    const result = await jsonRequest('/api/students/link-existing', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    linkStatus.textContent = `Existing student linked successfully. Permanent Student ID: ${result.student.permanentStudentId ?? 'preserved'}. ${result.createdEnrollment ? 'A missing current enrollment record was created.' : 'Existing enrollment history was reused.'}`;
+    existingStudentConfirmation.hidden = true; existingStudentSearchForm.reset(); existingStudentConfirmForm.reset(); delete existingStudentConfirmation.dataset.confirmedStudentId; delete existingStudentConfirmation.dataset.existingPermanentStudentId;
+    await loadApplications();
+  } catch (error) { linkStatus.textContent = error.message; }
+  finally { button.disabled = false; }
 });
 
 Promise.all([loadOptions(), loadApplications()]).then(reopenExistingEnquiry);
