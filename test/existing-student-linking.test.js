@@ -23,7 +23,7 @@ function fixture({ withProfile = false, withEnrollment = false } = {}) {
       if (sql.includes('FROM student_enrollments')) return enrollment ? [enrollment] : [];
       return [];
     },
-    async execute(sql, params = []) { writes.push({ sql, params }); return { affectedRows: 1 }; },
+    async execute(sql, params = []) { writes.push({ sql, params }); if (sql.startsWith('UPDATE students SET health_insurance_number')) student.health_insurance_number = params[0]; return { affectedRows: 1 }; },
     async transaction(work) { return work(this); }
   };
   return { db, student, profile, enrollment };
@@ -36,6 +36,7 @@ test('linking preserves the master Permanent Student ID and creates only missing
   assert.equal(result.student.permanentStudentId, 'OSAAH/2024/001');
   assert.equal(result.createdProfile, true);
   assert.equal(result.createdEnrollment, true);
+  assert.equal(result.student.healthInsuranceNumber, 'NHIS-001');
   assert.ok(db.writes.some(({ sql }) => sql.startsWith('UPDATE students SET health_insurance_number')));
   assert.ok(db.writes.some(({ sql }) => sql.includes('INSERT INTO student_enrollments')));
   assert.ok(db.writes.some(({ sql }) => sql.includes('INSERT INTO audit_logs')));
