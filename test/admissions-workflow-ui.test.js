@@ -33,6 +33,15 @@ test('Next validates the enquiry, prevents duplicate requests, and opens the off
   assert.match(workflow, /savedApplicationNumber.*\/update/s);
 });
 
+test('admissions progress uses the new eleven-step workflow labels', () => {
+  for (const label of ['Application', 'Document Review', 'Assessment / Interview', 'Decision', 'Admission Offer', 'Acceptance', 'Registration', 'Fee Assessment', 'Enrollment', 'Student ID', 'Class Assignment']) {
+    assert.ok(page.includes(`>${label}<`), `static workflow should include ${label}`);
+    assert.ok(workflow.includes(`'${label}'`), `dynamic workflow should include ${label}`);
+  }
+  assert.match(workflow, /const workflowStages = \['APPLICATION', 'DOCUMENT_REVIEW', 'ASSESSMENT', 'DECISION', 'ADMISSION_OFFER', 'ACCEPTANCE', 'REGISTRATION', 'FEE_ASSESSMENT', 'ENROLLMENT', 'STUDENT_ID', 'CLASS_ASSIGNMENT'\]/);
+  assert.doesNotMatch(workflow, /workflowStages = \['ENQUIRY'/);
+});
+
 test('staff UI separates existing-student linking from transfer and first-time applicant intake', () => {
   assert.match(page, /id="existing-student-linker"/);
   assert.match(page, /id="existing-student-search"/);

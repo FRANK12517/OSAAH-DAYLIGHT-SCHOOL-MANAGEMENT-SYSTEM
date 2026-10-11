@@ -19,7 +19,9 @@ if (savedApplicationNumber) {
   button.disabled = true; button.textContent = 'Loading draft…'; enquiryForm.setAttribute('aria-busy', 'true');
 }
 const requestIdKey = 'osaah.admissions.enquiryRequestId';
-const workflowStages = ['ENQUIRY', 'APPLICATION', 'DOCUMENT_REVIEW', 'ASSESSMENT', 'DECISION', 'ADMISSION_OFFER', 'ACCEPTANCE', 'REGISTRATION', 'FEE_ASSESSMENT', 'ENROLLMENT', 'STUDENT_ID', 'CLASS_ASSIGNMENT'];
+const workflowStages = ['APPLICATION', 'DOCUMENT_REVIEW', 'ASSESSMENT', 'DECISION', 'ADMISSION_OFFER', 'ACCEPTANCE', 'REGISTRATION', 'FEE_ASSESSMENT', 'ENROLLMENT', 'STUDENT_ID', 'CLASS_ASSIGNMENT'];
+const workflowStageLabels = Object.freeze({ APPLICATION: 'Application', DOCUMENT_REVIEW: 'Document Review', ASSESSMENT: 'Assessment / Interview', DECISION: 'Decision', ADMISSION_OFFER: 'Admission Offer', ACCEPTANCE: 'Acceptance', REGISTRATION: 'Registration', FEE_ASSESSMENT: 'Fee Assessment', ENROLLMENT: 'Enrollment', STUDENT_ID: 'Student ID', CLASS_ASSIGNMENT: 'Class Assignment' });
+const workflowStageLabel = (stage) => workflowStageLabels[stage] ?? String(stage ?? '').replaceAll('_', ' ');
 
 function syncAdmissionCategory() {
   for (const field of categoryFields) {
@@ -112,7 +114,7 @@ function renderApplications(applications) {
     const link = document.createElement('a');
     link.href = `/admission-application.html?applicationNumber=${encodeURIComponent(application.applicationNumber)}`;
     link.textContent = `${name} — ${application.applicationNumber} (${application.status})`;
-    const stage = document.createElement('p'); stage.textContent = `Current stage: ${String(application.workflow?.currentStage ?? 'APPLICATION').replaceAll('_', ' ')}`;
+    const stage = document.createElement('p'); stage.textContent = `Current stage: ${workflowStageLabel(application.workflow?.currentStage ?? 'APPLICATION')}`;
     item.append(link, stage);
     if (application.workflow?.assessment) { const assessment = document.createElement('p'); assessment.textContent = `Assessment: ${application.workflow.assessment.assessmentDate ?? 'date not recorded'} · ${application.workflow.assessment.score ?? 'score pending'}/100 · ${application.workflow.assessment.remarks ?? 'No remarks'}`; item.append(assessment); }
     if (application.workflow?.decision) { const decision = document.createElement('p'); decision.textContent = `Decision: ${application.workflow.decision.status} · ${application.workflow.decision.decidedAt ?? ''}${application.workflow.decision.reason ? ` · ${application.workflow.decision.reason}` : ''}`; item.append(decision); }
@@ -120,7 +122,7 @@ function renderApplications(applications) {
     if (application.feeAssessment) { const fee = document.createElement('p'); fee.textContent = `Fee assessment: GH₵${Number(application.feeAssessment.total ?? 0).toFixed(2)} · ${application.feeAssessment.paymentStatus ?? 'NOT_PAID'}`; item.append(fee); }
     const progress = document.createElement('ol'); progress.setAttribute('aria-label', `Workflow progress for ${application.applicationNumber}`);
     const completed = new Set(application.workflow?.completedStages ?? []);
-    for (const workflowStage of workflowStages) { const step = document.createElement('li'); step.textContent = `${completed.has(workflowStage) ? '✓' : '○'} ${workflowStage.replaceAll('_', ' ')}`; progress.append(step); }
+    for (const workflowStage of workflowStages) { const step = document.createElement('li'); step.textContent = `${completed.has(workflowStage) ? '✓' : '○'} ${workflowStageLabel(workflowStage)}`; progress.append(step); }
     item.append(progress);
     const action = (label, run) => { const button = document.createElement('button'); button.type = 'button'; button.className = 'text-button'; button.textContent = label; button.addEventListener('click', async () => { button.disabled = true; try { await run(); await loadApplications(); } catch (error) { applicationsStatus.textContent = error.message; button.disabled = false; } }); item.append(button); };
     for (const document of application.documents ?? []) {
