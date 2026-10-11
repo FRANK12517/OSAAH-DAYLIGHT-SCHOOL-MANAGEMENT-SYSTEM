@@ -78,8 +78,8 @@ export function createExistingStudentLinkingService({ database, schoolId, clock 
     const sequenceRow = rows(await tx.query('SELECT next_sequence FROM student_id_sequences WHERE admission_year=? FOR UPDATE', [year]))[0];
     let sequence = Number(sequenceRow?.next_sequence);
     if (!Number.isInteger(sequence) || sequence < 1) fail('STUDENT_ID_SEQUENCE_INVALID', 'Annual permanent Student ID sequence is invalid.', 409);
-    const existing = rows(await tx.query('SELECT permanent_student_id FROM students WHERE school_id=? AND permanent_student_id LIKE ? FOR UPDATE', [schoolId, `OSAAH/${year}/%`]))
-      .concat(rows(await tx.query('SELECT student_id AS permanent_student_id FROM student_profiles WHERE school_id=? AND student_id LIKE ? FOR UPDATE', [schoolId, `OSAAH/${year}/%`])))
+    const existing = rows(await tx.query('SELECT permanent_student_id FROM students WHERE permanent_student_id LIKE ? FOR UPDATE', [`OSAAH/${year}/%`]))
+      .concat(rows(await tx.query('SELECT student_id AS permanent_student_id FROM student_profiles WHERE student_id LIKE ? FOR UPDATE', [`OSAAH/${year}/%`])))
       .map((row) => String(row.permanent_student_id ?? ''));
     const existingSequences = existing.map((id) => {
       const match = new RegExp(`^OSAAH/${year}/(\\d+)$`).exec(id);
