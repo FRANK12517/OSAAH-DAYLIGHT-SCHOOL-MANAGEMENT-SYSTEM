@@ -30,9 +30,39 @@ async function publishFeeObligations(i,a){
     const feeStructureId=fee[0].id;
     if(strictValidation){const year=await tx.query('SELECT id FROM academic_years WHERE id=? AND school_id=?',[i.academicYearId,a.schoolId]);if(!year.length)throw Error('Academic year not found.');const term=await tx.query('SELECT t.id FROM terms t JOIN academic_years y ON y.id=t.academic_year_id WHERE t.id=? AND y.id=? AND y.school_id=?',[i.termId,i.academicYearId,a.schoolId]);if(!term.length)throw Error('Term not found.');}
     if(scope==='SPECIFIC_CLASS'){if(!i.classId)throw Error('Class is required for a specific-class fee.');if(strictValidation){const classRows=await tx.query('SELECT c.id FROM classes c JOIN levels l ON l.id=c.level_id WHERE c.id=? AND l.school_id=?',[i.classId,a.schoolId]);if(!classRows.length)throw Error('Class not found.');}}
-    const ss=await tx.query("SELECT id,school_id AS schoolId,class_id AS classId,status FROM students WHERE school_id=? AND (? IS NULL OR class_id=?) AND UPPER(COALESCE(status,'ACTIVE')) NOT IN ('INACTIVE','TRANSFERRED_OUT','WITHDRAWN','DELETED','ARCHIVED')",[a.schoolId,scope==='SPECIFIC_CLASS'?i.classId:null,scope==='SPECIFIC_CLASS'?i.classId:null]);
+    const ss=await tx.query("SELECT id,school_id AS schoolId,class_id AS classId,status FROM students WHERE school_id=? AND (? IS NULL OR class_id=?) AND UPPER(COALESCE(status,'ACTIVE')) NOT IN ('INACTIVE','TRANSFERRED_OUT','WITHDRAWN','DELETED','ARCHIVED') FOR UPDATE",[a.schoolId,scope==='SPECIFIC_CLASS'?i.classId:null,scope==='SPECIFIC_CLASS'?i.classId:null]);
     let c=0;
-    for(const s of ss){const k=`${feeStructureId}:${s.id}:${i.academicYearId}:${i.termId}:${scope}`;if((await tx.query('SELECT id FROM fee_obligations WHERE school_id=? AND idempotency_key=?',[a.schoolId,k])).length)continue;await tx.execute('INSERT INTO fee_obligations (id,school_id,fee_structure_id,academic_year_id,term_id,applicability_type,class_id,student_id,amount_minor,due_date,status,published_by,published_at,idempotency_key,created_at,updated_at,custom_fee_type_name) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',[randomUUID(),a.schoolId,feeStructureId,i.academicYearId,i.termId,scope,scope==='SPECIFIC_CLASS'?i.classId:null,s.id,Number(i.amountMinor),i.dueDate??null,'PUBLISHED',a.id,now(),k,now(),now(),i.customFeeTypeName??null]);c++;}
+    const existing = await tx.query(
+      "SELECT id,student_id,idempotency_key FROM fee_obligations WHERE school_id=? AND fee_structure_id=? AND academic_year_id=? AND term_id=? AND status='PUBLISHED' FOR UPDATE",
+      [a.schoolId, feeStructureId, i.academicYearId, i.termId]
+    );
+    const existingByStudent = new Map();
+    for (const row of existing) {
+      const rows = existingByStudent.get(row.student_id) ?? [];
+      rows.push(row);
+      existingByStudent.set(row.student_id, rows);
+    }
+
+    const pending = [];
+    for (const student of ss) {
+      const key = `${feeStructureId}:${student.id}:${i.academicYearId}:${i.termId}:${scope}`;
+      const rows = existingByStudent.get(student.id) ?? [];
+      if (rows.some((row) => row.idempotency_key !== key)) {
+        throw Object.assign(
+          new Error('A published fee obligation already exists for this student, fee type, and period. Resolve the existing fee before publishing an overlapping target.'),
+          { status: 409, code: 'FEE_OBLIGATION_CONFLICT' }
+        );
+      }
+      if (!rows.some((row) => row.idempotency_key === key)) pending.push({ student, key });
+    }
+
+    for (const { student, key } of pending) {
+      await tx.execute(
+        'INSERT INTO fee_obligations (id,school_id,fee_structure_id,academic_year_id,term_id,applicability_type,class_id,student_id,amount_minor,due_date,status,published_by,published_at,idempotency_key,created_at,updated_at,custom_fee_type_name) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        [randomUUID(), a.schoolId, feeStructureId, i.academicYearId, i.termId, scope, scope === 'SPECIFIC_CLASS' ? i.classId : null, student.id, Number(i.amountMinor), i.dueDate ?? null, 'PUBLISHED', a.id, now(), key, now(), now(), i.customFeeTypeName ?? null]
+      );
+      c++;
+    }
     const r={eligible_count:ss.length,created_count:c,skipped_count:ss.length-c};
     financialAudit({audit,actor:a,action:'PUBLISH',entity:'FeeObligation',entityId:feeStructureId,transactionReference:feeStructureId,newValue:r});
     return r;

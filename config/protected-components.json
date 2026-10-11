@@ -320,12 +320,22 @@
           ]
         },
         {
+          "path": "src/server.mjs",
+          "requiredMarkers": [
+            "/api/fee-setup/options",
+            "/api/fees/obligations/publish",
+            "/api/fees/structures",
+            "safeFeeError(error)",
+            "FEE_STRUCTURE_READ_FAILED"
+          ]
+        },
+        {
           "path": "src/fee-collections-repository.js",
           "requiredMarkers": [
             "async function publishFeeObligations",
             "listPublishedFeeStructures",
             "idempotency_key",
-            "status='PUBLISHED'"
+            "status='PUBLISHED' FOR UPDATE"
           ]
         },
         {
@@ -350,7 +360,10 @@
             "exact pesewas",
             "idempotent published obligations",
             "filtered by exact academic year and term",
-            "published-only visibility server-side"
+            "published-only visibility server-side",
+            "rejects overlapping Whole School and Specific Class obligations",
+            "HTTP publication reaches durable storage and the Fee Structure read API",
+            "Specific Class HTTP publication persists the canonical class target"
           ]
         },
         {
@@ -364,6 +377,14 @@
           "requiredMarkers": [
             "Fee Hub preservation regression suite",
             "npm run test:fee-hub"
+          ]
+        },
+        {
+          "path": "docs/FEE_HUB_REGRESSION_PROTECTION.md",
+          "requiredMarkers": [
+            "Protected source map",
+            "Mandatory regression and release gates",
+            "Never publish arbitrary test fees into production"
           ]
         },
         {
