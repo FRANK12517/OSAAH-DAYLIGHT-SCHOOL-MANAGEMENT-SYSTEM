@@ -96,6 +96,18 @@ async function executeMigration(list, button) {
     const flagged = (result.summary?.needsReview ?? 0) + (result.summary?.failed ?? 0);
     const completionMessage = `Migration finished: ${migrated} ID${migrated === 1 ? '' : 's'} assigned; ${preserved} existing ID${preserved === 1 ? '' : 's'} preserved; ${flagged} record${flagged === 1 ? '' : 's'} flagged.`;
     await loadMigrationPreview();
+    const completed = (result.items ?? []).filter((item) => ['MIGRATED', 'PRESERVED'].includes(item.outcome));
+    if (completed.length) {
+      const resultHeading = document.createElement('h2');
+      resultHeading.textContent = 'Completed student IDs';
+      const resultList = document.createElement('ul');
+      for (const item of completed) {
+        const row = document.createElement('li');
+        row.textContent = `Student reference ${item.studentRef}: ${item.permanentStudentId}`;
+        resultList.append(row);
+      }
+      panel.append(resultHeading, resultList);
+    }
     showStatus(completionMessage);
   } catch (error) {
     showStatus(`${error.message} Reload the preview before retrying.`, 'error');
