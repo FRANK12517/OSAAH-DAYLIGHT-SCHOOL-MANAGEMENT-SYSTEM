@@ -13,7 +13,7 @@ const navigation = await readFile(new URL('../public/admission-form-navigation.j
 
 test('Next validates the enquiry, prevents duplicate requests, and opens the official application form', () => {
   assert.match(page, /id="admission-enquiry"/);
-  assert.match(page, />Next<\/button>/);
+  assert.match(page, />Continue to application<\/button>/);
   assert.doesNotMatch(page, /Start Application/);
   assert.match(workflow, /normalizeGhanaPhone/);
   assert.match(workflow, /enquiryRequestId/);
@@ -31,6 +31,21 @@ test('Next validates the enquiry, prevents duplicate requests, and opens the off
   assert.match(navigation, /minimumAdvanceInterval = 250/);
   assert.match(workflow, /reopenExistingEnquiry/);
   assert.match(workflow, /savedApplicationNumber.*\/update/s);
+});
+
+test('staff intake distinguishes all three categories and carries category-specific details without requiring insurance number', () => {
+  assert.match(page, /value="ALREADY_ENROLLED">Already enrolled at OsaaH/);
+  assert.match(page, /value="TRANSFER">Transfer from another school/);
+  assert.match(page, /value="FIRST_TIME">First-time applicant/);
+  assert.match(page, /name="historicalAdmissionYear"[^>]*required|name="historicalAdmissionYear"/);
+  assert.match(page, /data-category-field="TRANSFER"[^>]*Previous school|Previous school<input name="previousSchool"/);
+  assert.match(page, /Health Insurance Number <span class="muted">\(optional\)/);
+  assert.doesNotMatch(page.match(/name="healthInsuranceNumber"[^>]*>/)?.[0] ?? '', /required/);
+  assert.match(workflow, /syncAdmissionCategory/);
+  assert.match(workflow, /historicalAdmissionYear/);
+  assert.match(workflow, /previousSchool/);
+  assert.match(workflow, /healthInsuranceNumber/);
+  assert.match(workflow, /if \(submitting\) return/);
 });
 
 test('admission form navigation advances only after validation and preserves values when going Back', () => {
