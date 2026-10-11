@@ -99,6 +99,10 @@ test('admission form endpoints enforce parent and fee authority server-side', as
     assert.equal(await request('/api/admission-fees', { token: teacher.token }), 403);
     assert.equal(await request('/api/admission-applications', { method: 'POST', token: teacher.token, body: {} }), 403);
     const proprietor = auth.login({ username: 'proprietor@osaah.edu.gh', password: 'Proprietor123!', portal: 'school' });
+    const internalAdmission = { admissionType: 'EXISTING_STUDENT', firstName: 'Ama', surname: 'Mensah', classId: 'Primary 4', admissionYear: '2020', term: 'TERM_1', existingStudentId: 'legacy-42', decision: 'ACCEPTED' };
+    assert.equal(await request('/api/staff-admissions/validate', { method: 'POST', token: proprietor.token, body: internalAdmission }), 200);
+    assert.equal(await request('/api/staff-admissions/validate', { method: 'POST', token: parent.token, body: internalAdmission }), 403);
+    assert.equal(await request('/api/staff-admissions/validate', { method: 'POST', token: teacher.token, body: internalAdmission }), 403);
     assert.equal(await request('/api/admission-analytics', { token: proprietor.token }), 200);
     assert.equal(await request('/api/admission-analytics', { token: parent.token }), 403);
     assert.equal(await request('/api/admission-analytics', { token: teacher.token }), 403);
