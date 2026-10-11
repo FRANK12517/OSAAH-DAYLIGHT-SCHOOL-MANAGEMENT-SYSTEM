@@ -4,6 +4,7 @@ import { previewExistingStudentMigration } from './admission-migration-preview.j
 
 const rows = (value) => Array.isArray(value) ? value : [];
 const fail = (code, message, status = 400) => { throw Object.assign(new Error(message), { code, status }); };
+const sqlDateTime = (value) => { const date = new Date(value); if (Number.isNaN(date.getTime())) fail('TIMESTAMP_INVALID', 'A valid timestamp is required.', 400); return date.toISOString().slice(0, 19).replace('T', ' '); };
 const validYear = (value) => {
   const date = String(value ?? '').slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
@@ -92,7 +93,8 @@ export function createAdmissionMigrationService({ database, clock = () => new Da
   }
 
   async function allocateId(tx, schoolId, year, timestamp) {
-    await tx.execute('INSERT INTO student_id_sequences (admission_year,next_sequence,updated_at) VALUES (?,?,?) ON DUPLICATE KEY UPDATE next_sequence=next_sequence', [year, 1, timestamp]);
+    const sequenceTimestamp = sqlDateTime(timestamp);
+    await tx.execute('INSERT INTO student_id_sequences (admission_year,next_sequence,updated_at) VALUES (?,?,?) ON DUPLICATE KEY UPDATE next_sequence=next_sequence', [year, 1, sequenceTimestamp]);
     const sequenceRow = rows(await tx.query('SELECT next_sequence FROM student_id_sequences WHERE admission_year=? FOR UPDATE', [year]))[0];
     let next = Number(sequenceRow?.next_sequence);
     if (!Number.isInteger(next) || next < 1) fail('STUDENT_ID_SEQUENCE_INVALID', 'The annual Student ID sequence requires reconciliation.', 409);
@@ -107,7 +109,7 @@ export function createAdmissionMigrationService({ database, clock = () => new Da
       next = Math.max(next, Number(match[1]) + 1);
     }
     if (next > 9999) fail('STUDENT_ID_CAPACITY_EXCEEDED', 'Annual permanent Student ID capacity exceeded.', 409);
-    await tx.execute('UPDATE student_id_sequences SET next_sequence=?,updated_at=? WHERE admission_year=?', [next + 1, timestamp, year]);
+    await tx.execute('UPDATE student_id_sequences SET next_sequence=?,updated_at=? WHERE admission_year=?', [next + 1, sequenceTimestamp, year]);
     return `OSAAH/${year}/${String(next).padStart(4, '0')}`;
   }
 

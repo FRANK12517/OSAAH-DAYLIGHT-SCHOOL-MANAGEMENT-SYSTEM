@@ -154,3 +154,8 @@ test('public admission acceptance does not route the in-memory form into the leg
     else process.env.OSAAH_ENABLE_DURABLE_ADMISSIONS = priorFlag;
   }
 });
+
+test('an injected public admission persistence adapter remains behind the durable admissions flag', async () => {
+  const serverSource = await readFile(new URL('../src/server.mjs', import.meta.url), 'utf8');
+  assert.match(serverSource, /if \(admissionPersistenceEnabled && publicAdmissionEnrollment\)/);
+});

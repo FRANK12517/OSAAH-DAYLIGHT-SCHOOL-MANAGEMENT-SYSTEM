@@ -51,6 +51,9 @@ test('accepted admission atomically creates the master, profile, enrollment and 
   assert.equal(state.enrollments[0].student_id, 'uuid-1');
   assert.deepEqual(state.links[0], { parent_user_id: 'parent-1', student_id: 'uuid-2', relationship: 'Guardian' });
   assert.equal(state.audits.length, 1);
+  const sequenceWrites = state.calls.filter(([kind, sql]) => kind === 'execute' && sql.includes('student_id_sequences'));
+  assert.equal(sequenceWrites[0][2][2], '2026-09-13 00:00:00');
+  assert.equal(sequenceWrites[1][2][1], '2026-09-13 00:00:00');
   const retried = await service.enroll({ applicationId: 'app-1', applicationNumber: 'APP-1', actorId: 'reviewer-1' });
   assert.equal(retried.created, false);
   assert.equal(state.students.length, 1);

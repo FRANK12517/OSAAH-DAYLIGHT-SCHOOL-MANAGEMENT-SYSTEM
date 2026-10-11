@@ -33,7 +33,7 @@ function memoryDatabase(initial = [record('student-1')]) {
       return [];
     },
     async execute(sql, params = []) {
-      state.calls.push(['execute', sql]);
+      state.calls.push(['execute', sql, params]);
       state.writes += 1;
       if (sql.startsWith('INSERT INTO student_id_sequences')) return { affectedRows: 1 };
       if (sql.startsWith('UPDATE student_id_sequences')) { state.sequence = params[0]; return { affectedRows: 1 }; }
@@ -99,6 +99,9 @@ test('migration requires a matching dry-run and writes a missing four-digit ID a
   assert.equal(state.students[0].profile_student_id, 'OSAAH/2020/0001');
   assert.equal(state.sequence, 2);
   assert.equal(state.items[0].outcome, 'MIGRATED');
+  const sequenceWrites = state.calls.filter(([kind, sql]) => kind === 'execute' && sql.includes('student_id_sequences'));
+  assert.equal(sequenceWrites[0][2][2], '2026-10-11 00:00:00');
+  assert.equal(sequenceWrites[1][2][1], '2026-10-11 00:00:00');
   assert.equal(state.batches[0].status, 'COMPLETED');
   const retry = await service.execute({ schoolId: 'school-1', actorId: 'operator-1', requestKey: 'migration-1', previewFingerprint: preview.fingerprint, studentRefs: ['student-1'] });
   assert.equal(retry.items[0].permanentStudentId, 'OSAAH/2020/0001');
