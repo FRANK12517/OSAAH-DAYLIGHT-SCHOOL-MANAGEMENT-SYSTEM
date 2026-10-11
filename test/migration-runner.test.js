@@ -13,6 +13,30 @@ test('production migration runner', async (t) => {
   const directories = []; t.after(async () => Promise.all(directories.map((directory) => rm(directory, { recursive: true, force: true })))); const make = async (files) => { const directory = await fixture(files); directories.push(directory); return directory; };
   await t.test('discovers numeric migrations in order', async () => { const migrations = await discoverMigrations(await make()); assert.deepEqual(migrations.map((item) => item.version), [1, 2]); assert.match(migrations[0].checksum, /^[a-f0-9]{64}$/); });
   await t.test('applies pending migrations on first run', async () => { const adapter = createInMemoryMigrationAdapter(), runner = createMigrationRunner({ adapter, directory: await make(), clock: () => '2026-09-05T00:00:00Z' }); const result = await runner.apply(); assert.deepEqual(result.applied.map((item) => item.version), [1, 2]); assert.equal(adapter.storage.statements.length, 2); });
+  await t.test('refuses migration 081 without an explicit prerequisite verifier', async () => {
+    const directory = await make({ '081_admission_migration_audit.sql': 'CREATE TABLE admission_migration_batches (id TEXT);' });
+    const adapter = createInMemoryMigrationAdapter();
+    await assert.rejects(() => createMigrationRunner({ adapter, directory }).apply(), (cause) => cause.code === 'MIGRATION_PREREQUISITES_UNVERIFIED');
+    assert.equal(adapter.storage.statements.length, 0);
+    assert.equal(adapter.storage.applied.length, 0);
+  });
+  await t.test('refuses migration 081 for missing or unexpected schema prerequisites', async () => {
+    for (const verification of [false, { satisfied: false }, { satisfied: true }]) {
+      const directory = await make({ '081_admission_migration_audit.sql': 'CREATE TABLE admission_migration_batches (id TEXT);' });
+      const base = createInMemoryMigrationAdapter();
+      const adapter = { ...base, verifyMigrationPrerequisites: async ({ migration, applied, migrations }) => {
+        assert.equal(migration.version, 81); assert.deepEqual(applied, []); assert.equal(migrations[0].version, 81); return verification;
+      } };
+      const runner = createMigrationRunner({ adapter, directory });
+      if (verification === false || verification?.satisfied === false) {
+        await assert.rejects(() => runner.apply(), (cause) => cause.code === 'MIGRATION_PREREQUISITES_MISSING');
+        assert.equal(base.storage.statements.length, 0);
+      } else {
+        const result = await runner.apply();
+        assert.deepEqual(result.applied.map((item) => item.version), [81]);
+      }
+    }
+  });
   await t.test('repeat apply is idempotent', async () => { const adapter = createInMemoryMigrationAdapter(), runner = createMigrationRunner({ adapter, directory: await make() }); await runner.apply(); assert.equal((await runner.apply()).applied.length, 0); assert.equal(adapter.storage.statements.length, 2); });
   await t.test('rolls back a failed migration transaction', async () => { const base = createInMemoryMigrationAdapter(), adapter = { ...base, execute: async (sql) => { if (sql.includes('second')) throw new Error('private database error'); return base.execute(sql); } }, runner = createMigrationRunner({ adapter, directory: await make() }); await assert.rejects(() => runner.apply(), (error) => error.code === 'MIGRATION_FAILED' && !error.message.includes('private')); assert.equal(base.storage.applied.length, 1); assert.equal(base.storage.statements.length, 1); });
   await t.test('rejects checksum changes after apply', async () => { const directory = await make(), adapter = createInMemoryMigrationAdapter(), runner = createMigrationRunner({ adapter, directory }); await runner.apply(); await writeFile(join(directory, '001_first.sql'), 'CREATE TABLE changed (id TEXT);'); await assert.rejects(() => runner.status(), (error) => error.code === 'MIGRATION_CHECKSUM_MISMATCH'); });

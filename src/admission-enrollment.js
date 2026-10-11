@@ -18,7 +18,37 @@ export function createAdmissionEnrollmentService({ database, clock = () => new D
 
   async function nextStudentId() { return idFactory(); }
 
+  async function verifySequenceContract(tx) {
+    const table = rows(await tx.query(`SELECT ENGINE FROM information_schema.TABLES
+      WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='student_id_sequences'`))[0];
+    const columns = rows(await tx.query(`SELECT COLUMN_NAME,COLUMN_TYPE,IS_NULLABLE,COLUMN_KEY
+      FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE()
+      AND TABLE_NAME='student_id_sequences'`));
+    const indexes = rows(await tx.query(`SELECT INDEX_NAME,NON_UNIQUE,COLUMN_NAME,SEQ_IN_INDEX
+      FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE()
+      AND TABLE_NAME='student_id_sequences'`));
+    const expected = [
+      ['admission_year', 'smallint', 'NO', 'PRI'],
+      ['next_sequence', 'int unsigned', 'NO', ''],
+      ['updated_at', 'datetime', 'NO', '']
+    ];
+    const matches = expected.every(([name, type, nullable, key]) => columns.some((column) =>
+      column.COLUMN_NAME === name && String(column.COLUMN_TYPE).toLowerCase() === type &&
+      column.IS_NULLABLE === nullable && column.COLUMN_KEY === key));
+    const primaryColumns = indexes.filter((index) => index.INDEX_NAME === 'PRIMARY')
+      .sort((left, right) => Number(left.SEQ_IN_INDEX) - Number(right.SEQ_IN_INDEX));
+    const uniqueYear = primaryColumns.length === 1 && Number(primaryColumns[0].NON_UNIQUE) === 0 &&
+      primaryColumns[0].COLUMN_NAME === 'admission_year' && Number(primaryColumns[0].SEQ_IN_INDEX) === 1;
+    if (!/^(innodb|tidb)$/i.test(String(table?.ENGINE ?? ''))) {
+      fail('STUDENT_ID_SEQUENCE_UNVERIFIED', 'Annual Student ID allocation requires a verified transactional sequence table.', 503);
+    }
+    if (!matches || !uniqueYear) {
+      fail('STUDENT_ID_SEQUENCE_UNVERIFIED', 'Annual Student ID sequence schema is unverified; staff reconciliation is required.', 503);
+    }
+  }
+
   async function nextPermanentStudentId(tx, schoolId, yearInput, timestamp) {
+    await verifySequenceContract(tx);
     const year = admissionYearFor(yearInput);
     const sequenceTimestamp = sqlDateTime(timestamp);
     await tx.execute('INSERT INTO student_id_sequences (admission_year,next_sequence,updated_at) VALUES (?,?,?) ON DUPLICATE KEY UPDATE updated_at=VALUES(updated_at)', [year, 1, sequenceTimestamp]);
@@ -86,16 +116,14 @@ export function createAdmissionEnrollmentService({ database, clock = () => new D
         if (duplicate.length) fail('POSSIBLE_DUPLICATE_IDENTITY', 'A matching student identity already exists; review the canonical record before enrolling.', 409);
         const permanentStudentId = await nextPermanentStudentId(tx, application.school_id, admissionDate, timestamp);
 
-        const guardianName = value(applicant.primaryGuardianFullName);
-        const guardianPhone = value(applicant.primaryGuardianPrimaryPhone);
-        await tx.execute('INSERT INTO students (id,permanent_student_id,school_id,admission_number,current_class_id,first_name,middle_name,last_name,full_name,gender,date_of_birth,parent_guardian_name,parent_phone,admission_date,student_status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [studentId, permanentStudentId, application.school_id, admissionNumber, classId, firstName, middleName, lastName, [firstName, middleName, lastName].filter(Boolean).join(' '), value(applicant.gender), value(applicant.dateOfBirth), guardianName, guardianPhone, admissionDate, 'ACTIVE', timestamp, timestamp]);
+        await tx.execute('INSERT INTO students (id,permanent_student_id,school_id,admission_number,current_class_id,first_name,middle_name,last_name,gender,date_of_birth,admission_date,student_status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [studentId, permanentStudentId, application.school_id, admissionNumber, classId, firstName, middleName, lastName, value(applicant.gender), value(applicant.dateOfBirth), admissionDate, 'ACTIVE', timestamp, timestamp]);
         const profileId = idFactory();
-        await tx.execute('INSERT INTO student_profiles (id,school_id,admission_number,first_name,middle_name,surname,gender,date_of_birth,nationality,qr_code,class_id,stream_id,admission_date,previous_school,admission_type,created_at,updated_at,permanent_student_id,student_master_id,student_id,enrollment_status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [profileId, application.school_id, admissionNumber, firstName, middleName, lastName, value(applicant.gender), value(applicant.dateOfBirth), value(applicant.nationality), `osaah:student:${permanentStudentId}`, classId, value(applicant.streamId), admissionDate, value(applicant.previousSchoolAttended, applicant.previousSchool), admissionType || 'FIRST_TIME', timestamp, timestamp, permanentStudentId, studentId, permanentStudentId, 'ACTIVE']);
+        await tx.execute('INSERT INTO student_profiles (id,school_id,admission_number,first_name,last_name,gender,date_of_birth,class_id,stream_id,admission_date,created_at,student_master_id,student_id,enrollment_status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [profileId, application.school_id, admissionNumber, firstName, lastName, value(applicant.gender), value(applicant.dateOfBirth), classId, value(applicant.streamId), admissionDate, timestamp, studentId, permanentStudentId, 'ACTIVE']);
         const enrollmentId = idFactory();
         const academicYearId = value(applicant.academicYearId);
         const termId = value(applicant.termId);
         if (!academicYearId || !termId) fail('ACADEMIC_ENROLLMENT_CONTEXT_REQUIRED', 'A verified academic year and term are required before enrollment.', 409);
-        await tx.execute('INSERT INTO student_enrollments (id,student_id,school_id,class_id,academic_year_id,term_id,enrollment_status,is_current,enrolled_at) VALUES (?,?,?,?,?,?,?,?,?)', [enrollmentId, studentId, application.school_id, classId, academicYearId, termId, 'ACTIVE', 1, timestamp]);
+        await tx.execute('INSERT INTO student_enrollments (id,student_id,school_id,class_id,academic_year_id,term_id) VALUES (?,?,?,?,?,?)', [enrollmentId, studentId, application.school_id, classId, academicYearId, termId]);
         for (const guardian of [
           { type: 'PRIMARY_GUARDIAN', name: value(applicant.primaryGuardianFullName, application.parent_name), phone: value(applicant.primaryGuardianPrimaryPhone, application.parent_phone), alternate: applicant.primaryGuardianSecondaryPhone, relation: applicant.primaryGuardianRelationship },
           { type: 'SECONDARY_GUARDIAN', name: applicant.secondaryGuardianFullName, phone: applicant.secondaryGuardianPrimaryPhone, alternate: applicant.secondaryGuardianSecondaryPhone, relation: applicant.secondaryGuardianRelationship }
