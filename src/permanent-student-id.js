@@ -1,4 +1,4 @@
-export const PERMANENT_STUDENT_ID_PATTERN = /^OSAAH\/(\d{4})\/(\d{4,})$/;
+export const PERMANENT_STUDENT_ID_PATTERN = /^OSAAH\/(\d{4})\/(\d{4})$/;
 
 export function isPermanentStudentId(value) {
   return PERMANENT_STUDENT_ID_PATTERN.test(String(value ?? '').trim());

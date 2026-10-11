@@ -2,16 +2,18 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createAdmissionEnrollmentService } from '../src/admission-enrollment.js';
 
-const application = () => ({ id: 'app-1', application_number: 'APP-1', school_id: 'school-1', status: 'ACCEPTED', student_id: null, permanent_student_id: null, parent_email: 'parent@example.test', academic_year_id: '2026', class_id: 'class-1', applicant_data: JSON.stringify({ studentFirstName: 'Ama', studentSurname: 'Mensah', gender: 'Female', dateOfBirth: '2018-01-02', primaryGuardianPrimaryPhone: '0240000000' }) });
+const application = () => ({ id: 'app-1', application_number: 'APP-1', school_id: 'school-1', status: 'ACCEPTED', student_id: null, permanent_student_id: null, parent_email: 'parent@example.test', applicant_data: JSON.stringify({ admissionDate: '2026-09-13', academicYearId: 'year-2026', termId: 'term-1', classAssigned: 'class-1', studentFirstName: 'Ama', studentSurname: 'Mensah', gender: 'Female', dateOfBirth: '2018-01-02', primaryGuardianEmail: 'parent@example.test', primaryGuardianFullName: 'Guardian Mensah', primaryGuardianPrimaryPhone: '0240000000' }) });
 
 function adapter({ failOn = null, initialApplication = application(), authorized = true } = {}) {
-  const state = { application: structuredClone(initialApplication), sequence: 1, students: [], profiles: [], enrollments: [], links: [], audits: [], calls: [] };
+  const state = { application: structuredClone(initialApplication), sequence: 1, existingIds: [], students: [], profiles: [], enrollments: [], links: [], familyContacts: [], audits: [], calls: [] };
   const api = {
     async query(sql, params = []) {
       state.calls.push(['query', sql, params]);
       if (sql.includes('FROM admission_applications')) return state.application ? [structuredClone(state.application)] : [];
-      if (sql.includes("FROM students WHERE id LIKE")) return state.students.length ? [{ id: state.students.at(-1).id }] : [];
       if (sql.includes('FROM student_id_sequences')) return [{ next_sequence: state.sequence }];
+      if (sql.includes('SELECT permanent_student_id FROM students WHERE school_id=')) return state.existingIds.filter((id) => id.startsWith('OSAAH/2026/')).map((permanent_student_id) => ({ permanent_student_id }));
+      if (sql.includes('SELECT student_id,permanent_student_id FROM student_profiles')) return state.existingIds.filter((id) => id.startsWith('OSAAH/2026/')).map((id) => ({ student_id: id, permanent_student_id: null }));
+      if (sql.includes("JOIN user_roles") && sql.includes("r.role_key='PARENT'")) return params[1] ? [{ id: 'parent-1' }] : [];
       if (sql.includes('FROM users WHERE school_id=')) return [{ id: 'parent-1' }];
       if (sql.includes('SELECT * FROM students WHERE id=')) return state.students.filter((row) => row.id === params[0] && row.permanent_student_id === params[1]);
       if (sql.includes('JOIN student_profiles')) return authorized ? [{ student_id: 'STD-000001', permanent_student_id: params[4], student_profile_id: 'profile-1', class_id: 'class-1' }] : [];
@@ -21,10 +23,11 @@ function adapter({ failOn = null, initialApplication = application(), authorized
       state.calls.push(['execute', sql, params]);
       if (failOn && sql.includes(failOn)) throw new Error('private database detail');
       if (sql.startsWith('UPDATE student_id_sequences')) state.sequence = params[0];
-      if (sql.startsWith('INSERT INTO students ')) state.students.push({ id: params[0], permanent_student_id: params[1], school_id: params[2], is_test_record: params[13] });
-      if (sql.startsWith('INSERT INTO student_profiles ')) state.profiles.push({ id: params[0], student_master_id: params[1], student_id: params[2] });
+      if (sql.startsWith('INSERT INTO students ')) state.students.push({ id: params[0], permanent_student_id: params[1], school_id: params[2] });
+      if (sql.startsWith('INSERT INTO student_profiles ')) state.profiles.push({ id: params[0], student_master_id: params[18], student_id: params[19], permanent_student_id: params[17] });
       if (sql.startsWith('INSERT INTO student_enrollments ')) state.enrollments.push({ id: params[0], student_id: params[1] });
-      if (sql.startsWith('INSERT INTO parent_student_links ')) state.links.push({ parent_user_id: params[0], student_id: params[1], permanent_student_id: params[2] });
+      if (sql.startsWith('INSERT INTO student_family_contacts ')) state.familyContacts.push({ id: params[0], student_id: params[1], full_name: params[3] });
+      if (sql.startsWith('INSERT INTO parent_student_links ')) state.links.push({ parent_user_id: params[0], student_id: params[1], relationship: params[2] });
       if (sql.startsWith('UPDATE admission_applications ')) Object.assign(state.application, { student_id: params[0], permanent_student_id: params[1], stage: params[2] });
       if (sql.startsWith('INSERT INTO audit_logs ')) state.audits.push(params);
       return { affectedRows: 1 };
@@ -41,13 +44,12 @@ test('accepted admission atomically creates the master, profile, enrollment and 
   const { api, state } = adapter(); let next = 0;
   const service = createAdmissionEnrollmentService({ database: api, clock: () => '2026-09-13T00:00:00.000Z', idFactory: () => `uuid-${++next}` });
   const first = await service.enroll({ applicationId: 'app-1', applicationNumber: 'APP-1', actorId: 'reviewer-1' });
-  assert.equal(first.student.id, 'STD-000001');
+  assert.equal(first.student.id, 'uuid-1');
   assert.equal(first.student.permanentStudentId, 'OSAAH/2026/0001');
   assert.equal(state.students.length, 1);
-  assert.equal(state.students[0].is_test_record, 0);
-  assert.deepEqual(state.profiles[0], { id: 'uuid-1', student_master_id: 'STD-000001', student_id: 'OSAAH/2026/0001' });
-  assert.equal(state.enrollments[0].student_id, 'STD-000001');
-  assert.deepEqual(state.links[0], { parent_user_id: 'parent-1', student_id: 'uuid-1', permanent_student_id: 'OSAAH/2026/0001' });
+  assert.deepEqual(state.profiles[0], { id: 'uuid-2', student_master_id: 'uuid-1', student_id: 'OSAAH/2026/0001', permanent_student_id: 'OSAAH/2026/0001' });
+  assert.equal(state.enrollments[0].student_id, 'uuid-1');
+  assert.deepEqual(state.links[0], { parent_user_id: 'parent-1', student_id: 'uuid-2', relationship: 'Guardian' });
   assert.equal(state.audits.length, 1);
   const retried = await service.enroll({ applicationId: 'app-1', applicationNumber: 'APP-1', actorId: 'reviewer-1' });
   assert.equal(retried.created, false);
@@ -61,6 +63,25 @@ test('a forced midway failure rolls back every enrollment record and hides datab
   await assert.rejects(() => service.enroll({ applicationId: 'app-1' }), (error) => error.code === 'ENROLLMENT_FAILED' && !error.message.includes('private'));
   assert.deepEqual([state.students.length, state.profiles.length, state.enrollments.length, state.links.length], [0, 0, 0, 0]);
   assert.equal(state.application.student_id, null);
+  assert.equal(state.sequence, 1);
+});
+
+test('allocator reconciles stale yearly counters and parent email is optional when guardian contact is stored', async () => {
+  const row = application(); row.parent_email = null; row.applicant_data = JSON.stringify({ ...JSON.parse(row.applicant_data), primaryGuardianEmail: null });
+  const { api, state } = adapter({ initialApplication: row }); state.sequence = 1; state.existingIds = ['OSAAH/2026/0007'];
+  const service = createAdmissionEnrollmentService({ database: api, clock: () => '2026-09-13T00:00:00.000Z', idFactory: () => 'uuid' });
+  const result = await service.enroll({ applicationId: state.application.id });
+  assert.equal(result.student.permanentStudentId, 'OSAAH/2026/0008');
+  assert.equal(state.familyContacts.length, 1);
+  assert.equal(state.familyContacts[0].full_name, 'Guardian Mensah');
+  assert.equal(state.links.length, 0);
+  assert.equal(state.sequence, 9);
+});
+
+test('durable enrollment rejects a non-accepted application before writing or allocating an ID', async () => {
+  const row = application(); row.status = 'SUBMITTED'; const { api, state } = adapter({ initialApplication: row });
+  await assert.rejects(() => createAdmissionEnrollmentService({ database: api }).enroll({ applicationId: row.id }), { code: 'APPLICATION_NOT_ELIGIBLE' });
+  assert.equal(state.students.length, 0);
   assert.equal(state.sequence, 1);
 });
 
