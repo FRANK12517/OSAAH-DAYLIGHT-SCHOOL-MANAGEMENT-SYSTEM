@@ -115,6 +115,19 @@ async function executeMigration(list, button) {
   }
 }
 
+async function restrictMigrationCategory() {
+  const migrationOption = categoryForm.querySelector('input[value="EXISTING_STUDENT"]')?.closest('label');
+  if (!migrationOption) return;
+  try {
+    const { user } = await api('/api/sidebar');
+    const canReviewMigration = user?.portal === 'school' && ['PROPRIETOR', 'HEADTEACHER', 'ASSISTANT_HEADTEACHER'].includes(user.roleKey);
+    if (!canReviewMigration) migrationOption.remove();
+  } catch {
+    migrationOption.remove();
+    showStatus('Staff permissions could not be verified. Reload after signing in to the school portal.', 'error');
+  }
+}
+
 function renderOtherCategory(category) {
   panel.replaceChildren();
   const transfer = category === 'TRANSFER';
@@ -140,3 +153,5 @@ categoryForm.addEventListener('submit', async (event) => {
   }
   if (category === 'TRANSFER' || category === 'FIRST_TIME') renderOtherCategory(category);
 });
+
+restrictMigrationCategory();

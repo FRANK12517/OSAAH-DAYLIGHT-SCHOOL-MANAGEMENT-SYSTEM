@@ -25,6 +25,8 @@ test('staff migration UI uses the guarded preview and explicit idempotent execut
   assert.match(script, /previewFingerprint: migrationPreview\.fingerprint/);
   assert.match(script, /crypto\.randomUUID\(\)/);
   assert.match(script, /item\.permanentStudentId/);
+  assert.match(script, /api\('\/api\/sidebar'\)/);
+  assert.match(script, /\['PROPRIETOR', 'HEADTEACHER', 'ASSISTANT_HEADTEACHER'\]/);
   assert.match(registry, /moduleKey: 'admissions'.*roles: \[[^\]]*'HEADTEACHER', 'ASSISTANT_HEADTEACHER'/);
   assert.match(server, /pathname === '\/api\/staff-admissions\/migration'[^\n]*canAccess\(user, 'admissions\.accept'\)/);
 });
