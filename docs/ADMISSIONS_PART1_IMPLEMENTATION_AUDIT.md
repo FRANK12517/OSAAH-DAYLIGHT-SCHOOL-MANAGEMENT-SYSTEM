@@ -138,3 +138,27 @@ The final repository-wide `npm test` run after the migration-080 and inventory e
 
 ### GitHub handoff
 The implementation commit is `bcba013c1b3fb67398df718b27d244e91d6a6ad9`; the subsequent non-rewriting Health Insurance Number read-back test follow-up is `827bc87` (`827bc87` is the final PR head before this audit-only handoff update). The branch was pushed fast-forward only; PR #362 remains open and draft, with no merge or deployment performed.
+
+## Checksum blocker resolution — 2026-10-11
+The three checksum failures were stale expected values, not migration-runner defects or changed migration SQL. The checked-in migration files are UTF-8 LF text and the runner intentionally hashes the exact file bytes. Independent byte-level comparison showed:
+
+- Migration 059 checked-in LF bytes: `15f26ecbd421869172219303069f4591b04dceaff405e1aba6a7b3cf99e06e48`.
+- Migration 059 converted to CRLF bytes: `81d21b4e6e18d8d5cc4f400f918b4ebd2aec843b0301a41cd6fae3ff884adb11`, exactly the stale test expectation.
+- Migration 063 checked-in LF bytes: `6bc83d1411f4813eadd577fa4de6c43d9e979e1baca59f4222d0689456f828e7`.
+- Migration 063 converted to CRLF bytes: `d2961b713998d7e8231de3c27c0179a005e8caa4abf79361ad76f92804dc9abb`, exactly the stale inventory and wrapper-test expectation.
+
+Git history separately confirms that Migration 059’s index was intentionally narrowed by `aeca78d` from `(school_id, student_id, academic_year_id, class_id, term_id)` to `(student_id, academic_year_id, class_id)` to stay below the TiDB/MySQL key limit. The corrected LF digest is for the current reviewed SQL; no historical SQL was edited, no applied checksum was changed, and no line-ending normalization was added to the runner.
+
+The narrow correction updates only the Migration 063 inventory constant and its wrapper contract test, plus the Migration 059 contract test, to the exact LF-byte digests computed from the checked-in files. Exact-byte checksum validation and meaningful SQL-change rejection remain covered by the migration-runner tests.
+
+## Final local release-gate verification — 2026-10-11
+- Focused admissions, authorization, existing-student linking, Permanent Student ID, document, migration-gate, and Health Insurance Number read-back suite: **PASS — 30/30**.
+- Focused migration checksum, scope, ordering, recovery, runner, and Migration 080 suite: **PASS — 48/48**.
+- Full `npm test`: **PASS — 1,394/1,394**.
+- `npm run migration:validate`: **PASS — 80 migrations discovered; no migration applied**.
+- `npm run assets:verify`: **PASS — 12 protected login assets**.
+- `npm run protection:verify`: **PASS — 5 protected components**.
+- Syntax checks for changed migration inventory/wrapper and existing-student-linking code: **PASS**.
+- `git diff --check`: **PASS**.
+- The repository has no `lint`, `typecheck`, or production `build` script in `package.json`; those gates are **not applicable / not available as repository-supported commands**, rather than being claimed as run.
+- No production database was accessed or changed; no migration was applied; no production record was modified; no merge or deployment was performed.
