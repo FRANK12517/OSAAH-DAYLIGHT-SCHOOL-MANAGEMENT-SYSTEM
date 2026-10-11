@@ -35,6 +35,8 @@ async function createDisposableSchema(admin, name) {
     `CREATE TABLE students (
       id VARCHAR(64) PRIMARY KEY, school_id VARCHAR(64) NOT NULL, user_id VARCHAR(64) NULL,
       admission_number VARCHAR(64) NOT NULL, permanent_student_id VARCHAR(100) NULL,
+      current_class_id VARCHAR(64) NULL, admission_date DATE NULL, admission_type VARCHAR(32) NULL,
+      parent_guardian_name VARCHAR(255) NULL, parent_phone VARCHAR(50) NULL,
       first_name VARCHAR(100) NOT NULL, middle_name VARCHAR(100) NULL, last_name VARCHAR(100) NOT NULL,
       full_name VARCHAR(255) NULL, gender VARCHAR(32) NOT NULL DEFAULT 'NOT_SPECIFIED',
       date_of_birth DATE NULL, student_status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE',
@@ -48,9 +50,9 @@ async function createDisposableSchema(admin, name) {
       id VARCHAR(64) PRIMARY KEY, student_master_id VARCHAR(64) NOT NULL, student_id VARCHAR(100) NULL,
       school_id VARCHAR(64) NOT NULL, admission_number VARCHAR(64) NOT NULL,
       first_name VARCHAR(100) NOT NULL, last_name VARCHAR(100) NOT NULL, gender VARCHAR(32) NULL,
-      date_of_birth DATE NULL, class_id VARCHAR(64) NULL, stream_id VARCHAR(64) NULL,
+      date_of_birth DATE NULL, class_id VARCHAR(64) NULL, stream_id VARCHAR(64) NULL, admission_date DATE NULL,
       enrollment_status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE', created_at DATETIME NOT NULL,
-      updated_at DATETIME NOT NULL, KEY ix_profile_master (school_id, student_master_id),
+      updated_at DATETIME NULL, KEY ix_profile_master (school_id, student_master_id),
       KEY ix_profile_student_id (student_id)
     ) ENGINE=InnoDB`,
     `CREATE TABLE classes (
@@ -78,21 +80,25 @@ async function createDisposableSchema(admin, name) {
     `CREATE TABLE audit_logs (
       id VARCHAR(64) PRIMARY KEY, school_id VARCHAR(64) NOT NULL, user_id VARCHAR(64) NULL,
       action VARCHAR(100) NOT NULL, entity VARCHAR(100) NOT NULL, entity_id VARCHAR(64) NULL,
-      new_value LONGTEXT NULL, occurred_at DATETIME NOT NULL
+      new_value LONGTEXT NULL, occurred_at DATETIME NULL, details LONGTEXT NULL, created_at DATETIME NULL
     ) ENGINE=InnoDB`,
     `CREATE TABLE users (
       id VARCHAR(64) PRIMARY KEY, school_id VARCHAR(64) NOT NULL, username VARCHAR(100) NOT NULL,
-      email VARCHAR(255) NULL, phone VARCHAR(50) NULL, status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE'
+      email VARCHAR(255) NULL, phone VARCHAR(50) NULL, password_hash VARCHAR(255) NULL, full_name VARCHAR(255) NULL,
+      role VARCHAR(32) NULL, status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE', created_at DATETIME NULL
     ) ENGINE=InnoDB`,
     `CREATE TABLE parent_student_links (
       parent_user_id VARCHAR(64) NOT NULL, student_id VARCHAR(64) NOT NULL,
-      relationship VARCHAR(64) NULL, telephone VARCHAR(50) NULL, created_at DATETIME NOT NULL,
-      PRIMARY KEY(parent_user_id, student_id)
+      permanent_student_id VARCHAR(100) NULL, telephone VARCHAR(50) NULL, relationship VARCHAR(64) NULL,
+      relationship_type VARCHAR(64) NULL, link_status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE',
+      created_at DATETIME NOT NULL, updated_at DATETIME NULL, PRIMARY KEY(parent_user_id, student_id)
     ) ENGINE=InnoDB`,
     `CREATE TABLE student_class_history (
       id VARCHAR(64) PRIMARY KEY, student_id VARCHAR(64) NOT NULL, class_id VARCHAR(64) NOT NULL,
       academic_year_id VARCHAR(64) NOT NULL, reason VARCHAR(100) NOT NULL, effective_at DATETIME NOT NULL
-    ) ENGINE=InnoDB`
+    ) ENGINE=InnoDB`,
+    `CREATE TABLE roles (id VARCHAR(64) PRIMARY KEY, school_id VARCHAR(64) NOT NULL, role_key VARCHAR(64) NOT NULL) ENGINE=InnoDB`,
+    `CREATE TABLE user_roles (id VARCHAR(64) PRIMARY KEY, user_id VARCHAR(64) NOT NULL, role_id VARCHAR(64) NOT NULL, created_at DATETIME NOT NULL) ENGINE=InnoDB`
   ];
   for (const statement of ddl) await admin.query(statement);
 }
@@ -149,6 +155,9 @@ test('existing-student and admissions safeguards use real disposable MySQL trans
     await database.execute('INSERT INTO classes (id,school_id,name,status) VALUES (?,?,?,?)', ['class-other', 'it-school-2', 'Primary 2', 'ACTIVE']);
     await database.execute('INSERT INTO academic_years (id,school_id,name) VALUES (?,?,?)', ['year-2026', schoolId, '2026/2027']);
     await database.execute('INSERT INTO users (id,school_id,username,status) VALUES (?,?,?,?)', ['parent-1', schoolId, 'parent@example.test', 'ACTIVE']);
+    await database.execute('UPDATE users SET phone=? WHERE id=?', ['0241234567', 'parent-1']);
+    await database.execute('INSERT INTO roles (id,school_id,role_key) VALUES (?,?,?)', ['role-parent', schoolId, 'PARENT']);
+    await database.execute('INSERT INTO user_roles (id,user_id,role_id,created_at) VALUES (?,?,?,?)', ['user-role-parent', 'parent-1', 'role-parent', now]);
     await database.execute('INSERT INTO students (id,school_id,admission_number,permanent_student_id,first_name,last_name,full_name,gender,date_of_birth,student_status,is_test_record,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)', ['student-existing', schoolId, 'ADM-001', 'OSAAH/2022/004', 'Ama', 'Mensah', 'Ama Mensah', 'Female', '2014-02-03', 'ACTIVE', 0, now, now]);
     await database.execute('INSERT INTO students (id,school_id,admission_number,permanent_student_id,first_name,last_name,full_name,gender,date_of_birth,student_status,is_test_record,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)', ['student-duplicate', schoolId, 'ADM-001B', 'OSAAH/2021/002', 'Ama', 'Mensah', 'Ama Mensah', 'Female', '2014-02-03', 'ACTIVE', 0, now, now]);
     await database.execute('INSERT INTO student_profiles (id,student_master_id,student_id,school_id,admission_number,first_name,last_name,gender,date_of_birth,class_id,enrollment_status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)', ['profile-existing', 'student-existing', 'OSAAH/2022/004', schoolId, 'ADM-001', 'Ama', 'Mensah', 'Female', '2014-02-03', 'class-primary-2', 'ACTIVE', now, now]);
@@ -241,6 +250,7 @@ test('existing-student and admissions safeguards use real disposable MySQL trans
     assert.equal(blankIdLink.student.permanentStudentId, 'OSAAH/2018/001');
     assert.equal((await database.query('SELECT permanent_student_id FROM students WHERE id=?', ['student-blank-id']))[0].permanent_student_id, 'OSAAH/2018/001');
 
+    let regularEnrollmentSequence = 1;
     for (const admissionType of ['TRANSFER', 'FIRST_TIME']) {
       const application = await durableAdmissions.createApplication(fullApplicationInput(admissionType), actor);
       for (const documentType of documents) await durableAdmissions.attachDocument(application.applicationNumber, { documentType, storageKey: `private/${application.id}/${documentType}.pdf` }, actor);
@@ -252,6 +262,14 @@ test('existing-student and admissions safeguards use real disposable MySQL trans
       const accepted = await durableAdmissions.reviewApplication(application.applicationNumber, { status: 'ACCEPTED', classAssigned: 'class-primary-2', decisionReason: 'Integration test approval.' }, actor);
       assert.equal(accepted.status, 'ACCEPTED');
       assert.equal((await durableAdmissions.acceptOffer(application.applicationNumber, actor)).workflow.currentStage, 'REGISTRATION');
+      const enrolled = await enrollmentService.enroll({ applicationId: application.id, actorId: actor.id });
+      assert.equal(enrolled.created, true);
+      assert.equal(enrolled.student.permanentStudentId, `OSAAH/2026/${String(regularEnrollmentSequence++).padStart(3, '0')}`);
+      assert.equal(enrolled.student.schoolId, schoolId);
+      assert.equal(Number((await database.query('SELECT COUNT(*) AS count FROM student_profiles WHERE student_master_id=?', [enrolled.student.id]))[0].count), 1);
+      assert.equal(Number((await database.query('SELECT COUNT(*) AS count FROM student_enrollments WHERE student_id=? AND school_id=? AND class_id=? AND academic_year_id=? AND is_current=1', [enrolled.student.id, schoolId, 'class-primary-2', 'year-2026']))[0].count), 1);
+      assert.equal(Number((await database.query('SELECT COUNT(*) AS count FROM parent_student_links WHERE parent_user_id=? AND student_id=? AND link_status=?', ['parent-1', enrolled.profileId, 'ACTIVE']))[0].count), 1);
+      assert.equal((await database.query('SELECT stage,student_id,permanent_student_id FROM admission_applications WHERE id=?', [application.id]))[0].stage, 'ENROLLMENT');
     }
 
     await t.test('transactional DB is MySQL 8 and the real migration created the ID sequence table', async () => {

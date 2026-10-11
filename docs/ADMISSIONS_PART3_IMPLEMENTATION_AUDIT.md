@@ -21,7 +21,7 @@ The admissions UI separates existing-student linking from new-applicant intake, 
 |---|---|
 | Full project suite (`npm test`) with disposable MySQL integration enabled | 1,407 passed; 0 failed; 0 skipped |
 | Real database integration | Passed on local MySQL 8.0.46 through the repository's MySQL adapter and transaction implementation |
-| Integration cases | Identity matching/ambiguity, school and role scoping, explicit confirmation, parent/class/enrollment preservation, profile-held and blank IDs, rollback, idempotent/concurrent retries, `ALREADY_ENROLLED` guards, and transfer/first-time progression |
+| Integration cases | Identity matching/ambiguity, school and role scoping, explicit confirmation, parent/class/enrollment preservation, profile-held and blank IDs, rollback, idempotent/concurrent retries, `ALREADY_ENROLLED` guards, and transfer/first-time canonical student, profile, enrollment, and parent-link materialization |
 | Migration validation | `valid: true`; 80 local migration files discovered. This was offline file validation, not a production ledger check. |
 | Protected asset verification | Passed; 12 protected assets |
 | Protected component verification | Passed; 5 components |
