@@ -9,6 +9,8 @@ test('canonical registry exposes broad school fee categories without duplicate a
   assert.equal(normalizeFeeType({ code: 'School Fee' }).code, 'TUITION');
   assert.equal(normalizeFeeType({ code: 'School Bus' }).code, 'TRANSPORT');
   assert.equal(normalizeFeeType({ code: 'Examination Fee' }).code, 'EXAMINATION');
+  assert.equal(normalizeFeeType({ code: 'ADMISSION_FEES' }).code, 'ADMISSION');
+  assert.equal(normalizeFeeType({ code: 'REGISTRATION_FEES' }).code, 'REGISTRATION');
 });
 
 test('Other fee names remain identifiable through save/read normalization', () => {
