@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { SIDEBAR_MODULES } from '../src/sidebar-registry.js';
-import { createAdmissionFormNavigator, requiredAdmissionDocumentTypes } from '../public/admission-form-navigation.js';
+import { admissionClassSelection, createAdmissionFormNavigator, requiredAdmissionDocumentTypes } from '../public/admission-form-navigation.js';
 import '../src/module-registry.js';
 
 const page = await readFile(new URL('../public/admissions.html', import.meta.url), 'utf8');
@@ -81,6 +81,14 @@ test('admission form navigation advances only after validation and preserves val
   assert.equal(wizard.currentStep, 1);
   assert.deepEqual(steps.map((step) => step.value), ['Ama', 'Bogoso', 'Guardian']);
   assert.deepEqual(changes, [0, 1, 2, 1]);
+});
+
+test('canonical class option IDs are submitted as the class name expected by both admission services', () => {
+  const select = { value: 'class-basic-2', selectedOptions: [{ textContent: 'Basic 2' }] };
+  assert.deepEqual(admissionClassSelection(select), { classAppliedFor: 'Basic 2', className: 'Basic 2' });
+  assert.deepEqual(admissionClassSelection({ value: '', selectedOptions: [{ textContent: 'Select class' }] }), { classAppliedFor: '', className: '' });
+  assert.match(workflow, /classAppliedFor: className/);
+  assert.match(application, /Object\.assign\(data, admissionClassSelection\(classField\)\)/);
 });
 
 test('admission type controls the client guidance without changing server-side document enforcement', () => {

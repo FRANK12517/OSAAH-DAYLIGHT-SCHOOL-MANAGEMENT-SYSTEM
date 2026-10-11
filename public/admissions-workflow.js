@@ -178,10 +178,10 @@ enquiryForm.addEventListener('submit', async (event) => {
     const historicalAdmissionYear = String(values.get('historicalAdmissionYear') ?? '').trim();
     if (admissionType === 'ALREADY_ENROLLED' && !/^\d{4}$/.test(historicalAdmissionYear)) throw new Error('Enter the student’s actual four-digit year of admission to OsaaH.');
     const classId = String(values.get('classId'));
-    const className = classField.selectedOptions[0]?.textContent ?? '';
+    const className = String(classField.selectedOptions[0]?.textContent ?? '').trim();
     const yearSelection = JSON.parse(String(values.get('academicYear')));
     const termSelection = JSON.parse(String(values.get('term')));
-    const payload = { admissionType, studentFirstName: parts.slice(0, -1).join(' '), studentSurname: parts.at(-1), classAppliedFor: classId, className, primaryGuardianPrimaryPhone: parentPhone, academicYear: yearSelection.name, admissionYear: yearSelection.admissionYear, academicYearId: yearSelection.id, admissionTerm: termSelection.name, termId: termSelection.id, ...(admissionType === 'ALREADY_ENROLLED' ? { historicalAdmissionYear } : {}), ...(admissionType === 'TRANSFER' ? { previousSchool: String(values.get('previousSchool') ?? '').trim() } : {}), healthInsuranceNumber: String(values.get('healthInsuranceNumber') ?? '').trim(), enquiry: { applicantName: fullName, parentPhone, classId, className } };
+    const payload = { admissionType, studentFirstName: parts.slice(0, -1).join(' '), studentSurname: parts.at(-1), classAppliedFor: className, className, primaryGuardianPrimaryPhone: parentPhone, academicYear: yearSelection.name, admissionYear: yearSelection.admissionYear, academicYearId: yearSelection.id, admissionTerm: termSelection.name, termId: termSelection.id, ...(admissionType === 'ALREADY_ENROLLED' ? { historicalAdmissionYear } : {}), ...(admissionType === 'TRANSFER' ? { previousSchool: String(values.get('previousSchool') ?? '').trim() } : {}), healthInsuranceNumber: String(values.get('healthInsuranceNumber') ?? '').trim(), enquiry: { applicantName: fullName, parentPhone, classId, className } };
     let created;
     if (savedApplicationNumber) {
       created = await jsonRequest(`/api/admission-applications/${encodeURIComponent(savedApplicationNumber)}/update`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
