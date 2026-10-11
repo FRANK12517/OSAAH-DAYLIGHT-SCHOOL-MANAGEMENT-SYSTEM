@@ -1,0 +1,39 @@
+# Login branding is protected by the integrity manifest and requires explicit owner review.
+/public/index.html @FRANK12517
+/public/assets/osaah-daylight-school-complex-logo.png @FRANK12517
+/public/assets/login-gallery/ @FRANK12517
+/config/login-assets.integrity.json @FRANK12517
+/scripts/verify-login-assets.mjs @FRANK12517
+/.github/workflows/login-assets-integrity.yml @FRANK12517
+
+# Admission workflow code, contracts, and protection gates require maintainer review.
+/public/admissions.html @FRANK12517
+/public/admissions-workflow.js @FRANK12517
+/public/admission-application.html @FRANK12517
+/public/admission-application.js @FRANK12517
+/public/admission-form-navigation.js @FRANK12517
+/public/admission-form.css @FRANK12517
+/src/admission-*.js @FRANK12517
+/src/durable-admissions.js @FRANK12517
+/src/server.mjs @FRANK12517
+/src/auth.js @FRANK12517
+/src/roles.js @FRANK12517
+/src/module-registry.js @FRANK12517
+/src/sidebar-registry.js @FRANK12517
+/src/sidebar-route-contract.js @FRANK12517
+/schema/*admission*.sql @FRANK12517
+/schema/023_permanent_student_ids.sql @FRANK12517
+/schema/027_student_id_sequences.sql @FRANK12517
+/schema/059_backward_compatible_enrollment_contract.sql @FRANK12517
+/schema/080_restore_student_enrollment_is_current.sql @FRANK12517
+/test/admission-*.test.js @FRANK12517
+/test/admissions-*.test.js @FRANK12517
+/test/durable-admission-stages.test.js @FRANK12517
+/test/existing-student-linking.test.js @FRANK12517
+/test/permanent-student-id.test.js @FRANK12517
+/test/student-identity.test.js @FRANK12517
+/config/admission-protection-manifest.json @FRANK12517
+/scripts/admission-protection.mjs @FRANK12517
+/.github/workflows/admission-protection.yml @FRANK12517
+/docs/ADMISSION_WORKFLOW_PROTECTION_BASELINE.md @FRANK12517
+/docs/ADMISSION_WORKFLOW_CHANGE_CONTROL.md @FRANK12517
