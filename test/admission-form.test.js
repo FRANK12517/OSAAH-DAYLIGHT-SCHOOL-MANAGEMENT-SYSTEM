@@ -35,6 +35,15 @@ test('official admission form preserves five sections, class divisions, snapshot
   assert.throws(() => service.reviewApplication(application.applicationNumber, { status: 'REJECTED', rejectionReason: 'Late review' }, { id: 'headteacher-1', roleKey: 'HEADTEACHER' }), /eligible/);
 });
 
+test('admission fallback accepts a canonical class label and rejects a raw option ID', () => {
+  const service = createAdmissionFormService();
+  const actor = { id: 'parent-class-contract', portal: 'parent', schoolId: 'school-osaah-daylight' };
+  const fields = { studentSurname: 'Mensah', studentFirstName: 'Ama' };
+  assert.throws(() => service.createApplication({ ...fields, classAppliedFor: 'class-basic-2' }, actor), /Candidate name and a valid class are required/);
+  const application = service.createApplication({ ...fields, classAppliedFor: 'Basic 2' }, actor);
+  assert.equal(application.section1.classAppliedFor, 'Basic 2');
+});
+
 test('admission review requires rejection reasons and protects annual permanent ID capacity', () => {
   const service = createAdmissionFormService({ now: () => '2026-09-02T00:00:00.000Z' });
   const reviewer = { id: 'assistant-1', roleKey: 'ASSISTANT_HEADTEACHER', portal: 'school' };

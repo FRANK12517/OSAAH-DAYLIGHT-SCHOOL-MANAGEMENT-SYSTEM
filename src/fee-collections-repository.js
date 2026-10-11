@@ -1,4 +1,4 @@
-﻿import { randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { validateCollectionPeriod } from './fee-collections.js';
 import { authorizeFinancial, financialAudit } from './financial-authorization.js';
 import { CANONICAL_FEE_TYPES, normalizeFeeType } from './fee-types.js';

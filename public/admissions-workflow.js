@@ -5,6 +5,8 @@ const applicationsList = document.querySelector('#applications-list');
 const classField = enquiryForm.elements.classId;
 const academicYearField = enquiryForm.elements.academicYear;
 const termField = enquiryForm.elements.term;
+const admissionTypeField = enquiryForm.elements.admissionType;
+const categoryFields = [...enquiryForm.querySelectorAll('[data-category-field]')];
 const savedApplicationNumber = new URLSearchParams(location.search).get('applicationNumber');
 let submitting = false;
 if (savedApplicationNumber) {
@@ -13,6 +15,17 @@ if (savedApplicationNumber) {
 }
 const requestIdKey = 'osaah.admissions.enquiryRequestId';
 const workflowStages = ['ENQUIRY', 'APPLICATION', 'DOCUMENT_REVIEW', 'ASSESSMENT', 'DECISION', 'ADMISSION_OFFER', 'ACCEPTANCE', 'REGISTRATION', 'FEE_ASSESSMENT', 'ENROLLMENT', 'STUDENT_ID', 'CLASS_ASSIGNMENT'];
+
+function syncAdmissionCategory() {
+  for (const field of categoryFields) {
+    const visible = field.dataset.categoryField === admissionTypeField.value;
+    field.hidden = !visible;
+    const input = field.querySelector('input');
+    if (input) input.required = visible && admissionTypeField.value === 'ALREADY_ENROLLED' && input.name === 'historicalAdmissionYear';
+  }
+}
+admissionTypeField.addEventListener('change', syncAdmissionCategory);
+syncAdmissionCategory();
 
 function normalizeGhanaPhone(value) {
   const digits = String(value ?? '').replace(/[\s()-]/g, '');
@@ -55,6 +68,10 @@ async function reopenExistingEnquiry() {
     enquiryForm.elements.admissionType.value = student.admissionType ?? '';
     enquiryForm.elements.applicantName.value = applicantName;
     enquiryForm.elements.parentPhone.value = student.primaryGuardianPrimaryPhone ?? student.enquiry?.parentPhone ?? '';
+    enquiryForm.elements.historicalAdmissionYear.value = student.historicalAdmissionYear ?? '';
+    enquiryForm.elements.previousSchool.value = student.previousSchool ?? '';
+    enquiryForm.elements.healthInsuranceNumber.value = student.healthInsuranceNumber ?? '';
+    syncAdmissionCategory();
     classField.value = student.classAppliedFor ?? student.enquiry?.classId ?? '';
     const year = application.academicYear ?? student.academicYear;
     const yearOption = [...academicYearField.options].find((option) => {
@@ -155,14 +172,16 @@ enquiryForm.addEventListener('submit', async (event) => {
     const fullName = String(values.get('applicantName') ?? '').trim().replace(/\s+/g, ' ');
     const parts = fullName.split(' ');
     if (parts.length < 2) throw new Error('Enter the applicant’s first and last name.');
-    const parentPhone = normalizeGhanaPhone(values.get('parentPhone'));
     const admissionType = String(values.get('admissionType') ?? '');
     if (!['ALREADY_ENROLLED', 'TRANSFER', 'FIRST_TIME'].includes(admissionType)) throw new Error('Select an admission type.');
+    const parentPhone = normalizeGhanaPhone(values.get('parentPhone'));
+    const historicalAdmissionYear = String(values.get('historicalAdmissionYear') ?? '').trim();
+    if (admissionType === 'ALREADY_ENROLLED' && !/^\d{4}$/.test(historicalAdmissionYear)) throw new Error('Enter the student’s actual four-digit year of admission to OsaaH.');
     const classId = String(values.get('classId'));
-    const className = classField.selectedOptions[0]?.textContent ?? '';
+    const className = String(classField.selectedOptions[0]?.textContent ?? '').trim();
     const yearSelection = JSON.parse(String(values.get('academicYear')));
     const termSelection = JSON.parse(String(values.get('term')));
-    const payload = { admissionType, studentFirstName: parts.slice(0, -1).join(' '), studentSurname: parts.at(-1), classAppliedFor: classId, className, primaryGuardianPrimaryPhone: parentPhone, academicYear: yearSelection.name, admissionYear: yearSelection.admissionYear, academicYearId: yearSelection.id, admissionTerm: termSelection.name, termId: termSelection.id, enquiry: { applicantName: fullName, parentPhone, classId, className } };
+    const payload = { admissionType, studentFirstName: parts.slice(0, -1).join(' '), studentSurname: parts.at(-1), classAppliedFor: className, className, primaryGuardianPrimaryPhone: parentPhone, academicYear: yearSelection.name, admissionYear: yearSelection.admissionYear, academicYearId: yearSelection.id, admissionTerm: termSelection.name, termId: termSelection.id, ...(admissionType === 'ALREADY_ENROLLED' ? { historicalAdmissionYear } : {}), ...(admissionType === 'TRANSFER' ? { previousSchool: String(values.get('previousSchool') ?? '').trim() } : {}), healthInsuranceNumber: String(values.get('healthInsuranceNumber') ?? '').trim(), enquiry: { applicantName: fullName, parentPhone, classId, className } };
     let created;
     if (savedApplicationNumber) {
       created = await jsonRequest(`/api/admission-applications/${encodeURIComponent(savedApplicationNumber)}/update`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });

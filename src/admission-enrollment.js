@@ -33,16 +33,17 @@ export function createAdmissionEnrollmentService({ database, clock = () => new D
     // Reconcile stale counters against all IDs already allocated for this year,
     // including legacy four-digit IDs, before creating a new identity.
     const existingIds = rows(await tx.query('SELECT permanent_student_id FROM students WHERE permanent_student_id LIKE ? FOR UPDATE', [`OSAAH/${year}/%`]))
-      .map((row) => /^OSAAH\/\d{4}\/(\d+)$/.exec(String(row.permanent_student_id ?? '')))
-      .filter(Boolean)
-      .map((match) => Number(match[1]));
+      .map((row) => String(row.permanent_student_id ?? ''));
     const profileIds = rows(await tx.query('SELECT student_id FROM student_profiles WHERE student_id LIKE ? FOR UPDATE', [`OSAAH/${year}/%`]))
-      .map((row) => /^OSAAH\/\d{4}\/(\d+)$/.exec(String(row.student_id ?? '')))
-      .filter(Boolean)
-      .map((match) => Number(match[1]));
-    existingIds.push(...profileIds);
-    if (existingIds.some((value) => !Number.isSafeInteger(value) || value < 1)) fail('STUDENT_ID_SEQUENCE_CONFLICT', 'Existing Student IDs for this admission year need reconciliation before another ID can be issued.', 409);
-    sequence = Math.max(sequence, ...existingIds.map((value) => value + 1));
+      .map((row) => String(row.student_id ?? ''));
+    const existingSequences = [...existingIds, ...profileIds].map((id) => {
+      const match = new RegExp(`^OSAAH/${year}/(\\d+)$`).exec(id);
+      if (!match) fail('STUDENT_ID_SEQUENCE_CONFLICT', 'Existing Student IDs for this admission year need reconciliation before another ID can be issued.', 409);
+      const value = Number(match[1]);
+      if (!Number.isSafeInteger(value) || value < 1) fail('STUDENT_ID_SEQUENCE_CONFLICT', 'Existing Student IDs for this admission year need reconciliation before another ID can be issued.', 409);
+      return value;
+    });
+    sequence = Math.max(sequence, ...existingSequences.map((value) => value + 1));
     const permanentStudentId = `OSAAH/${year}/${String(sequence).padStart(3, '0')}`;
     await tx.execute('UPDATE student_id_sequences SET next_sequence=?,updated_at=? WHERE admission_year=?', [sequence + 1, timestamp, year]);
     return permanentStudentId;
@@ -94,6 +95,8 @@ export function createAdmissionEnrollmentService({ database, clock = () => new D
         const currentYear = String(new Date(timestamp).getUTCFullYear());
         const historicalYear = value(applicant.historicalAdmissionYear);
         if (admissionType === 'ALREADY_ENROLLED' && !/^\d{4}$/.test(String(historicalYear ?? ''))) fail('HISTORICAL_ADMISSION_YEAR_REQUIRED', 'A valid historical admission year is required for an already-enrolled student.', 409);
+        const requestedAdmissionYear = value(applicant.admissionYear);
+        if (['TRANSFER', 'FIRST_TIME'].includes(admissionType) && requestedAdmissionYear !== null && (!/^\d{4}$/.test(String(requestedAdmissionYear)) || String(requestedAdmissionYear) !== currentYear)) fail('ADMISSION_YEAR_NOT_AUTHORIZED', 'The OSAAH admission year must match the actual admission event for this category.', 409);
         const yearForId = ['TRANSFER', 'FIRST_TIME'].includes(admissionType) ? currentYear : historicalYear ?? value(applicant.admissionYear, applicant.academicYear, application.academic_year_id, application.admission_date, timestamp);
         const permanentStudentId = await nextPermanentStudentId(tx, yearForId, timestamp);
         const requestedClassId = value(application.class_id, applicant.classAssigned, applicant.officialUse?.classAssigned, applicant.classId, applicant.classAppliedFor);

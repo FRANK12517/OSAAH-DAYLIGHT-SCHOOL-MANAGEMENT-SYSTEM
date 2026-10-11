@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { SIDEBAR_MODULES } from '../src/sidebar-registry.js';
-import { createAdmissionFormNavigator, requiredAdmissionDocumentTypes } from '../public/admission-form-navigation.js';
+import { admissionClassSelection, createAdmissionFormNavigator, requiredAdmissionDocumentTypes } from '../public/admission-form-navigation.js';
 import '../src/module-registry.js';
 
 const page = await readFile(new URL('../public/admissions.html', import.meta.url), 'utf8');
@@ -13,10 +13,12 @@ const navigation = await readFile(new URL('../public/admission-form-navigation.j
 
 test('Next validates the enquiry, prevents duplicate requests, and opens the official application form', () => {
   assert.match(page, /id="admission-enquiry"/);
-  assert.match(page, />Next<\/button>/);
+  assert.match(page, />Continue to application<\/button>/);
   assert.doesNotMatch(page, /Start Application/);
   assert.match(workflow, /normalizeGhanaPhone/);
   assert.match(workflow, /enquiryRequestId/);
+  assert.match(workflow, /jsonRequest\('\/api\/admission-applications', \{ method: 'POST', headers: \{ 'Content-Type': 'application\/json' \}, body: JSON\.stringify\(payload\) \}\)/);
+  assert.match(workflow, /window\.location\.assign\(`\/admission-application\.html\?applicationNumber=\$\{encodeURIComponent\(created\.applicationNumber\)\}&step=2`\)/);
   assert.match(workflow, /window\.location\.assign\(`\/admission-application\.html\?applicationNumber=.*step=2`\)/);
   assert.match(workflow, /if \(submitting\) return/);
   assert.match(workflow, /Saving enquiry/);
@@ -31,6 +33,21 @@ test('Next validates the enquiry, prevents duplicate requests, and opens the off
   assert.match(navigation, /minimumAdvanceInterval = 250/);
   assert.match(workflow, /reopenExistingEnquiry/);
   assert.match(workflow, /savedApplicationNumber.*\/update/s);
+});
+
+test('staff intake distinguishes all three categories and carries category-specific details without requiring insurance number', () => {
+  assert.match(page, /value="ALREADY_ENROLLED">Already enrolled at OsaaH/);
+  assert.match(page, /value="TRANSFER">Transfer from another school/);
+  assert.match(page, /value="FIRST_TIME">First-time applicant/);
+  assert.match(page, /name="historicalAdmissionYear"[^>]*required|name="historicalAdmissionYear"/);
+  assert.match(page, /data-category-field="TRANSFER"[^>]*Previous school|Previous school<input name="previousSchool"/);
+  assert.match(page, /Health Insurance Number <span class="muted">\(optional\)/);
+  assert.doesNotMatch(page.match(/name="healthInsuranceNumber"[^>]*>/)?.[0] ?? '', /required/);
+  assert.match(workflow, /syncAdmissionCategory/);
+  assert.match(workflow, /historicalAdmissionYear/);
+  assert.match(workflow, /previousSchool/);
+  assert.match(workflow, /healthInsuranceNumber/);
+  assert.match(workflow, /if \(submitting\) return/);
 });
 
 test('admission form navigation advances only after validation and preserves values when going Back', () => {
@@ -66,6 +83,14 @@ test('admission form navigation advances only after validation and preserves val
   assert.equal(wizard.currentStep, 1);
   assert.deepEqual(steps.map((step) => step.value), ['Ama', 'Bogoso', 'Guardian']);
   assert.deepEqual(changes, [0, 1, 2, 1]);
+});
+
+test('canonical class option IDs are submitted as the class name expected by both admission services', () => {
+  const select = { value: 'class-basic-2', selectedOptions: [{ textContent: 'Basic 2' }] };
+  assert.deepEqual(admissionClassSelection(select), { classAppliedFor: 'Basic 2', className: 'Basic 2' });
+  assert.deepEqual(admissionClassSelection({ value: '', selectedOptions: [{ textContent: 'Select class' }] }), { classAppliedFor: '', className: '' });
+  assert.match(workflow, /classAppliedFor: className/);
+  assert.match(application, /Object\.assign\(data, admissionClassSelection\(classField\)\)/);
 });
 
 test('admission type controls the client guidance without changing server-side document enforcement', () => {
