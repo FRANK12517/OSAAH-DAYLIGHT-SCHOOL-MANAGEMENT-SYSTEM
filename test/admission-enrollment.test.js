@@ -138,6 +138,14 @@ test('permanent Student ID allocation advances past legacy four-digit IDs when t
   assert.equal(state.sequence, 9);
 });
 
+test('admission enrollment fails closed on malformed stored IDs during sequence recovery', async () => {
+  const { api, state } = adapter(); state.existingIds = ['OSAAH/2026/not-a-sequence'];
+  const service = createAdmissionEnrollmentService({ database: api });
+  await assert.rejects(() => service.enroll({ applicationId: 'app-1' }), { code: 'STUDENT_ID_SEQUENCE_CONFLICT' });
+  assert.equal(state.students.length, 0);
+  assert.equal(state.sequence, 1);
+});
+
 test('admission type chooses the authoritative permanent Student ID year', async () => {
   const historical = application(); historical.applicant_data = JSON.stringify({ studentFirstName: 'Ama', studentSurname: 'Mensah', gender: 'Female', dateOfBirth: '2018-01-02', primaryGuardianPrimaryPhone: '0240000000', admissionType: 'ALREADY_ENROLLED', historicalAdmissionYear: '2019' });
   const enrolled = adapter({ initialApplication: historical });

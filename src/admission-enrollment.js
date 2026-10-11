@@ -33,16 +33,17 @@ export function createAdmissionEnrollmentService({ database, clock = () => new D
     // Reconcile stale counters against all IDs already allocated for this year,
     // including legacy four-digit IDs, before creating a new identity.
     const existingIds = rows(await tx.query('SELECT permanent_student_id FROM students WHERE permanent_student_id LIKE ? FOR UPDATE', [`OSAAH/${year}/%`]))
-      .map((row) => /^OSAAH\/\d{4}\/(\d+)$/.exec(String(row.permanent_student_id ?? '')))
-      .filter(Boolean)
-      .map((match) => Number(match[1]));
+      .map((row) => String(row.permanent_student_id ?? ''));
     const profileIds = rows(await tx.query('SELECT student_id FROM student_profiles WHERE student_id LIKE ? FOR UPDATE', [`OSAAH/${year}/%`]))
-      .map((row) => /^OSAAH\/\d{4}\/(\d+)$/.exec(String(row.student_id ?? '')))
-      .filter(Boolean)
-      .map((match) => Number(match[1]));
-    existingIds.push(...profileIds);
-    if (existingIds.some((value) => !Number.isSafeInteger(value) || value < 1)) fail('STUDENT_ID_SEQUENCE_CONFLICT', 'Existing Student IDs for this admission year need reconciliation before another ID can be issued.', 409);
-    sequence = Math.max(sequence, ...existingIds.map((value) => value + 1));
+      .map((row) => String(row.student_id ?? ''));
+    const existingSequences = [...existingIds, ...profileIds].map((id) => {
+      const match = new RegExp(`^OSAAH/${year}/(\\d+)$`).exec(id);
+      if (!match) fail('STUDENT_ID_SEQUENCE_CONFLICT', 'Existing Student IDs for this admission year need reconciliation before another ID can be issued.', 409);
+      const value = Number(match[1]);
+      if (!Number.isSafeInteger(value) || value < 1) fail('STUDENT_ID_SEQUENCE_CONFLICT', 'Existing Student IDs for this admission year need reconciliation before another ID can be issued.', 409);
+      return value;
+    });
+    sequence = Math.max(sequence, ...existingSequences.map((value) => value + 1));
     const permanentStudentId = `OSAAH/${year}/${String(sequence).padStart(3, '0')}`;
     await tx.execute('UPDATE student_id_sequences SET next_sequence=?,updated_at=? WHERE admission_year=?', [sequence + 1, timestamp, year]);
     return permanentStudentId;

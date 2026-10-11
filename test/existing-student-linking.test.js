@@ -7,9 +7,9 @@ import { createExistingStudentLinkingService } from '../src/existing-student-lin
 const SCHOOL = 'school-osaah-daylight';
 const actor = { id: 'head-1', portal: 'school', roleKey: 'HEADTEACHER', schoolId: SCHOOL };
 
-function fixture({ withProfile = false, withEnrollment = false, permanentStudentId = 'OSAAH/2024/001', sequence = 1 } = {}) {
+function fixture({ withProfile = false, withEnrollment = false, permanentStudentId = 'OSAAH/2024/001', profileStudentId = permanentStudentId, existingStudentIds = [], existingProfileIds = [], sequence = 1 } = {}) {
   const student = { id: 'student-1', school_id: SCHOOL, permanent_student_id: permanentStudentId, admission_number: 'ADM-001', first_name: 'Ama', last_name: 'Mensah', date_of_birth: '2014-02-03', student_status: 'ACTIVE', is_test_record: 0, updated_at: '2026-01-01' };
-  const profile = withProfile ? { id: 'profile-1', student_master_id: 'student-1', student_id: student.permanent_student_id, school_id: SCHOOL, first_name: 'Ama', last_name: 'Mensah', date_of_birth: student.date_of_birth, updated_at: '2026-01-01' } : null;
+  const profile = withProfile ? { id: 'profile-1', student_master_id: 'student-1', student_id: profileStudentId, school_id: SCHOOL, first_name: 'Ama', last_name: 'Mensah', date_of_birth: student.date_of_birth, updated_at: '2026-01-01' } : null;
   const enrollment = withEnrollment ? { id: 'enrollment-1', student_id: 'student-1', school_id: SCHOOL, class_id: 'class-p2', academic_year_id: 'year-2026', term_id: 'term-1', enrollment_status: 'ACTIVE', is_current: 1 } : null;
   const writes = [];
   const db = {
@@ -17,8 +17,8 @@ function fixture({ withProfile = false, withEnrollment = false, permanentStudent
     async query(sql, params = []) {
       if (sql.includes('FROM students s LEFT JOIN student_profiles')) return [student];
       if (sql.includes('FROM student_id_sequences')) return [{ next_sequence: sequence }];
-      if (sql.includes('FROM students WHERE school_id=? AND permanent_student_id LIKE')) return [];
-      if (sql.includes('FROM student_profiles WHERE school_id=? AND student_id LIKE')) return [];
+      if (sql.includes('FROM students WHERE school_id=? AND permanent_student_id LIKE')) return existingStudentIds.map((permanent_student_id) => ({ permanent_student_id }));
+      if (sql.includes('FROM student_profiles WHERE school_id=? AND student_id LIKE')) return existingProfileIds.map((student_id) => ({ permanent_student_id: student_id }));
       if (sql.includes('SELECT * FROM students WHERE') && sql.includes('id=?')) return params.includes(student.id) ? [student] : [];
       if (sql.includes('SELECT * FROM student_profiles')) return profile ? [profile] : [];
       if (sql.includes('SELECT id FROM classes')) return params[1] === 'class-p2' ? [{ id: 'class-p2' }] : [];
@@ -70,6 +70,20 @@ test('existing student without an ID requires the verified historical OSAAH admi
   assert.equal(result.student.permanentStudentId, 'OSAAH/2020/001');
   assert.equal(student.permanent_student_id, 'OSAAH/2020/001');
   assert.ok(db.writes.some(({ sql, params }) => sql.startsWith('UPDATE students SET permanent_student_id') && params[0] === 'OSAAH/2020/001'));
+});
+
+test('existing-student allocation fails closed when a malformed stored ID matches the requested year', async () => {
+  const { db } = fixture({ permanentStudentId: null, existingStudentIds: ['OSAAH/2020/not-a-sequence'] });
+  const service = createExistingStudentLinkingService({ database: db, schoolId: SCHOOL, clock: () => '2026-10-11T00:00:00.000Z' });
+  await assert.rejects(() => service.link({ admissionNumber: 'ADM-001', historicalAdmissionYear: '2020', classId: 'class-p2', academicYearId: 'year-2026' }, actor), { code: 'STUDENT_ID_SEQUENCE_CONFLICT' });
+  assert.equal(db.writes.some(({ sql }) => sql.startsWith('UPDATE students SET permanent_student_id')), false);
+});
+
+test('existing-student linking rejects different valid IDs on the master and profile', async () => {
+  const { db } = fixture({ withProfile: true, permanentStudentId: 'OSAAH/2024/001', profileStudentId: 'OSAAH/2024/002' });
+  const service = createExistingStudentLinkingService({ database: db, schoolId: SCHOOL });
+  await assert.rejects(() => service.link({ admissionNumber: 'ADM-001', classId: 'class-p2', academicYearId: 'year-2026' }, actor), { code: 'PERMANENT_STUDENT_ID_CONFLICT' });
+  assert.equal(db.writes.some(({ sql }) => sql.startsWith('UPDATE students SET permanent_student_id')), false);
 });
 
 test('valid existing IDs are preserved and invalid health-insurance input is rejected', async () => {

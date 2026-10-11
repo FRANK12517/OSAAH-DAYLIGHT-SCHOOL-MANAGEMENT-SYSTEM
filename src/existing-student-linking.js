@@ -80,10 +80,15 @@ export function createExistingStudentLinkingService({ database, schoolId, clock 
     if (!Number.isInteger(sequence) || sequence < 1) fail('STUDENT_ID_SEQUENCE_INVALID', 'Annual permanent Student ID sequence is invalid.', 409);
     const existing = rows(await tx.query('SELECT permanent_student_id FROM students WHERE school_id=? AND permanent_student_id LIKE ? FOR UPDATE', [schoolId, `OSAAH/${year}/%`]))
       .concat(rows(await tx.query('SELECT student_id AS permanent_student_id FROM student_profiles WHERE school_id=? AND student_id LIKE ? FOR UPDATE', [schoolId, `OSAAH/${year}/%`])))
-      .map((row) => /^OSAAH\/\d{4}\/(\d+)$/.exec(String(row.permanent_student_id ?? '')))
-      .filter(Boolean).map((match) => Number(match[1]));
-    if (existing.some((item) => !Number.isSafeInteger(item) || item < 1)) fail('STUDENT_ID_SEQUENCE_CONFLICT', 'Existing Student IDs for this admission year need reconciliation before another ID can be issued.', 409);
-    sequence = Math.max(sequence, ...existing.map((item) => item + 1));
+      .map((row) => String(row.permanent_student_id ?? ''));
+    const existingSequences = existing.map((id) => {
+      const match = new RegExp(`^OSAAH/${year}/(\\d+)$`).exec(id);
+      if (!match) fail('STUDENT_ID_SEQUENCE_CONFLICT', 'Existing Student IDs for this admission year need reconciliation before another ID can be issued.', 409);
+      const value = Number(match[1]);
+      if (!Number.isSafeInteger(value) || value < 1) fail('STUDENT_ID_SEQUENCE_CONFLICT', 'Existing Student IDs for this admission year need reconciliation before another ID can be issued.', 409);
+      return value;
+    });
+    sequence = Math.max(sequence, ...existingSequences.map((item) => item + 1));
     const permanentStudentId = `OSAAH/${year}/${String(sequence).padStart(3, '0')}`;
     await tx.execute('UPDATE student_id_sequences SET next_sequence=?,updated_at=? WHERE admission_year=?', [sequence + 1, timestamp, year]);
     return permanentStudentId;
@@ -100,7 +105,10 @@ export function createExistingStudentLinkingService({ database, schoolId, clock 
       verifyIdentity(matched, input);
       const { row, profile } = await loadStudent(tx, matched.id);
       const timestamp = clock();
-      const establishedId = row.permanent_student_id ?? profile?.student_id ?? null;
+      const masterId = row.permanent_student_id ? String(row.permanent_student_id).trim() : null;
+      const profileStudentId = profile?.student_id ? String(profile.student_id).trim() : null;
+      if (masterId && profileStudentId && masterId !== profileStudentId) fail('PERMANENT_STUDENT_ID_CONFLICT', 'The student and profile contain different Permanent Student IDs and require controlled review.', 409);
+      const establishedId = masterId ?? profileStudentId;
       if (establishedId && !isPermanentStudentId(establishedId)) fail('PERMANENT_STUDENT_ID_REVIEW_REQUIRED', 'The existing student has a malformed Permanent Student ID and requires controlled review.', 409);
       const historicalYear = text(input.historicalAdmissionYear ?? input.admissionYear ?? input.osaaAdmissionYear);
       if (!establishedId && !historicalYear) fail('HISTORICAL_ADMISSION_YEAR_REQUIRED', 'The actual historical OSAAH admission year is required before an ID can be assigned.', 409);
