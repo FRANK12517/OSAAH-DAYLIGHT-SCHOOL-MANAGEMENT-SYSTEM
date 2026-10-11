@@ -76,22 +76,28 @@ export function createAdmissionEnrollmentService({ database, clock = () => new D
       return await database.transaction(async (tx) => {
         const application = rows(await tx.query('SELECT * FROM admission_applications WHERE (id=? OR application_number=?) FOR UPDATE', [applicationId ?? '', applicationNumber ?? '']))[0];
         if (!application) fail('APPLICATION_NOT_FOUND', 'Admission application not found.', 404);
+        let applicant = application.applicant_data;
+        if (typeof applicant === 'string') { try { applicant = JSON.parse(applicant); } catch { fail('APPLICANT_DATA_INVALID', 'Admission applicant data is invalid.', 409); } }
+        applicant = { ...application, ...(applicant ?? {}) };
+        const admissionType = String(applicant.admissionType ?? '').trim().toUpperCase().replace(/[ -]+/g, '_');
+        if (admissionType === 'ALREADY_ENROLLED') {
+          if (!application.student_id || !application.permanent_student_id) fail('EXISTING_STUDENT_LINK_REQUIRED', 'Already-enrolled students must be matched and confirmed through the existing-student linking workflow; a new student record cannot be created.', 409);
+          const existing = rows(await tx.query('SELECT * FROM students WHERE school_id=? AND id=? AND permanent_student_id=? LIMIT 1', [application.school_id, application.student_id, application.permanent_student_id]))[0];
+          if (!existing) fail('ENROLLMENT_INCONSISTENT', 'The already-enrolled application does not resolve to the linked student in this school.', 409);
+          return { student: existing, created: false };
+        }
         if (application.student_id || application.permanent_student_id) {
           if (!application.student_id || !application.permanent_student_id) fail('ENROLLMENT_INCONSISTENT', 'The existing enrollment record is incomplete.', 409);
-          const existing = rows(await tx.query('SELECT * FROM students WHERE id=? AND permanent_student_id=? LIMIT 1', [application.student_id, application.permanent_student_id]))[0];
-          if (!existing) fail('ENROLLMENT_INCONSISTENT', 'The existing enrollment record could not be resolved.', 409);
+          const existing = rows(await tx.query('SELECT * FROM students WHERE school_id=? AND id=? AND permanent_student_id=? LIMIT 1', [application.school_id, application.student_id, application.permanent_student_id]))[0];
+          if (!existing) fail('ENROLLMENT_INCONSISTENT', 'The existing enrollment record could not be resolved in this school.', 409);
           return { student: existing, created: false };
         }
         const status = String(value(application.status, application.stage) ?? '').toUpperCase();
         const eligibleStatuses = expectedStatus === 'ACCEPTED' ? ['SUBMITTED', 'UNDER_REVIEW', 'ACCEPTED'] : [expectedStatus];
         if (!eligibleStatuses.includes(status)) fail('APPLICATION_NOT_ELIGIBLE', 'Admission application is not eligible for enrollment.', 409);
 
-        let applicant = application.applicant_data;
-        if (typeof applicant === 'string') { try { applicant = JSON.parse(applicant); } catch { fail('APPLICANT_DATA_INVALID', 'Admission applicant data is invalid.', 409); } }
-        applicant = { ...application, ...(applicant ?? {}) };
         const timestamp = clock();
         const studentId = await nextStudentId(tx);
-        const admissionType = String(applicant.admissionType ?? '').trim().toUpperCase().replace(/[ -]+/g, '_');
         const currentYear = String(new Date(timestamp).getUTCFullYear());
         const historicalYear = value(applicant.historicalAdmissionYear);
         if (admissionType === 'ALREADY_ENROLLED' && !/^\d{4}$/.test(String(historicalYear ?? ''))) fail('HISTORICAL_ADMISSION_YEAR_REQUIRED', 'A valid historical admission year is required for an already-enrolled student.', 409);

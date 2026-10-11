@@ -33,16 +33,24 @@ test('Next validates the enquiry, prevents duplicate requests, and opens the off
   assert.match(workflow, /savedApplicationNumber.*\/update/s);
 });
 
-test('staff intake distinguishes all three categories and carries category-specific details without requiring insurance number', () => {
-  assert.match(page, /value="ALREADY_ENROLLED">Already enrolled at OsaaH/);
+test('staff UI separates existing-student linking from transfer and first-time applicant intake', () => {
+  assert.match(page, /id="existing-student-linker"/);
+  assert.match(page, /id="existing-student-search"/);
+  assert.match(page, /id="existing-student-confirm-form"/);
+  assert.match(page, /name="confirmIdentity" type="checkbox" required/);
+  assert.doesNotMatch(page, /<option value="ALREADY_ENROLLED"/);
   assert.match(page, /value="TRANSFER">Transfer from another school/);
   assert.match(page, /value="FIRST_TIME">First-time applicant/);
-  assert.match(page, /name="historicalAdmissionYear"[^>]*required|name="historicalAdmissionYear"/);
+  assert.match(page, /Historical OSAAH admission year/);
   assert.match(page, /data-category-field="TRANSFER"[^>]*Previous school|Previous school<input name="previousSchool"/);
   assert.match(page, /Health Insurance Number <span class="muted">\(optional\)/);
   assert.doesNotMatch(page.match(/name="healthInsuranceNumber"[^>]*>/)?.[0] ?? '', /required/);
   assert.match(workflow, /syncAdmissionCategory/);
-  assert.match(workflow, /historicalAdmissionYear/);
+  assert.match(workflow, /confirmedStudentId/);
+  assert.match(workflow, /existingPermanentStudentId/);
+  assert.match(workflow, /actual four-digit OSAAH admission year/);
+  assert.match(workflow, /link-existing\/preview/);
+  assert.match(workflow, /confirmIdentity: true/);
   assert.match(workflow, /previousSchool/);
   assert.match(workflow, /healthInsuranceNumber/);
   assert.match(workflow, /if \(submitting\) return/);
