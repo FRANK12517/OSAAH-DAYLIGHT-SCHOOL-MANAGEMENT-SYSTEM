@@ -10,7 +10,7 @@ const STUDENT_FIELDS = Object.freeze({
   gender: ['gender'], dateOfBirth: ['date_of_birth', 'dateOfBirth'], placeOfBirth: ['place_of_birth', 'placeOfBirth'], nationality: ['nationality'],
   preferredName: ['preferred_name', 'preferredName'], photograph: ['photograph_path', 'photograph', 'photographPath'], admissionDate: ['admission_date', 'admissionDate'],
   previousSchool: ['previous_school', 'previousSchool'], admissionType: ['admission_type', 'admissionType'], classId: ['current_class_id', 'class_id', 'classId'],
-  streamId: ['stream_id', 'streamId'], houseId: ['house_id', 'houseId'], indexNumber: ['index_number', 'indexNumber']
+  streamId: ['stream_id', 'streamId'], houseId: ['house_id', 'houseId'], indexNumber: ['index_number', 'indexNumber'], healthInsuranceNumber: ['health_insurance_number', 'healthInsuranceNumber']
 });
 
 function columnMap(row) { return new Map(Object.keys(row ?? {}).map((key) => [key.toLowerCase(), key])); }
@@ -27,7 +27,7 @@ function normalized(row, profile = null, family = []) {
     photograph: value(fieldFromRow(row, 'photograph'), profile?.photograph_path, profile?.photographPath), admissionDate: value(fieldFromRow(row, 'admissionDate'), profile?.admission_date, profile?.admissionDate),
     previousSchool: value(fieldFromRow(row, 'previousSchool'), profile?.previous_school, profile?.previousSchool), admissionType: value(fieldFromRow(row, 'admissionType'), profile?.admission_type, profile?.admissionType),
     classId: value(fieldFromRow(row, 'classId'), profile?.class_id, profile?.classId), streamId: value(fieldFromRow(row, 'streamId'), profile?.stream_id, profile?.streamId), houseId: value(fieldFromRow(row, 'houseId'), profile?.house_id, profile?.houseId),
-    indexNumber: value(fieldFromRow(row, 'indexNumber'), profile?.index_number, profile?.indexNumber), family: family.map((item) => ({ ...item })),
+    indexNumber: value(fieldFromRow(row, 'indexNumber'), profile?.index_number, profile?.indexNumber), healthInsuranceNumber: value(fieldFromRow(row, 'healthInsuranceNumber'), profile?.health_insurance_number, profile?.healthInsuranceNumber), family: family.map((item) => ({ ...item })),
     status: value(row.student_status, row.studentStatus, profile?.enrollment_status, profile?.enrollmentStatus), updatedAt: value(row.updated_at, row.updatedAt, profile?.updated_at, profile?.updatedAt)
   };
   return clone(student);

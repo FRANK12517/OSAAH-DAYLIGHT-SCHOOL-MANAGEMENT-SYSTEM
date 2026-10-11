@@ -50,9 +50,10 @@ test('Migration 080 restores the exact additive TiDB-compatible column contract 
   assert.match(sql.replace(/^\s*--.*$/gm, '').trim(), /^ALTER TABLE student_enrollments\s+ADD COLUMN IF NOT EXISTS is_current TINYINT\(1\) NOT NULL DEFAULT 1;$/i);
   assert.doesNotMatch(sql, /\b(DROP|DELETE|TRUNCATE|REPLACE|UPDATE)\b/i);
   const migrations = await discoverMigrations(directory);
-  assert.deepEqual(migrations.slice(-2).map(({ version, name }) => ({ version, name })), [
+  assert.deepEqual(migrations.slice(-3).map(({ version, name }) => ({ version, name })), [
     { version: 79, name: '079_attendance_legacy_schema_compatibility.sql' },
-    { version: 80, name: '080_restore_student_enrollment_is_current.sql' }
+    { version: 80, name: '080_restore_student_enrollment_is_current.sql' },
+    { version: 81, name: '081_student_health_insurance_number.sql' }
   ]);
 });
 
@@ -62,7 +63,7 @@ test('Migration 080 dry-run uses the verified historical baseline and scopes exe
   assert.equal(result.ok, true);
   assert.equal(result.productionWrites, 'NONE');
   assert.deepEqual(result.plan.pending.map((item) => item.version), [80]);
-  assert.deepEqual(result.deferredPendingMigrations.map((item) => item.version), [49, 54, 55, 56, 58, 70, 71, 72, 77, 78, 79]);
+  assert.deepEqual(result.deferredPendingMigrations.map((item) => item.version), [49, 54, 55, 56, 58, 70, 71, 72, 77, 78, 79, 81]);
   assert.equal(storage.statements.length, 0);
   assert.equal(storage.applied.some((item) => item.version === 80), false);
 });

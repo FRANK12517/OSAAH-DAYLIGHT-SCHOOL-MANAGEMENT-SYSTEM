@@ -102,3 +102,35 @@ The existing Permanent Student ID tests prove duplicate-submit idempotency, roll
 ### Final recovery status
 
 PR #362 must remain draft. Part 1 is **not complete** because the reported linking implementation and migration 081 are absent, canonical Health Insurance Number persistence is unresolved, and the full suite has three checksum failures. No production database credentials were inspected or used; no production migration, data write, merge, or deployment was performed. No commit or push was made by this audit because the required implementation is absent and the release gate is failing.
+
+
+## Final implementation update — 2026-10-11
+The recovered baseline was `a85136797d871f7147760b063a57d3b3fb740c23` on `feature/admissions-part1-category-intake`. The following additive implementation is now present:
+- `src/existing-student-linking.js`: staff-only, school-scoped, transactional identity-linking service for Proprietor, Headteacher, and Assistant Headteacher. It requires a stable identity attribute, verifies every supplied identity attribute, rejects ambiguous matches, preserves an existing master Permanent Student ID, creates only a missing profile and/or missing academic-context enrollment, preserves existing parent/history relationships by not recreating them, and supports safe retry of an existing student/year/class/term link.
+- `src/server.mjs`: protected `POST /api/students/link-existing` route. Parents, students, teachers, cross-school actors, and non-leadership roles are rejected server-side; the service is unavailable without the durable database adapter.
+- `src/durable-student-profile.js`: canonical read/update projection for optional `healthInsuranceNumber`, sourced from the master `students` record when present.
+- `schema/081_student_health_insurance_number.sql`: additive nullable canonical column and school-scoped index only; no values are fabricated and no production migration was applied.
+- `test/existing-student-linking.test.js`: successful linking, Permanent Student ID preservation, missing-record creation, idempotent retry, identity conflict, unauthorized role, and optional Health Insurance Number write assertions.
+- Migration-080 scope expectations were updated to explicitly defer reviewed migration 081 without weakening the scoped 080 apply guard.
+
+### Final verification evidence
+- `node --test test/existing-student-linking.test.js`: **PASS — 4/4**.
+- `node --test test/academic-score-foundation-contract.test.js test/production-enrollment-is-current-migration-080.test.js test/existing-student-linking.test.js`: **PASS — 18/18**.
+- `npm run migration:validate`: **PASS — 80 migrations discovered; no migration applied**.
+- `npm run assets:verify`: **PASS — 12 protected login assets**.
+- `npm run protection:verify`: **PASS — 5 protected components**.
+- `node --check` for the new service, server, durable profile service, and migration-080 script: **PASS**.
+- `git diff --check`: **PASS**.
+- The repository-wide run after the implementation reported **1,386 passed / 8 failed / 1,394 total** before the migration-080 and inventory expectation corrections. The corrected affected migration suite is 18/18; the remaining historical checksum failures reproduce independently and are documented below. A final full-suite run is required after this audit append and cleanup.
+
+### Checksum conclusion
+No historical SQL file, expected digest, or checksum validation rule was changed. The remaining checksum mismatches are the known exact-byte mismatches for migrations 059 and 063; Git history shows the current checked-in hashes are tied to later commits, while the tests retain older reviewed constants. The current files are ASCII/LF text, and no evidence justifies treating this as newline-only normalization. Integrity remains fail-closed; the checksum blocker is not silently waived.
+
+### Remaining blockers and restrictions
+- Full-suite checksum assertions for migrations 059/063 remain failing and block merge under the release gate; this implementation does not weaken or rewrite those historical contracts.
+- No production database was accessed, no migration was applied, no student record was modified, no deployment was performed, and PR #362 must remain draft.
+- The final commit SHA and PR CI state must be recorded after the implementation is committed and pushed.
+
+
+### Final suite correction
+The final repository-wide `npm test` run after the migration-080 and inventory expectation corrections completed with **1,391 passed / 3 failed / 1,394 total**. The only failures are the three previously identified immutable checksum assertions for migrations 059 and 063; no new implementation or migration-scope regression remains. The earlier interim 1,386/8 total above was captured before those expectation corrections and is superseded by this final result.
