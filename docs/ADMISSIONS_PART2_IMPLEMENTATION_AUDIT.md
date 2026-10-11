@@ -1,7 +1,7 @@
 # Admissions Part 2 Implementation Audit
 
-**Project:** OSAAH DAYLIGHT SCHOOL MANAGEMENT SYSTEM  
-**Branch:** `feature/admissions-part2-safe-id-generation`  
+**Project:** OSAAH DAYLIGHT SCHOOL MANAGEMENT SYSTEM
+**Branch:** `feature/admissions-part2-safe-id-generation`
 **Audit date:** 2026-10-11
 
 ## 1. Starting-state verification
@@ -52,7 +52,7 @@ Parent application creation/submission remains separate from admission completio
 No new schema migration was necessary for Part 2 because the current schema already provides:
 
 - `students.permanent_student_id`;
-- school-scoped uniqueness through the canonical class-database reconciliation; 
+- school-scoped uniqueness through the canonical class-database reconciliation;
 - `student_id_sequences(admission_year PRIMARY KEY, next_sequence)`;
 - existing admission/application uniqueness constraints from Migration 078;
 - the nullable canonical Health Insurance Number field from Migration 081.
@@ -75,12 +75,15 @@ No automatic name-only merge or ambiguous historical-year backfill was added.
 ## 5. Tests and quality gates executed
 
 - `node --test test/existing-student-linking.test.js test/permanent-student-id.test.js test/admission-enrollment.test.js` — **19 passed, 0 failed**.
+- `npm test` — **1,397 passed, 0 failed**.
 - `npm run migration:validate` — **passed**, `{"valid":true,"migrationCount":80}`.
+- `npm run assets:verify` — **passed**, 12 protected assets.
+- `npm run protection:verify` — **passed**, 5 protected components.
 - `node --check src/existing-student-linking.js` — **passed**.
 - `node --check src/admission-enrollment.js` — **passed**.
-- `git diff --check` — **passed**.
+- `git diff --check` — **passed after correcting the audit-document whitespace found during takeover**.
 
-The real database integration/concurrency checks, PR review, merge, and Part 2 deployment were not completed in this audit segment. They remain mandatory before claiming Part 2 complete.
+The focused tests use test adapters; they are not evidence of real database locking/concurrency. A production-compatible TiDB integration run, PR review, merge, and Part 2 deployment were not completed during takeover. Migration 081 is present in the repository, but production schema and ledger status were not queried and remain unverified.
 
 ## 6. Changed files
 
@@ -92,8 +95,7 @@ The real database integration/concurrency checks, PR review, merge, and Part 2 d
 
 ## 7. Release blockers and next actions
 
-1. Run the full test suite and repository-specific assets/protection/build gates.
-2. Run a controlled TiDB-compatible integration test for sequence locking, unique conflicts, rollback, and repeated requests.
-3. Query the approved target database migration ledger and verify Migration 081 status; do not infer it from deployment status.
-4. Review the final diff, commit this branch, open a PR against `main`, and wait for required review/checks.
-5. Only after merge, verify the deployed revision, approved migration application, and controlled production behavior. Do not begin Part 3 before those gates pass.
+1. Run a controlled TiDB-compatible integration test for sequence locking, unique conflicts, rollback, and repeated requests; the required database credentials/adapter were not available in this sandbox.
+2. Query the approved target database migration ledger and verify Migration 081 status; do not infer it from deployment status.
+3. Complete required PR review and CI checks on the existing PR #363.
+4. Only after all release gates pass, merge and verify the deployed revision, approved migration application, and controlled production behavior. Do not begin Part 3 before those gates pass.
