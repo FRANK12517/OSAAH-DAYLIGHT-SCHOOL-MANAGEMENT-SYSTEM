@@ -1,4 +1,9 @@
 .admission-header{text-align:center}
 .admission-header>img{display:block;width:clamp(140px,35vw,232px);height:auto;margin:0 auto 16px}
 .admission-header .eyebrow,.admission-header p,.admission-header h1{text-align:center}
+.admission-step-progress{display:flex;gap:.5rem;overflow-x:auto;padding:.5rem 0 1rem;list-style-position:inside;scrollbar-width:thin}
+.admission-step-progress li{flex:1 0 9rem;min-width:0;padding:.55rem .7rem;border:1px solid #cbd5e1;border-radius:.5rem;background:#f8fafc;font-size:.8rem;line-height:1.35}
+.admission-step-progress li[aria-current="step"]{border-color:#1d4ed8;background:#eff6ff;color:#1e3a8a;font-weight:700}
+.admission-page fieldset[hidden],.admission-page form[hidden],.admission-page section[hidden]{display:none}
+.admission-page button:disabled{cursor:wait;opacity:.65}
 @media(max-width:759px){.admission-header>img{width:clamp(120px,48vw,190px)}}
