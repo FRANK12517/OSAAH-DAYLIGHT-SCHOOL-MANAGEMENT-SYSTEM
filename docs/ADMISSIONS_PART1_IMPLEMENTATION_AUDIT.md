@@ -60,3 +60,45 @@ No roles, permissions, dashboard routes, parent application gates, fee routes, d
 ## Release gate / Part 2 dependency
 
 This branch does **not** claim that all admission requirements are complete or ready to merge/deploy. The release gate is blocked until a reviewed backend contract is implemented and tested for staff-only registration/migration of already-enrolled students, including duplicate resolution by stable existing identity, preserving an existing Permanent Student ID and relationships, and safely generating one only when absent. The school must also confirm transfer-document and transfer-assessment policy and the canonical Health Insurance Number persistence field. Do not merge or deploy this partial UI change as fulfillment of the complete Part 1 objective. No merge or production deployment should be represented as completed without those prerequisites and passing required checks.
+
+## Recovery verification — 2026-10-11
+
+The reported working path `/home/ubuntu/osaah-audit` did not exist in the current sandbox. The PR branch was recovered from GitHub into that path without rewriting history.
+
+- Branch: `feature/admissions-part1-category-intake`
+- HEAD: `8338a3d131f779718fe1b08e2c8b7ed936c82b07`
+- HEAD equals `origin/feature/admissions-part1-category-intake` and PR #362 head.
+- PR #362 is **OPEN**, **DRAFT**, **MERGEABLE**, with no review decision.
+- At recovery, the checkout was clean and contained only the UI/category commit relative to the branch history: this audit, `public/admissions-workflow.js`, `public/admissions.html`, and `test/admissions-workflow-ui.test.js`.
+- No unpushed prior-session implementation, detached worktree, migration 081, or supplemental backend patch was present in the current sandbox or fetched PR branch.
+
+The previous-session claims of a new existing-student linking service, canonical Health Insurance Number persistence, additive migration 081, and LF/CRLF checksum compatibility are **not present in the recovered branch**:
+
+- No migration 081 file exists; validation reports 79 migrations and the latest file is `080_restore_student_enrollment_is_current.sql`.
+- No staff API/service was found that searches by stable existing identity and links an already-enrolled student without creating a duplicate. Current durable enrollment materializes a new student from an accepted application; it does not implement the requested existing-student migration path.
+- No canonical health-record/database column or complete intake → validation → write → read-back path for Health Insurance Number was found. The field is currently carried in applicant JSON/UI state only.
+- No verified migration-runner LF/CRLF equivalence handling was found. The runner retains exact recorded checksums; current tests still reject changed SQL.
+
+### Verification executed
+
+Dependencies were installed from the committed lockfile with `npm ci --ignore-scripts`; no source or dependency manifest was changed.
+
+- Focused admissions suite: **PASS — 26 tests, 0 failures**.
+- Full repository suite (`npm test`): **FAIL — 1,387 passed, 3 failed, 1,390 total**.
+- `npm run migration:validate`: **PASS — 79 migrations; no migration applied**.
+- `npm run assets:verify`: **PASS — 12 protected login assets**.
+- `npm run protection:verify`: **PASS — 5 protected components**.
+
+The three full-suite failures are immutable checksum assertions:
+
+1. `test/production-migration-063-inventory.test.js`: raw SHA-256 of `schema/063_subject_classification.sql` is `6bc83d1411f4813eadd577fa4de6c43d9e979e1baca59f4222d0689456f828e7`, while the reviewed constant is `d2961b713998d7e8231de3c27c0179a005e8caa4abf79361ad76f92804dc9abb`.
+2. `test/production-subject-classification-migration.test.js`: the same migration identity mismatch.
+3. `test/terms-uniqueness-migration.test.js`: raw SHA-256 of `schema/059_backward_compatible_enrollment_contract.sql` is `15f26ecbd421869172219303069f4591b04dceaff405e1aba6a7b3cf99e06e48`, while the test expects `81d21b4e6e18d8d5cc4f400f918b4ebd2aec843b0301a41cd6fae3ff884adb11`.
+
+The current migration files are ASCII text. The checksum tests confirm genuine SQL changes are rejected, and the migration-runner test confirms changed applied SQL is rejected. No expected hash was changed and no historical migration was rewritten during this audit. The root cause and any approved newline-only compatibility correction remain unresolved; changing expected hashes blindly would weaken the integrity gate.
+
+The existing Permanent Student ID tests prove duplicate-submit idempotency, rollback, concurrent annual allocation, and historical-year handling for ordinary accepted enrollment. They do **not** prove linking an already-enrolled record or preserving all historical attendance/results/fees/enrollment relationships during such a link.
+
+### Final recovery status
+
+PR #362 must remain draft. Part 1 is **not complete** because the reported linking implementation and migration 081 are absent, canonical Health Insurance Number persistence is unresolved, and the full suite has three checksum failures. No production database credentials were inspected or used; no production migration, data write, merge, or deployment was performed. No commit or push was made by this audit because the required implementation is absent and the release gate is failing.
