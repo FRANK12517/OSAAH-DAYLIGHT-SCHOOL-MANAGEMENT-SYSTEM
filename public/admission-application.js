@@ -1,4 +1,4 @@
-import { createAdmissionFormNavigator, requiredAdmissionDocumentTypes } from './admission-form-navigation.js';
+import { admissionClassSelection, createAdmissionFormNavigator, requiredAdmissionDocumentTypes } from './admission-form-navigation.js';
 
 const form = document.querySelector('#admission-form');
 const classField = document.querySelector('#class-applied');
@@ -144,6 +144,11 @@ function populate(record) {
     if (field.type === 'checkbox') { field.checked = Boolean(value); continue; }
     field.value = value ?? '';
   }
+  if (values.classAppliedFor && classField) {
+    const className = String(values.className ?? values.classAppliedFor).trim();
+    const selected = [...classField.options].find((option) => option.value === String(values.classAppliedFor) || option.textContent.trim() === className);
+    if (selected) classField.value = selected.value;
+  }
   const guardianPhone = values.primaryGuardianPrimaryPhone ?? values.parentPhone;
   if (guardianPhone) form.elements.primaryGuardianPrimaryPhone.value = guardianPhone;
   admissionTypeField.value = String(values.admissionType ?? ''); historicalAdmissionYearField.value = String(values.historicalAdmissionYear ?? ''); syncHistoricalAdmissionYear();
@@ -247,6 +252,7 @@ async function saveDraft() {
   try {
     const data = Object.fromEntries(new FormData(form));
     for (const field of ['passport', 'identity', 'nhis', 'report', 'admissionReceipt']) delete data[field];
+    Object.assign(data, admissionClassSelection(classField));
     data.academicYear = String(yearField.value); data.admissionTerm = String(termField.value);
     data.parentDeclarationAccepted = form.elements.parentDeclarationAccepted.checked;
     if (!applicationNumber) {
@@ -340,6 +346,7 @@ async function submitApplication(event) {
   try {
     const data = Object.fromEntries(new FormData(form));
     for (const field of ['passport', 'identity', 'nhis', 'report', 'admissionReceipt']) delete data[field];
+    Object.assign(data, admissionClassSelection(classField));
     data.academicYear = String(yearField.value); data.admissionTerm = String(termField.value);
     data.parentDeclarationAccepted = form.elements.parentDeclarationAccepted.checked;
     if (!applicationNumber) {

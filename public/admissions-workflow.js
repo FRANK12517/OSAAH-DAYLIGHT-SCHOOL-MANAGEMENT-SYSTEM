@@ -159,10 +159,10 @@ enquiryForm.addEventListener('submit', async (event) => {
     const admissionType = String(values.get('admissionType') ?? '');
     if (!['ALREADY_ENROLLED', 'TRANSFER', 'FIRST_TIME'].includes(admissionType)) throw new Error('Select an admission type.');
     const classId = String(values.get('classId'));
-    const className = classField.selectedOptions[0]?.textContent ?? '';
+    const className = String(classField.selectedOptions[0]?.textContent ?? '').trim();
     const yearSelection = JSON.parse(String(values.get('academicYear')));
     const termSelection = JSON.parse(String(values.get('term')));
-    const payload = { admissionType, studentFirstName: parts.slice(0, -1).join(' '), studentSurname: parts.at(-1), classAppliedFor: classId, className, primaryGuardianPrimaryPhone: parentPhone, academicYear: yearSelection.name, admissionYear: yearSelection.admissionYear, academicYearId: yearSelection.id, admissionTerm: termSelection.name, termId: termSelection.id, enquiry: { applicantName: fullName, parentPhone, classId, className } };
+    const payload = { admissionType, studentFirstName: parts.slice(0, -1).join(' '), studentSurname: parts.at(-1), classAppliedFor: className, className, primaryGuardianPrimaryPhone: parentPhone, academicYear: yearSelection.name, admissionYear: yearSelection.admissionYear, academicYearId: yearSelection.id, admissionTerm: termSelection.name, termId: termSelection.id, enquiry: { applicantName: fullName, parentPhone, classId, className } };
     let created;
     if (savedApplicationNumber) {
       created = await jsonRequest(`/api/admission-applications/${encodeURIComponent(savedApplicationNumber)}/update`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });

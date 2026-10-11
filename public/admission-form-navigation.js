@@ -7,6 +7,13 @@ export function requiredAdmissionDocumentTypes({ admissionType = '', className =
   return required;
 }
 
+export function admissionClassSelection(select) {
+  const value = String(select?.value ?? '').trim();
+  if (!value) return { classAppliedFor: '', className: '' };
+  const name = String(select?.selectedOptions?.[0]?.textContent ?? '').trim() || value;
+  return { classAppliedFor: name, className: name };
+}
+
 export function createAdmissionFormNavigator({ steps, validateStep, onStepChange = () => {}, now = () => Date.now(), minimumAdvanceInterval = 250 }) {
   if (!Array.isArray(steps) || steps.length === 0) throw new TypeError('At least one admission form step is required.');
   if (typeof validateStep !== 'function') throw new TypeError('A step validator is required.');
