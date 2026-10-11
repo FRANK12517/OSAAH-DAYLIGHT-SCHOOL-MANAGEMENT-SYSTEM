@@ -1274,7 +1274,24 @@ if (durableAcademic && body.sampleMode === true) {
     }
     let publicAdmissionCookie = null;
     const publicAdmissionPage = pathname === '/admissions/apply' || pathname === '/admission-application.html';
-    if (publicAdmissionPage) { const user = await auth.authenticateAsync(readCookie(request, 'osaah_session') ?? bearer(request)); if (user && user.portal !== 'parent') { response.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' }); return response.end('Forbidden'); } if (!user && !readCookie(request, 'osaah_admission_session')) publicAdmissionCookie = `osaah_admission_session=${randomUUID()}; Path=/; HttpOnly; SameSite=Lax${secureCookieSuffix(request)}`; }
+    if (publicAdmissionPage) {
+      const user = await auth.authenticateAsync(readCookie(request, 'osaah_session') ?? bearer(request));
+      const isAuthorizedStaff = user?.portal === 'school'
+        && user.schoolId === serviceSchoolId
+        && user.permissions instanceof Set
+        && canAccess(user, 'admissions.write');
+      if (user && user.portal !== 'parent' && !isAuthorizedStaff) {
+        response.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+        return response.end('Forbidden');
+      }
+      const hasApplicationNumber = Boolean(new URL(request.url, 'http://localhost').searchParams.get('applicationNumber'));
+      const guestAdmissionSession = readCookie(request, 'osaah_admission_session');
+      if (!user && hasApplicationNumber && !guestAdmissionSession) {
+        response.writeHead(401, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+        return response.end('Authentication required');
+      }
+      if (!user && !guestAdmissionSession) publicAdmissionCookie = `osaah_admission_session=${randomUUID()}; Path=/; HttpOnly; SameSite=Lax${secureCookieSuffix(request)}`;
+    }
     const fallbackPage = modulePageFallbacks.find(([prefix]) => pathname.startsWith(prefix))?.[1];
     const schoolShellNavigation = protectedUser?.portal === 'school' && request.headers['sec-fetch-mode'] === 'navigate' && new URL(request.url, 'http://localhost').searchParams.get('embedded') !== '1';
     const file = pathname === '/' || schoolShellNavigation ? '/index.html' : pathname === '/admissions/apply' ? '/admission-application.html' : pageAliases[pathname] ?? fallbackPage ?? pathname;

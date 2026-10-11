@@ -78,16 +78,16 @@ The existing root `CODEOWNERS` file assigns `@FRANK12517` to login branding/inte
 - Existing-student linking preserves an established ID and does not duplicate an existing enrollment context.
 - The current tests cover the ID allocator and enrollment service using isolated fixtures; no production database was used for these checks.
 
-## Separately identified functional defect — do not encode as the desired contract
+## Authenticated staff continuation 403: baseline cause and correction
 
-The authenticated staff enquiry's successful Next action in `public/admissions-workflow.js` navigates to `/admission-application.html?applicationNumber=...&step=2`. However, the `publicAdmissionPage` guard in `src/server.mjs` returns HTTP 403 when that page is requested with an authenticated school-portal session. A local HTTP reproduction using the repository's in-memory proprietor test account returned:
+The staff enquiry's successful Next action in `public/admissions-workflow.js` sends `POST /api/admission-applications` with the enquiry payload and then navigates to `/admission-application.html?applicationNumber=...&step=2`. That write is authorized server-side with `admissions.write`. The prior `publicAdmissionPage` guard in `src/server.mjs` rejected every authenticated non-parent user before checking permissions, so the same staff session received HTTP 403 at the next page. The baseline local HTTP reproduction returned:
 
 ```text
 /admissions 200
 /admission-application.html?applicationNumber=APP-TEST&step=2 403
 ```
 
-This is separate from the merged class-label fix and conflicts with the staff application UI, which contains staff-specific review and submission behavior. This audit did not change the route guard, role permissions, or production behavior. The protection system must not describe staff continuation as passing until the authorization conflict is resolved and covered by a browser/API test. Resolution requires preserving authentication and granting access only through the already-intended admission permission model; do not make the page public or broaden unrelated role access.
+The correction in the staff-continuation release allows an authenticated school user through this page only when the session has the configured school ID and the existing `admissions.write` permission. Parent access remains as before. An unauthenticated request that attempts to resume an existing application must present its established parent admission-session cookie; unauthenticated visitors can still open a new blank public parent form and receive that cookie. The server-side admission APIs continue to enforce read/write permissions and application school scope independently. Focused regression tests cover authorized staff, unauthorized roles, invalid sessions, missing identity context, tenant mismatch, and nonexistent application state. Production behavior is considered verified only after the fix is deployed and the staff continuation is checked in an authenticated production session without creating or modifying school records.
 
 ## Baseline test evidence
 

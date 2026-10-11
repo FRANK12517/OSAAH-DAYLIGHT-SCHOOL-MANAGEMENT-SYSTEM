@@ -10,6 +10,7 @@ const defaultManifest = 'config/admission-protection-manifest.json';
 export const REQUIRED_ADMISSION_TESTS = Object.freeze([
   'test/admission-protection.test.js',
   'test/admission-protection-browser.test.js',
+  'test/admission-continuation-access.test.js',
   'test/admissions-workflow-ui.test.js',
   'test/admission-form.test.js',
   'test/durable-admission-stages.test.js',
