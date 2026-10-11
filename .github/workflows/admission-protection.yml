@@ -1,0 +1,37 @@
+name: Admission workflow protection
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  admission-protection:
+    name: Admission workflow protection
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out source and comparison history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Install Chromium for admission browser regression checks
+        run: npx playwright install --with-deps chromium
+      - name: Report affected admission areas
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: node scripts/admission-protection.mjs --base "$BASE_SHA"
+      - name: Run admission protection suite and validate migrations
+        run: npm run test:admission-protection
