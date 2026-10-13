@@ -367,6 +367,22 @@ export function createApp({ auth = null, students = null, attendance = null, att
     if (pathname === '/api/official-documents/verify' && request.method === 'GET') return json(response, reporting.verifyOfficialDocument(new URL(request.url, 'http://localhost').searchParams.get('code') ?? ''));
     const guestAdmissionSession = readCookie(request, 'osaah_admission_session');
     const publicAdmissionActor = guestAdmissionSession ? { id: guestAdmissionSession, portal: 'parent', schoolId: serviceSchoolId } : null;
+    if (pathname === '/api/public/admission-workflow/options' && request.method === 'GET') {
+      const classes = CORE_LEVELS.map((name, displayOrder) => ({ id: name, name: name.replace(/^Primary /, 'Basic ').replace(/^KG([12])$/, 'KG $1'), displayOrder }));
+      const academicYears = ACADEMIC_YEAR_OPTIONS.map((name) => ({ id: name, name, admissionYear: String(name).match(/^\d{4}/)?.[0] ?? null }));
+      const terms = TERM_OPTIONS.map((name) => ({ id: name, name, academicYearId: null }));
+      return json(response, { classes, academicYears, terms, documentStorageAvailable: Boolean(admissionDocumentStorage) });
+    }
+    if (pathname === '/api/admission-applications' && request.method === 'GET' && publicAdmissionActor) {
+      const filters = Object.fromEntries(new URL(request.url, 'http://localhost').searchParams);
+      const applications = admissionForms.listApplications(filters, publicAdmissionActor);
+      return json(response, { applications: applications.map(presentAdmissionApplication) });
+    }
+    if (pathname.startsWith('/api/admission-applications/') && pathname.split('/').filter(Boolean).length === 3 && request.method === 'GET' && publicAdmissionActor) {
+      const id = pathname.split('/')[3];
+      const result = admissionForms.getApplication(id, publicAdmissionActor);
+      return result ? json(response, presentAdmissionApplication(result)) : json(response, { error: 'Not found.' }, 404);
+    }
     if (pathname === '/api/admission-fees/quote' && request.method === 'GET' && publicAdmissionActor) { const query = new URL(request.url, 'http://localhost').searchParams; const fee = admissionForms.activeFeeFor(query.get('classAppliedFor'), query.get('academicYear'), query.get('term')); return fee ? json(response, { fee }) : json(response, { error: 'No published fee structure found.' }, 404); }
     if (pathname === '/api/admission-applications' && request.method === 'POST' && publicAdmissionActor) { try { const result = admissionForms.createApplication(await readJson(request), publicAdmissionActor); audit(createAuditLog({ schoolId: publicAdmissionActor.schoolId, userId: publicAdmissionActor.id, action: 'ADMISSION_APPLICATION_CREATED', entity: 'AdmissionFormApplication', entityId: result.applicationNumber, newValue: result })); return json(response, result, 201); } catch (error) { return json(response, { error: error.message }, 400); } }
     if (pathname.startsWith('/api/admission-applications/') && pathname.endsWith('/update') && request.method === 'PATCH' && publicAdmissionActor) { try { const result = admissionForms.updateApplication(pathname.split('/')[3], await readJson(request), publicAdmissionActor); return json(response, result); } catch (error) { return json(response, { error: error.message }, 400); } }

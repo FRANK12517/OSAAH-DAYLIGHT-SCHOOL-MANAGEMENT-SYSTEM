@@ -43,8 +43,9 @@ async function jsonRequest(url, options) {
 }
 
 async function loadOptions() {
-  try {
-    const options = await jsonRequest('/api/admission-workflow/options');
+  for (const endpoint of ['/api/admission-workflow/options', '/api/public/admission-workflow/options', '/api/public/admission-prospectus/options']) {
+    try {
+      const options = await jsonRequest(endpoint);
     classField.replaceChildren(new Option('Select class', ''));
     for (const item of options.classes ?? []) classField.add(new Option(item.name, item.id));
     academicYearField.replaceChildren(new Option('Select academic year', ''));
@@ -52,8 +53,10 @@ async function loadOptions() {
     termField.replaceChildren(new Option('Select term', ''));
     for (const item of options.terms ?? []) termField.add(new Option(item.name, JSON.stringify({ id: item.id, name: item.name })));
     if (!academicYearField.options.length) academicYearField.add(new Option(String(new Date().getFullYear()), String(new Date().getFullYear())));
-  } catch (error) {
-    enquiryStatus.textContent = `Unable to load school classes and years: ${error.message}`;
+      return;
+    } catch (error) {
+      if (endpoint === '/api/public/admission-prospectus/options') enquiryStatus.textContent = 'Unable to load school classes and years. Please retry.';
+    }
   }
 }
 
