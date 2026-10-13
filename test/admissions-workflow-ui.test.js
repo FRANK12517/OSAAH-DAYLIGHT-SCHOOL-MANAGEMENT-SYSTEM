@@ -50,6 +50,12 @@ test('staff intake distinguishes all three categories and carries category-speci
   assert.match(workflow, /if \(submitting\) return/);
 });
 
+test('public registration uses a guest-safe options fallback and does not render raw authorization errors', () => {
+  assert.match(workflow, /\/api\/public\/admission-workflow\/options/);
+  assert.match(workflow, /Unable to load school classes and years\. Please retry\./);
+  assert.doesNotMatch(workflow, /Unable to load school classes and years: \$\{error\.message\}/);
+});
+
 test('admission form navigation advances only after validation and preserves values when going Back', () => {
   let timestamp = 0;
   const steps = [{ value: 'Ama' }, { value: 'Bogoso' }, { value: 'Guardian' }];
