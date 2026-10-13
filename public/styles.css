@@ -59,6 +59,13 @@ dialog,[role="dialog"],.modal,.modal-content{max-width:min(92vw,760px);max-heigh
 @media(max-width:767px){.attendance-page{padding-left:12px;padding-right:12px}.attendance-page .attendance-table-wrap{display:none}.attendance-page .attendance-mobile-cards{display:block}.attendance-page fieldset{padding:12px}.attendance-page .primary-button{position:sticky;bottom:12px;z-index:1;box-shadow:0 4px 14px #102a4344}.attendance-card .attendance-reason[hidden],.attendance-card .attendance-arrival[hidden],.attendance-card .attendance-departure[hidden]{display:none}.attendance-card dd{word-break:normal;overflow-wrap:anywhere}}
 
 
+/* Result-management actions stay outside the slip so their layout never changes the protected result display. */
+.result-actions{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:.5rem;max-width:100%;min-width:0}
+.result-actions>*{min-width:0;max-width:100%}
+.result-actions button{white-space:nowrap}
+@media(max-width:759px){.result-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;justify-content:stretch}.result-actions>*{width:100%}.result-actions .badge{display:flex;align-items:center;justify-content:center;min-height:44px}}
+@media(max-width:380px){.result-actions{grid-template-columns:minmax(0,1fr)}}
+
 /* Part 3A: targeted mobile containment for forms, official slips, finance and dialogs. */
 .result-slip-page>.card{width:100%;min-width:0}.result-slip-page .no-print{max-width:100%}
 #result-context{min-width:0}.result-slip-page #result-context label{min-width:0;overflow-wrap:anywhere}.result-slip-page #result-context input[type=checkbox]{width:1.25rem;min-width:1.25rem;flex:0 0 auto;margin:0}.result-slip-page #result-context label:has(input[type=checkbox]){display:flex;align-items:center;gap:.5rem;min-height:44px}.result-slip-page #result-context button{width:100%;min-width:0}

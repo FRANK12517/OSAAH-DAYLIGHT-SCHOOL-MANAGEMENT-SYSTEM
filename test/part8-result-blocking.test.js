@@ -55,3 +55,17 @@ test('durable class blocks do not leak across schools or students after approval
   assert.equal(await service.blockFor({ academicYear: '2026/2027', term: 'First Term', classId: 'Primary 2', studentId: 'student-99' }), null);
   await assert.rejects(() => service.listBlocks({}, { schoolId: 'other-school', roleKey: 'PROPRIETOR' }), /Forbidden/);
 });
+
+test('class blocks remain effective after individual unblock and cannot be removed through student scope', async () => {
+  const db = database();
+  let nextId = 0;
+  const service = createDurableResultBlockingService({ database: db, schoolId: 'school-1', idFactory: () => `scope-${++nextId}` });
+  await service.blockResults({ academicYear: '2026/2027', term: 'First Term', classId: 'Primary 1', reason: 'Class review' }, head);
+  await assert.rejects(
+    () => service.unblockResults({ academicYear: '2026/2027', term: 'First Term', classId: 'Primary 1', studentId: 'student-1' }, head),
+    /Active result block not found/
+  );
+  await service.blockResults({ academicYear: '2026/2027', term: 'First Term', classId: 'Primary 1', studentId: 'student-1', reason: 'Student review' }, head);
+  await service.unblockResults({ academicYear: '2026/2027', term: 'First Term', classId: 'Primary 1', studentId: 'student-1' }, head);
+  assert.equal((await service.blockFor({ academicYear: '2026/2027', term: 'First Term', classId: 'Primary 1', studentId: 'student-1' })).scope, 'CLASS');
+});
