@@ -38,7 +38,16 @@ function normalizeGhanaPhone(value) {
 async function jsonRequest(url, options) {
   const response = await fetch(url, { credentials: 'same-origin', ...options });
   const result = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(result.error ?? 'The request could not be completed.');
+  if (!response.ok) {
+    const message = response.status === 401
+      ? 'Your session has expired. Please sign in again.'
+      : response.status === 403
+        ? 'Your account is not authorised for admissions registration.'
+        : response.status >= 500
+          ? 'The admissions service is temporarily unavailable. Please try again.'
+          : result.error ?? 'The request could not be completed.';
+    throw Object.assign(new Error(message), { status: response.status });
+  }
   return result;
 }
 
@@ -158,7 +167,18 @@ function documentLink(applicationNumber, document) {
 
 async function loadApplications() {
   try { const result = await jsonRequest('/api/admission-applications'); renderApplications(result.applications ?? []); }
-  catch (error) { applicationsStatus.textContent = `Unable to load applications: ${error.message}`; }
+  catch (error) {
+    applicationsStatus.replaceChildren();
+    const message = document.createElement('span');
+    message.textContent = `Unable to load saved applications: ${error.message}`;
+    applicationsStatus.append(message);
+    if (error.status !== 401 && error.status !== 403) {
+      const retry = document.createElement('button');
+      retry.type = 'button'; retry.className = 'text-button'; retry.textContent = 'Retry';
+      retry.addEventListener('click', loadApplications);
+      applicationsStatus.append(' ', retry);
+    }
+  }
 }
 
 enquiryForm.addEventListener('submit', async (event) => {
