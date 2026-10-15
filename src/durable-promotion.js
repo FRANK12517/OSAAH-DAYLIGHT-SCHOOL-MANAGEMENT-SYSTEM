@@ -49,8 +49,8 @@ export function createDurablePromotionService({ database, schoolId, idFactory = 
     const roster = await database.query(`SELECT s.id AS id,s.permanent_student_id AS permanentStudentId,s.first_name AS firstName,s.middle_name AS middleName,s.last_name AS lastName,e.class_id AS classId
       FROM student_enrollments e JOIN students s ON s.id=e.student_id AND s.school_id=e.school_id
       WHERE e.school_id=? AND e.academic_year_id=? AND e.term_id=? AND e.class_id=?
-        AND COALESCE(e.enrollment_status,'ACTIVE')='ACTIVE' AND COALESCE(e.is_current,1)=1
-        AND COALESCE(s.student_status,'ACTIVE')='ACTIVE' AND COALESCE(s.is_test_record,0)=0
+        AND COALESCE(e.enrollment_status,'ACTIVE')='ACTIVE' AND COALESCE(e.is_current,TRUE) IS TRUE
+        AND COALESCE(s.student_status,'ACTIVE')='ACTIVE' AND s.is_test_record IS NOT TRUE
       ORDER BY s.last_name,s.first_name,s.id`, [schoolId, year.id, term.id, klass.id]);
     return { ...lists, students: rows(roster).map((item) => ({ id: item.id, name: [item.firstName, item.middleName, item.lastName].filter(Boolean).join(' '), permanentStudentId: item.permanentStudentId, classId: item.classId, isTestRecord: false })) };
   }
@@ -120,7 +120,7 @@ export function createDurablePromotionService({ database, schoolId, idFactory = 
           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [id, schoolId, student.profileId, year.id, klass.id, term.id, decision, text(input.comment) || null, actor.id, stamp, ['PROMOTED','REPEAT'].includes(decision) ? destination.id : null, next?.year.id ?? null, next?.term.id ?? null, completionYear, student.enrollmentId, idempotencyKey(student.profileId, year.id, klass.id, term.id)]);
         if (['PROMOTED','REPEAT','GRADUATED'].includes(decision)) {
           const enrollmentStatus = decision === 'PROMOTED' ? 'PROMOTED' : decision === 'REPEAT' ? 'REPEATED' : 'COMPLETED';
-          await tx.execute('UPDATE student_enrollments SET is_current=0,enrollment_status=?,completed_at=? WHERE school_id=? AND student_id=? AND academic_year_id=? AND class_id=? AND is_current=1', [enrollmentStatus, decision === 'GRADUATED' ? dbStamp : null, schoolId, student.id, year.id, klass.id]);
+          await tx.execute('UPDATE student_enrollments SET is_current=FALSE,enrollment_status=?,completed_at=? WHERE school_id=? AND student_id=? AND academic_year_id=? AND class_id=? AND is_current=TRUE', [enrollmentStatus, decision === 'GRADUATED' ? dbStamp : null, schoolId, student.id, year.id, klass.id]);
           if (decision === 'GRADUATED') {
             await tx.execute("UPDATE students SET student_status='COMPLETED',current_class_id=NULL,updated_at=? WHERE id=? AND school_id=?", [stamp, student.id, schoolId]);
             await tx.execute("UPDATE student_profiles SET enrollment_status='COMPLETED',class_id=NULL,updated_at=? WHERE id=? AND school_id=?", [stamp, student.profileId, schoolId]);

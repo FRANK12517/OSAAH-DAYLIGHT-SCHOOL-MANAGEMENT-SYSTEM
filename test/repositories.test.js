@@ -26,3 +26,15 @@ test('database repository parameterizes and scopes operations', async () => {
   const repo = createDatabaseRepository({ adapter, table: 'student_profiles', serialize: (value) => ({ id: value.id, school_id: value.schoolId, name: value.name }), deserialize: (row) => ({ id: row.id, schoolId: row.school_id, name: row.name }) });
   assert.equal((await repo.get('x', 'a')).schoolId, 'a'); await repo.replace('x', 'a', record('x', 'a')); assert.ok(calls.every(([, , params]) => Array.isArray(params))); await assert.rejects(() => repo.get('x', ''), { code: 'SCHOOL_SCOPE_REQUIRED' });
 });
+
+test('database repository accepts PostgreSQL rowCount metadata for replace and remove', async () => {
+  const adapter = {
+    async healthCheck() { return { healthy: true }; },
+    async query() { return []; },
+    async execute() { return { rowCount: 1 }; },
+    async transaction(work) { return work(this); }
+  };
+  const repo = createDatabaseRepository({ adapter, table: 'student_profiles', serialize: (value) => ({ id: value.id, school_id: value.schoolId, name: value.name }) });
+  assert.equal((await repo.replace('student-1', 'school-a', record('student-1', 'school-a'))).id, 'student-1');
+  assert.equal(await repo.remove('student-1', 'school-a'), true);
+});

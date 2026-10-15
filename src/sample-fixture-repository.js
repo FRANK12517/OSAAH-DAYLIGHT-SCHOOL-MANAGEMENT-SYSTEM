@@ -68,7 +68,7 @@ export function createSampleFixtureRepository({ adapter, now = () => new Date().
     const timestamp = now();
     const id = fixtureId(identity);
     const payload = clone(input.fixturePayload ?? {});
-    await adapter.execute(`INSERT INTO sample_data_fixtures (fixture_id,school_id,sample_student_id,academic_year_id,term_id,class_id,fixture_type,fixture_payload,fixture_version,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE fixture_payload=VALUES(fixture_payload),updated_at=VALUES(updated_at)`, [id, identity.schoolId, identity.sampleStudentId, identity.academicYearId, identity.termId, identity.classId, identity.fixtureType, JSON.stringify(payload), identity.fixtureVersion, timestamp, timestamp]);
+    await adapter.execute(`INSERT INTO sample_data_fixtures (fixture_id,school_id,sample_student_id,academic_year_id,term_id,class_id,fixture_type,fixture_payload,fixture_version,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT (fixture_id) DO UPDATE SET fixture_payload=EXCLUDED.fixture_payload,updated_at=EXCLUDED.updated_at`, [id, identity.schoolId, identity.sampleStudentId, identity.academicYearId, identity.termId, identity.classId, identity.fixtureType, JSON.stringify(payload), identity.fixtureVersion, timestamp, timestamp]);
     return getFixture(identity, actor);
   }
   async function getFixture(input, actor) {

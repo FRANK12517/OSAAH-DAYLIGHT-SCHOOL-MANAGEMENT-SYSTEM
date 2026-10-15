@@ -84,7 +84,7 @@ test('returns all 13 canonical classes in school order plus an overall total row
   assert.equal(report.classes.at(-1).className, 'Overall Totals');
   assert.deepEqual(report.classes.at(-1).totalPresent, report.summary.presentStudentDays);
   assert.equal(database.queries.length, 6, 'overview uses a bounded set of batched queries, not per-student queries');
-  assert.deepEqual(report.source, 'TiDB/student_attendance + student_enrollments');
+  assert.deepEqual(report.source, 'student_attendance + student_enrollments');
   assert.equal(report.authoritative, true);
 });
 

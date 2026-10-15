@@ -60,11 +60,11 @@ test('TiDB adapter query returns rows directly for database, zero, single, multi
   } finally { await adapter.close(); }
 });
 
-test('production persistence auto-loads the bundled adapter when DATABASE_URL is configured', async () => {
-  const persistence = await loadConfiguredAIPersistence({ environment: { NODE_ENV: 'production', DATABASE_URL: 'mysql://user:password@example.test:4000/osaah' } });
-  assert.equal(persistence.durable, true);
-  assert.equal(persistence.auditSink.durable, true);
-  assert.equal(persistence.actionStore.durable, true);
+test('application AI persistence rejects TiDB DATABASE_URL instead of selecting legacy runtime', async () => {
+  await assert.rejects(
+    () => loadConfiguredAIPersistence({ environment: { NODE_ENV: 'production', DATABASE_URL: 'mysql://user:password@example.test:4000/osaah' } }),
+    (error) => error.code === 'POSTGRES_URL_REQUIRED' && !error.message.includes('password')
+  );
 });
 
 function migrationPool({ failOn } = {}) {

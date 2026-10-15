@@ -56,7 +56,7 @@ export function createExistingStudentLinkingService({ database, schoolId, clock 
     if (firstName) { predicates.push('LOWER(s.first_name)=LOWER(?)'); params.push(firstName); }
     if (lastName) { predicates.push('LOWER(s.last_name)=LOWER(?)'); params.push(lastName); }
     if (dateOfBirth) { predicates.push('s.date_of_birth=?'); params.push(dateOfBirth); }
-    return rows(await tx.query(`SELECT s.*,sp.id AS profile_id,sp.student_id AS profile_permanent_student_id,sp.first_name AS profile_first_name,sp.last_name AS profile_last_name,sp.date_of_birth AS profile_date_of_birth FROM students s LEFT JOIN student_profiles sp ON sp.student_master_id=s.id AND sp.school_id=s.school_id WHERE s.school_id=? AND COALESCE(s.is_test_record,0)=0 AND ${predicates.join(' AND ')} FOR UPDATE`, params));
+    return rows(await tx.query(`SELECT s.*,sp.id AS profile_id,sp.student_id AS profile_permanent_student_id,sp.first_name AS profile_first_name,sp.last_name AS profile_last_name,sp.date_of_birth AS profile_date_of_birth FROM students s LEFT JOIN student_profiles sp ON sp.student_master_id=s.id AND sp.school_id=s.school_id WHERE s.school_id=? AND s.is_test_record IS NOT TRUE AND ${predicates.join(' AND ')} FOR UPDATE`, params));
   }
 
   function verifyIdentity(row, input) {
@@ -74,7 +74,7 @@ export function createExistingStudentLinkingService({ database, schoolId, clock 
 
   async function nextPermanentStudentId(tx, yearInput, timestamp) {
     const year = admissionYearFor(yearInput);
-    await tx.execute('INSERT INTO student_id_sequences (admission_year,next_sequence,updated_at) VALUES (?,?,?) ON DUPLICATE KEY UPDATE updated_at=VALUES(updated_at)', [year, 1, timestamp]);
+    await tx.execute('INSERT INTO student_id_sequences (admission_year,next_sequence,updated_at) VALUES (?,?,?) ON CONFLICT (admission_year) DO UPDATE SET updated_at=EXCLUDED.updated_at', [year, 1, timestamp]);
     const sequenceRow = rows(await tx.query('SELECT next_sequence FROM student_id_sequences WHERE admission_year=? FOR UPDATE', [year]))[0];
     let sequence = Number(sequenceRow?.next_sequence);
     if (!Number.isInteger(sequence) || sequence < 1) fail('STUDENT_ID_SEQUENCE_INVALID', 'Annual permanent Student ID sequence is invalid.', 409);

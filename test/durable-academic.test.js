@@ -63,7 +63,7 @@ test('authorized subject assignment is tenant-scoped and idempotent', async () =
   assert.equal(second.created, false);
   assert.equal(database.assignments.length, 1);
   assert.equal((await service.listAssignments('subject-math', manager)).length, 1);
-  assert.equal(database.calls.some(({ sql }) => sql.includes('UPDATE subjects SET is_active=1')), false, 'a year-scoped assignment must not globally reactivate the subject record');
+  assert.equal(database.calls.some(({ sql }) => sql.includes('UPDATE subjects SET is_active=TRUE')), false, 'a year-scoped assignment must not globally reactivate the subject record');
 });
 
 test('durable score validation rejects values outside CA and Exam limits', async () => {
@@ -394,7 +394,7 @@ test('Score Entry roster falls back when production enrollment status columns ar
   assert.match(enrollmentQueries[0].sql, /enrollment_status/);
   assert.doesNotMatch(enrollmentQueries[1].sql, /enrollment_status|is_current/);
   assert.match(enrollmentQueries[1].sql, /s\.school_id=\?/);
-  assert.match(enrollmentQueries[1].sql, /COALESCE\(s\.is_test_record,0\)=0/);
+  assert.match(enrollmentQueries[1].sql, /s\.is_test_record IS NOT TRUE/);
 });
 
 test('Score Entry roster falls back to permanent-ID sample exclusion when students.is_test_record is absent', async () => {
@@ -419,7 +419,7 @@ test('Score Entry roster falls back to permanent-ID sample exclusion when studen
   assert.deepEqual(roster.map((student) => student.permanentStudentId), ['OSAAH-2026-001']);
   const rosterQueries = calls.filter(({ sql }) => sql.includes('FROM student_enrollments e JOIN students s'));
   assert.equal(rosterQueries.length, 2);
-  assert.match(rosterQueries[0].sql, /COALESCE\(s\.is_test_record,0\)=0/);
+  assert.match(rosterQueries[0].sql, /s\.is_test_record IS NOT TRUE/);
   assert.match(rosterQueries[1].sql, /s\.permanent_student_id NOT LIKE 'OSAAH-DEMO-%'/);
   assert.doesNotMatch(rosterQueries[1].sql, /is_test_record/);
 });
@@ -565,7 +565,7 @@ test('Score Entry durable roster returns a valid empty collection with exact ter
   const rosterQuery = database.calls.find(({ sql }) => sql.includes('FROM student_enrollments e JOIN students s') && sql.includes('academic_score_records'));
   assert.ok(rosterQuery);
   assert.match(rosterQuery.sql, /e\.term_id=\?/);
-  assert.match(rosterQuery.sql, /COALESCE\(s\.is_test_record,0\)=0/);
+  assert.match(rosterQuery.sql, /s\.is_test_record IS NOT TRUE/);
   assert.equal(rosterQuery.params[6], 'term-1');
 });
 

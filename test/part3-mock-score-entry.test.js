@@ -84,7 +84,7 @@ test('durable Mock roster falls back when legacy TiDB omits optional enrollment 
   database.query = async (sql, params = []) => {
     if (sql.includes('COALESCE(e.enrollment_status')) throw new Error("Unknown column 'e.enrollment_status' in 'where clause'");
     if (sql.includes("COALESCE(s.student_status,'ACTIVE')")) throw new Error("Unknown column 's.student_status' in 'where clause'");
-    if (sql.includes('COALESCE(s.is_test_record,0)')) throw new Error("Unknown column 's.is_test_record' in 'where clause'");
+    if (sql.includes('s.is_test_record IS NOT TRUE')) throw new Error("Unknown column 's.is_test_record' in 'where clause'");
     return query(sql, params);
   };
   const service = createDurableAcademicService({ database, schoolId });

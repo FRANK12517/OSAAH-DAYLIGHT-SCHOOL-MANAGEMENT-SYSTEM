@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { createApp } from '../src/server.mjs';
+import { closeHttpServer } from './helpers/close-http-server.js';
 
 function request(port, token) {
   return fetch(`http://127.0.0.1:${port}/api/subjects`, {
@@ -52,6 +53,6 @@ test('createApp scopes Subjects to the resolved school and still rejects another
     assert.equal(crossTenantResponse.status, 403, 'a request from another tenant must remain forbidden');
     assert.deepEqual(await crossTenantResponse.json(), { error: 'Forbidden.' });
   } finally {
-    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    await closeHttpServer(server);
   }
 });

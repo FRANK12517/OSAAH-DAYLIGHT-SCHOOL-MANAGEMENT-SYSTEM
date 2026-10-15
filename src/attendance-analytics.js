@@ -65,7 +65,7 @@ function distribution(summary, unit = 'student-days') {
   const total = items.reduce((sum, [, value]) => sum + Number(value || 0), 0);
   return { unit, total, items: items.map(([label, count]) => ({ label, count: Number(count || 0), percentage: percentage(count, total) })) };
 }
-function periodMeta(report, filters) { return { filters, label: report?.periodLabel ?? `${filters.startDate ?? 'selected'} – ${filters.endDate ?? 'selected'}`, source: 'TiDB-backed canonical attendance services' }; }
+function periodMeta(report, filters) { return { filters, label: report?.periodLabel ?? `${filters.startDate ?? 'selected'} – ${filters.endDate ?? 'selected'}`, source: 'Database-backed canonical attendance services' }; }
 
 export function createAttendanceAnalyticsService({ database = null, studentOverview = null, staffOverview = null, attendanceRepository = null, attendance = null, schoolId = 'school-osaah-daylight', now = () => new Date().toISOString(), rawProvider = null } = {}) {
   function withinScope(records, filters) {
@@ -103,7 +103,7 @@ export function createAttendanceAnalyticsService({ database = null, studentOverv
   }
   async function overview(inputFilters = {}, actor) {
     authorize(actor); const filters = scopedFilters(validateFilters(inputFilters), actor);
-    if (!studentOverview?.overview) fail('TiDB student attendance reporting is unavailable.', 503, 'STUDENT_ANALYTICS_UNAVAILABLE');
+    if (!studentOverview?.overview) fail('Student attendance reporting is unavailable.', 503, 'STUDENT_ANALYTICS_UNAVAILABLE');
     const student = await studentOverview.overview(filters, actor); const effectiveFilters = { ...filters, ...(student.filters ?? {}) }; const studentMarks = await rawStudentRecords(actor, effectiveFilters); const studentSummary = student.summary ?? summarizeMarks(studentMarks);
     const staff = staffCanRead(actor) && staffOverview?.overview ? await staffOverview.overview(filters, actor) : null; const staffMarks = staff ? await rawStaffRecords(actor, { ...effectiveFilters, ...(staff.filters ?? {}) }) : [];
     const staffSummary = staff ? { present: Number(staff.summary?.present ?? 0), absent: Number(staff.summary?.absent ?? 0), excused: Number(staff.summary?.leave ?? 0), unmarked: Number(staff.staff?.reduce((sum, row) => sum + Number(row.missingDays ?? 0), 0) ?? 0), other: 0 } : { present: 0, absent: 0, excused: 0, unmarked: 0, other: 0 };

@@ -27,7 +27,7 @@ function signIn(auth, username, role) {
 test('GET /api/attendance/students/overview authenticates and forwards validated reporting filters to the server service', async (t) => {
   const reporter = user('overview-headteacher', 'HEADTEACHER', ['attendance.read']);
   const calls = [];
-  const service = { async overview(filters, actor) { calls.push({ filters, actor }); return { authoritative: true, source: 'TiDB/student_attendance + student_enrollments', classes: [], summary: {}, filters }; } };
+  const service = { async overview(filters, actor) { calls.push({ filters, actor }); return { authoritative: true, source: 'student_attendance + student_enrollments', classes: [], summary: {}, filters }; } };
   const auth = createAuthService({ users: [reporter], sessionSecret: SECRET });
   const base = await start(t, { auth, studentAttendanceOverview: service });
   const token = signIn(auth, reporter.username, reporter.roleKey);

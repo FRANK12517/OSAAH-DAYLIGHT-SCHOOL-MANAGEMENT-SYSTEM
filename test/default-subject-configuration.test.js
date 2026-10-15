@@ -35,7 +35,7 @@ function fakeDatabase({ historyMutation = null, historySeed = {} } = {}) {
     subjects, assignments, nurseryBefore, calls, history, transactionStats,
     async query(sql, p = []) {
       calls.push({ sql, params: p });
-      if (sql.includes('information_schema.TABLES') && sql.includes('academic_score_records')) return [{ tableName: 'academic_score_records' }, { tableName: 'academic_result_records' }];
+      if (sql.toLowerCase().includes('information_schema.tables') && sql.includes('academic_score_records')) return [{ tableName: 'academic_score_records' }, { tableName: 'academic_result_records' }];
       if (sql.includes('COUNT(*) AS rowCount FROM academic_score_records')) return [{ rowCount: history.scores.filter((row) => row.school_id === p[0]).length }];
       if (sql.includes('COUNT(*) AS rowCount FROM academic_result_records') && sql.includes('status=?')) return [{ rowCount: history.results.filter((row) => row.school_id === p[0] && row.status === p[1]).length }];
       if (sql.includes('COUNT(*) AS rowCount FROM academic_result_records')) return [{ rowCount: history.results.filter((row) => row.school_id === p[0]).length }];
@@ -75,9 +75,9 @@ function fakeDatabase({ historyMutation = null, historySeed = {} } = {}) {
         if (!assignments.some((row) => row.id === p[0])) assignments.push({ id: p[0], schoolId: p[1], subjectId: p[2], classId: p[3], academicYearId: p[4] ?? null, active: inactiveOverride ? 0 : 1, configurationVersion: inactiveOverride ? p[5] : p[5] ?? p[4] });
         return { affectedRows: 1 };
       }
-      if (sql.startsWith('UPDATE subjects SET is_active=0') || sql.startsWith('UPDATE subjects SET is_active=1')) {
+      if (sql.startsWith('UPDATE subjects SET is_active=FALSE') || sql.startsWith('UPDATE subjects SET is_active=TRUE')) {
         const row = subjects.find((subject) => subject.id === p[1] && subject.schoolId === p[2]);
-        if (row) row.isActive = sql.includes('is_active=0') ? 0 : 1;
+        if (row) row.isActive = sql.includes('is_active=FALSE') ? 0 : 1;
         return { affectedRows: row ? 1 : 0 };
       }
       if (sql.startsWith('UPDATE subjects SET name=')) {
@@ -86,7 +86,7 @@ function fakeDatabase({ historyMutation = null, historySeed = {} } = {}) {
         return { affectedRows: row ? 1 : 0 };
       }
       if (sql.startsWith('UPDATE subject_class_assignments')) {
-        if (sql.includes('SET active=0')) {
+        if (sql.includes('SET active=FALSE')) {
           const matching = assignments.filter((row) => row.schoolId === p[1] && row.subjectId === p[2]);
           matching.forEach((row) => { row.active = 0; });
           return { affectedRows: matching.length };
@@ -94,7 +94,7 @@ function fakeDatabase({ historyMutation = null, historySeed = {} } = {}) {
         const idIndex = p.length === 5 ? 3 : p.length === 4 ? 2 : 2;
         const schoolIndex = p.length === 5 ? 4 : p.length === 4 ? 3 : 3;
         const row = assignments.find((assignment) => assignment.id === p[idIndex] && assignment.schoolId === p[schoolIndex]);
-        if (row) { row.active = p.length === 5 ? p[0] : 1; row.configurationVersion = p.length === 5 ? p[1] : p[0]; }
+        if (row) { row.active = p.length === 5 ? Number(p[0]) : 1; row.configurationVersion = p.length === 5 ? p[1] : p[0]; }
         return { affectedRows: row ? 1 : 0 };
       }
       return { affectedRows: 1 };
