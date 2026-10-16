@@ -121,6 +121,23 @@ test('Part 3 login returns clean errors for invalid credentials and database fai
   } finally { await new Promise((resolve) => invalidServer.close(resolve)); }
 });
 
+test('Part 3 classifies missing PostgreSQL relations without exposing query details', async () => {
+  const previousError = console.error;
+  const errors = [];
+  console.error = (...args) => errors.push(args);
+  const database = { query: async () => { throw Object.assign(new Error('relation "role_permissions" does not exist'), { code: '42P01' }); } };
+  const auth = createAuthService({ database, sessionSecret: 'part-3-test-session-secret-0123456789' });
+  try {
+    const result = await auth.loginFromDatabase({ username: 'accountant@osaah.edu.gh', password: 'unused-test-value', portal: 'school' });
+    assert.equal(result.status, 503);
+    assert.deepEqual(result, { ok: false, status: 503, error: 'Authentication service unavailable.' });
+    assert.equal(errors.length, 1);
+    assert.equal(errors[0][1].category, 'SCHEMA_TABLE_MISSING');
+    assert.equal(errors[0][1].table, 'role_permissions');
+    assert.equal(JSON.stringify(errors).includes('unused-test-value'), false);
+  } finally { console.error = previousError; }
+});
+
 test('Part 3 session persistence failure returns JSON 503 and never issues a cookie', async () => {
   const fixture = await databaseFixture();
   const events = [];

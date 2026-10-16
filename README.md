@@ -11,5 +11,7 @@ npm start
 
 Open `http://localhost:3000`. Set `OSAAH_PORT` to change the port.
 
+Authentication changes must preserve the role, dashboard, session, cookie, and authorization contracts in [the authentication regression contract](docs/authentication-regression-contract.md). Run `npm run test:auth:regression` before changing or reviewing login behavior.
+
 The official logo should be supplied at `public/assets/osaah-daylight-logo.png`; the UI references that permanent asset and intentionally does not generate a substitute.
 
