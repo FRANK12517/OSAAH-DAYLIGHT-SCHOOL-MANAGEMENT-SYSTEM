@@ -28,7 +28,7 @@ export function createAssignmentService({ database = null, subjects = null, stud
     if (classSet.size && !configuredClass) fail('Class is not configured for this school.');
     teacher(actor, classId);
     if (durable) {
-      const registered = await database.query('SELECT s.id FROM subjects s JOIN subject_class_assignments a ON a.subject_id=s.id AND a.school_id=s.school_id WHERE s.school_id=? AND s.id=? AND a.class_id=? AND a.active=1 AND (a.academic_year_id IS NULL OR a.academic_year_id=?) LIMIT 1', [schoolId, subjectId, classId, text(input.academicYearId)]);
+      const registered = await database.query('SELECT s.id FROM subjects s JOIN subject_class_assignments a ON a.subject_id=s.id AND a.school_id=s.school_id WHERE s.school_id=? AND s.id=? AND a.class_id=? AND a.active IS TRUE AND (a.academic_year_id IS NULL OR a.academic_year_id=?) LIMIT 1', [schoolId, subjectId, classId, text(input.academicYearId)]);
       if (!registered.length) fail('Subject is not configured for the selected class.');
     } else if (subjects?.list) {
       const available = subjects.list({ classId }, actor) ?? [];

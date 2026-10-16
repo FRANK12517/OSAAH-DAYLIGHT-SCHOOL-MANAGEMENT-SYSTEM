@@ -33,6 +33,9 @@ test('durable parent receipt reads require an active linked student and parent i
   assert.equal(receipts[0].receiptNumber, 'RCT-1');
   assert.equal(receipts[0].parentGuardianName, 'Controlled Parent');
   assert.match(calls[0].sql, /parent_student_links/);
+  assert.match(calls[0].sql, /student_profiles sp ON sp\.student_master_id=a\.student_id/);
+  assert.match(calls[0].sql, /psl\.student_id=sp\.id/);
+  assert.doesNotMatch(calls[0].sql, /psl\.student_id=a\.student_id/);
   assert.deepEqual(calls[0].params, ['parent-1', 'school-1']);
   await assert.rejects(() => reader.listParentReceipts({ id: 'staff-1', portal: 'school', schoolId: 'school-1' }), /Parent access required/);
 });
@@ -49,6 +52,13 @@ test('the exact missing legacy receipt relation is a safe empty state', async ()
   assert.deepEqual(await reader.listReceipts({}, parent), []);
 });
 
+test('PostgreSQL reports a missing receipt relation as a safe empty state', async () => {
+  const reader = createDurableFeeReader({ adapter: {
+    async query() { throw error('relation "student_fee_receipts" does not exist', '42P01'); }
+  } });
+  assert.deepEqual(await reader.listReceipts({}, parent), []);
+});
+
 test('the exact missing legacy receipt column is a safe empty state', async () => {
   const reader = createDurableFeeReader({ adapter: {
     async query() { throw error("Unknown column 'r.receipt_number'", 'ER_BAD_FIELD_ERROR'); }
@@ -61,6 +71,18 @@ test('legacy optional payment columns use the established fallback and preserve 
   const reader = createDurableFeeReader({ adapter: { async query(sql) {
     calls += 1;
     if (calls === 1) throw error("Unknown column 'p.provider_reference'", 'ER_BAD_FIELD_ERROR');
+    return [receiptRow({ providerReference: null })];
+  } } });
+  const receipts = await reader.listReceipts({}, parent);
+  assert.equal(calls, 2);
+  assert.equal(receipts[0].receiptNumber, 'RCT-1');
+});
+
+test('PostgreSQL missing optional payment columns use the established fallback', async () => {
+  let calls = 0;
+  const reader = createDurableFeeReader({ adapter: { async query() {
+    calls += 1;
+    if (calls === 1) throw error('column p.provider_reference does not exist', '42703');
     return [receiptRow({ providerReference: null })];
   } } });
   const receipts = await reader.listReceipts({}, parent);

@@ -21,7 +21,7 @@ async function publishFeeObligations(i,a){
         fee=await tx.query('SELECT id FROM fee_types WHERE school_id=? AND code=? AND is_active=TRUE',[a.schoolId,canonical.code]);
         if(!fee.length){
           const timestamp=now();
-          await tx.execute('INSERT INTO fee_types (id,school_id,code,name,category,description,is_active,is_system,created_at,updated_at) VALUES (?,?,?,?,?,?,TRUE,TRUE,?,?) ON DUPLICATE KEY UPDATE id=id',[canonical.code,a.schoolId,canonical.code,canonical.name,canonical.category,null,timestamp,timestamp]);
+          await tx.execute('INSERT INTO fee_types (id,school_id,code,name,category,description,is_active,is_system,created_at,updated_at) VALUES (?,?,?,?,?,?,TRUE,TRUE,?,?) ON CONFLICT DO NOTHING',[canonical.code,a.schoolId,canonical.code,canonical.name,canonical.category,null,timestamp,timestamp]);
           fee=await tx.query('SELECT id FROM fee_types WHERE school_id=? AND code=? AND is_active=TRUE',[a.schoolId,canonical.code]);
         }
       }

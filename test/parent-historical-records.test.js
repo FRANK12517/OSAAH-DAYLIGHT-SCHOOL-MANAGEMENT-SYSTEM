@@ -68,7 +68,7 @@ test('historical contexts are exact stored enrollment tuples and remain scoped t
   assert.match(captured.sql, /psl\.parent_user_id=\?/);
   assert.match(captured.sql, /s\.school_id=\?/);
   assert.match(captured.sql, /s\.permanent_student_id=\?/);
-  assert.match(captured.sql, /COALESCE\(s\.is_test_record,0\)=0/);
+  assert.match(captured.sql, /s\.is_test_record IS NOT TRUE/);
   assert.match(captured.sql, /student_enrollments/);
   assert.doesNotMatch(captured.sql, /is_current\s*=\s*1/i);
 });

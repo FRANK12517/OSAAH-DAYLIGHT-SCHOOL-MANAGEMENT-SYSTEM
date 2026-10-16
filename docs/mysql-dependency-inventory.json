@@ -1,0 +1,1527 @@
+{
+  "generatedAt": "2026-10-15T19:33:20.124Z",
+  "scope": [
+    "src",
+    "scripts"
+  ],
+  "note": "Static lexical inventory only. It scans src/ and scripts/, excludes historical schema/ migration SQL and tests, and classifies matches using source path/caller conventions. Manual caller review is required; it cannot discover dynamic SQL or prove complete PostgreSQL compatibility. Runtime groups classified PostgreSQL-compatible have selected PGlite/mock coverage only; no real pg wire-protocol verification has run.",
+  "totals": {
+    "filesWithOccurrences": 63,
+    "dependencyGroups": 92,
+    "directRuntimeMySqlBlockerGroups": 0,
+    "legacyTiDBMaintenanceGroups": 73,
+    "postgresRuntimeGroupsWithSelectedCoverage": 13,
+    "unverifiedRealPostgresGroups": 12,
+    "occurrenceCount": 439
+  },
+  "dependencies": [
+    {
+      "file": "scripts/admission-workflow-migration-preflight.mjs",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 7,
+      "sampleLines": [
+        50,
+        55,
+        56,
+        57
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/admission-workflow-migration-preflight.mjs",
+      "category": "mysql2 import/pool",
+      "count": 2,
+      "sampleLines": [
+        91,
+        92
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/apply-final-result-slip-reconciliation.mjs",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 3,
+      "sampleLines": [
+        34,
+        53
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/one-time-proprietor-credential-reset.mjs",
+      "category": "MySQL insert/result metadata",
+      "count": 2,
+      "sampleLines": [
+        62,
+        69
+      ],
+      "executionPath": "application adapter compatibility contract; callers receive pg rowCount plus legacy affectedRows metadata",
+      "classification": "PostgreSQL-compatible adapter bridge; consumer coverage is selected, not exhaustive",
+      "requiredPostgresChange": "Retain the compatibility shape while callers are migrated; validate each durable workflow on PostgreSQL.",
+      "tests": "Adapter and selected application tests; no real pg connection yet.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": false
+    },
+    {
+      "file": "scripts/one-time-proprietor-credential-reset.mjs",
+      "category": "MySQL transaction API",
+      "count": 3,
+      "sampleLines": [
+        41,
+        68,
+        71
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/one-time-proprietor-credential-reset.mjs",
+      "category": "mysql2 import/pool",
+      "count": 2,
+      "sampleLines": [
+        3,
+        37
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-academic-calendar-migrate.mjs",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 5,
+      "sampleLines": [
+        15,
+        16,
+        18
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-academic-result-lifecycle-migrate.mjs",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 7,
+      "sampleLines": [
+        30,
+        32,
+        41,
+        43
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-academic-score-foundation-migrate.mjs",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 9,
+      "sampleLines": [
+        31,
+        34,
+        58,
+        65,
+        72
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-admission-migrate.mjs",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 9,
+      "sampleLines": [
+        18,
+        22,
+        35,
+        40,
+        61
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-admission-migrate.mjs",
+      "category": "mysql2 import/pool",
+      "count": 2,
+      "sampleLines": [
+        2,
+        7
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-admissions-migration-078.mjs",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 6,
+      "sampleLines": [
+        51,
+        52,
+        79,
+        99
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-assignment-migration.mjs",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 7,
+      "sampleLines": [
+        21,
+        27,
+        28,
+        54
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-class-catalog-reconcile.mjs",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 1,
+      "sampleLines": [
+        13
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-class-catalog-reconcile.mjs",
+      "category": "MySQL transaction API",
+      "count": 3,
+      "sampleLines": [
+        30,
+        37,
+        39
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-class-catalog-reconcile.mjs",
+      "category": "mysql2 import/pool",
+      "count": 2,
+      "sampleLines": [
+        2,
+        22
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-durable-announcements-migrate-076.mjs",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 6,
+      "sampleLines": [
+        22,
+        24,
+        25
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-durable-auth-migrate.mjs",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 5,
+      "sampleLines": [
+        38,
+        39,
+        51
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-durable-promotion-migrate-074.mjs",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 9,
+      "sampleLines": [
+        20,
+        21,
+        22,
+        23,
+        65
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-enrollment-contract-migrate.mjs",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 11,
+      "sampleLines": [
+        20,
+        27,
+        30,
+        36,
+        77,
+        81
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-enrollment-contract-migrate.mjs",
+      "category": "GROUP_CONCAT",
+      "count": 2,
+      "sampleLines": [
+        36,
+        81
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-enrollment-is-current-migrate-080.mjs",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 5,
+      "sampleLines": [
+        29,
+        33,
+        51
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-fee-obligation-custom-type-migrate.mjs",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 7,
+      "sampleLines": [
+        20,
+        27,
+        29,
+        53
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-migration-059-preflight.sql",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 24,
+      "sampleLines": [
+        8,
+        10,
+        21,
+        22,
+        38,
+        39,
+        105,
+        106,
+        115,
+        116,
+        128,
+        129,
+        138,
+        139,
+        148,
+        149,
+        159,
+        160,
+        163,
+        183,
+        184,
+        188,
+        207,
+        208
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-migration-059-preflight.sql",
+      "category": "GROUP_CONCAT",
+      "count": 2,
+      "sampleLines": [
+        137,
+        147
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-migration-063-inventory.mjs",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 7,
+      "sampleLines": [
+        29,
+        40,
+        41,
+        49,
+        50,
+        56,
+        57
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-migration-063-inventory.mjs",
+      "category": "mysql2 import/pool",
+      "count": 2,
+      "sampleLines": [
+        1,
+        149
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-migration-baseline-inventory.mjs",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 11,
+      "sampleLines": [
+        49,
+        51,
+        52,
+        53,
+        54,
+        55
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-migration-baseline-inventory.mjs",
+      "category": "mysql2 import/pool",
+      "count": 2,
+      "sampleLines": [
+        3,
+        46
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-migration-ledger-inventory.mjs",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 7,
+      "sampleLines": [
+        13,
+        15,
+        16,
+        17
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-migration-ledger-inventory.mjs",
+      "category": "mysql2 import/pool",
+      "count": 2,
+      "sampleLines": [
+        1,
+        11
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-pre-050-contract-inventory.mjs",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 16,
+      "sampleLines": [
+        43,
+        45,
+        46,
+        47,
+        48,
+        49,
+        67,
+        69,
+        72
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-pre-050-contract-inventory.mjs",
+      "category": "mysql2 import/pool",
+      "count": 2,
+      "sampleLines": [
+        1,
+        41
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-rbac-inventory.mjs",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 9,
+      "sampleLines": [
+        21,
+        23,
+        33,
+        35,
+        37
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-rbac-inventory.mjs",
+      "category": "mysql2 import/pool",
+      "count": 2,
+      "sampleLines": [
+        1,
+        19
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-rbac-reconcile.mjs",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 7,
+      "sampleLines": [
+        14,
+        35,
+        41,
+        44
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-rbac-reconcile.mjs",
+      "category": "MySQL transaction API",
+      "count": 3,
+      "sampleLines": [
+        66,
+        70,
+        73
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-rbac-reconcile.mjs",
+      "category": "mysql2 import/pool",
+      "count": 2,
+      "sampleLines": [
+        2,
+        55
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-reconciliation-preflight.mjs",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 9,
+      "sampleLines": [
+        32,
+        34,
+        35,
+        36,
+        57
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-reconciliation-preflight.mjs",
+      "category": "mysql2 import/pool",
+      "count": 2,
+      "sampleLines": [
+        2,
+        30
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-result-blocking-migrate-075.mjs",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 1,
+      "sampleLines": [
+        46
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-result-blocking-migrate.mjs",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 11,
+      "sampleLines": [
+        23,
+        35,
+        36,
+        37,
+        49,
+        57
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-result-slip-targeted-inventory.mjs",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 13,
+      "sampleLines": [
+        50,
+        61,
+        62,
+        67,
+        68,
+        72,
+        73,
+        76,
+        77,
+        81,
+        82,
+        86,
+        87
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-result-slip-targeted-inventory.mjs",
+      "category": "mysql2 import/pool",
+      "count": 2,
+      "sampleLines": [
+        1,
+        136
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-roster-read-only-diagnostic.mjs",
+      "category": "boolean integer coercion",
+      "count": 2,
+      "sampleLines": [
+        107
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-roster-read-only-diagnostic.mjs",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 1,
+      "sampleLines": [
+        61
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-roster-read-only-diagnostic.mjs",
+      "category": "mysql2 import/pool",
+      "count": 2,
+      "sampleLines": [
+        1,
+        51
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-sample-fixture-migrate.mjs",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 5,
+      "sampleLines": [
+        18,
+        29,
+        31
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-sample-fixture-preflight.mjs",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 8,
+      "sampleLines": [
+        14,
+        16,
+        17,
+        19
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-sample-fixture-seed.mjs",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 3,
+      "sampleLines": [
+        117,
+        120
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-schema-inventory.mjs",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 9,
+      "sampleLines": [
+        39,
+        42,
+        47,
+        51,
+        52,
+        58,
+        59
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-schema-inventory.mjs",
+      "category": "mysql2 import/pool",
+      "count": 2,
+      "sampleLines": [
+        1,
+        31
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-sms-migration-077.mjs",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 6,
+      "sampleLines": [
+        27,
+        29,
+        30
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-subject-assessment-migrate.mjs",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 9,
+      "sampleLines": [
+        39,
+        52,
+        68,
+        72,
+        121
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-subject-assignment-preview.mjs",
+      "category": "boolean integer coercion",
+      "count": 1,
+      "sampleLines": [
+        18
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-subject-assignment-preview.mjs",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 3,
+      "sampleLines": [
+        14,
+        24
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-subject-class-assignments-reconciliation.mjs",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 14,
+      "sampleLines": [
+        30,
+        39,
+        41,
+        42,
+        43,
+        60,
+        102
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-subject-classification-migrate.mjs",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 5,
+      "sampleLines": [
+        29,
+        48,
+        49,
+        54,
+        55
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-subject-configuration-sync.mjs",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 9,
+      "sampleLines": [
+        42,
+        59,
+        70,
+        78,
+        95
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-subject-updated-at-migrate-073.mjs",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 5,
+      "sampleLines": [
+        19,
+        22,
+        46
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-three-term-configure.mjs",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 1,
+      "sampleLines": [
+        15
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-three-term-inventory.mjs",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 2,
+      "sampleLines": [
+        27,
+        34
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-three-term-inventory.mjs",
+      "category": "mysql2 import/pool",
+      "count": 1,
+      "sampleLines": [
+        1
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/production-user-auth-migrate.mjs",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 5,
+      "sampleLines": [
+        15,
+        18,
+        47
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/record-production-baseline.mjs",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 9,
+      "sampleLines": [
+        19,
+        24,
+        25,
+        26,
+        27
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/run-postgres-integration.mjs",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 3,
+      "sampleLines": [
+        42,
+        93,
+        255
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "scripts/run-postgres-integration.mjs",
+      "category": "MySQL insert/result metadata",
+      "count": 2,
+      "sampleLines": [
+        101,
+        105
+      ],
+      "executionPath": "application adapter compatibility contract; callers receive pg rowCount plus legacy affectedRows metadata",
+      "classification": "PostgreSQL-compatible adapter bridge; consumer coverage is selected, not exhaustive",
+      "requiredPostgresChange": "Retain the compatibility shape while callers are migrated; validate each durable workflow on PostgreSQL.",
+      "tests": "Adapter and selected application tests; no real pg connection yet.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": false
+    },
+    {
+      "file": "scripts/supabase-migrate.mjs",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 1,
+      "sampleLines": [
+        42
+      ],
+      "executionPath": "local-only PostgreSQL migration/validation command",
+      "classification": "PostgreSQL-native operational tooling",
+      "requiredPostgresChange": "No MySQL conversion required; real server status/apply remains unverified.",
+      "tests": "test/supabase-migrate-cli.test.js.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": false
+    },
+    {
+      "file": "src/ai/durable-stores.js",
+      "category": "MySQL insert/result metadata",
+      "count": 1,
+      "sampleLines": [
+        40
+      ],
+      "executionPath": "application adapter compatibility contract; callers receive pg rowCount plus legacy affectedRows metadata",
+      "classification": "PostgreSQL-compatible adapter bridge; consumer coverage is selected, not exhaustive",
+      "requiredPostgresChange": "Retain the compatibility shape while callers are migrated; validate each durable workflow on PostgreSQL.",
+      "tests": "Adapter and selected application tests; no real pg connection yet.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": false
+    },
+    {
+      "file": "src/ai/postgres-database-adapter.js",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 1,
+      "sampleLines": [
+        265
+      ],
+      "executionPath": "application database adapter selected by OSAAH_POSTGRES_URL",
+      "classification": "PostgreSQL runtime path; pool behavior tested with a mock pg pool and PGlite facade, real pg wire protocol unverified",
+      "requiredPostgresChange": "Run against disposable real PostgreSQL before cutover; do not infer wire-protocol compatibility from PGlite.",
+      "tests": "test/postgres-database-adapter.test.js and test/postgres-pglite-application.test.js.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": false
+    },
+    {
+      "file": "src/ai/postgres-database-adapter.js",
+      "category": "MySQL insert/result metadata",
+      "count": 2,
+      "sampleLines": [
+        208,
+        276
+      ],
+      "executionPath": "application database adapter selected by OSAAH_POSTGRES_URL",
+      "classification": "PostgreSQL runtime path; pool behavior tested with a mock pg pool and PGlite facade, real pg wire protocol unverified",
+      "requiredPostgresChange": "Run against disposable real PostgreSQL before cutover; do not infer wire-protocol compatibility from PGlite.",
+      "tests": "test/postgres-database-adapter.test.js and test/postgres-pglite-application.test.js.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": false
+    },
+    {
+      "file": "src/ai/tidb-database-adapter.js",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 2,
+      "sampleLines": [
+        148
+      ],
+      "executionPath": "imported only by standalone legacy migration/maintenance commands; application selector never loads it",
+      "classification": "TiDB/MySQL migration-only compatibility path intentionally retained",
+      "requiredPostgresChange": "Keep this adapter isolated from application startup and OSAAH_POSTGRES_URL.",
+      "tests": "test/tidb-database-adapter.test.js and runtime selector rejection tests.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": false
+    },
+    {
+      "file": "src/ai/tidb-database-adapter.js",
+      "category": "MySQL insert/result metadata",
+      "count": 5,
+      "sampleLines": [
+        126,
+        132,
+        159
+      ],
+      "executionPath": "imported only by standalone legacy migration/maintenance commands; application selector never loads it",
+      "classification": "TiDB/MySQL migration-only compatibility path intentionally retained",
+      "requiredPostgresChange": "Keep this adapter isolated from application startup and OSAAH_POSTGRES_URL.",
+      "tests": "test/tidb-database-adapter.test.js and runtime selector rejection tests.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": false
+    },
+    {
+      "file": "src/ai/tidb-database-adapter.js",
+      "category": "MySQL transaction API",
+      "count": 3,
+      "sampleLines": [
+        128,
+        136,
+        137
+      ],
+      "executionPath": "imported only by standalone legacy migration/maintenance commands; application selector never loads it",
+      "classification": "TiDB/MySQL migration-only compatibility path intentionally retained",
+      "requiredPostgresChange": "Keep this adapter isolated from application startup and OSAAH_POSTGRES_URL.",
+      "tests": "test/tidb-database-adapter.test.js and runtime selector rejection tests.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": false
+    },
+    {
+      "file": "src/ai/tidb-database-adapter.js",
+      "category": "MySQL upsert/ignore",
+      "count": 1,
+      "sampleLines": [
+        144
+      ],
+      "executionPath": "imported only by standalone legacy migration/maintenance commands; application selector never loads it",
+      "classification": "TiDB/MySQL migration-only compatibility path intentionally retained",
+      "requiredPostgresChange": "Keep this adapter isolated from application startup and OSAAH_POSTGRES_URL.",
+      "tests": "test/tidb-database-adapter.test.js and runtime selector rejection tests.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": false
+    },
+    {
+      "file": "src/ai/tidb-database-adapter.js",
+      "category": "mysql2 import/pool",
+      "count": 1,
+      "sampleLines": [
+        1
+      ],
+      "executionPath": "imported only by standalone legacy migration/maintenance commands; application selector never loads it",
+      "classification": "TiDB/MySQL migration-only compatibility path intentionally retained",
+      "requiredPostgresChange": "Keep this adapter isolated from application startup and OSAAH_POSTGRES_URL.",
+      "tests": "test/tidb-database-adapter.test.js and runtime selector rejection tests.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": false
+    },
+    {
+      "file": "src/attendance-repository.js",
+      "category": "MySQL insert/result metadata",
+      "count": 2,
+      "sampleLines": [
+        51,
+        99
+      ],
+      "executionPath": "application adapter compatibility contract; callers receive pg rowCount plus legacy affectedRows metadata",
+      "classification": "PostgreSQL-compatible adapter bridge; consumer coverage is selected, not exhaustive",
+      "requiredPostgresChange": "Retain the compatibility shape while callers are migrated; validate each durable workflow on PostgreSQL.",
+      "tests": "Adapter and selected application tests; no real pg connection yet.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": false
+    },
+    {
+      "file": "src/auth.js",
+      "category": "MySQL insert/result metadata",
+      "count": 1,
+      "sampleLines": [
+        350
+      ],
+      "executionPath": "application adapter compatibility contract; callers receive pg rowCount plus legacy affectedRows metadata",
+      "classification": "PostgreSQL-compatible adapter bridge; consumer coverage is selected, not exhaustive",
+      "requiredPostgresChange": "Retain the compatibility shape while callers are migrated; validate each durable workflow on PostgreSQL.",
+      "tests": "Adapter and selected application tests; no real pg connection yet.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": false
+    },
+    {
+      "file": "src/durable-academic.js",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 1,
+      "sampleLines": [
+        31
+      ],
+      "executionPath": "application runtime schema-presence check scoped to public PostgreSQL catalog",
+      "classification": "PostgreSQL-compatible runtime metadata query",
+      "requiredPostgresChange": "No MySQL conversion required; verify through PostgreSQL application coverage.",
+      "tests": "test/postgres-pglite-application.test.js exercises durable academic score writes, not every schema fallback.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": false
+    },
+    {
+      "file": "src/durable-academic.js",
+      "category": "MySQL insert/result metadata",
+      "count": 1,
+      "sampleLines": [
+        197
+      ],
+      "executionPath": "application adapter compatibility contract; callers receive pg rowCount plus legacy affectedRows metadata",
+      "classification": "PostgreSQL-compatible adapter bridge; consumer coverage is selected, not exhaustive",
+      "requiredPostgresChange": "Retain the compatibility shape while callers are migrated; validate each durable workflow on PostgreSQL.",
+      "tests": "Adapter and selected application tests; no real pg connection yet.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": false
+    },
+    {
+      "file": "src/durable-administrator-credential-reset.js",
+      "category": "MySQL insert/result metadata",
+      "count": 2,
+      "sampleLines": [
+        67,
+        76
+      ],
+      "executionPath": "application adapter compatibility contract; callers receive pg rowCount plus legacy affectedRows metadata",
+      "classification": "PostgreSQL-compatible adapter bridge; consumer coverage is selected, not exhaustive",
+      "requiredPostgresChange": "Retain the compatibility shape while callers are migrated; validate each durable workflow on PostgreSQL.",
+      "tests": "Adapter and selected application tests; no real pg connection yet.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": false
+    },
+    {
+      "file": "src/durable-credential-management.js",
+      "category": "MySQL insert/result metadata",
+      "count": 1,
+      "sampleLines": [
+        55
+      ],
+      "executionPath": "application adapter compatibility contract; callers receive pg rowCount plus legacy affectedRows metadata",
+      "classification": "PostgreSQL-compatible adapter bridge; consumer coverage is selected, not exhaustive",
+      "requiredPostgresChange": "Retain the compatibility shape while callers are migrated; validate each durable workflow on PostgreSQL.",
+      "tests": "Adapter and selected application tests; no real pg connection yet.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": false
+    },
+    {
+      "file": "src/durable-staff-provisioning.js",
+      "category": "MySQL insert/result metadata",
+      "count": 1,
+      "sampleLines": [
+        267
+      ],
+      "executionPath": "application adapter compatibility contract; callers receive pg rowCount plus legacy affectedRows metadata",
+      "classification": "PostgreSQL-compatible adapter bridge; consumer coverage is selected, not exhaustive",
+      "requiredPostgresChange": "Retain the compatibility shape while callers are migrated; validate each durable workflow on PostgreSQL.",
+      "tests": "Adapter and selected application tests; no real pg connection yet.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": false
+    },
+    {
+      "file": "src/platform/academic-result-blocking-075-schema.js",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 6,
+      "sampleLines": [
+        109,
+        110,
+        115,
+        116,
+        120,
+        121
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "src/platform/assignment-migration-schema.js",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 9,
+      "sampleLines": [
+        8,
+        9,
+        13,
+        14,
+        18,
+        19,
+        24,
+        25,
+        29
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "src/platform/final-result-slip-reconciliation.js",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 16,
+      "sampleLines": [
+        133,
+        139,
+        140,
+        141,
+        156,
+        158,
+        289,
+        292
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "src/platform/forward-finance-migration.js",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 3,
+      "sampleLines": [
+        38,
+        43
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "src/platform/forward-production-reconciliation.js",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 3,
+      "sampleLines": [
+        19,
+        24
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "src/platform/repositories.js",
+      "category": "MySQL insert/result metadata",
+      "count": 1,
+      "sampleLines": [
+        22
+      ],
+      "executionPath": "application adapter compatibility contract; callers receive pg rowCount plus legacy affectedRows metadata",
+      "classification": "PostgreSQL-compatible adapter bridge; consumer coverage is selected, not exhaustive",
+      "requiredPostgresChange": "Retain the compatibility shape while callers are migrated; validate each durable workflow on PostgreSQL.",
+      "tests": "Adapter and selected application tests; no real pg connection yet.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": false
+    },
+    {
+      "file": "src/platform/result-slip-migration-preflight.js",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 8,
+      "sampleLines": [
+        19,
+        39,
+        40,
+        41
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "src/production-terms-uniqueness-migration.js",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 7,
+      "sampleLines": [
+        29,
+        30,
+        36,
+        37,
+        178,
+        179
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    },
+    {
+      "file": "src/production-three-term-config.js",
+      "category": "DATABASE() / information_schema metadata",
+      "count": 2,
+      "sampleLines": [
+        53,
+        115
+      ],
+      "executionPath": "manually invoked migration, reconciliation, inventory, backup, or credential-maintenance command; current callers use TiDB/MySQL adapters or historical schema SQL",
+      "classification": "Legacy TiDB/MySQL maintenance path; not server startup or request runtime",
+      "requiredPostgresChange": "Do not run against PostgreSQL. A PostgreSQL-native replacement is required if this same operational task is needed after cutover. The one-time credential reset is also TiDB-specific.",
+      "tests": "Legacy command tests only; no PostgreSQL compatibility claim.",
+      "blocker": false,
+      "replacementRequiredForPostgresOperation": true
+    }
+  ]
+}

@@ -96,7 +96,7 @@ export function createDurableSmsService({ database, schoolId, gateway = createAr
     JOIN student_profiles sp ON sp.id=psl.student_id AND sp.school_id=u.school_id
     JOIN students s ON s.id=sp.student_master_id AND s.school_id=u.school_id
     LEFT JOIN classes c ON c.id=sp.class_id
-    WHERE psl.link_status='ACTIVE' AND s.school_id=? AND COALESCE(s.is_test_record,0)=0
+    WHERE psl.link_status='ACTIVE' AND s.school_id=? AND s.is_test_record IS NOT TRUE
       AND COALESCE(s.student_status,'ACTIVE') NOT IN ('WITHDRAWN','TRANSFERRED','COMPLETED','GRADUATED')
       AND u.id<>? AND COALESCE(psl.telephone,'')<>''`;
   function normalizeRecipients(rows) {
@@ -124,7 +124,7 @@ export function createDurableSmsService({ database, schoolId, gateway = createAr
       const context = await database.query('SELECT ay.id AS academicYearId,t.id AS termId FROM academic_years ay JOIN terms t ON t.academic_year_id=ay.id WHERE ay.school_id=? AND ay.id=? AND t.id=? LIMIT 1', [schoolId, academicYearId, termId]);
       if (!context.length) fail('The selected academic context is not valid for this school.', 400);
       const rows = await database.query(`${linkedStudentQuery}
-        AND EXISTS (SELECT 1 FROM student_enrollments e WHERE e.student_id=s.id AND e.school_id=s.school_id AND e.academic_year_id=? AND e.term_id=? AND e.class_id=sp.class_id AND e.is_current=1 AND UPPER(COALESCE(e.enrollment_status,'ACTIVE')) NOT IN ('WITHDRAWN','TRANSFERRED','COMPLETED','GRADUATED'))
+        AND EXISTS (SELECT 1 FROM student_enrollments e WHERE e.student_id=s.id AND e.school_id=s.school_id AND e.academic_year_id=? AND e.term_id=? AND e.class_id=sp.class_id AND e.is_current IS TRUE AND UPPER(COALESCE(e.enrollment_status,'ACTIVE')) NOT IN ('WITHDRAWN','TRANSFERRED','COMPLETED','GRADUATED'))
         ORDER BY psl.parent_user_id,s.id`, [schoolId, schoolId, TEST_PARENT_ID, academicYearId, termId]);
       const inClass = rows.filter((row) => canonicalSmsClass(row.className) === canonicalSmsClass(className));
       return { mode, recipients: normalizeRecipients(inClass), context: { className, academicYearId, termId } };

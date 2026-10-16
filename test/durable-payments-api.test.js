@@ -5,6 +5,7 @@ import test from 'node:test';
 import { createAuthService } from '../src/auth.js';
 import { createApp } from '../src/server.mjs';
 import { createDurableFeeReader } from '../src/durable-fee-reader.js';
+import { closeHttpServer } from './helpers/close-http-server.js';
 
 const SCHOOL = 'sch_default_01';
 const otherPayment = { id: 'payment-other', school_id: 'school-other', paymentReference: 'PAY-OTHER', receiptNumber: 'RCT-OTHER', invoiceNumber: 'INV-OTHER', studentId: 'student-other', permanentStudentId: 'PS-OTHER', classId: 'class-other', academicYearId: '2026', termId: 'TERM1', amount: '9999.99', method: 'BANK', status: 'VALID', paymentDate: '2026-09-02', createdAt: '2026-09-02T10:00:00Z', enteredBy: 'other-user', receiptStatus: 'VALID', previousBalance: '10000.00', newBalance: '0.01' };
@@ -107,6 +108,6 @@ test('authenticated accountant reads only persisted OSAAH Payments and empty dat
     assert.equal((await request(server, '/api/fees/receipts/RCT-OSAah-001')).status, 401);
     const emptyApp = createApp({ auth, database: database([]) });
     const emptyServer = createServer(emptyApp); await new Promise((resolve) => emptyServer.listen(0, resolve));
-    try { const empty = await request(emptyServer, '/api/fees/payments', accountantToken); assert.equal(empty.status, 200); assert.deepEqual(empty.body, { payments: [] }); } finally { await new Promise((resolve) => emptyServer.close(resolve)); }
-  } finally { await new Promise((resolve) => server.close(resolve)); }
+    try { const empty = await request(emptyServer, '/api/fees/payments', accountantToken); assert.equal(empty.status, 200); assert.deepEqual(empty.body, { payments: [] }); } finally { await closeHttpServer(emptyServer); }
+  } finally { await closeHttpServer(server); }
 });

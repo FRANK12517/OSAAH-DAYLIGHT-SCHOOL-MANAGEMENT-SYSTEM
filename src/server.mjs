@@ -45,7 +45,6 @@ import { createResultSlipPdfService } from './result-slip-pdf.js';
 import { createSampleResultWorkflow } from './sample-result-workflow.js';
 import { createSubjectService } from './subjects.js';
 import { createSignatureService } from './signatures.js';
-import { createDatabaseAdapter } from './ai/tidb-database-adapter.js';
 import { createProprietorAuthenticationController } from './proprietor-authentication-controller.js';
 import { createReceiptBrandingService } from './receipt-branding.js';
 import { createSportingActivitiesService, SPORTING_PERMISSIONS } from './sporting-activities.js';
@@ -76,7 +75,7 @@ import { createExecutiveCapabilityAdapters, createExecutiveIntelligence } from '
 import { createAIActionAdapters, createHumanControlledActions } from './ai/human-controlled-actions.js';
 import { createAIAdministration } from './ai/administration.js';
 import { createAIAuditLogger } from './ai/audit-logger.js';
-import { createDisabledAIPersistence, loadConfiguredAIPersistence, selectAIPersistence } from './ai/durable-stores.js';
+import { createDisabledAIPersistence, loadConfiguredAIPersistence, loadConfiguredDatabaseAdapter, selectAIPersistence } from './ai/durable-stores.js';
 import { assertProductionAISystemOfRecordReady } from './ai/system-of-record-readiness.js';
 import { buildAIRegistry } from './ai/registry.js';
 import { createProductionDataGuard } from './ai/production-data-guard.js';
@@ -737,7 +736,7 @@ if (durableAcademic && body.sampleMode === true) {
       if (pathname === '/api/academic/broadsheet' && request.method === 'GET') { if (!canAccess(user, 'results.read')) return json(response, { error: 'Forbidden.' }, 403); if (!durableAcademic && process.env.NODE_ENV === 'production') return json(response, { error: 'Durable Broadsheet data is unavailable.' }, 503); try { const query = Object.fromEntries(new URL(request.url, 'http://localhost').searchParams); const rows = durableAcademic ? await durableAcademic.broadsheet(query, user) : academicResults.broadsheet(query, user, { mock: false }); return json(response, { rows }); } catch (error) { console.error('[Broadsheet] request failed', { schoolId: user.schoolId, userId: user.id, message: error.message }); return json(response, { error: error.message }, error.status ?? (error.message === 'Forbidden.' ? 403 : 400)); } }
       if (pathname === '/api/academic/mock-broadsheet' && request.method === 'GET') { if (!canAccess(user, 'mock.results.read')) return json(response, { error: 'Forbidden.' }, 403); try { const query = Object.fromEntries(new URL(request.url, 'http://localhost').searchParams); const rows = durableAcademic ? await durableAcademic.mockBroadsheet(query, user) : academicResults.broadsheet(query, user, { mock: true }); return json(response, { rows }); } catch (error) { return json(response, { error: error.message }, error.status ?? (error.message === 'Forbidden.' ? 403 : 400)); } }
       if (pathname === '/api/academic/header' && request.method === 'GET') return json(response, { asset: RESULT_HEADER_ASSET });
-      if (pathname === '/api/subjects/configure-defaults' && request.method === 'POST') { if (!canAccess(user, 'subjects.manage')) return json(response, { error: 'Forbidden.' }, 403); if (!durableAcademic) return json(response, { error: 'TiDB subject configuration is unavailable.' }, 503); try { const result = await durableAcademic.configureDefaultSubjects(user); audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, roleId: user.roleKey, action: 'DEFAULT_SUBJECTS_CONFIGURED', entity: 'SubjectConfiguration', entityId: String(result.configurationVersion), newValue: result })); return json(response, result); } catch (error) { console.error('[Subjects] default configuration failed', { schoolId: user.schoolId, userId: user.id, message: error.message, stack: error.stack }); return json(response, { error: error.message === 'Forbidden.' ? 'Forbidden.' : error.message }, error.status ?? (error.message === 'Forbidden.' ? 403 : 400)); } }
+      if (pathname === '/api/subjects/configure-defaults' && request.method === 'POST') { if (!canAccess(user, 'subjects.manage')) return json(response, { error: 'Forbidden.' }, 403); if (!durableAcademic) return json(response, { error: 'Database-backed subject configuration is unavailable.' }, 503); try { const result = await durableAcademic.configureDefaultSubjects(user); audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, roleId: user.roleKey, action: 'DEFAULT_SUBJECTS_CONFIGURED', entity: 'SubjectConfiguration', entityId: String(result.configurationVersion), newValue: result })); return json(response, result); } catch (error) { console.error('[Subjects] default configuration failed', { schoolId: user.schoolId, userId: user.id, message: error.message, stack: error.stack }); return json(response, { error: error.message === 'Forbidden.' ? 'Forbidden.' : error.message }, error.status ?? (error.message === 'Forbidden.' ? 403 : 400)); } }
       if (pathname === '/api/subjects/configuration' && request.method === 'GET') { if (!canAccess(user, 'subjects.read') && !canAccess(user, 'subjects.manage') && !canAccess(user, 'academics.read')) return json(response, { error: 'Forbidden.' }, 403); if (!durableAcademic) return json(response, { error: 'Durable subject configuration is unavailable.' }, 503); try { const query = Object.fromEntries(new URL(request.url, 'http://localhost').searchParams); return json(response, await durableAcademic.subjectConfiguration(user, query)); } catch (error) { return json(response, { error: error.message === 'Forbidden.' ? 'Forbidden.' : error.message }, error.status ?? (error.message === 'Forbidden.' ? 403 : 500)); } }
       if (pathname === '/api/subjects' && request.method === 'GET') { if (!canAccess(user, 'subjects.read') && !canAccess(user, 'academics.read')) return json(response, { error: 'Forbidden.' }, 403); if (!durableAcademic && process.env.NODE_ENV === 'production') return json(response, { error: 'Durable subject data is unavailable.' }, 503); try { const query = Object.fromEntries(new URL(request.url, 'http://localhost').searchParams); const hasTermFilter = Boolean(query.termId || query.term); const hasYearFilter = Boolean(query.academicYearId || query.academicYear); const hasPeriodFilter = hasTermFilter || hasYearFilter; if (hasTermFilter && (!query.classId || !hasYearFilter)) return json(response, { error: 'Academic year, term, and class are all required to load registered subjects.' }, 400); if (hasYearFilter && !query.classId) return json(response, { error: 'Class is required when filtering subjects by academic year.' }, 400); let configured = durableAcademic ? (String(query.mock ?? '').toLowerCase() === 'true' ? await durableAcademic.mockSubjectCatalog(user) : (hasPeriodFilter ? (await durableAcademic.subjectCascade(query, user)).subjects : await durableAcademic.listSubjects(query, user))) : subjects.list(query, user); if (!durableAcademic && query.classId && query.academicYearId && query.termId) { const registered = subjectRegister?.registeredSubjects?.({ academicYearId: query.academicYearId, termId: query.termId, classId: query.classId }, user); if (registered) configured = configured.filter((subject) => registered.includes(subject.id)); } return json(response, { subjects: configured }); } catch (error) { console.error('[Subjects] list request failed', { schoolId: user.schoolId, userId: user.id, message: error.message, stack: error.stack }); return json(response, { error: error.message === 'Forbidden.' ? 'Forbidden.' : 'Unable to load subjects. Please try again.' }, error.status ?? (error.message === 'Forbidden.' ? 403 : 500)); } }
       if (pathname.match(/^\/api\/subjects\/[^/]+\/assignments$/) && request.method === 'GET') { if (!canAccess(user, 'subjects.read') && !canAccess(user, 'academics.read')) return json(response, { error: 'Forbidden.' }, 403); try { const subjectId = pathname.split('/')[3]; return json(response, { assignments: durableAcademic ? await durableAcademic.listAssignments(subjectId, user) : [] }); } catch (error) { return json(response, { error: error.message }, error.status ?? 400); } }
@@ -989,7 +988,7 @@ if (durableAcademic && body.sampleMode === true) {
       if (pathname === '/api/attendance/students/overview' && request.method === 'GET') {
         if (!user) return json(response, { error: 'UNAUTHENTICATED' }, 401);
         if (user.portal === 'parent' || user.portal === 'student' || !canAccess(user, 'attendance.read')) return json(response, { error: 'Forbidden.' }, 403);
-        if (!studentAttendanceOverview) return json(response, { error: 'TiDB student attendance reporting is unavailable.' }, 503);
+        if (!studentAttendanceOverview) return json(response, { error: 'Student attendance reporting is unavailable.' }, 503);
         const query = new URL(request.url, 'http://localhost').searchParams;
         const filters = Object.fromEntries(['academicYear', 'term', 'classId', 'week', 'month', 'startDate', 'endDate', 'gender', 'status', 'asOfDate'].map((key) => [key, query.get(key) ?? undefined]));
         try {
@@ -1001,7 +1000,7 @@ if (durableAcademic && body.sampleMode === true) {
       if (pathname === '/api/attendance/overview/analytics' && request.method === 'GET') {
         if (!user) return json(response, { error: 'UNAUTHENTICATED' }, 401);
         if (user.portal === 'parent' || user.portal === 'student' || !canAccess(user, 'attendance.read')) return json(response, { error: 'Forbidden.' }, 403);
-        if (!attendanceAnalytics) return json(response, { error: 'TiDB attendance analytics is unavailable.' }, 503);
+        if (!attendanceAnalytics) return json(response, { error: 'Attendance analytics is unavailable.' }, 503);
         const query = new URL(request.url, 'http://localhost').searchParams;
         const filters = Object.fromEntries(['academicYear', 'term', 'week', 'month', 'startDate', 'endDate', 'classId', 'gender', 'role', 'status', 'asOfDate'].map((key) => [key, query.get(key) ?? undefined]));
         try {
@@ -1338,11 +1337,16 @@ const { registry: providerRegistry, providerId, enabled: providerEnabled } = cre
 const orchestrator = providerEnabled ? createAIOrchestrator({ providerRegistry, providerId, capabilityRegistry, toolRegistry, productionDataGuard, dataQualityGuard, auditLogger: aiAuditLoggerForWiring }) : null;
 const aiGateway = aiEnabled ? createAIGateway({ capabilityRegistry, toolRegistry, schoolContextService, productionDataGuard, dataQualityGuard, auditLogger: aiAuditLoggerForWiring, providerRegistry, providerId, orchestrator }) : null;
 const aiConversation = aiEnabled ? createAIConversationService({ gateway: aiGateway, capabilityRegistry, toolRegistry }) : null;
-const configuredDatabase = process.env.DATABASE_URL ? createDatabaseAdapter() : null;
+const isDirectExecution = process.argv[1] === fileURLToPath(import.meta.url);
+const configuredDatabase = await loadConfiguredDatabaseAdapter({ required: isDirectExecution || process.env.NODE_ENV === 'production' });
 const app = createApp({ aiEnabled, aiPersistence, capabilityRegistry, toolRegistry, providerRegistry, providerId, aiGateway, aiConversation, database: configuredDatabase });
 const server = createServer(app);
+server.on('close', () => {
+  void configuredDatabase?.close?.().catch(() => {});
+  void aiPersistence.close?.().catch(() => {});
+});
 const port = Number(process.env.OSAAH_PORT || 3000);
-if (process.env.NODE_ENV !== 'production' && process.argv[1] === fileURLToPath(import.meta.url)) {
+if (process.env.NODE_ENV !== 'production' && isDirectExecution) {
   server.listen(port, () => console.log(`OsaaH foundation listening on http://localhost:${port}`));
 }
 export { server };

@@ -137,7 +137,7 @@ function makeClasses(catalog, requestedCanonical = null, allowedCanonical = null
 }
 
 export function createStudentAttendanceOverviewService({ database, schoolId = 'school-osaah-daylight', now = () => new Date().toISOString() } = {}) {
-  if (!database?.query) fail('TiDB attendance reporting is unavailable.', 503, 'DATABASE_REQUIRED');
+  if (!database?.query) fail('Database-backed attendance reporting is unavailable.', 503, 'DATABASE_REQUIRED');
   const query = async (sql, params = []) => records(await database.query(sql, params));
 
   async function loadYears() {
@@ -250,7 +250,7 @@ export function createStudentAttendanceOverviewService({ database, schoolId = 's
     return range;
   }
   async function loadEnrollments(range, year, term) {
-    const clauses = ['e.school_id=?', 's.school_id=?', 'y.school_id=?', 'COALESCE(s.is_test_record,0)=0', 's.permanent_student_id IS NOT NULL', 'sp.id IS NOT NULL', 'y.starts_on<=?', 'y.ends_on>=?'];
+    const clauses = ['e.school_id=?', 's.school_id=?', 'y.school_id=?', 's.is_test_record IS NOT TRUE', 's.permanent_student_id IS NOT NULL', 'sp.id IS NOT NULL', 'y.starts_on<=?', 'y.ends_on>=?'];
     const params = [schoolId, schoolId, schoolId, range.end, range.start];
     if (year) { clauses.push('e.academic_year_id=?'); params.push(year.id); }
     if (term) { clauses.push('(e.term_id IS NULL OR e.term_id=? OR e.term_id=?)'); params.push(term.id, term.name); }
@@ -259,7 +259,7 @@ export function createStudentAttendanceOverviewService({ database, schoolId = 's
       e.class_id AS classId,e.academic_year_id AS academicYearId,y.name AS academicYearName,
       e.term_id AS termId,t.name AS termName,t.starts_on AS termStartsOn,t.ends_on AS termEndsOn,
       e.enrollment_status AS enrollmentStatus,e.is_current AS isCurrent,e.enrolled_at AS enrolledAt,e.completed_at AS completedAt,
-      COALESCE(s.is_test_record,0) AS isTestRecord
+      s.is_test_record AS isTestRecord
       FROM student_enrollments e
       JOIN students s ON s.id=e.student_id AND s.school_id=e.school_id
       JOIN academic_years y ON y.id=e.academic_year_id AND y.school_id=e.school_id
@@ -276,8 +276,8 @@ export function createStudentAttendanceOverviewService({ database, schoolId = 's
         // Preserve school scope and permanent-ID linkage while tolerating the
         // documented optional fields across production schema revisions.
         if (message.includes('is_test_record')) {
-          candidate = candidate.replace('COALESCE(s.is_test_record,0)=0', "s.permanent_student_id NOT LIKE 'OSAAH-DEMO-%'")
-            .replace('COALESCE(s.is_test_record,0) AS isTestRecord', '0 AS isTestRecord');
+          candidate = candidate.replace('s.is_test_record IS NOT TRUE', "s.permanent_student_id NOT LIKE 'OSAAH-DEMO-%'")
+            .replace('s.is_test_record AS isTestRecord', '0 AS isTestRecord');
         }
         if (message.includes('student_master_id')) candidate = candidate.replace('sp.student_master_id=s.id OR (sp.student_master_id IS NULL AND sp.student_id=s.permanent_student_id)', 'sp.student_id=s.permanent_student_id');
         if (message.includes('enrolled_at')) candidate = candidate.replace('e.enrolled_at AS enrolledAt', 'NULL AS enrolledAt').replace('ORDER BY e.enrolled_at,e.id', 'ORDER BY e.id');
@@ -519,7 +519,7 @@ export function createStudentAttendanceOverviewService({ database, schoolId = 's
         attendancePercentage: 'present eligible student-days / eligible student-days * 100; approved/sick excused days are excluded from eligibility per the existing attendance policy',
         unmarkedIsNotAbsent: true, oneEffectiveDailyMarkPerStudentDate: true
       },
-      source: 'TiDB/student_attendance + student_enrollments', authoritative: true
+      source: 'student_attendance + student_enrollments', authoritative: true
     };
   }
   return Object.freeze({ overview, options });

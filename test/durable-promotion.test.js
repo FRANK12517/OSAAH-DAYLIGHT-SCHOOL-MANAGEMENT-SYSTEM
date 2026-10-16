@@ -58,7 +58,7 @@ function fixture(students = [makeStudent(1), makeStudent(2)], { rejectSortOrder 
       if (sql.includes('INSERT INTO promotion_decisions')) {
         const row = { id: params[0], profileId: params[2], academicYearId: params[3], classId: params[4], termId: params[5], decision: params[6], toClassId: params[10], nextAcademicYearId: params[11], completionYear: params[13], decidedAt: params[9] };
         state.decisions.set(row.id, row);
-      } else if (sql.includes('UPDATE student_enrollments SET is_current=0')) {
+      } else if (sql.includes('UPDATE student_enrollments SET is_current=FALSE')) {
         for (const enrollment of state.enrollments.values()) if (enrollment.studentId === params[3] && enrollment.academicYearId === params[4] && enrollment.classId === params[5] && enrollment.isCurrent === 1) { enrollment.isCurrent = 0; enrollment.enrollmentStatus = params[0]; }
         const student = state.students.get(params[3]); if (student) { student.isCurrent = 0; student.enrollmentStatus = params[0]; }
       } else if (sql.includes('INSERT INTO student_enrollments')) {

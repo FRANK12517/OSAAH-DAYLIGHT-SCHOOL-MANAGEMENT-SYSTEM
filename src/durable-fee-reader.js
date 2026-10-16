@@ -36,7 +36,9 @@ function paymentModel(row) {
 
 function unknownOptionalPaymentColumn(error, column) {
   const message = String(error?.message ?? error?.sqlMessage ?? '');
-  return /unknown column/i.test(message) && new RegExp(String.raw`\bp\.${column}\b`, 'i').test(message);
+  const code = String(error?.code ?? '').toUpperCase();
+  return (/unknown column/i.test(message) || code === '42703' && /does not exist/i.test(message))
+    && new RegExp(String.raw`\bp\.${column}\b`, 'i').test(message);
 }
 
 const OPTIONAL_RECEIPT_COLUMNS = new Set(['payment_id', 'receipt_number', 'issued_by', 'status', 'previous_balance', 'new_balance']);
@@ -44,10 +46,10 @@ const OPTIONAL_RECEIPT_COLUMNS = new Set(['payment_id', 'receipt_number', 'issue
 function isMissingOptionalReceiptSchema(error) {
   const code = String(error?.code ?? '').toUpperCase();
   const message = String(error?.message ?? error?.sqlMessage ?? '');
-  if (code === 'ER_NO_SUCH_TABLE' || /table .*student_fee_receipts.*(?:doesn't|does not) exist/i.test(message)) {
+  if (code === 'ER_NO_SUCH_TABLE' || code === '42P01' || /table .*student_fee_receipts.*(?:doesn't|does not) exist|relation .*student_fee_receipts.*does not exist/i.test(message)) {
     return /student_fee_receipts/i.test(message);
   }
-  if (!['ER_BAD_FIELD_ERROR', 'ER_UNKNOWN_COLUMN'].includes(code) || !/unknown column/i.test(message)) return false;
+  if (!['ER_BAD_FIELD_ERROR', 'ER_UNKNOWN_COLUMN', '42703'].includes(code) || !(/unknown column/i.test(message) || /column .* does not exist/i.test(message))) return false;
   const match = message.match(/(?:['`]?)(r)\.([a-z_]+)(?:['`]?)/i);
   return Boolean(match && OPTIONAL_RECEIPT_COLUMNS.has(match[2].toLowerCase()));
 }
@@ -75,7 +77,7 @@ export function createDurableFeeReader({ adapter } = {}) {
         NULL AS className,
         p.academic_year_id AS academicYear,
         p.term_id AS term,
-        (SELECT GROUP_CONCAT(DISTINCT ii.fee_type ORDER BY ii.fee_type SEPARATOR ', ')
+        (SELECT string_agg(DISTINCT ii.fee_type, ', ' ORDER BY ii.fee_type)
            FROM fee_invoice_items ii
           WHERE ii.invoice_id=i.id AND ii.school_id=p.school_id) AS feeType,
         a.student_id AS studentId,
@@ -141,7 +143,7 @@ export function createDurableFeeReader({ adapter } = {}) {
         sp.class_id AS className,
         p.academic_year_id AS academicYear,
         p.term_id AS term,
-        (SELECT GROUP_CONCAT(DISTINCT ii.fee_type ORDER BY ii.fee_type SEPARATOR ', ')
+        (SELECT string_agg(DISTINCT ii.fee_type, ', ' ORDER BY ii.fee_type)
            FROM fee_invoice_items ii
           WHERE ii.invoice_id=i.id AND ii.school_id=p.school_id) AS feeType,
         a.student_id AS studentId,
@@ -166,9 +168,9 @@ export function createDurableFeeReader({ adapter } = {}) {
       LEFT JOIN student_fee_accounts a ON a.id=p.account_id AND a.school_id=p.school_id
       LEFT JOIN fee_invoices i ON i.id=p.invoice_id AND i.school_id=p.school_id
       LEFT JOIN student_fee_receipts r ON r.payment_id=p.id AND r.school_id=p.school_id
-      JOIN parent_student_links psl ON psl.student_id=a.student_id AND psl.parent_user_id=? AND psl.link_status='ACTIVE'
+      LEFT JOIN student_profiles sp ON sp.student_master_id=a.student_id AND sp.school_id=p.school_id
+      JOIN parent_student_links psl ON psl.student_id=sp.id AND psl.parent_user_id=? AND psl.link_status='ACTIVE'
       JOIN users pu ON pu.id=psl.parent_user_id AND pu.school_id=p.school_id
-      LEFT JOIN student_profiles sp ON sp.id=a.student_id AND sp.school_id=p.school_id
       LEFT JOIN students s ON s.id=sp.student_master_id AND s.school_id=p.school_id
       WHERE p.school_id=? AND (r.status IS NULL OR r.status <> 'VOIDED')
         ORDER BY p.payment_date DESC, p.id DESC`, [actor.id, actor.schoolId]);

@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { createApp } from '../src/server.mjs';
 import { createAuthService } from '../src/auth.js';
+import { closeHttpServer } from './helpers/close-http-server.js';
 
 async function http(server, path, token) {
   const address = server.address();
@@ -43,7 +44,7 @@ test('Class Database options use database academic years and canonical classes',
     assert.deepEqual(body.academicYears, ['2024/2025', '2026/2027']);
     assert.equal(body.classes.length, 13);
     assert.deepEqual(body.classes, ['Nursery 1', 'Nursery 2', 'KG1', 'KG2', 'Primary 1', 'Primary 2', 'Primary 3', 'Primary 4', 'Primary 5', 'Primary 6', 'JHS 1', 'JHS 2', 'JHS 3']);
-  } finally { await new Promise((resolve) => server.close(resolve)); }
+  } finally { await closeHttpServer(server); }
 });
 
 test('collection forms use canonical option selectors and never expose raw Class ID inputs', async () => {
@@ -62,5 +63,5 @@ test('Class Database remains authenticated and rejects public access', async () 
   try {
     const response = await http(server, '/api/class-database/options');
     assert.equal(response.status, 401);
-  } finally { await new Promise((resolve) => server.close(resolve)); }
+  } finally { await closeHttpServer(server); }
 });

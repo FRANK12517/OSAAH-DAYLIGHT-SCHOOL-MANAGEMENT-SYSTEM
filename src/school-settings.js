@@ -133,7 +133,7 @@ export function createSchoolSettingsService({ database = null, schoolProfile = n
         const submittedInformation = settingUpdates.schoolInformation && typeof settingUpdates.schoolInformation === 'object' && !Array.isArray(settingUpdates.schoolInformation) ? settingUpdates.schoolInformation : {};
         settingUpdates.schoolInformation = { ...existingInformation, ...submittedInformation, ...profileUpdates };
       }
-      for (const [key, value] of Object.entries(settingUpdates)) await db.execute('INSERT INTO system_settings (id,school_id,setting_key,setting_value,value_type,is_sensitive,created_at,updated_at) VALUES (?,?,?,?,?,0,?,?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value),value_type=VALUES(value_type),updated_at=VALUES(updated_at)', [`setting-${schoolId}-${key}`, schoolId, key, typeof value === 'string' ? value : JSON.stringify(value), typeof value, now(), now()]);
+      for (const [key, value] of Object.entries(settingUpdates)) await db.execute('INSERT INTO system_settings (id,school_id,setting_key,setting_value,value_type,is_sensitive,created_at,updated_at) VALUES (?,?,?,?,?,FALSE,?,?) ON CONFLICT (school_id,setting_key) DO UPDATE SET setting_value=EXCLUDED.setting_value,value_type=EXCLUDED.value_type,updated_at=EXCLUDED.updated_at', [`setting-${schoolId}-${key}`, schoolId, key, typeof value === 'string' ? value : JSON.stringify(value), typeof value, now(), now()]);
     };
     if (database.transaction) await database.transaction(executeAll); else await executeAll(database);
     return read(actor);

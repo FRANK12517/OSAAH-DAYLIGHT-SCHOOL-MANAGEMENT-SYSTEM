@@ -68,8 +68,8 @@ export function createAttendanceRegisterService({ database = null, students, att
         JOIN students s ON s.id=e.student_id AND s.school_id=e.school_id
         JOIN student_profiles sp ON sp.school_id=s.school_id AND (sp.student_master_id=s.id OR sp.student_id=s.permanent_student_id)
         WHERE e.school_id=? AND e.class_id=? AND e.academic_year_id=? AND e.term_id=?
-          AND COALESCE(e.enrollment_status,'ACTIVE')='ACTIVE' AND COALESCE(e.is_current,1)=1
-          AND COALESCE(s.student_status,'ACTIVE')='ACTIVE' AND COALESCE(s.is_test_record,0)=0
+          AND COALESCE(e.enrollment_status,'ACTIVE')='ACTIVE' AND COALESCE(e.is_current,TRUE) IS TRUE
+          AND COALESCE(s.student_status,'ACTIVE')='ACTIVE' AND s.is_test_record IS NOT TRUE
         ORDER BY surname,firstName,studentId`, [schoolId, classId, period.yearId, period.termId]));
       return result.map((student) => ({ ...student, isTestRecord: false }));
     }
@@ -122,8 +122,8 @@ export function createAttendanceRegisterService({ database = null, students, att
         JOIN students s ON s.id=e.student_id AND s.school_id=e.school_id
         JOIN student_profiles sp ON sp.school_id=s.school_id AND (sp.student_master_id=s.id OR sp.student_id=s.permanent_student_id)
         WHERE e.school_id=? AND sp.id=? AND e.class_id=? AND e.academic_year_id=? AND e.term_id=?
-          AND COALESCE(e.enrollment_status,'ACTIVE')='ACTIVE' AND COALESCE(e.is_current,1)=1
-          AND COALESCE(s.student_status,'ACTIVE')='ACTIVE' AND COALESCE(s.is_test_record,0)=0 LIMIT 1`, [schoolId, studentId, classId, period.yearId, period.termId]));
+          AND COALESCE(e.enrollment_status,'ACTIVE')='ACTIVE' AND COALESCE(e.is_current,TRUE) IS TRUE
+          AND COALESCE(s.student_status,'ACTIVE')='ACTIVE' AND s.is_test_record IS NOT TRUE LIMIT 1`, [schoolId, studentId, classId, period.yearId, period.termId]));
       return match.length > 0;
     }
     const student = students.getStudent(studentId, { requestedSchoolId: schoolId });

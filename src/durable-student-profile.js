@@ -55,7 +55,7 @@ export function createDurableStudentProfileService({ database, clock = () => new
     const term = `%${String(query ?? '').trim().toLowerCase()}%`;
     const found = rows(await database.query(`SELECT s.*,sp.id AS profile_id,sp.first_name AS profile_first_name,sp.last_name AS profile_last_name,sp.class_id AS profile_class_id
       FROM students s LEFT JOIN student_profiles sp ON sp.school_id=s.school_id AND (sp.student_master_id=s.id OR sp.student_id=s.permanent_student_id)
-      WHERE s.school_id=? AND COALESCE(s.is_test_record,0)=0 AND (?='' OR LOWER(CONCAT_WS(' ',s.first_name,s.middle_name,s.last_name,s.permanent_student_id,s.admission_number)) LIKE ?)
+      WHERE s.school_id=? AND s.is_test_record IS NOT TRUE AND (?='' OR LOWER(CONCAT_WS(' ',s.first_name,s.middle_name,s.last_name,s.permanent_student_id,s.admission_number)) LIKE ?)
       ORDER BY s.last_name,s.first_name,s.id`, [schoolId, String(query ?? '').trim(), term]));
     return found.map((row) => normalized(row, { id: row.profile_id, first_name: row.profile_first_name, last_name: row.profile_last_name, class_id: row.profile_class_id }));
   }

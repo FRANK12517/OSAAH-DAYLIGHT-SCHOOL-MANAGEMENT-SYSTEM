@@ -60,7 +60,7 @@ export function createParentHistoricalRecordsService({ database } = {}) {
       JOIN classes c ON c.id=e.class_id AND c.school_id=s.school_id
       WHERE psl.parent_user_id=? AND psl.link_status='ACTIVE'
         AND s.school_id=? AND s.permanent_student_id=?
-        AND COALESCE(s.is_test_record,0)=0
+        AND s.is_test_record IS NOT TRUE
         AND e.academic_year_id IS NOT NULL AND e.term_id IS NOT NULL
       ORDER BY y.id,t.id,c.id`, [actor.schoolId, actor.id, actor.schoolId, permanentStudentId]);
 
@@ -94,7 +94,7 @@ export function createParentHistoricalRecordsService({ database } = {}) {
       LEFT JOIN academic_years y ON y.id=pd.academic_year_id AND y.school_id=s.school_id
       WHERE psl.parent_user_id=? AND psl.link_status='ACTIVE'
         AND s.school_id=? AND s.permanent_student_id=?
-        AND COALESCE(s.is_test_record,0)=0
+        AND s.is_test_record IS NOT TRUE
       ORDER BY pd.decided_at,pd.id`, [actor.schoolId, actor.id, actor.schoolId, permanentStudentId]);
 
     return rows(result).map((item) => ({
@@ -127,7 +127,7 @@ export function createParentHistoricalRecordsService({ database } = {}) {
         LEFT JOIN classes c ON c.id=e.class_id AND c.school_id=s.school_id
         WHERE psl.parent_user_id=? AND psl.link_status='ACTIVE'
           AND s.school_id=? AND s.permanent_student_id=?
-          AND COALESCE(s.is_test_record,0)=0
+          AND s.is_test_record IS NOT TRUE
           AND (UPPER(COALESCE(s.student_status,'')) IN ('COMPLETED','GRADUATED') OR e.id IS NOT NULL)
         ORDER BY e.academic_year_id,e.id`, [actor.schoolId, actor.id, actor.schoolId, permanentStudentId]);
     } catch (error) {

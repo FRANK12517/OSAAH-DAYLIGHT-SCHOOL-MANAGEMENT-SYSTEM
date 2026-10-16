@@ -24,7 +24,7 @@ function resultDatabase() {
       if (sql.includes('SELECT id,attendance_json AS attendanceJson,assessment_json AS assessmentJson')) return lifecycle ? [{ ...lifecycle }] : [];
       if (sql.includes('SELECT id,version FROM academic_result_records')) return lifecycle ? [{ id: lifecycle.id, version: lifecycle.version }] : [];
       if (sql.includes('SELECT id,status,version FROM academic_result_records')) return lifecycle ? [{ id: lifecycle.id, status: lifecycle.status, version: lifecycle.version }] : [];
-      if (sql.includes('status="PUBLISHED"')) return lifecycle?.status === 'PUBLISHED' ? [{ id: lifecycle.id, status: lifecycle.status }] : [];
+      if (sql.includes("status='PUBLISHED'")) return lifecycle?.status === 'PUBLISHED' ? [{ id: lifecycle.id, status: lifecycle.status }] : [];
       throw new Error(`Unexpected durable result query: ${sql}`);
     },
     async execute(sql, params = []) {
@@ -39,7 +39,7 @@ function resultDatabase() {
         };
       } else if (sql.startsWith('UPDATE academic_result_records SET attendance_json=')) {
         lifecycle = { ...lifecycle, attendanceJson: params[0], assessmentJson: params[1], status: 'SAVED', version: params[2] };
-      } else if (sql.startsWith('UPDATE academic_result_records SET status="PUBLISHED"')) {
+      } else if (sql.startsWith("UPDATE academic_result_records SET status='PUBLISHED'")) {
         lifecycle = { ...lifecycle, status: 'PUBLISHED' };
       } else throw new Error(`Unexpected durable result write: ${sql}`);
       return { affectedRows: 1 };

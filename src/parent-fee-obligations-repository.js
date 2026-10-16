@@ -5,7 +5,7 @@ export function createParentFeeObligationsRepository(database) {
   return {
     async listForParent(actor, filters = {}) {
       if (!actor?.id || !actor?.schoolId || !PARENT_ROLES.has(actor.roleKey) || actor.portal !== 'parent') throw new Error('Parent access required.');
-      const conditions = ['psl.parent_user_id=?', 's.school_id=?', "psl.link_status='ACTIVE'", 's.is_test_record=0'];
+      const conditions = ['psl.parent_user_id=?', 's.school_id=?', "psl.link_status='ACTIVE'", 's.is_test_record IS NOT TRUE'];
       const params = [actor.id, actor.schoolId];
       for (const [key, column] of [['academicYearId', 'fo.academic_year_id'], ['termId', 'fo.term_id'], ['feeStructureId', 'fo.fee_structure_id'], ['status', 'fo.status']]) {
         if (filters[key] !== undefined && filters[key] !== '') { conditions.push(`${column}=?`); params.push(filters[key]); }
