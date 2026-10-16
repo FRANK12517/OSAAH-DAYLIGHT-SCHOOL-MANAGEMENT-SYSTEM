@@ -11,21 +11,24 @@ function parse(value, fallback = null) { if (value === null || value === undefin
 
 function postgresConnectionString(value) { return typeof value === 'string' && /^\s*postgres(?:ql)?:/i.test(value); }
 function configuredDatabaseAdapterModule(environment) {
-  const postgresUrl = environment.OSAAH_POSTGRES_URL;
+  const postgresUrl = environment.OSAAH_POSTGRES_URL || environment.POSTGRES_URL;
   const legacyUrl = environment.DATABASE_URL;
   if (postgresUrl) {
+    if (!postgresConnectionString(postgresUrl)) {
+      fail('DATABASE_URL_INVALID', 'PostgreSQL runtime URL must use the postgres:// or postgresql:// scheme.');
+    }
     if (legacyUrl && legacyUrl !== postgresUrl) {
       // Vercel may retain an obsolete platform DATABASE_URL after the app's
-      // database has moved. OSAAH_POSTGRES_URL is the explicit runtime contract;
-      // never route to or compare credentials from the deprecated variable.
-      console.warn('DATABASE_URL is set but ignored; application runtime uses OSAAH_POSTGRES_URL.');
+      // database has moved. Only the explicit app URL or Vercel's PostgreSQL
+      // integration URL is accepted; never route to the deprecated variable.
+      console.warn('DATABASE_URL is set but ignored; application runtime uses its configured PostgreSQL URL.');
     }
     return fileURLToPath(new URL('./postgres-database-adapter.js', import.meta.url));
   }
   if (legacyUrl) {
     fail('POSTGRES_URL_REQUIRED', postgresConnectionString(legacyUrl)
-      ? 'Set OSAAH_POSTGRES_URL explicitly; DATABASE_URL is not used by application runtime.'
-      : 'TiDB/MySQL DATABASE_URL is not supported by application runtime. Configure OSAAH_POSTGRES_URL for PostgreSQL.');
+      ? 'Configure OSAAH_POSTGRES_URL or POSTGRES_URL explicitly; DATABASE_URL is not used by application runtime.'
+      : 'TiDB/MySQL DATABASE_URL is not supported by application runtime. Configure OSAAH_POSTGRES_URL or POSTGRES_URL for PostgreSQL.');
   }
   return null;
 }
@@ -78,7 +81,7 @@ export async function loadConfiguredAIPersistence({ environment = process.env } 
 
 export async function loadConfiguredDatabaseAdapter({ environment = process.env, required = false } = {}) {
   const modulePath = configuredDatabaseAdapterModule(environment);
-  if (!modulePath && required) fail('POSTGRES_URL_REQUIRED', 'OSAAH_POSTGRES_URL is required for application startup.');
+  if (!modulePath && required) fail('POSTGRES_URL_REQUIRED', 'OSAAH_POSTGRES_URL or POSTGRES_URL is required for application startup.');
   if (!modulePath) return null;
   const loaded = await import(pathToFileURL(resolve(modulePath)));
   return loaded.createDatabaseAdapter?.({ environment }) ?? null;
