@@ -184,9 +184,22 @@ export function createDatabaseAdapter({
   if (!['verify', 'disable'].includes(sslMode) || (sslMode === 'disable' && !loopbackHosts.has(url.hostname.toLowerCase()))) {
     throw pgError('DATABASE_SSL_CONFIGURATION_INVALID', 'PostgreSQL SSL may be disabled only for a loopback database URL.');
   }
+  const configuredSslCa = environment.OSAAH_PG_SSL_CA;
+  if (configuredSslCa !== undefined && typeof configuredSslCa !== 'string') throw pgError('DATABASE_SSL_CONFIGURATION_INVALID', 'PostgreSQL SSL CA configuration must be PEM text.');
+  const sslCa = configuredSslCa?.trim();
+  if (sslCa && (!sslCa.includes('-----BEGIN CERTIFICATE-----') || !sslCa.includes('-----END CERTIFICATE-----'))) {
+    throw pgError('DATABASE_SSL_CONFIGURATION_INVALID', 'PostgreSQL SSL CA configuration must contain a PEM certificate.');
+  }
+  if (sslCa && sslMode === 'disable') throw pgError('DATABASE_SSL_CONFIGURATION_INVALID', 'A PostgreSQL SSL CA cannot be configured when SSL is disabled.');
+  // node-postgres lets SSL query parameters in connectionString replace the
+  // explicit `ssl` option. Strip them so the adapter's verified TLS policy,
+  // including an optional server-managed CA, is always the effective config.
+  for (const key of ['ssl', 'sslmode', 'sslrootcert', 'sslcert', 'sslkey', 'sslpassword']) url.searchParams.delete(key);
+  url.hash = '';
+  const safeConnectionString = url.toString();
   const pool = poolFactory({
-    connectionString,
-    ssl: sslMode === 'disable' ? false : { rejectUnauthorized: true },
+    connectionString: safeConnectionString,
+    ssl: sslMode === 'disable' ? false : { rejectUnauthorized: true, ...(sslCa ? { ca: sslCa } : {}) },
     max: Number(environment.OSAAH_PG_POOL_MAX || 10),
     idleTimeoutMillis: Number(environment.OSAAH_PG_IDLE_TIMEOUT_MS || 30000),
     connectionTimeoutMillis: Number(environment.OSAAH_PG_CONNECT_TIMEOUT_MS || 15000),

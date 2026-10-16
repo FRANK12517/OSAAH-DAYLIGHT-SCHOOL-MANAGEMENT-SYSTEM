@@ -53,6 +53,30 @@ test('PostgreSQL SSL can be disabled only for an explicit loopback database URL'
   }), { code: 'DATABASE_SSL_CONFIGURATION_INVALID' });
 });
 
+test('Supabase root CA is passed to pg while TLS and hostname verification remain enabled', () => {
+  let options;
+  const pool = { async query() { return { rows: [], rowCount: 0 }; }, async end() {} };
+  const ca = '-----BEGIN CERTIFICATE-----\npublic-root-certificate\n-----END CERTIFICATE-----';
+  createDatabaseAdapter({
+    environment: {
+      OSAAH_POSTGRES_URL: `${environment.OSAAH_POSTGRES_URL}?sslmode=no-verify&sslrootcert=%2Ftmp%2Fignored.crt&application_name=osaah-test`,
+      OSAAH_PG_SSL_CA: ca
+    },
+    poolFactory: (value) => { options = value; return pool; }
+  });
+  assert.equal(options.ssl.rejectUnauthorized, true);
+  assert.equal(options.ssl.ca, ca);
+  assert.doesNotMatch(options.connectionString, /sslmode|sslrootcert/i);
+  assert.match(options.connectionString, /application_name=osaah-test/);
+});
+
+test('PostgreSQL CA configuration cannot be combined with disabled TLS', () => {
+  assert.throws(() => createDatabaseAdapter({
+    environment: { OSAAH_POSTGRES_URL: environment.OSAAH_POSTGRES_URL, OSAAH_PG_SSL_MODE: 'disable', OSAAH_PG_SSL_CA: 'certificate' },
+    poolFactory: () => ({})
+  }), { code: 'DATABASE_SSL_CONFIGURATION_INVALID' });
+});
+
 test('PostgreSQL transaction commits, releases, and exposes scoped query methods', async () => {
   const statements = [];
   const client = {
