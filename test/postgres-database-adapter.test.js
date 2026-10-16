@@ -70,6 +70,22 @@ test('Supabase root CA is passed to pg while TLS and hostname verification remai
   assert.match(options.connectionString, /application_name=osaah-test/);
 });
 
+test('SUPABASE_CA_CERT takes precedence and converts escaped PEM newlines', () => {
+  let options;
+  const pool = { async query() { return { rows: [], rowCount: 0 }; }, async end() {} };
+  const escapedCa = '-----BEGIN CERTIFICATE-----\\npublic-root-certificate\\n-----END CERTIFICATE-----';
+  createDatabaseAdapter({
+    environment: {
+      OSAAH_POSTGRES_URL: environment.OSAAH_POSTGRES_URL,
+      SUPABASE_CA_CERT: escapedCa,
+      OSAAH_PG_SSL_CA: '-----BEGIN CERTIFICATE-----\\nlegacy-certificate\\n-----END CERTIFICATE-----'
+    },
+    poolFactory: (value) => { options = value; return pool; }
+  });
+  assert.equal(options.ssl.rejectUnauthorized, true);
+  assert.equal(options.ssl.ca, escapedCa.replace(/\\n/g, '\n'));
+});
+
 test('PostgreSQL CA configuration cannot be combined with disabled TLS', () => {
   assert.throws(() => createDatabaseAdapter({
     environment: { OSAAH_POSTGRES_URL: environment.OSAAH_POSTGRES_URL, OSAAH_PG_SSL_MODE: 'disable', OSAAH_PG_SSL_CA: 'certificate' },

@@ -184,9 +184,9 @@ export function createDatabaseAdapter({
   if (!['verify', 'disable'].includes(sslMode) || (sslMode === 'disable' && !loopbackHosts.has(url.hostname.toLowerCase()))) {
     throw pgError('DATABASE_SSL_CONFIGURATION_INVALID', 'PostgreSQL SSL may be disabled only for a loopback database URL.');
   }
-  const configuredSslCa = environment.OSAAH_PG_SSL_CA;
+  const configuredSslCa = environment.SUPABASE_CA_CERT ?? environment.OSAAH_PG_SSL_CA;
   if (configuredSslCa !== undefined && typeof configuredSslCa !== 'string') throw pgError('DATABASE_SSL_CONFIGURATION_INVALID', 'PostgreSQL SSL CA configuration must be PEM text.');
-  const sslCa = configuredSslCa?.trim();
+  const sslCa = configuredSslCa?.replace(/\\n/g, '\n').trim();
   if (sslCa && (!sslCa.includes('-----BEGIN CERTIFICATE-----') || !sslCa.includes('-----END CERTIFICATE-----'))) {
     throw pgError('DATABASE_SSL_CONFIGURATION_INVALID', 'PostgreSQL SSL CA configuration must contain a PEM certificate.');
   }
