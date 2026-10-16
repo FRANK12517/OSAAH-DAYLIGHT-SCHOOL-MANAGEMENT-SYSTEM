@@ -45,7 +45,7 @@ After application, run the read-only checks in `docs/supabase-migration-validati
 - The project is confirmed as production; its recovery state has not been verified.
 - No source TiDB schema/data snapshot, export, or reconciliation is available; production school records have not been transferred.
 - Hosted SQL was not executed; hosted post-migration RLS tests and runtime application workflows have not run.
-- Read-only Vercel follow-up verified the existing production deployment/domain and listed variable names without reading values. Production contains both `DATABASE_URL` and `OSAAH_POSTGRES_URL`; Preview has no `OSAAH_POSTGRES_URL`. No settings were changed. A non-production Preview database target still needs owner confirmation and connection configuration.
+- Read-only Vercel follow-up verified the existing production deployment/domain and listed variable names without reading values. Production contains both `DATABASE_URL` and `OSAAH_POSTGRES_URL`; Preview has no `OSAAH_POSTGRES_URL`. Application runtime now treats `OSAAH_POSTGRES_URL` as authoritative, logs only a value-free notice when a different legacy `DATABASE_URL` is present, and never falls back to it. Remove obsolete `DATABASE_URL` from Vercel Production after confirming no separately classified maintenance workflow depends on it. Configure Preview only with a distinct non-production Supabase URL; do not copy Production credentials. No Vercel settings were changed. A non-production Preview database target still needs owner confirmation and connection configuration.
 - Physical TiDB retirement is not approved and must wait until production use of PostgreSQL and rollback readiness are proven.
 
 ## Recovery gate and exact Dashboard action

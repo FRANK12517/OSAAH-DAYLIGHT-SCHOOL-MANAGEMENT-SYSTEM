@@ -13,10 +13,15 @@ function postgresConnectionString(value) { return typeof value === 'string' && /
 function configuredDatabaseAdapterModule(environment) {
   const postgresUrl = environment.OSAAH_POSTGRES_URL;
   const legacyUrl = environment.DATABASE_URL;
-  if (postgresUrl && legacyUrl && legacyUrl !== postgresUrl) {
-    fail('DATABASE_CONFIGURATION_AMBIGUOUS', 'DATABASE_URL conflicts with OSAAH_POSTGRES_URL. Remove DATABASE_URL and configure only OSAAH_POSTGRES_URL for application runtime.');
+  if (postgresUrl) {
+    if (legacyUrl && legacyUrl !== postgresUrl) {
+      // Vercel may retain an obsolete platform DATABASE_URL after the app's
+      // database has moved. OSAAH_POSTGRES_URL is the explicit runtime contract;
+      // never route to or compare credentials from the deprecated variable.
+      console.warn('DATABASE_URL is set but ignored; application runtime uses OSAAH_POSTGRES_URL.');
+    }
+    return fileURLToPath(new URL('./postgres-database-adapter.js', import.meta.url));
   }
-  if (postgresUrl) return fileURLToPath(new URL('./postgres-database-adapter.js', import.meta.url));
   if (legacyUrl) {
     fail('POSTGRES_URL_REQUIRED', postgresConnectionString(legacyUrl)
       ? 'Set OSAAH_POSTGRES_URL explicitly; DATABASE_URL is not used by application runtime.'

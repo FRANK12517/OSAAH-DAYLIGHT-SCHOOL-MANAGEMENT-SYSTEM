@@ -130,14 +130,33 @@ test('production/serverless startup fails closed when OSAAH_POSTGRES_URL is miss
   );
 });
 
-test('conflicting database URLs fail closed and equal duplicate PostgreSQL URLs remain compatible', async () => {
+test('explicit OSAAH PostgreSQL URL takes precedence over stale DATABASE_URL without exposing either value', async () => {
+  const previousWarn = console.warn;
+  const warnings = [];
+  console.warn = (message) => warnings.push(String(message));
+  try {
+    for (const legacyUrl of [
+      'mysql://user:password@legacy.example.test:4000/osaah',
+      'postgresql://other:secret@different.example.test:5432/osaah'
+    ]) {
+      const adapter = await loadConfiguredDatabaseAdapter({ environment: { OSAAH_POSTGRES_URL: environment.OSAAH_POSTGRES_URL, DATABASE_URL: legacyUrl } });
+      assert.equal(typeof adapter?.transaction, 'function');
+      await adapter.close();
+    }
+    assert.equal(warnings.length, 2);
+    for (const warning of warnings) {
+      assert.match(warning, /DATABASE_URL is set but ignored/);
+      assert.doesNotMatch(warning, /password|secret|legacy\.example|different\.example|postgresql:/i);
+    }
+  } finally {
+    console.warn = previousWarn;
+  }
+});
+
+test('legacy DATABASE_URL alone cannot configure application runtime', async () => {
   await assert.rejects(
-    () => loadConfiguredDatabaseAdapter({ environment: { OSAAH_POSTGRES_URL: 'postgresql://pg-a:secret@localhost:5432/osaah', DATABASE_URL: 'postgresql://pg-b:secret@localhost:5432/osaah' } }),
-    (error) => error.code === 'DATABASE_CONFIGURATION_AMBIGUOUS' && !error.message.includes('secret')
-  );
-  await assert.rejects(
-    () => loadConfiguredDatabaseAdapter({ environment: { OSAAH_POSTGRES_URL: environment.OSAAH_POSTGRES_URL, DATABASE_URL: 'mysql://user:password@localhost:4000/osaah' } }),
-    (error) => error.code === 'DATABASE_CONFIGURATION_AMBIGUOUS' && !error.message.includes('password')
+    () => loadConfiguredDatabaseAdapter({ environment: { DATABASE_URL: 'mysql://user:password@legacy.example.test:4000/osaah' } }),
+    (error) => error.code === 'POSTGRES_URL_REQUIRED' && !error.message.includes('password')
   );
   const adapter = await loadConfiguredDatabaseAdapter({ environment: { OSAAH_POSTGRES_URL: environment.OSAAH_POSTGRES_URL, DATABASE_URL: environment.OSAAH_POSTGRES_URL } });
   assert.equal(typeof adapter?.transaction, 'function');
