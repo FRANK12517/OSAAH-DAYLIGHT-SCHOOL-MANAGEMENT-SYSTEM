@@ -184,7 +184,7 @@ export function createDatabaseAdapter({
   if (!['verify', 'disable'].includes(sslMode) || (sslMode === 'disable' && !loopbackHosts.has(url.hostname.toLowerCase()))) {
     throw pgError('DATABASE_SSL_CONFIGURATION_INVALID', 'PostgreSQL SSL may be disabled only for a loopback database URL.');
   }
-  const configuredSslCa = environment.SUPABASE_CA_CERT ?? environment.OSAAH_PG_SSL_CA;
+  const configuredSslCa = environment.SUPABASE_CA_CERT ?? environment.DB_SSL_CA ?? environment.OSAAH_PG_SSL_CA;
   if (configuredSslCa !== undefined && typeof configuredSslCa !== 'string') throw pgError('DATABASE_SSL_CONFIGURATION_INVALID', 'PostgreSQL SSL CA configuration must be PEM text.');
   const sslCa = configuredSslCa?.replace(/\\n/g, '\n').trim();
   if (sslCa && (!sslCa.includes('-----BEGIN CERTIFICATE-----') || !sslCa.includes('-----END CERTIFICATE-----'))) {
@@ -205,6 +205,19 @@ export function createDatabaseAdapter({
     connectionTimeoutMillis: Number(environment.OSAAH_PG_CONNECT_TIMEOUT_MS || 15000),
     application_name: environment.OSAAH_PG_APPLICATION_NAME || 'osaah-daylight',
     types: pgTypes()
+  });
+  // Pool-level idle client errors are emitted asynchronously. Consume them so
+  // transient TLS/socket failures cannot become uncaught process errors in
+  // serverless runtimes; keep diagnostics value-free.
+  pool.on?.('error', (error) => {
+    console.error('PostgreSQL idle client error', {
+      component: 'postgres_database',
+      operation: 'idle_client',
+      category: error?.code === 'SELF_SIGNED_CERT_IN_CHAIN' || error?.code === 'CERT_HAS_EXPIRED' || error?.code === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE'
+        ? 'TLS_CERTIFICATE_VALIDATION_FAILED'
+        : 'DATABASE_CONNECTION_FAILED',
+      code: error?.code ?? 'UNKNOWN'
+    });
   });
 
   async function run(client, sql, params = []) {

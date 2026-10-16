@@ -86,6 +86,44 @@ test('SUPABASE_CA_CERT takes precedence and converts escaped PEM newlines', () =
   assert.equal(options.ssl.ca, escapedCa.replace(/\\n/g, '\n'));
 });
 
+test('DB_SSL_CA is accepted when the preferred Supabase certificate variable is absent', () => {
+  let options;
+  const pool = { async query() { return { rows: [], rowCount: 0 }; }, async end() {} };
+  const ca = '-----BEGIN CERTIFICATE-----\nroot-certificate\n-----END CERTIFICATE-----';
+  createDatabaseAdapter({
+    environment: { OSAAH_POSTGRES_URL: environment.OSAAH_POSTGRES_URL, DB_SSL_CA: ca },
+    poolFactory: (value) => { options = value; return pool; }
+  });
+  assert.equal(options.ssl.ca, ca);
+  assert.equal(options.ssl.rejectUnauthorized, true);
+});
+
+test('idle pool errors are consumed and logged without connection details', () => {
+  let onError, options;
+  const pool = {
+    on(event, listener) { if (event === 'error') onError = listener; },
+    async query() { return { rows: [], rowCount: 0 }; },
+    async end() {}
+  };
+  const previousError = console.error;
+  const diagnostics = [];
+  console.error = (...values) => diagnostics.push(values);
+  try {
+    createDatabaseAdapter({ environment, poolFactory: (value) => { options = value; return pool; } });
+    assert.equal(typeof onError, 'function');
+    onError(Object.assign(new Error('host=private.example password=secret'), { code: 'SELF_SIGNED_CERT_IN_CHAIN' }));
+  } finally {
+    console.error = previousError;
+  }
+  assert.equal(options.ssl.rejectUnauthorized, true);
+  assert.equal(diagnostics.length, 1);
+  assert.deepEqual(diagnostics[0][1], {
+    component: 'postgres_database', operation: 'idle_client',
+    category: 'TLS_CERTIFICATE_VALIDATION_FAILED', code: 'SELF_SIGNED_CERT_IN_CHAIN'
+  });
+  assert.doesNotMatch(JSON.stringify(diagnostics), /private\.example|secret/);
+});
+
 test('PostgreSQL CA configuration cannot be combined with disabled TLS', () => {
   assert.throws(() => createDatabaseAdapter({
     environment: { OSAAH_POSTGRES_URL: environment.OSAAH_POSTGRES_URL, OSAAH_PG_SSL_MODE: 'disable', OSAAH_PG_SSL_CA: 'certificate' },
