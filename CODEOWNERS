@@ -1,4 +1,10 @@
 # Login branding is protected by the integrity manifest and requires explicit owner review.
+/public/app.js @FRANK12517
+/src/auth.js @FRANK12517
+/test/authentication-regression-contract.test.js @FRANK12517
+/.github/workflows/authentication-regression.yml @FRANK12517
+/docs/authentication-regression-contract.md @FRANK12517
+/docs/production-authentication-audit-2026-10-16.md @FRANK12517
 /public/index.html @FRANK12517
 /public/assets/osaah-daylight-school-complex-logo.png @FRANK12517
 /public/assets/login-gallery/ @FRANK12517

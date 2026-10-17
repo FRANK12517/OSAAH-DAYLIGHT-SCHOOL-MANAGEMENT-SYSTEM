@@ -121,6 +121,28 @@ test('Part 3 login returns clean errors for invalid credentials and database fai
   } finally { await new Promise((resolve) => invalidServer.close(resolve)); }
 });
 
+test('Part 3 classifies missing PostgreSQL relations without exposing query details', async () => {
+  const previousError = console.error;
+  const errors = [];
+  console.error = (...args) => errors.push(args);
+  try {
+    for (const scenario of [
+      { code: '42P01', message: 'relation "role_permissions" does not exist', category: 'SCHEMA_TABLE_MISSING', field: 'table', value: 'role_permissions' },
+      { code: '42703', message: 'column "role_key" does not exist', category: 'SCHEMA_COLUMN_MISMATCH', field: 'column', value: 'role_key' }
+    ]) {
+      const database = { query: async () => { throw Object.assign(new Error(scenario.message), { code: scenario.code }); } };
+      const auth = createAuthService({ database, sessionSecret: 'part-3-test-session-secret-0123456789' });
+      const result = await auth.loginFromDatabase({ username: 'accountant@osaah.edu.gh', password: 'unused-test-value', portal: 'school' });
+      assert.equal(result.status, 503);
+      assert.deepEqual(result, { ok: false, status: 503, error: 'Authentication service unavailable.' });
+      assert.equal(errors.at(-1)[1].category, scenario.category);
+      assert.equal(errors.at(-1)[1][scenario.field], scenario.value);
+    }
+    assert.equal(errors.length, 2);
+    assert.equal(JSON.stringify(errors).includes('unused-test-value'), false);
+  } finally { console.error = previousError; }
+});
+
 test('Part 3 session persistence failure returns JSON 503 and never issues a cookie', async () => {
   const fixture = await databaseFixture();
   const events = [];

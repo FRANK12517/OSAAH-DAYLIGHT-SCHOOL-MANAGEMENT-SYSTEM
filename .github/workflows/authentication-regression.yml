@@ -1,0 +1,56 @@
+name: Authentication regression contract
+
+on:
+  pull_request:
+    paths:
+      - 'src/auth.js'
+      - 'src/server.mjs'
+      - 'src/postgres-database.js'
+      - 'src/ai/postgres-database-adapter.js'
+      - 'public/app.js'
+      - 'test/*auth*.test.js'
+      - 'test/authentication-regression-contract.test.js'
+      - 'test/*role*routing*.test.js'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'CODEOWNERS'
+      - 'docs/authentication-regression-contract.md'
+      - 'docs/production-authentication-audit-2026-10-16.md'
+      - '.github/workflows/authentication-regression.yml'
+  push:
+    branches: [main, master]
+    paths:
+      - 'src/auth.js'
+      - 'src/server.mjs'
+      - 'src/postgres-database.js'
+      - 'src/ai/postgres-database-adapter.js'
+      - 'public/app.js'
+      - 'test/*auth*.test.js'
+      - 'test/authentication-regression-contract.test.js'
+      - 'test/*role*routing*.test.js'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'CODEOWNERS'
+      - 'docs/authentication-regression-contract.md'
+      - 'docs/production-authentication-audit-2026-10-16.md'
+      - '.github/workflows/authentication-regression.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  authentication-regression:
+    name: Authentication regression contract
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Verify authentication and role contracts
+        run: npm run test:auth:regression

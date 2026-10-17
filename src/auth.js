@@ -215,10 +215,11 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
         LEFT JOIN permissions p ON p.id=rp.permission_id
         WHERE LOWER(COALESCE(u.username,u.email,''))=? OR LOWER(COALESCE(u.email,''))=? ORDER BY COALESCE(r.oversight_rank,0) DESC,r.role_key,p.permission_key`, [key, key]);
     } catch (error) {
-      const tableMatch = String(error?.message ?? '').match(/Table ['`]([^'`]+)['`] doesn't exist/i);
+      const message = String(error?.message ?? '');
+      const tableMatch = message.match(/Table ['`]([^'`]+)['`] doesn't exist/i) ?? message.match(/relation ["']([^"']+)["'] does not exist/i);
       const tableName = tableMatch?.[1]?.split('.').pop() || null;
-      const columnMatch = String(error?.message ?? '').match(/Unknown column ['`]([^'`]+)['`]/i);
-      const category = error?.code === 'ER_BAD_FIELD_ERROR' ? 'SCHEMA_COLUMN_MISMATCH' : error?.code === 'ER_NO_SUCH_TABLE' ? 'SCHEMA_TABLE_MISSING' : 'DATABASE_QUERY_FAILED';
+      const columnMatch = message.match(/Unknown column ['`]([^'`]+)['`]/i) ?? message.match(/column ["']([^"']+)["'] does not exist/i);
+      const category = ['ER_BAD_FIELD_ERROR', '42703'].includes(error?.code) ? 'SCHEMA_COLUMN_MISMATCH' : ['ER_NO_SUCH_TABLE', '42P01'].includes(error?.code) ? 'SCHEMA_TABLE_MISSING' : 'DATABASE_QUERY_FAILED';
       console.error('School database authentication query failed', { component: 'school_authentication', operation: 'login_lookup', category, code: error?.code ?? 'UNKNOWN', errno: error?.errno ?? null, sqlState: error?.sqlState ?? null, table: tableName, column: columnMatch?.[1] ?? null });
       securityEvent('LOGIN_DATABASE_ERROR', null);
       return { ok: false, status: 503, error: 'Authentication service unavailable.' };
