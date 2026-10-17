@@ -183,16 +183,20 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
       else users.push(user);
       return createSessionResult(user);
     }
-    let rows = [];
+    let rows;
     try {
       rows = await database.query(`SELECT DISTINCT u.id,u.school_id AS schoolId,COALESCE(u.username,u.email) AS username,u.email,u.status,psl.telephone AS parentPhone
         FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id
         JOIN parent_student_links psl ON psl.parent_user_id=u.id
         WHERE r.role_key='PARENT' AND UPPER(COALESCE(u.status,'ACTIVE'))='ACTIVE' AND COALESCE(psl.link_status,'ACTIVE')='ACTIVE'`, []);
-    } catch {
-      try { rows = await database.query(`SELECT DISTINCT u.id,u.school_id AS schoolId,COALESCE(u.username,u.email) AS username,u.email,u.status,psl.telephone AS parentPhone
-        FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id JOIN parent_student_links psl ON psl.parent_user_id=u.id
-        WHERE r.role_key='PARENT' AND UPPER(COALESCE(u.status,'ACTIVE'))='ACTIVE'`, []); } catch { rows = []; }
+    } catch (error) {
+      console.error('Parent authentication lookup failed', {
+        component: 'parent_authentication',
+        operation: 'registered_phone_lookup',
+        code: /^[A-Z0-9_]+$/.test(String(error?.code ?? '')) ? error.code : 'UNKNOWN',
+        sqlState: /^[0-9A-Z]{5}$/.test(String(error?.sqlState ?? error?.code ?? '')) ? (error.sqlState ?? error.code) : null
+      });
+      return { ok: false, status: 503, error: 'Authentication service unavailable.' };
     }
     const row = rows.find((candidate) => normalizeGhanaPhone(candidate.parentPhone) === normalized);
     if (!row) return { ok: false, status: 401, error: 'Phone number is not registered. Contact the school administrator.' };
