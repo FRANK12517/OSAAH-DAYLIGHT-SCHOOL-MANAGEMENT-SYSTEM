@@ -1,5 +1,6 @@
 import bcrypt from 'bcrypt';
-import { createHash, createHmac, randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { passwordHash, passwordMatches } from './password-hash.js';
 import { normalizeGhanaPhone } from './ghana-phone.js';
 import { createConfiguredTestParent, isConfiguredTestParentPhone, TEST_PARENT_ID, TEST_PARENT_SCHOOL_ID } from './test-parent-fixture.js';
 import { createDurableStaffProvisioning } from './durable-staff-provisioning.js';
@@ -22,8 +23,6 @@ export function canonicalRoleKey(roleKey) { const normalized = String(roleKey ??
 
 function addStaffAttendanceRoleGrants(user) { if (['HEADTEACHER', 'ASSISTANT_HEADTEACHER'].includes(canonicalRoleKey(user?.roleKey))) { user.permissions.add('staff.attendance.read'); user.permissions.add('staff.attendance.write'); } return user; }
 
-function passwordHash(password, salt = randomBytes(16).toString('hex')) { return `${salt}:${scryptSync(password, salt, 32).toString('hex')}`; }
-function passwordMatches(password, stored) { const [salt, expected] = stored.split(':'); const actual = scryptSync(password, salt, 32); return timingSafeEqual(actual, Buffer.from(expected, 'hex')); }
 
 export const DEMO_USERS = [
   createConfiguredTestParent(),
