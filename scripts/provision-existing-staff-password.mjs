@@ -122,7 +122,7 @@ export async function provisionExistingAccount({ environment = process.env,args,
     await database.transaction(async (tx) => {
       const currentAccount = await findAccount(tx,email);
       if (currentAccount.id !== account.id || currentAccount.roleKey !== account.roleKey) fail('ACCOUNT_CHANGED','Account identity or role changed; no credential was changed.');
-      const locked = await tx.query('SELECT id FROM public.users WHERE id=? AND school_id=? AND status=\'ACTIVE\' FOR UPDATE',[account.id,'sch_default_01']);
+      const locked = await tx.query("SELECT id FROM public.users WHERE id=? AND school_id=? AND upper(status)='ACTIVE' FOR UPDATE",[account.id,'sch_default_01']);
       if (locked.length !== 1) fail('ACCOUNT_CHANGED','The existing account is no longer active.');
       const updated = await tx.execute("UPDATE public.users SET password_hash=? WHERE id=? AND lower(email)=lower(?) AND school_id='sch_default_01' AND upper(status)='ACTIVE'",[hash,account.id,email]);
       if (Number(updated?.affectedRows) !== 1) fail('ACCOUNT_CHANGED','The existing account could not be updated exactly once.');

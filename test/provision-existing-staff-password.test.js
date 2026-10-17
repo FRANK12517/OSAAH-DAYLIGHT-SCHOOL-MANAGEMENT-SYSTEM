@@ -18,8 +18,9 @@ const requiredColumns = [
 ].map(([table_name,column_name,udt_name])=>({table_name,column_name,udt_name}));
 
 function fixtureDatabase({ accountRows = null, missingHash = false, databaseName = 'osaah_test_authrestore' } = {}) {
-  const writes = [], db = {};
+  const writes = [], queries = [], db = {};
   db.query = async (sql) => {
+    queries.push(sql);
     if (sql.includes('current_database')) return [{database_name:databaseName}];
     if (sql.includes('information_schema.columns')) return missingHash ? requiredColumns.filter((row)=>row.column_name!=='password_hash') : requiredColumns;
     if (sql.includes('pg_class')) return ['users','roles','user_roles','permissions','role_permissions','auth_sessions'].map((table_name)=>({table_name,rls_enabled:true}));
@@ -35,7 +36,7 @@ function fixtureDatabase({ accountRows = null, missingHash = false, databaseName
   db.transaction = async (callback, options) => { writes.push(['transaction',options]); return callback(db); };
   db.execute = async (sql, params) => { writes.push([sql,params]); return {affectedRows:1}; };
   db.close = async () => { writes.push(['close']); };
-  return { db, writes };
+  return { db, writes, queries };
 }
 
 test('CLI accepts only the explicit environment and project reference', () => {
@@ -57,6 +58,15 @@ test('CLI securely prompts, updates only the existing hash, and revokes sessions
   assert.ok(update); assert.notEqual(update[1][0],password); assert.equal(Buffer.from(update[1][0].split(':')[1],'hex').toString(),password);
   assert.ok(writes.some(([sql,params])=>typeof sql==='string'&&sql.includes('UPDATE public.auth_sessions')&&params[0]===userId));
   assert.doesNotMatch(output.value,new RegExp(password)); assert.doesNotMatch(output.value,/test-salt:/); assert.doesNotMatch(output.value,/URL-SECRET/);
+});
+
+test('CLI locks an existing account using the same case-insensitive active status rule as validation', async () => {
+  const {db,queries}=fixtureDatabase({accountRows:[{id:userId,email:'teacher@example.test',role:'teacher',school_id:'sch_default_01',status:'active',role_keys:['TEACHER']}]});
+  const prompts=['teacher@example.test',`RESET teacher@example.test ${userId} DISPOSABLE ${projectRef}`];
+  const hidden=[password,password];
+  await provisionExistingAccount({environment:baseEnv,args,adapterFactory:()=>db,hashPassword:()=> 'salt:hash',checkPassword:()=>true,ask:async()=>prompts.shift(),askHidden:async()=>hidden.shift(),output:{write(){}}});
+  const lock=queries.find((sql)=>sql.includes('FOR UPDATE'));
+  assert.match(lock,/upper\(status\)='ACTIVE'/);
 });
 
 test('CLI refuses incompatible schema, ambiguous users, and mismatched account confirmation without writes', async () => {
