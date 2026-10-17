@@ -32,6 +32,15 @@ BEGIN
 
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.users'::regclass AND contype='p')
      OR NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.users'::regclass AND contype='u' AND conname='users_email_key')
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.roles'::regclass AND contype='p')
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.roles'::regclass AND contype='u' AND pg_get_constraintdef(oid)='UNIQUE (name)')
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.user_roles'::regclass AND contype='p')
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.user_roles'::regclass AND contype='u' AND pg_get_constraintdef(oid)='UNIQUE (user_id, role_id)')
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.permissions'::regclass AND contype='p')
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.permissions'::regclass AND contype='u' AND pg_get_constraintdef(oid)='UNIQUE (name)')
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.role_permissions'::regclass AND contype='p')
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.role_permissions'::regclass AND contype='u' AND pg_get_constraintdef(oid)='UNIQUE (role_id, permission_id)')
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.auth_sessions'::regclass AND contype='p')
      OR NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.user_roles'::regclass AND confrelid='public.users'::regclass AND contype='f')
      OR NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.user_roles'::regclass AND confrelid='public.roles'::regclass AND contype='f')
      OR NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.role_permissions'::regclass AND confrelid='public.roles'::regclass AND contype='f')
@@ -46,6 +55,9 @@ BEGIN
       AND c.relkind IN ('r','p') AND NOT c.relrowsecurity
   ) THEN
     RAISE EXCEPTION 'OSAAH auth compatibility preflight: RLS must remain enabled on all auth relations';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename IN ('users','auth_sessions','roles','user_roles','permissions','role_permissions')) THEN
+    RAISE EXCEPTION 'OSAAH auth compatibility preflight: existing auth policies differ from the verified empty policy inventory';
   END IF;
 
   -- The first application is intentionally bound to the exact live inventory.
