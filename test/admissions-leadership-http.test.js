@@ -4,6 +4,25 @@ import { createServer } from 'node:http';
 import { createAuthService } from '../src/auth.js';
 import { createApp } from '../src/server.js';
 
+test('School Administrators retain the admissions page contract and can load registration data', async () => {
+  const auth = createAuthService();
+  const proprietor = auth.login({ username: 'proprietor@osaah.edu.gh', password: 'Proprietor123!', portal: 'school' });
+  const administrator = auth.createAdministrator({ fullName: 'Registration Administrator', staffId: 'STAFF-REG-001' }, { id: proprietor.user.id, schoolId: proprietor.user.schoolId });
+  const login = auth.login({ username: administrator.administrator.username, password: administrator.temporaryPassword, portal: 'school' });
+  assert.ok(auth.authenticate(login.token).permissions.has('admissions.read'));
+  assert.ok(auth.authenticate(login.token).permissions.has('admissions.write'));
+  const server = createServer(createApp({ auth }));
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const headers = { Authorization: `Bearer ${login.token}` };
+    assert.equal((await fetch(base + '/api/admission-workflow/options', { headers })).status, 200);
+    const applications = await fetch(base + '/api/admission-applications', { headers });
+    assert.equal(applications.status, 200);
+    assert.deepEqual((await applications.json()).applications, []);
+  } finally { await new Promise((resolve) => server.close(resolve)); }
+});
+
 test('all three leadership sessions can open Admissions and save/reopen a durable enquiry; teachers are denied', async () => {
   const auth = createAuthService();
   const proprietor = auth.login({ username: 'proprietor@osaah.edu.gh', password: 'Proprietor123!', portal: 'school' });
