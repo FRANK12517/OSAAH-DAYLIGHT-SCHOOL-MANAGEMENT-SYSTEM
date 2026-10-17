@@ -9,26 +9,34 @@ function database(adapter) { if (!adapter || typeof adapter.query !== 'function'
 function safeDatabaseError(cause, code = 'PERSISTENCE_UNAVAILABLE') { if (cause?.code === code || cause?.code === 'IDEMPOTENCY_CONFLICT') return cause; return Object.assign(new Error('Durable persistence is unavailable.'), { code, status: 503 }); }
 function parse(value, fallback = null) { if (value === null || value === undefined || value === '') return fallback; try { return JSON.parse(value); } catch { return fallback; } }
 
-function postgresConnectionString(value) { return typeof value === 'string' && /^\s*postgres(?:ql)?:/i.test(value); }
-function configuredDatabaseAdapterModule(environment) {
+function databaseAdapterModule(environment) {
+  const selected = environment.OSAAH_DATABASE_ADAPTER;
   const postgresUrl = environment.OSAAH_POSTGRES_URL || environment.POSTGRES_URL;
-  const legacyUrl = environment.DATABASE_URL;
-  if (postgresUrl) {
-    if (!postgresConnectionString(postgresUrl)) {
-      fail('DATABASE_URL_INVALID', 'PostgreSQL runtime URL must use the postgres:// or postgresql:// scheme.');
-    }
-    if (legacyUrl && legacyUrl !== postgresUrl) {
-      // Vercel may retain an obsolete platform DATABASE_URL after the app's
-      // database has moved. Only the explicit app URL or Vercel's PostgreSQL
-      // integration URL is accepted; never route to the deprecated variable.
-      console.warn('DATABASE_URL is set but ignored; application runtime uses its configured PostgreSQL URL.');
-    }
-    return fileURLToPath(new URL('./postgres-database-adapter.js', import.meta.url));
+  const tidbUrl = environment.DATABASE_URL;
+  if (selected !== undefined && !['postgres', 'tidb'].includes(selected)) {
+    fail('DATABASE_ADAPTER_INVALID', 'OSAAH_DATABASE_ADAPTER must be either postgres or tidb.');
   }
-  if (legacyUrl) {
-    fail('POSTGRES_URL_REQUIRED', postgresConnectionString(legacyUrl)
-      ? 'Configure OSAAH_POSTGRES_URL or POSTGRES_URL explicitly; DATABASE_URL is not used by application runtime.'
-      : 'TiDB/MySQL DATABASE_URL is not supported by application runtime. Configure OSAAH_POSTGRES_URL or POSTGRES_URL for PostgreSQL.');
+  if (selected === 'tidb') {
+    if (postgresUrl) fail('DATABASE_CONFIGURATION_CONFLICT', 'TiDB selection conflicts with a configured PostgreSQL URL.');
+    if (!tidbUrl) fail('DATABASE_URL_REQUIRED', 'DATABASE_URL is required when OSAAH_DATABASE_ADAPTER=tidb.');
+    let url;
+    try { url = new URL(tidbUrl); } catch { fail('DATABASE_URL_INVALID', 'DATABASE_URL is not a valid TiDB/MySQL connection URL.'); }
+    if (url.protocol !== 'mysql:' || !url.hostname || !url.port || !url.username || !url.password || url.pathname !== '/osaahdaylightschool') {
+      fail('DATABASE_URL_INVALID', 'TiDB selection requires a mysql:// URL with username, password, host, port, and database osaahdaylightschool.');
+    }
+    return fileURLToPath(new URL('./tidb-database-adapter.js', import.meta.url));
+  }
+  if (selected === 'postgres') {
+    if (tidbUrl && (!postgresUrl || tidbUrl !== postgresUrl)) fail('DATABASE_CONFIGURATION_CONFLICT', 'PostgreSQL selection conflicts with DATABASE_URL.');
+    if (!postgresUrl) fail('POSTGRES_URL_REQUIRED', 'OSAAH_POSTGRES_URL or POSTGRES_URL is required when OSAAH_DATABASE_ADAPTER=postgres.');
+  } else if (tidbUrl && !postgresUrl) {
+    fail('DATABASE_ADAPTER_REQUIRED', 'Set OSAAH_DATABASE_ADAPTER=tidb to select TiDB/MySQL explicitly.');
+  } else if (tidbUrl && postgresUrl && tidbUrl !== postgresUrl) {
+    fail('DATABASE_CONFIGURATION_CONFLICT', 'Database URLs are both configured; select one adapter and remove the conflicting URL.');
+  }
+  if (postgresUrl) {
+    if (!/^\s*postgres(?:ql)?:/i.test(postgresUrl)) fail('DATABASE_URL_INVALID', 'PostgreSQL runtime URL must use the postgres:// or postgresql:// scheme.');
+    return fileURLToPath(new URL('./postgres-database-adapter.js', import.meta.url));
   }
   return null;
 }
@@ -66,7 +74,7 @@ export function selectAIPersistence({ environment = process.env.NODE_ENV ?? 'dev
 }
 
 export async function loadConfiguredAIPersistence({ environment = process.env } = {}) {
-  const runtime = environment.NODE_ENV ?? 'development', modulePath = configuredDatabaseAdapterModule(environment);
+  const runtime = environment.NODE_ENV ?? 'development', modulePath = databaseAdapterModule(environment);
   if (!modulePath) return selectAIPersistence({ environment: runtime, allowMemory: runtime !== 'production' });
   try {
     const loaded = await import(pathToFileURL(resolve(modulePath)));
@@ -80,8 +88,8 @@ export async function loadConfiguredAIPersistence({ environment = process.env } 
 }
 
 export async function loadConfiguredDatabaseAdapter({ environment = process.env, required = false } = {}) {
-  const modulePath = configuredDatabaseAdapterModule(environment);
-  if (!modulePath && required) fail('POSTGRES_URL_REQUIRED', 'OSAAH_POSTGRES_URL or POSTGRES_URL is required for application startup.');
+  const modulePath = databaseAdapterModule(environment);
+  if (!modulePath && required) fail('DATABASE_ADAPTER_REQUIRED', 'Configure OSAAH_DATABASE_ADAPTER and its matching database URL for application startup.');
   if (!modulePath) return null;
   const loaded = await import(pathToFileURL(resolve(modulePath)));
   return loaded.createDatabaseAdapter?.({ environment }) ?? null;
