@@ -37,6 +37,36 @@ test('production auth reports safe structured details for an unknown login colum
   } finally { console.error = previousError; }
 });
 
+test('PostgreSQL undefined-column and relation errors are classified without logging raw diagnostics', async () => {
+  const logged = [];
+  const previousError = console.error;
+  console.error = (...args) => logged.push(args);
+  let queryCount = 0;
+  const database = {
+    async query() {
+      queryCount += 1;
+      if (queryCount === 1) throw Object.assign(new Error('column u.school_id does not exist'), { code: '42703', detail: 'sensitive server detail' });
+      throw Object.assign(new Error('relation "public.auth_sessions" does not exist'), { code: '42P01', detail: 'sensitive server detail' });
+    }
+  };
+  try {
+    const auth = createAuthService({ database, sessionSecret: 'test-only-session-secret-with-at-least-32-characters' });
+    const result = await auth.loginFromDatabase({ username: 'safe@example.test', password: 'not-a-real-password', portal: 'school' });
+    assert.equal(result.status, 503);
+    assert.deepEqual(logged[0][1], {
+      component: 'school_authentication', operation: 'login_lookup', category: 'SCHEMA_COLUMN_MISMATCH',
+      code: '42703', errno: null, sqlState: '42703', table: null, column: 'school_id'
+    });
+    const missingRelation = await auth.loginFromDatabase({ username: 'safe@example.test', password: 'not-a-real-password', portal: 'school' });
+    assert.equal(missingRelation.status, 503);
+    assert.deepEqual(logged[1][1], {
+      component: 'school_authentication', operation: 'login_lookup', category: 'SCHEMA_TABLE_MISSING',
+      code: '42P01', errno: null, sqlState: '42P01', table: 'auth_sessions', column: null
+    });
+    assert.doesNotMatch(JSON.stringify(logged), /sensitive server detail|safe@example\.test|not-a-real-password|column u\.school_id does not exist/);
+  } finally { console.error = previousError; }
+});
+
 
 test('migration 069 is additive and backfills only deterministic legacy login/timestamp values', async () => {
   const sql = await readFile(migrationUrl, 'utf8');

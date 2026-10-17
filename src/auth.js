@@ -219,10 +219,21 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
         WHERE LOWER(COALESCE(u.username,u.email,''))=? OR LOWER(COALESCE(u.email,''))=? ORDER BY COALESCE(r.oversight_rank,0) DESC,r.role_key,p.permission_key`, [key, key]);
     } catch (error) {
       const tableMatch = String(error?.message ?? '').match(/Table ['`]([^'`]+)['`] doesn't exist/i);
-      const tableName = tableMatch?.[1]?.split('.').pop() || null;
+      const postgresTableMatch = String(error?.message ?? '').match(/relation [\"']([^\"']+)[\"'] does not exist/i);
+      const tableName = (tableMatch?.[1] ?? postgresTableMatch?.[1])?.split('.').pop() || null;
       const columnMatch = String(error?.message ?? '').match(/Unknown column ['`]([^'`]+)['`]/i);
-      const category = error?.code === 'ER_BAD_FIELD_ERROR' ? 'SCHEMA_COLUMN_MISMATCH' : error?.code === 'ER_NO_SUCH_TABLE' ? 'SCHEMA_TABLE_MISSING' : 'DATABASE_QUERY_FAILED';
-      console.error('School database authentication query failed', { component: 'school_authentication', operation: 'login_lookup', category, code: error?.code ?? 'UNKNOWN', errno: error?.errno ?? null, sqlState: error?.sqlState ?? null, table: tableName, column: columnMatch?.[1] ?? null });
+      const postgresColumnMatch = String(error?.message ?? '').match(/column\s+(?:[\"']?[A-Za-z_][A-Za-z0-9_$]*[\"']?\.)?[\"']?([A-Za-z_][A-Za-z0-9_$]*)[\"']?\s+does not exist/i);
+      const category = ['ER_BAD_FIELD_ERROR', '42703'].includes(error?.code) ? 'SCHEMA_COLUMN_MISMATCH'
+        : ['ER_NO_SUCH_TABLE', '42P01'].includes(error?.code) ? 'SCHEMA_TABLE_MISSING' : 'DATABASE_QUERY_FAILED';
+      const safeIdentifier = (value) => typeof value === 'string' && /^[A-Za-z_][A-Za-z0-9_$]*(?:\.[A-Za-z_][A-Za-z0-9_$]*)*$/.test(value) ? value : null;
+      const postgresCode = typeof error?.code === 'string' && /^[0-9A-Z]{5}$/.test(error.code) ? error.code : null;
+      console.error('School database authentication query failed', {
+        component: 'school_authentication', operation: 'login_lookup', category,
+        code: typeof error?.code === 'string' && /^[A-Z0-9_]+$/.test(error.code) ? error.code : 'UNKNOWN',
+        errno: Number.isSafeInteger(error?.errno) ? error.errno : null,
+        sqlState: typeof error?.sqlState === 'string' && /^[A-Z0-9]{5}$/.test(error.sqlState) ? error.sqlState : postgresCode,
+        table: safeIdentifier(tableName), column: safeIdentifier(columnMatch?.[1] ?? postgresColumnMatch?.[1] ?? error?.column)
+      });
       securityEvent('LOGIN_DATABASE_ERROR', null);
       return { ok: false, status: 503, error: 'Authentication service unavailable.' };
     }
