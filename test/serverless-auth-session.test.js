@@ -99,6 +99,32 @@ test('database Parent phone sessions persist and restore the Parent portal ident
   assert.equal(await independentInstanceAuth.authenticateAsync(login.token), null, 'an unrelated instance must reject the database-revoked token');
 });
 
+test('database Parent authentication fails unavailable when the canonical relationship lookup fails', async () => {
+  let queryCount = 0;
+  let sessionWrites = 0;
+  const database = {
+    async query() { queryCount += 1; const error = new Error('private database detail'); error.code = '42P01'; throw error; },
+    async execute() { sessionWrites += 1; return { affectedRows: 1 }; }
+  };
+  const auth = createAuthService({ database, sessionSecret: SESSION_SECRET });
+  const originalError = console.error;
+  const diagnostics = [];
+  console.error = (...args) => diagnostics.push(args);
+  let result;
+  try { result = await auth.loginByPhoneFromDatabase({ phone: '+233240000001', portal: 'parent' }); }
+  finally { console.error = originalError; }
+  assert.deepEqual(result, { ok: false, status: 503, error: 'Authentication service unavailable.' });
+  assert.equal(queryCount, 1, 'lookup failure must not retry without active relationship validation');
+  assert.equal(sessionWrites, 0, 'a failed lookup must not create a session');
+  assert.equal(JSON.stringify(diagnostics).includes('private database detail'), false);
+  assert.deepEqual(diagnostics[0]?.[1], {
+    component: 'parent_authentication',
+    operation: 'registered_phone_lookup',
+    code: '42P01',
+    sqlState: '42P01'
+  });
+});
+
 test('controlled sample Parent session restores across serverless instances with Parent identity only', async () => {
   const loginAuth = createAuthService({ sessionSecret: SESSION_SECRET });
   const login = await loginAuth.loginByPhoneFromDatabase({ phone: TEST_PARENT_PHONE, portal: 'parent' });
@@ -227,6 +253,9 @@ test('Parent APIs expose only linked children, canonical options, allowed record
 
     const unrelated = await request(server, '/api/parent/records?recordType=student-summary&permanentStudentId=OSAAH%2F2026%2F9999', { cookie });
     assert.equal(unrelated.status, 403);
+
+    const staffOnly = await request(server, '/api/staff-directory', { cookie });
+    assert.equal(staffOnly.status, 403, 'a Parent session must not access staff-only routes');
 
     const logout = await request(server, '/api/auth/logout', { method: 'POST', cookie });
     assert.equal(logout.status, 204);

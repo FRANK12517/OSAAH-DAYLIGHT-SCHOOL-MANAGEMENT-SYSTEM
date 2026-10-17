@@ -1,5 +1,6 @@
 import bcrypt from 'bcrypt';
-import { createHash, createHmac, randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { passwordHash, passwordMatches } from './password-hash.js';
 import { normalizeGhanaPhone } from './ghana-phone.js';
 import { createConfiguredTestParent, isConfiguredTestParentPhone, TEST_PARENT_ID, TEST_PARENT_SCHOOL_ID } from './test-parent-fixture.js';
 import { createDurableStaffProvisioning } from './durable-staff-provisioning.js';
@@ -22,8 +23,6 @@ export function canonicalRoleKey(roleKey) { const normalized = String(roleKey ??
 
 function addStaffAttendanceRoleGrants(user) { if (['HEADTEACHER', 'ASSISTANT_HEADTEACHER'].includes(canonicalRoleKey(user?.roleKey))) { user.permissions.add('staff.attendance.read'); user.permissions.add('staff.attendance.write'); } return user; }
 
-function passwordHash(password, salt = randomBytes(16).toString('hex')) { return `${salt}:${scryptSync(password, salt, 32).toString('hex')}`; }
-function passwordMatches(password, stored) { const [salt, expected] = stored.split(':'); const actual = scryptSync(password, salt, 32); return timingSafeEqual(actual, Buffer.from(expected, 'hex')); }
 
 export const DEMO_USERS = [
   createConfiguredTestParent(),
@@ -184,16 +183,20 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
       else users.push(user);
       return createSessionResult(user);
     }
-    let rows = [];
+    let rows;
     try {
       rows = await database.query(`SELECT DISTINCT u.id,u.school_id AS schoolId,COALESCE(u.username,u.email) AS username,u.email,u.status,psl.telephone AS parentPhone
         FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id
         JOIN parent_student_links psl ON psl.parent_user_id=u.id
         WHERE r.role_key='PARENT' AND UPPER(COALESCE(u.status,'ACTIVE'))='ACTIVE' AND COALESCE(psl.link_status,'ACTIVE')='ACTIVE'`, []);
-    } catch {
-      try { rows = await database.query(`SELECT DISTINCT u.id,u.school_id AS schoolId,COALESCE(u.username,u.email) AS username,u.email,u.status,psl.telephone AS parentPhone
-        FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id JOIN parent_student_links psl ON psl.parent_user_id=u.id
-        WHERE r.role_key='PARENT' AND UPPER(COALESCE(u.status,'ACTIVE'))='ACTIVE'`, []); } catch { rows = []; }
+    } catch (error) {
+      console.error('Parent authentication lookup failed', {
+        component: 'parent_authentication',
+        operation: 'registered_phone_lookup',
+        code: /^[A-Z0-9_]+$/.test(String(error?.code ?? '')) ? error.code : 'UNKNOWN',
+        sqlState: /^[0-9A-Z]{5}$/.test(String(error?.sqlState ?? error?.code ?? '')) ? (error.sqlState ?? error.code) : null
+      });
+      return { ok: false, status: 503, error: 'Authentication service unavailable.' };
     }
     const row = rows.find((candidate) => normalizeGhanaPhone(candidate.parentPhone) === normalized);
     if (!row) return { ok: false, status: 401, error: 'Phone number is not registered. Contact the school administrator.' };
@@ -216,10 +219,21 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
         WHERE LOWER(COALESCE(u.username,u.email,''))=? OR LOWER(COALESCE(u.email,''))=? ORDER BY COALESCE(r.oversight_rank,0) DESC,r.role_key,p.permission_key`, [key, key]);
     } catch (error) {
       const tableMatch = String(error?.message ?? '').match(/Table ['`]([^'`]+)['`] doesn't exist/i);
-      const tableName = tableMatch?.[1]?.split('.').pop() || null;
+      const postgresTableMatch = String(error?.message ?? '').match(/relation [\"']([^\"']+)[\"'] does not exist/i);
+      const safeIdentifier = (value) => typeof value === 'string' && /^[A-Za-z_][A-Za-z0-9_$]*(?:\.[A-Za-z_][A-Za-z0-9_$]*)*$/.test(value) ? value : null;
+      const tableName = safeIdentifier((tableMatch?.[1] ?? postgresTableMatch?.[1])?.split('.').pop() || null);
       const columnMatch = String(error?.message ?? '').match(/Unknown column ['`]([^'`]+)['`]/i);
-      const category = error?.code === 'ER_BAD_FIELD_ERROR' ? 'SCHEMA_COLUMN_MISMATCH' : error?.code === 'ER_NO_SUCH_TABLE' ? 'SCHEMA_TABLE_MISSING' : 'DATABASE_QUERY_FAILED';
-      console.error('School database authentication query failed', { component: 'school_authentication', operation: 'login_lookup', category, code: error?.code ?? 'UNKNOWN', errno: error?.errno ?? null, sqlState: error?.sqlState ?? null, table: tableName, column: columnMatch?.[1] ?? null });
+      const postgresColumnMatch = String(error?.message ?? '').match(/column\s+(?:[\"']?[A-Za-z_][A-Za-z0-9_$]*[\"']?\.)?[\"']?([A-Za-z_][A-Za-z0-9_$]*)[\"']?\s+does not exist/i);
+      const category = ['ER_BAD_FIELD_ERROR', '42703'].includes(error?.code) ? 'SCHEMA_COLUMN_MISMATCH'
+        : ['ER_NO_SUCH_TABLE', '42P01'].includes(error?.code) ? 'SCHEMA_TABLE_MISSING' : 'DATABASE_QUERY_FAILED';
+      const postgresCode = typeof error?.code === 'string' && /^[0-9A-Z]{5}$/.test(error.code) ? error.code : null;
+      console.error('School database authentication query failed', {
+        component: 'school_authentication', operation: 'login_lookup', category,
+        code: typeof error?.code === 'string' && /^[A-Z0-9_]+$/.test(error.code) ? error.code : 'UNKNOWN',
+        errno: Number.isSafeInteger(error?.errno) ? error.errno : null,
+        sqlState: typeof error?.sqlState === 'string' && /^[A-Z0-9]{5}$/.test(error.sqlState) ? error.sqlState : postgresCode,
+        table: tableName, column: safeIdentifier(columnMatch?.[1] ?? postgresColumnMatch?.[1] ?? error?.column)
+      });
       securityEvent('LOGIN_DATABASE_ERROR', null);
       return { ok: false, status: 503, error: 'Authentication service unavailable.' };
     }

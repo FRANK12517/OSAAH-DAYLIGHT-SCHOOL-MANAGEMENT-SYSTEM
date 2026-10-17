@@ -1,0 +1,26 @@
+name: Authentication regression contract
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  authentication-regression:
+    name: Authentication regression contract
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Verify authentication, sessions, and parent login contracts
+        run: node --test test/durable-auth-sessions.test.js test/parent-phone-login.test.js test/production-auth-uuid-migration.test.js test/proprietor-authentication.test.js test/provision-existing-staff-password.test.js test/serverless-auth-session.test.js test/staff-authentication-part3.test.js
