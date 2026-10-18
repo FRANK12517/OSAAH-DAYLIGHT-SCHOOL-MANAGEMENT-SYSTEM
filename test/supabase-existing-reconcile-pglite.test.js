@@ -42,6 +42,21 @@ async function createStarterDatabase({ withClassRow = false } = {}) {
   return database;
 }
 
+async function createCapturedTwelveTableDatabase() {
+  const database = await createStarterDatabase();
+  await database.exec(`
+    CREATE TABLE public.auth_sessions (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES public.users(id), token_hash text NOT NULL, expires_at timestamptz NOT NULL, created_at timestamptz NOT NULL DEFAULT now());
+    CREATE TABLE public.roles (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), name text NOT NULL, description text, created_at timestamptz NOT NULL DEFAULT now());
+    CREATE TABLE public.permissions (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), name text NOT NULL, description text, created_at timestamptz NOT NULL DEFAULT now());
+    CREATE TABLE public.role_permissions (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), role_id uuid NOT NULL REFERENCES public.roles(id), permission_id uuid NOT NULL REFERENCES public.permissions(id), created_at timestamptz NOT NULL DEFAULT now());
+    CREATE TABLE public.user_roles (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL REFERENCES public.users(id), role_id uuid NOT NULL REFERENCES public.roles(id), created_at timestamptz NOT NULL DEFAULT now());
+    INSERT INTO public.users(email,full_name,role) VALUES ('synthetic-owner@example.invalid','Synthetic Owner','proprietor');
+    INSERT INTO public.roles(name) VALUES ('proprietor');
+    INSERT INTO public.user_roles(user_id,role_id) SELECT u.id,r.id FROM public.users u CROSS JOIN public.roles r;
+  `);
+  return database;
+}
+
 async function migrationForFixture(database) {
   const migration = (await readFile(migrationPath, 'utf8')).replace(/\r\n/g, '\n');
   const signatureStart = migration.indexOf('  WITH\n  cols AS (');
@@ -143,6 +158,24 @@ test('existing-schema migration refuses catalog drift before creating the archiv
       to_regnamespace('osaah_legacy_20261015') IS NULL AS no_archive,
       EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='classes' AND column_name='unexpected_column') AS drift_preserved`);
     assert.deepEqual(state.rows[0], { no_archive: true, drift_preserved: true });
+  } finally {
+    await database.close();
+  }
+});
+
+test('seven-table archive migration rejects the captured twelve-table baseline without moving its accounts or assignments', async () => {
+  const database = await createCapturedTwelveTableDatabase();
+  try {
+    const migration = await migrationForFixture(database);
+    await assert.rejects(() => database.exec(migration), /captured 12-table OSAAH starter schema needs a separate approved additive migration/);
+    await database.exec('ROLLBACK');
+    const state = await database.query(`SELECT
+      to_regnamespace('osaah_legacy_20261015') IS NULL AS no_archive,
+      (SELECT count(*)::int FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE') AS public_tables,
+      (SELECT count(*)::int FROM public.users) AS users,
+      (SELECT count(*)::int FROM public.roles) AS roles,
+      (SELECT count(*)::int FROM public.user_roles) AS assignments`);
+    assert.deepEqual(state.rows[0], { no_archive: true, public_tables: 12, users: 1, roles: 1, assignments: 1 });
   } finally {
     await database.close();
   }

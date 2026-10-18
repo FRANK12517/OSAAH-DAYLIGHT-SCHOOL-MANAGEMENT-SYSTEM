@@ -3,11 +3,15 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createAuthService } from '../src/auth.js';
 
-test('PR #201 keeps production database Parent authentication fail-closed without durable sessions', async () => {
+test('Production authentication does not use the built-in sample Parent identity', async () => {
   const previous = process.env.NODE_ENV;
   process.env.NODE_ENV = 'production';
   try {
-    const database = { query: async () => [], execute: async () => {}, supportsDurableAuthSessions: false };
+    const database = {
+      query: async () => [{ id: 'db-parent', schoolId: 'sch_default_01', username: 'parent@example.invalid', email: 'parent@example.invalid', status: 'ACTIVE', parentPhone: '+233247293733' }],
+      execute: async () => {},
+      supportsDurableAuthSessions: false
+    };
     const auth = createAuthService({ database });
     const result = await auth.loginByPhoneFromDatabase({ phone: '0247293733', portal: 'parent' });
     assert.equal(result.ok, false);

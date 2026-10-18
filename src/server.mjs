@@ -99,7 +99,7 @@ import { createSchoolSettingsService } from './school-settings.js';
 import { createSingleSchoolOverviewService } from './single-school-overview.js';
 import { createSchoolProfileService } from './school-profile.js';
 import { authorizeParentStudent, PARENT_UNLINKED_MESSAGE } from './parent-authorization.js';
-import { isConfiguredTestStudentId } from './test-parent-fixture.js';
+import { isConfiguredTestStudentId, sampleFixturesEnabled, seedSampleStudentsIfEnabled } from './test-parent-fixture.js';
 import { createAssignmentService } from './assignments.js';
 import { createAttendanceAnalyticsService } from './attendance-analytics.js';
 import { createAttendanceReportsService } from './attendance-reports.js';
@@ -164,7 +164,7 @@ export function createApp({ auth = null, students = null, attendance = null, att
   singleSchoolOverview ??= createSingleSchoolOverviewService({ database, schoolSettings, students, attendance, attendanceRepository, examinations, fees, staff, communication, audit, schoolId: serviceSchoolId });
   schoolProfile ??= createSchoolProfileService({ database, schoolSettings, singleSchoolOverview, staff, schoolId: serviceSchoolId });
   academicCalendar ??= createAcademicCalendarService({ database, schoolId: serviceSchoolId, audit });
-  if (process.env.OSAAH_ENABLE_SAMPLE_FIXTURES !== 'false' && !students.listStudents({ requestedSchoolId: serviceSchoolId, includeTestRecords: true }).some((student) => student.isTestRecord)) students.seedSampleStudents?.();
+  seedSampleStudentsIfEnabled(students, serviceSchoolId);
   const feeCollections = database?.query && database?.execute && database?.transaction ? createFeeCollectionsRepository({ adapter: database, audit, strictValidation: true }) : null;
   const durableFeeReader = database?.supportsDurableAuthSessions && database?.query ? createDurableFeeReader({ adapter: database }) : null;
   const durableFeePayments = database?.query && database?.execute && database?.transaction ? createDurableFeePayments({ database, schoolId: serviceSchoolId, audit }) : null;
@@ -453,6 +453,7 @@ export function createApp({ auth = null, students = null, attendance = null, att
       }
       if (pathname === '/api/sms/delivery-callback' && request.method === 'GET') { if (!smsService) return json(response, { error: 'Durable SMS service unavailable.' }, 503); try { const query = new URL(request.url, 'http://localhost').searchParams; return json(response, await smsService.deliveryCallback({ token: query.get('token'), smsId: query.get('sms_id'), status: query.get('status') })); } catch (error) { return json(response, { error: error.message }, error.status ?? 400); } }
       if (!user) return json(response, { error: 'Authentication required.' }, 401);
+      if (pathname.startsWith('/api/academic/sample/') && !sampleFixturesEnabled()) return json(response, { error: 'Sample Result / Test Mode is disabled.' }, 403);
       const durableAcademicEndpoints = new Set(['/api/academic/options', '/api/academic/result-students', '/api/academic/score-entry/roster', '/api/academic/mock-scores/roster', '/api/academic/scores', '/api/academic/results/save', '/api/academic/results/saved', '/api/academic/results/publish', '/api/academic/mock-scores', '/api/academic/result/pdf', '/api/academic/mock-result/pdf', '/api/academic/sample/result/pdf', '/api/academic/result', '/api/academic/mock-result', '/api/parent/results']);
       if (process.env.NODE_ENV === 'production' && !durableAcademic && (durableAcademicEndpoints.has(pathname) || pathname.startsWith('/api/subjects/'))) return json(response, { error: 'Durable academic data is unavailable; apply the required migrations and restore database connectivity before retrying.' }, 503);
       if (process.env.NODE_ENV === 'production' && pathname.startsWith('/api/examinations/promotion') && !durablePromotion) return json(response, { error: 'Durable promotion data is unavailable; apply the required migration and restore database connectivity before retrying.' }, 503);
@@ -639,6 +640,7 @@ export function createApp({ auth = null, students = null, attendance = null, att
           const sampleMode = String(query.sampleMode ?? '').toLowerCase() === 'true';
           let studentsForResult;
           if (sampleMode) {
+            if (!sampleFixturesEnabled()) return json(response, { error: 'Sample Result / Test Mode is disabled.' }, 403);
             const context = durableAcademic ? await durableAcademic.resultContext(query, user) : { className: classId };
             if (!canonicalClassId(context.className)) throw new Error('The selected class is not configured for sample results.');
             students.seedSampleStudents?.();

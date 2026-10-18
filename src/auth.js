@@ -1,7 +1,7 @@
 import bcrypt from 'bcrypt';
 import { createHash, createHmac, randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 import { normalizeGhanaPhone } from './ghana-phone.js';
-import { createConfiguredTestParent, isConfiguredTestParentPhone, TEST_PARENT_ID, TEST_PARENT_SCHOOL_ID } from './test-parent-fixture.js';
+import { createConfiguredTestParent, isConfiguredTestParentPhone, sampleFixturesEnabled, TEST_PARENT_ID, TEST_PARENT_SCHOOL_ID } from './test-parent-fixture.js';
 import { createDurableStaffProvisioning } from './durable-staff-provisioning.js';
 import { createDurableAdministratorCredentialReset } from './durable-administrator-credential-reset.js';
 import { createDurableCredentialManagement, generatedPassword, passwordMeetsPolicy } from './durable-credential-management.js';
@@ -234,7 +234,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     // The controlled QA identity is a server-owned namespace, not a durable
     // Parent account. Resolve it before any live lookup so a colliding phone
     // value can never authenticate an unintended production Parent.
-    if (isConfiguredTestParentPhone(normalized) && process.env.OSAAH_ENABLE_SAMPLE_FIXTURES !== 'false') {
+    if (isConfiguredTestParentPhone(normalized) && sampleFixturesEnabled()) {
       const user = createConfiguredTestParent(testParentSchoolId);
       const existingIndex = users.findIndex((candidate) => candidate.id === user.id);
       if (existingIndex >= 0) users[existingIndex] = user;
@@ -246,18 +246,14 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
       rows = await database.query(`SELECT DISTINCT u.id,u.school_id AS schoolId,COALESCE(u.username,u.email) AS username,u.email,u.status,psl.telephone AS parentPhone
         FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id
         JOIN parent_student_links psl ON psl.parent_user_id=u.id
-        WHERE r.role_key='PARENT' AND UPPER(COALESCE(u.status,'ACTIVE'))='ACTIVE' AND COALESCE(psl.link_status,'ACTIVE')='ACTIVE'`, []);
-    } catch {
-      try { rows = await database.query(`SELECT DISTINCT u.id,u.school_id AS schoolId,COALESCE(u.username,u.email) AS username,u.email,u.status,psl.telephone AS parentPhone
-        FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id JOIN parent_student_links psl ON psl.parent_user_id=u.id
-        WHERE r.role_key='PARENT' AND UPPER(COALESCE(u.status,'ACTIVE'))='ACTIVE'`, []); } catch (error) {
-        console.error('Parent database authentication query failed', {
-          ...schoolLoginDiagnostics(error, diagnosticContext),
-          component: 'parent_authentication', operation: 'login_lookup', category: 'DATABASE_QUERY_FAILED'
-        });
-        securityEvent('PARENT_LOGIN_DATABASE_ERROR', null);
-        return { ok: false, status: 503, error: 'Authentication service unavailable.' };
-      }
+        WHERE r.role_key='PARENT' AND UPPER(COALESCE(u.status,'ACTIVE'))='ACTIVE' AND psl.link_status='ACTIVE'`, []);
+    } catch (error) {
+      console.error('Parent database authentication query failed', {
+        ...schoolLoginDiagnostics(error, diagnosticContext),
+        component: 'parent_authentication', operation: 'login_lookup', category: 'DATABASE_QUERY_FAILED'
+      });
+      securityEvent('PARENT_LOGIN_DATABASE_ERROR', null);
+      return { ok: false, status: 503, error: 'Authentication service unavailable.' };
     }
     const row = rows.find((candidate) => normalizeGhanaPhone(candidate.parentPhone) === normalized);
     if (!row) return { ok: false, status: 401, error: 'Phone number is not registered. Contact the school administrator.' };
@@ -311,7 +307,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     if (!session || session.expiresAt <= now()) { if (token) sessions.delete(token); return null; }
     const isTestParentFixtureSession = session.userId === TEST_PARENT_ID && session.testParentFixture === true;
     const user = isTestParentFixtureSession
-      ? (process.env.OSAAH_ENABLE_SAMPLE_FIXTURES === 'false' ? null : createConfiguredTestParent(testParentSchoolId))
+      ? (!sampleFixturesEnabled() ? null : createConfiguredTestParent(testParentSchoolId))
       : users.find((candidate) => candidate.id === session.userId && (!session.roleKey || canonicalRoleKey(candidate.roleKey) === canonicalRoleKey(session.roleKey)))
         ?? users.find((candidate) => candidate.id === session.userId);
     if (!user) { if (token) sessions.delete(token); return null; }
@@ -421,8 +417,29 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     return { ok: true };
   }
   function resetStaffCredentials(userId, schoolId) { if (database?.query) { if (!durableStaff) throw new Error('Durable staff management is unavailable.'); return durableStaff.resetCredentials(userId, schoolId); } const user = users.find((candidate) => candidate.id === userId && candidate.schoolId === schoolId && candidate.staffId); if (!user) return null; const temporaryPassword = randomBytes(18).toString('base64url'); user.passwordHash = passwordHash(temporaryPassword); user.must_change_password = true; for (const [token, session] of sessions) if (session.userId === userId) revokeLocalSession(token, session); revokeDurableSessionsBestEffort(userId); return { username: user.username, temporaryPassword }; }
-  function requestPasswordReset(username) { const user = users.find((candidate) => candidate.username.toLowerCase() === username.trim().toLowerCase()); if (!user) return { ok: true }; const token = randomUUID(); resetTokens.set(token, { userId: user.id, expiresAt: now() + RESET_TTL_MS }); return { ok: true, token }; }
-  function completePasswordReset(token, newPassword) { const reset = resetTokens.get(token); if (!reset || reset.expiresAt <= now() || typeof newPassword !== 'string' || newPassword.length < 10) return { ok: false, error: 'Invalid or expired reset request.' }; const user = users.find((candidate) => candidate.id === reset.userId); if (!user) return { ok: false, error: 'Invalid or expired reset request.' }; user.passwordHash = passwordHash(newPassword); resetTokens.delete(token); for (const [sessionToken, session] of sessions) if (session.userId === user.id) revokeLocalSession(sessionToken, session); revokeDurableSessionsBestEffort(user.id); return { ok: true }; }
+  function requestPasswordReset(username) {
+    // The in-memory token flow is retained only for local/test operation. It
+    // cannot reset a durable account and must not expose a bearer token from a
+    // public endpoint when PostgreSQL backs authentication.
+    if (database?.query) return { ok: true };
+    const user = users.find((candidate) => candidate.username.toLowerCase() === username.trim().toLowerCase());
+    if (!user) return { ok: true };
+    const token = randomUUID();
+    resetTokens.set(token, { userId: user.id, expiresAt: now() + RESET_TTL_MS });
+    return { ok: true, token };
+  }
+  function completePasswordReset(token, newPassword) {
+    if (database?.query) return { ok: false, error: 'Invalid or expired reset request.' };
+    const reset = resetTokens.get(token);
+    if (!reset || reset.expiresAt <= now() || typeof newPassword !== 'string' || newPassword.length < 10) return { ok: false, error: 'Invalid or expired reset request.' };
+    const user = users.find((candidate) => candidate.id === reset.userId);
+    if (!user) return { ok: false, error: 'Invalid or expired reset request.' };
+    user.passwordHash = passwordHash(newPassword);
+    resetTokens.delete(token);
+    for (const [sessionToken, session] of sessions) if (session.userId === user.id) revokeLocalSession(sessionToken, session);
+    revokeDurableSessionsBestEffort(user.id);
+    return { ok: true };
+  }
   return { login, loginByPhone, loginByPhoneFromDatabase, loginFromDatabase, authenticate, authenticateAsync, logout, logoutSession, requestPasswordReset, completePasswordReset, changeOwnPassword, setAccountStatus, revokeAccount, createAdministrator, listAdministrators, getAdministrator, updateAdministrator, resetAdministratorCredentials, resetAdministratorCredentialsByEmail, resetUserCredentials, registerStaff, listStaff, getStaff, updateStaff, changeStaffRole, assignStaff, resetStaffCredentials, sessionTtlMs: SESSION_TTL_MS, genericLoginError: GENERIC_LOGIN_ERROR };
 }
 
