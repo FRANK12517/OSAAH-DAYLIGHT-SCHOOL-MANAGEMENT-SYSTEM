@@ -91,7 +91,25 @@ function renderDashboard(user, redirectTo = '/') {
   menuButton.addEventListener('click', () => setDrawer(!shell.classList.contains('sidebar-open'))); backdrop.addEventListener('click', () => setDrawer(false));
   dashboard.querySelectorAll('.sidebar-group-toggle').forEach((button) => button.addEventListener('click', () => { const open = button.getAttribute('aria-expanded') === 'true'; button.setAttribute('aria-expanded', String(!open)); document.getElementById(button.getAttribute('aria-controls')).hidden = open; }));
   dashboard.querySelectorAll('.sidebar-link:not([data-module="logout"])').forEach((link) => link.addEventListener('click', (event) => { setDrawer(false); if (user.portal !== 'school') return; event.preventDefault(); const route = link.dataset.moduleRoute || new URL(link.href, location.origin).pathname; navigateToRoute(dashboard, route, link.dataset.moduleName || 'School Module', { navigationKey: link.dataset.navigationKey, exactView: link.dataset.exactView, replace: false }); }));
-  if (user.portal === 'school') { const initialRoute = location.pathname === '/' ? resolvePostLoginRoute(user, redirectTo) : location.pathname; if (location.pathname === '/' && initialRoute !== '/') history.replaceState({ route: initialRoute }, '', initialRoute); const renderCurrent = () => { const requestedKey = new URLSearchParams(location.search).get('navigationKey'); const link = [...dashboard.querySelectorAll('.sidebar-link')].find((item) => requestedKey ? item.dataset.navigationKey === requestedKey : (item.dataset.moduleRoute || item.dataset.route || new URL(item.href, location.origin).pathname) === location.pathname); navigateToRoute(dashboard, location.pathname, link?.dataset.moduleName || link?.dataset.moduleLabel || document.body.dataset.currentModule || 'School Module', { navigationKey: link?.dataset.navigationKey || requestedKey || location.pathname, exactView: link?.dataset.exactView || new URLSearchParams(location.search).get('view') || document.body.dataset.currentView, replace: true }); }; if (location.pathname !== '/') renderCurrent(); window.onpopstate = () => renderCurrent(); }
+  if (user.portal === 'school') {
+    const findRouteLink = (route, navigationKey = null) => [...dashboard.querySelectorAll('.sidebar-link')].find((item) => navigationKey ? item.dataset.navigationKey === navigationKey : (item.dataset.moduleRoute || item.dataset.route || new URL(item.href, location.origin).pathname) === route);
+    const renderCurrent = () => {
+      const requestedKey = new URLSearchParams(location.search).get('navigationKey');
+      const link = findRouteLink(location.pathname, requestedKey);
+      navigateToRoute(dashboard, location.pathname, link?.dataset.moduleName || link?.dataset.moduleLabel || document.body.dataset.currentModule || 'School Module', { navigationKey: link?.dataset.navigationKey || requestedKey || location.pathname, exactView: link?.dataset.exactView || new URLSearchParams(location.search).get('view') || document.body.dataset.currentView, replace: true });
+    };
+    const initialRoute = location.pathname === '/' ? resolvePostLoginRoute(user, redirectTo) : location.pathname;
+    const requestedUrl = new URL(initialRoute, location.origin);
+    const redirectLink = location.pathname === '/' && initialRoute !== '/'
+      ? findRouteLink(requestedUrl.pathname, requestedUrl.searchParams.get('navigationKey'))
+      : null;
+    if (location.pathname === '/' && redirectLink) {
+      history.replaceState({ route: initialRoute }, '', initialRoute);
+      navigateToRoute(dashboard, requestedUrl.pathname, redirectLink.dataset.moduleName || redirectLink.dataset.moduleLabel || 'School Module', { navigationKey: redirectLink.dataset.navigationKey, exactView: redirectLink.dataset.exactView || requestedUrl.searchParams.get('view'), replace: true });
+    }
+    else renderCurrent();
+    window.onpopstate = renderCurrent;
+  }
   dashboard.querySelectorAll('[data-module="logout"]').forEach((link) => link.addEventListener('click', (event) => { event.preventDefault(); logoutToPublicHome().catch((error) => console.error('OSAAH logout failed', error)); })); })();
   return dashboardBuildPromise;
 }

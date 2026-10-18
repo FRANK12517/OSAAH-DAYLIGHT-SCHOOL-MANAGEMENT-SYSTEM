@@ -28,6 +28,12 @@ BEGIN
 
   SELECT array_agg(tablename::text ORDER BY tablename) INTO actual_tables
   FROM pg_tables WHERE schemaname = 'public';
+  IF actual_tables IS NOT DISTINCT FROM ARRAY[
+    'assessments','attendance','auth_sessions','classes','fee_payments','permissions',
+    'role_permissions','roles','students','subjects','user_roles','users'
+  ]::text[] THEN
+    RAISE EXCEPTION 'Preflight stopped: the captured 12-table OSAAH starter schema needs a separate approved additive migration and explicit account/role mapping; this archive migration is not applicable.';
+  END IF;
   IF actual_tables IS DISTINCT FROM ARRAY['assessments','attendance','classes','fee_payments','students','subjects','users']::text[] THEN
     RAISE EXCEPTION 'Preflight stopped: public table set changed from the reviewed seven-table starter schema.';
   END IF;

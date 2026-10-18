@@ -1,7 +1,7 @@
 import bcrypt from 'bcrypt';
 import { createHash, createHmac, randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 import { normalizeGhanaPhone } from './ghana-phone.js';
-import { createConfiguredTestParent, isConfiguredTestParentPhone, TEST_PARENT_ID, TEST_PARENT_SCHOOL_ID } from './test-parent-fixture.js';
+import { createConfiguredTestParent, isConfiguredTestParentPhone, sampleFixturesEnabled, TEST_PARENT_ID, TEST_PARENT_SCHOOL_ID } from './test-parent-fixture.js';
 import { createDurableStaffProvisioning } from './durable-staff-provisioning.js';
 import { createDurableAdministratorCredentialReset } from './durable-administrator-credential-reset.js';
 import { createDurableCredentialManagement, generatedPassword, passwordMeetsPolicy } from './durable-credential-management.js';
@@ -11,6 +11,73 @@ const RESET_TTL_MS = 15 * 60 * 1000;
 const MAX_ATTEMPTS = 5;
 const LOCKOUT_MS = 15 * 60 * 1000;
 const GENERIC_LOGIN_ERROR = 'Incorrect username or password.';
+const POSTGRES_DIAGNOSTIC_FIELDS = Object.freeze(['schema', 'table', 'column', 'constraint', 'routine']);
+function safeDiagnosticIdentifier(value) { return typeof value === 'string' && /^[A-Za-z_][A-Za-z0-9_.-]{0,127}$/.test(value) ? value : null; }
+function safeDiagnosticCode(value) { return typeof value === 'string' && /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,31}$/.test(value) ? value : null; }
+function safeDiagnosticText(value) {
+  if (typeof value !== 'string' || !value) return null;
+  if (/failing row contains/i.test(value)) return '[redacted-row-detail]';
+  const sanitized = value.slice(0, 1000)
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/\b(?:postgres(?:ql)?|https?):\/\/[^\s]+/gi, '[redacted-url]')
+    .replace(/\bBearer\s+[^\s]+/gi, 'Bearer [redacted]')
+    .replace(/\b(password|passwd|secret|token|access[_ -]?code|connection[_ -]?string)\s*[:=]\s*[^\s,;]+/gi, '$1=[redacted]')
+    .replace(/'[^']*'|\"[^\"]*\"/g, '[redacted]')
+    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, '[redacted-email]')
+    .replace(/\b(?:\+?\d[\d ()-]{6,}\d)\b/g, '[redacted-number]')
+    .replace(/\b[0-9a-f]{8}-[0-9a-f-]{27,}\b/gi, '[redacted-id]')
+    .replace(/\b[A-Za-z0-9_-]{32,}\b/g, '[redacted-token]')
+    .replace(/\s+/g, ' ').trim().slice(0, 500) || null;
+  if (!sanitized) return null;
+  const safeForms = [
+    /^relation \[redacted\] does not exist$/i,
+    /^column (?:\[redacted\]|[A-Za-z_][A-Za-z0-9_$.]*) does not exist$/i,
+    /^column \[redacted\] of relation \[redacted\] does not exist$/i,
+    /^permission denied for (?:table|sequence|schema|relation) \[redacted\]$/i,
+    /^duplicate key value violates unique constraint \[redacted\]$/i,
+    /^null value in column \[redacted\] of relation \[redacted\] violates not-null constraint$/i,
+    /^insert or update on table \[redacted\] violates foreign key constraint \[redacted\]$/i,
+    /^new row for relation \[redacted\] violates check constraint \[redacted\]$/i,
+    /^current transaction is aborted, commands ignored until end of transaction block$/i,
+    /^syntax error at or near \[redacted\]$/i,
+  ];
+  return safeForms.some((pattern) => pattern.test(sanitized)) ? sanitized : '[redacted-diagnostic-text]';
+}
+function postgresObjectNames(message) {
+  const text = typeof message === 'string' ? message : '';
+  const relation = text.match(/\brelation\s+["']?([A-Za-z_][A-Za-z0-9_$]*)["']?\s+does not exist/i);
+  const column = text.match(/\bcolumn\s+["']?([A-Za-z_][A-Za-z0-9_$.]*)["']?\s+does not exist/i);
+  const denied = text.match(/\bpermission denied for (?:table|sequence)\s+["']?([A-Za-z_][A-Za-z0-9_$]*)["']/i);
+  return { table: safeDiagnosticIdentifier(relation?.[1] ?? denied?.[1]), column: safeDiagnosticIdentifier(column?.[1]) };
+}
+function schoolLoginDiagnostics(error, { requestId, requestPath } = {}) {
+  const parsed = postgresObjectNames(error?.message);
+  const sqlState = /^[0-9A-Z]{5}$/.test(error?.sqlState ?? '') ? error.sqlState : (/^[0-9A-Z]{5}$/.test(error?.code ?? '') ? error.code : null);
+  const category = ['ER_BAD_FIELD_ERROR'].includes(error?.code) || ['42703', '42S22'].includes(sqlState)
+    ? 'SCHEMA_COLUMN_MISMATCH'
+    : ['ER_NO_SUCH_TABLE'].includes(error?.code) || ['42P01', '42S02'].includes(sqlState)
+      ? 'SCHEMA_TABLE_MISSING'
+      : sqlState === '3F000'
+        ? 'SCHEMA_NOT_FOUND'
+        : sqlState === '42501'
+          ? 'DATABASE_PERMISSION_DENIED'
+          : 'DATABASE_QUERY_FAILED';
+  const diagnostic = {
+    component: 'school_authentication', operation: 'login_lookup',
+    category,
+    requestId: safeDiagnosticIdentifier(requestId) ?? randomUUID(),
+    requestPath: requestPath === '/api/auth/login' ? requestPath : null,
+    name: safeDiagnosticIdentifier(error?.name), code: safeDiagnosticCode(error?.code),
+    sqlState, severity: safeDiagnosticIdentifier(error?.severity),
+    errno: Number.isSafeInteger(error?.errno) ? error.errno : null,
+    message: safeDiagnosticText(error?.message),
+    detail: error?.detail ? '[redacted-diagnostic-text]' : null,
+    hint: error?.hint ? '[redacted-diagnostic-text]' : null,
+    context: error?.where ? '[redacted-diagnostic-text]' : null,
+  };
+  for (const field of POSTGRES_DIAGNOSTIC_FIELDS) diagnostic[field] = safeDiagnosticIdentifier(error?.[field]) ?? (field === 'table' || field === 'column' ? parsed[field] : null);
+  return diagnostic;
+}
 const PARENT_PERMISSIONS = Object.freeze(['children.read', 'communication.read', 'messages.read', 'messages.write', 'calendar.read', 'library.read', 'transport.read', 'hostel.read', 'discipline.read']);
 export const SCHOOL_PORTAL_ROLE_ALIASES = Object.freeze({ ADMINISTRATOR: 'SCHOOL_ADMIN', SCHOOL_ADMINISTRATOR: 'SCHOOL_ADMIN', ACCOUNTANT: 'ACCOUNTANT_BURSAR', CLASSROOM_TEACHER: 'TEACHER', PROPRIETOR: 'PROPRIETOR', PROPRIETRESS: 'PROPRIETOR', SCHOOL_PROPRIETOR: 'PROPRIETOR', SCHOOL_PROPRIETRESS: 'PROPRIETOR' });
 export const SCHOOL_PORTAL_DASHBOARDS = Object.freeze({ PROPRIETOR: '/reports', SCHOOL_ADMIN: '/settings', HEADTEACHER: '/academics', ASSISTANT_HEADTEACHER: '/academics', ACCOUNTANT_BURSAR: '/fees', TEACHER: '/academics', DEVELOPER: '/developer/communication-setup' });
@@ -170,14 +237,14 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     }
     return user;
   }
-  async function loginByPhoneFromDatabase({ phone, portal = 'parent' }) {
+  async function loginByPhoneFromDatabase({ phone, portal = 'parent', diagnosticContext }) {
     const normalized = normalizeGhanaPhone(phone);
     if (portal !== 'parent' || !normalized) return loginByPhone({ phone, portal });
     if (!database?.query) return loginByPhone({ phone, portal });
     // The controlled QA identity is a server-owned namespace, not a durable
     // Parent account. Resolve it before any live lookup so a colliding phone
     // value can never authenticate an unintended production Parent.
-    if (isConfiguredTestParentPhone(normalized) && process.env.OSAAH_ENABLE_SAMPLE_FIXTURES !== 'false') {
+    if (isConfiguredTestParentPhone(normalized) && sampleFixturesEnabled()) {
       const user = createConfiguredTestParent(testParentSchoolId);
       const existingIndex = users.findIndex((candidate) => candidate.id === user.id);
       if (existingIndex >= 0) users[existingIndex] = user;
@@ -189,18 +256,21 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
       rows = await database.query(`SELECT DISTINCT u.id,u.school_id AS schoolId,COALESCE(u.username,u.email) AS username,u.email,u.status,psl.telephone AS parentPhone
         FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id
         JOIN parent_student_links psl ON psl.parent_user_id=u.id
-        WHERE r.role_key='PARENT' AND UPPER(COALESCE(u.status,'ACTIVE'))='ACTIVE' AND COALESCE(psl.link_status,'ACTIVE')='ACTIVE'`, []);
-    } catch {
-      try { rows = await database.query(`SELECT DISTINCT u.id,u.school_id AS schoolId,COALESCE(u.username,u.email) AS username,u.email,u.status,psl.telephone AS parentPhone
-        FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id JOIN parent_student_links psl ON psl.parent_user_id=u.id
-        WHERE r.role_key='PARENT' AND UPPER(COALESCE(u.status,'ACTIVE'))='ACTIVE'`, []); } catch { rows = []; }
+        WHERE r.role_key='PARENT' AND UPPER(COALESCE(u.status,'ACTIVE'))='ACTIVE' AND psl.link_status='ACTIVE'`, []);
+    } catch (error) {
+      console.error('Parent database authentication query failed', {
+        ...schoolLoginDiagnostics(error, diagnosticContext),
+        component: 'parent_authentication', operation: 'login_lookup', category: 'DATABASE_QUERY_FAILED'
+      });
+      securityEvent('PARENT_LOGIN_DATABASE_ERROR', null);
+      return { ok: false, status: 503, error: 'Authentication service unavailable.' };
     }
     const row = rows.find((candidate) => normalizeGhanaPhone(candidate.parentPhone) === normalized);
     if (!row) return { ok: false, status: 401, error: 'Phone number is not registered. Contact the school administrator.' };
     const user = { id: row.id, username: row.username ?? row.email ?? row.id, email: row.email, portal: 'parent', roleKey: 'PARENT', schoolId: row.schoolId, phone: normalized, accountStatus: 'ACTIVE', is_active: true, permissions: new Set(PARENT_PERMISSIONS) };
     users.push(user); return await createDurableSessionResult(user);
   }
-  async function loginFromDatabase({ username, password, portal, role }) {
+  async function loginFromDatabase({ username, password, portal, role, diagnosticContext }) {
     const key = String(username ?? '').trim().toLowerCase();
     const throttle = attempts.get(key);
     if (throttle?.lockedUntil > now()) return { ok: false, status: 429, error: 'Too many failed attempts. Try again later.' };
@@ -215,11 +285,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
         LEFT JOIN permissions p ON p.id=rp.permission_id
         WHERE LOWER(COALESCE(u.username,u.email,''))=? OR LOWER(COALESCE(u.email,''))=? ORDER BY COALESCE(r.oversight_rank,0) DESC,r.role_key,p.permission_key`, [key, key]);
     } catch (error) {
-      const tableMatch = String(error?.message ?? '').match(/Table ['`]([^'`]+)['`] doesn't exist/i);
-      const tableName = tableMatch?.[1]?.split('.').pop() || null;
-      const columnMatch = String(error?.message ?? '').match(/Unknown column ['`]([^'`]+)['`]/i);
-      const category = error?.code === 'ER_BAD_FIELD_ERROR' ? 'SCHEMA_COLUMN_MISMATCH' : error?.code === 'ER_NO_SUCH_TABLE' ? 'SCHEMA_TABLE_MISSING' : 'DATABASE_QUERY_FAILED';
-      console.error('School database authentication query failed', { component: 'school_authentication', operation: 'login_lookup', category, code: error?.code ?? 'UNKNOWN', errno: error?.errno ?? null, sqlState: error?.sqlState ?? null, table: tableName, column: columnMatch?.[1] ?? null });
+      console.error('School database authentication query failed', schoolLoginDiagnostics(error, diagnosticContext));
       securityEvent('LOGIN_DATABASE_ERROR', null);
       return { ok: false, status: 503, error: 'Authentication service unavailable.' };
     }
@@ -251,7 +317,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     if (!session || session.expiresAt <= now()) { if (token) sessions.delete(token); return null; }
     const isTestParentFixtureSession = session.userId === TEST_PARENT_ID && session.testParentFixture === true;
     const user = isTestParentFixtureSession
-      ? (process.env.OSAAH_ENABLE_SAMPLE_FIXTURES === 'false' ? null : createConfiguredTestParent(testParentSchoolId))
+      ? (!sampleFixturesEnabled() ? null : createConfiguredTestParent(testParentSchoolId))
       : users.find((candidate) => candidate.id === session.userId && (!session.roleKey || canonicalRoleKey(candidate.roleKey) === canonicalRoleKey(session.roleKey)))
         ?? users.find((candidate) => candidate.id === session.userId);
     if (!user) { if (token) sessions.delete(token); return null; }
@@ -361,8 +427,29 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     return { ok: true };
   }
   function resetStaffCredentials(userId, schoolId) { if (database?.query) { if (!durableStaff) throw new Error('Durable staff management is unavailable.'); return durableStaff.resetCredentials(userId, schoolId); } const user = users.find((candidate) => candidate.id === userId && candidate.schoolId === schoolId && candidate.staffId); if (!user) return null; const temporaryPassword = randomBytes(18).toString('base64url'); user.passwordHash = passwordHash(temporaryPassword); user.must_change_password = true; for (const [token, session] of sessions) if (session.userId === userId) revokeLocalSession(token, session); revokeDurableSessionsBestEffort(userId); return { username: user.username, temporaryPassword }; }
-  function requestPasswordReset(username) { const user = users.find((candidate) => candidate.username.toLowerCase() === username.trim().toLowerCase()); if (!user) return { ok: true }; const token = randomUUID(); resetTokens.set(token, { userId: user.id, expiresAt: now() + RESET_TTL_MS }); return { ok: true, token }; }
-  function completePasswordReset(token, newPassword) { const reset = resetTokens.get(token); if (!reset || reset.expiresAt <= now() || typeof newPassword !== 'string' || newPassword.length < 10) return { ok: false, error: 'Invalid or expired reset request.' }; const user = users.find((candidate) => candidate.id === reset.userId); if (!user) return { ok: false, error: 'Invalid or expired reset request.' }; user.passwordHash = passwordHash(newPassword); resetTokens.delete(token); for (const [sessionToken, session] of sessions) if (session.userId === user.id) revokeLocalSession(sessionToken, session); revokeDurableSessionsBestEffort(user.id); return { ok: true }; }
+  function requestPasswordReset(username) {
+    // The in-memory token flow is retained only for local/test operation. It
+    // cannot reset a durable account and must not expose a bearer token from a
+    // public endpoint when PostgreSQL backs authentication.
+    if (database?.query) return { ok: true };
+    const user = users.find((candidate) => candidate.username.toLowerCase() === username.trim().toLowerCase());
+    if (!user) return { ok: true };
+    const token = randomUUID();
+    resetTokens.set(token, { userId: user.id, expiresAt: now() + RESET_TTL_MS });
+    return { ok: true, token };
+  }
+  function completePasswordReset(token, newPassword) {
+    if (database?.query) return { ok: false, error: 'Invalid or expired reset request.' };
+    const reset = resetTokens.get(token);
+    if (!reset || reset.expiresAt <= now() || typeof newPassword !== 'string' || newPassword.length < 10) return { ok: false, error: 'Invalid or expired reset request.' };
+    const user = users.find((candidate) => candidate.id === reset.userId);
+    if (!user) return { ok: false, error: 'Invalid or expired reset request.' };
+    user.passwordHash = passwordHash(newPassword);
+    resetTokens.delete(token);
+    for (const [sessionToken, session] of sessions) if (session.userId === user.id) revokeLocalSession(sessionToken, session);
+    revokeDurableSessionsBestEffort(user.id);
+    return { ok: true };
+  }
   return { login, loginByPhone, loginByPhoneFromDatabase, loginFromDatabase, authenticate, authenticateAsync, logout, logoutSession, requestPasswordReset, completePasswordReset, changeOwnPassword, setAccountStatus, revokeAccount, createAdministrator, listAdministrators, getAdministrator, updateAdministrator, resetAdministratorCredentials, resetAdministratorCredentialsByEmail, resetUserCredentials, registerStaff, listStaff, getStaff, updateStaff, changeStaffRole, assignStaff, resetStaffCredentials, sessionTtlMs: SESSION_TTL_MS, genericLoginError: GENERIC_LOGIN_ERROR };
 }
 

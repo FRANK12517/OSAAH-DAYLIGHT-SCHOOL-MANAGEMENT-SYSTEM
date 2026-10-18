@@ -13,9 +13,10 @@ test('Part 8 identifies the exact authentication query and canonical table contr
   assert.match(auth, /LEFT JOIN roles r ON r\.id=ur\.role_id/);
   assert.match(auth, /LEFT JOIN role_permissions rp ON rp\.role_id=r\.id/);
   assert.match(auth, /LEFT JOIN permissions p ON p\.id=rp\.permission_id/);
-  assert.match(auth, /Table \['`\]\(\[\^'`\]\+\)\['`\] doesn't exist/);
-  assert.match(auth, /table: tableName/);
-  assert.match(auth, /split\('\.'\)\.pop\(\)/);
+  assert.match(auth, /function postgresObjectNames\(message\)/);
+  assert.match(auth, /relation\\s\+/);
+  assert.equal(auth.includes('permission denied for (?:table|sequence)'), true);
+  assert.match(auth, /table: safeDiagnosticIdentifier\(relation\?\.\[1\]/);
   for (const column of ['id', 'school_id', 'email', 'password_hash', 'status']) assert.match(auth, new RegExp(`u\\.${column === 'school_id' ? 'school_id' : column}`));
   assert.match(auth, /u\.username/);
 });

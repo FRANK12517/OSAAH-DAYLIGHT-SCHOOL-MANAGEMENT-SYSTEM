@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import { createDatabaseAdapter } from '../src/ai/postgres-database-adapter.js';
 
@@ -15,7 +16,7 @@ const MARKER = 'osaah_pg_integration_baseline';
 const fail = (code, message) => Object.assign(new Error(message), { code });
 const localHosts = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 
-function validatedTarget(environment) {
+export function validatedTarget(environment) {
   if (environment[ACK_ENV] !== ACK) throw fail('DISPOSABLE_ACK_REQUIRED', `Set ${ACK_ENV}=${ACK} only after creating a new disposable local database.`);
   const raw = environment[URL_ENV];
   if (!raw) throw fail('INTEGRATION_URL_REQUIRED', `Set ${URL_ENV} to the dedicated disposable test connection URL.`);
@@ -267,8 +268,10 @@ async function assertSqlState(operation, expected) {
   throw fail('EXPECTED_DATABASE_ERROR_MISSING', `Expected PostgreSQL SQLSTATE ${expected}.`);
 }
 
-try { await main(); }
-catch (error) {
-  process.stderr.write(`${JSON.stringify({ success: false, check: error.integrationCheck ?? null, error: error.code ?? 'INTEGRATION_FAILED', message: error.code ? error.message : 'PostgreSQL integration test failed.' })}\n`);
-  process.exitCode = 1;
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  try { await main(); }
+  catch (error) {
+    process.stderr.write(`${JSON.stringify({ success: false, check: error.integrationCheck ?? null, error: error.code ?? 'INTEGRATION_FAILED', message: error.code ? error.message : 'PostgreSQL integration test failed.' })}\n`);
+    process.exitCode = 1;
+  }
 }

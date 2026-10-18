@@ -41,8 +41,13 @@ async function startServer(t, auth = createAuthService()) {
 }
 
 async function startBrowser(t) {
-  const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
-    || (existsSync('/usr/bin/chromium') ? '/usr/bin/chromium' : undefined);
+  const executablePath = [
+    process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
+    chromium.executablePath(),
+    process.env.ProgramFiles ? `${process.env.ProgramFiles}\\Google\\Chrome\\Application\\chrome.exe` : null,
+    process.env['ProgramFiles(x86)'] ? `${process.env['ProgramFiles(x86)']}\\Microsoft\\Edge\\Application\\msedge.exe` : null,
+    '/usr/bin/chromium'
+  ].find((candidate) => candidate && existsSync(candidate));
   const browser = await chromium.launch({ headless: true, executablePath, args: ['--no-sandbox'] });
   t.after(() => browser.close());
   return browser;
