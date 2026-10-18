@@ -29,11 +29,67 @@ test('production auth reports safe structured details for an unknown login colum
     assert.equal(result.token, undefined);
     assert.equal(logged.length, 1);
     assert.equal(logged[0][0], 'School database authentication query failed');
+    assert.match(logged[0][1].requestId, /^[0-9a-f-]{36}$/);
     assert.deepEqual(logged[0][1], {
       component: 'school_authentication', operation: 'login_lookup', category: 'SCHEMA_COLUMN_MISMATCH',
-      code: 'ER_BAD_FIELD_ERROR', errno: 1054, sqlState: '42S22', table: null, column: 'u.username'
+      requestId: logged[0][1].requestId,
+      requestPath: null, name: 'Error', code: 'ER_BAD_FIELD_ERROR', sqlState: '42S22', severity: null,
+      errno: 1054, message: 'Unknown column [redacted] in [redacted]', detail: null, hint: null, context: null,
+      schema: null, table: null, column: null, constraint: null, routine: null
     });
-    assert.doesNotMatch(JSON.stringify(logged), /safe@example\.test|not-a-real-password|Unknown column/);
+    assert.doesNotMatch(JSON.stringify(logged), /safe@example\.test|not-a-real-password/);
+  } finally { console.error = previousError; }
+});
+
+test('PostgreSQL login diagnostics capture safe fields and redact sensitive values from logs and response', async () => {
+  const logged = [];
+  const previousError = console.error;
+  console.error = (...args) => logged.push(args);
+  const database = {
+    async query() {
+      throw Object.assign(new Error('failure for user staff@example.test with password=secret-login'), {
+        name: 'error', code: 'XX000', severity: 'ERROR', schema: 'public', table: 'users', column: 'email',
+        constraint: 'users_email_key', routine: 'lookup_user',
+        detail: 'Failing row contains (Ama Mensah, +233241234567, top-secret-access-code)',
+        hint: 'check https://db.example.test/path?password=url-secret',
+        where: "SQL statement \"SELECT * FROM users WHERE email='student@example.test'\"",
+        query: 'SELECT with bind values', parameters: ['secret-login', 'student@example.test']
+      });
+    }
+  };
+  try {
+    const auth = createAuthService({ database, sessionSecret: 'test-only-session-secret-with-at-least-32-characters' });
+    const result = await auth.loginFromDatabase({ username: 'student@example.test', password: 'secret-login', portal: 'school', diagnosticContext: { requestId: 'req-1234', requestPath: '/api/auth/login' } });
+    assert.equal(result.status, 503);
+    assert.deepEqual(result, { ok: false, status: 503, error: 'Authentication service unavailable.' });
+    assert.equal(logged.length, 1);
+    const payload = logged[0][1];
+    assert.deepEqual({ requestId: payload.requestId, requestPath: payload.requestPath, code: payload.code, sqlState: payload.sqlState, severity: payload.severity, schema: payload.schema, table: payload.table, column: payload.column, constraint: payload.constraint, routine: payload.routine }, {
+      requestId: 'req-1234', requestPath: '/api/auth/login', code: 'XX000', sqlState: 'XX000', severity: 'ERROR', schema: 'public', table: 'users', column: 'email', constraint: 'users_email_key', routine: 'lookup_user'
+    });
+    assert.ok(payload.message);
+    assert.ok(payload.detail);
+    assert.ok(payload.hint);
+    assert.ok(payload.context);
+    const output = JSON.stringify({ logged, result });
+    for (const secret of ['secret-login', 'student@example.test', 'staff@example.test', 'Ama Mensah', '+233241234567', 'top-secret-access-code', 'url-secret', 'db.example.test', 'SELECT with bind values']) assert.doesNotMatch(output, new RegExp(secret.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.match(JSON.stringify(payload), /\[redacted\]/);
+  } finally { console.error = previousError; }
+});
+
+test('PostgreSQL login diagnostics tolerate missing fields and reject unsafe identifiers', async () => {
+  const logged = [];
+  const previousError = console.error;
+  console.error = (...args) => logged.push(args);
+  try {
+    const auth = createAuthService({ database: { async query() { throw Object.assign(new Error('relation "auth_roles" does not exist'), { code: '42P01', schema: 'bad schema\nsecret' }); } }, sessionSecret: 'test-only-session-secret-with-at-least-32-characters' });
+    const result = await auth.loginFromDatabase({ username: 'test', password: 'test', portal: 'school' });
+    assert.equal(result.status, 503);
+    assert.equal(logged.length, 1);
+    assert.equal(logged[0][1].sqlState, '42P01');
+    assert.equal(logged[0][1].schema, null);
+    assert.equal(logged[0][1].table, 'auth_roles');
+    assert.equal(logged[0][1].detail, null);
   } finally { console.error = previousError; }
 });
 

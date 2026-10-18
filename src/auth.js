@@ -11,6 +11,47 @@ const RESET_TTL_MS = 15 * 60 * 1000;
 const MAX_ATTEMPTS = 5;
 const LOCKOUT_MS = 15 * 60 * 1000;
 const GENERIC_LOGIN_ERROR = 'Incorrect username or password.';
+const POSTGRES_DIAGNOSTIC_FIELDS = Object.freeze(['schema', 'table', 'column', 'constraint', 'routine']);
+function safeDiagnosticIdentifier(value) { return typeof value === 'string' && /^[A-Za-z_][A-Za-z0-9_.-]{0,127}$/.test(value) ? value : null; }
+function safeDiagnosticCode(value) { return typeof value === 'string' && /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,31}$/.test(value) ? value : null; }
+function safeDiagnosticText(value) {
+  if (typeof value !== 'string' || !value) return null;
+  if (/failing row contains/i.test(value)) return '[redacted-row-detail]';
+  return value.slice(0, 1000)
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/\b(?:postgres(?:ql)?|https?):\/\/[^\s]+/gi, '[redacted-url]')
+    .replace(/\bBearer\s+[^\s]+/gi, 'Bearer [redacted]')
+    .replace(/\b(password|passwd|secret|token|access[_ -]?code|connection[_ -]?string)\s*[:=]\s*[^\s,;]+/gi, '$1=[redacted]')
+    .replace(/'[^']*'|\"[^\"]*\"/g, '[redacted]')
+    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, '[redacted-email]')
+    .replace(/\b(?:\+?\d[\d ()-]{6,}\d)\b/g, '[redacted-number]')
+    .replace(/\b[0-9a-f]{8}-[0-9a-f-]{27,}\b/gi, '[redacted-id]')
+    .replace(/\b[A-Za-z0-9_-]{32,}\b/g, '[redacted-token]')
+    .replace(/\s+/g, ' ').trim().slice(0, 500) || null;
+}
+function postgresObjectNames(message) {
+  const text = typeof message === 'string' ? message : '';
+  const relation = text.match(/\brelation\s+["']?([A-Za-z_][A-Za-z0-9_$]*)["']?\s+does not exist/i);
+  const column = text.match(/\bcolumn\s+["']?([A-Za-z_][A-Za-z0-9_$.]*)["']?\s+does not exist/i);
+  const denied = text.match(/\bpermission denied for (?:table|sequence)\s+["']?([A-Za-z_][A-Za-z0-9_$]*)["']/i);
+  return { table: safeDiagnosticIdentifier(relation?.[1] ?? denied?.[1]), column: safeDiagnosticIdentifier(column?.[1]) };
+}
+function schoolLoginDiagnostics(error, { requestId, requestPath } = {}) {
+  const parsed = postgresObjectNames(error?.message);
+  const diagnostic = {
+    component: 'school_authentication', operation: 'login_lookup',
+    category: error?.code === 'ER_BAD_FIELD_ERROR' ? 'SCHEMA_COLUMN_MISMATCH' : error?.code === 'ER_NO_SUCH_TABLE' ? 'SCHEMA_TABLE_MISSING' : 'DATABASE_QUERY_FAILED',
+    requestId: safeDiagnosticIdentifier(requestId) ?? randomUUID(),
+    requestPath: requestPath === '/api/auth/login' ? requestPath : null,
+    name: safeDiagnosticIdentifier(error?.name), code: safeDiagnosticCode(error?.code),
+    sqlState: /^[0-9A-Z]{5}$/.test(error?.sqlState ?? '') ? error.sqlState : (/^[0-9A-Z]{5}$/.test(error?.code ?? '') ? error.code : null), severity: safeDiagnosticIdentifier(error?.severity),
+    errno: Number.isSafeInteger(error?.errno) ? error.errno : null,
+    message: safeDiagnosticText(error?.message), detail: safeDiagnosticText(error?.detail),
+    hint: safeDiagnosticText(error?.hint), context: safeDiagnosticText(error?.where),
+  };
+  for (const field of POSTGRES_DIAGNOSTIC_FIELDS) diagnostic[field] = safeDiagnosticIdentifier(error?.[field]) ?? (field === 'table' || field === 'column' ? parsed[field] : null);
+  return diagnostic;
+}
 const PARENT_PERMISSIONS = Object.freeze(['children.read', 'communication.read', 'messages.read', 'messages.write', 'calendar.read', 'library.read', 'transport.read', 'hostel.read', 'discipline.read']);
 export const SCHOOL_PORTAL_ROLE_ALIASES = Object.freeze({ ADMINISTRATOR: 'SCHOOL_ADMIN', SCHOOL_ADMINISTRATOR: 'SCHOOL_ADMIN', ACCOUNTANT: 'ACCOUNTANT_BURSAR', CLASSROOM_TEACHER: 'TEACHER', PROPRIETOR: 'PROPRIETOR', PROPRIETRESS: 'PROPRIETOR', SCHOOL_PROPRIETOR: 'PROPRIETOR', SCHOOL_PROPRIETRESS: 'PROPRIETOR' });
 export const SCHOOL_PORTAL_DASHBOARDS = Object.freeze({ PROPRIETOR: '/reports', SCHOOL_ADMIN: '/settings', HEADTEACHER: '/academics', ASSISTANT_HEADTEACHER: '/academics', ACCOUNTANT_BURSAR: '/fees', TEACHER: '/academics', DEVELOPER: '/developer/communication-setup' });
@@ -200,7 +241,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     const user = { id: row.id, username: row.username ?? row.email ?? row.id, email: row.email, portal: 'parent', roleKey: 'PARENT', schoolId: row.schoolId, phone: normalized, accountStatus: 'ACTIVE', is_active: true, permissions: new Set(PARENT_PERMISSIONS) };
     users.push(user); return await createDurableSessionResult(user);
   }
-  async function loginFromDatabase({ username, password, portal, role }) {
+  async function loginFromDatabase({ username, password, portal, role, diagnosticContext }) {
     const key = String(username ?? '').trim().toLowerCase();
     const throttle = attempts.get(key);
     if (throttle?.lockedUntil > now()) return { ok: false, status: 429, error: 'Too many failed attempts. Try again later.' };
@@ -215,11 +256,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
         LEFT JOIN permissions p ON p.id=rp.permission_id
         WHERE LOWER(COALESCE(u.username,u.email,''))=? OR LOWER(COALESCE(u.email,''))=? ORDER BY COALESCE(r.oversight_rank,0) DESC,r.role_key,p.permission_key`, [key, key]);
     } catch (error) {
-      const tableMatch = String(error?.message ?? '').match(/Table ['`]([^'`]+)['`] doesn't exist/i);
-      const tableName = tableMatch?.[1]?.split('.').pop() || null;
-      const columnMatch = String(error?.message ?? '').match(/Unknown column ['`]([^'`]+)['`]/i);
-      const category = error?.code === 'ER_BAD_FIELD_ERROR' ? 'SCHEMA_COLUMN_MISMATCH' : error?.code === 'ER_NO_SUCH_TABLE' ? 'SCHEMA_TABLE_MISSING' : 'DATABASE_QUERY_FAILED';
-      console.error('School database authentication query failed', { component: 'school_authentication', operation: 'login_lookup', category, code: error?.code ?? 'UNKNOWN', errno: error?.errno ?? null, sqlState: error?.sqlState ?? null, table: tableName, column: columnMatch?.[1] ?? null });
+      console.error('School database authentication query failed', schoolLoginDiagnostics(error, diagnosticContext));
       securityEvent('LOGIN_DATABASE_ERROR', null);
       return { ok: false, status: 503, error: 'Authentication service unavailable.' };
     }
