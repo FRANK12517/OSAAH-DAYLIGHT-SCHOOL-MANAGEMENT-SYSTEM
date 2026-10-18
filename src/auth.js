@@ -227,7 +227,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     }
     return user;
   }
-  async function loginByPhoneFromDatabase({ phone, portal = 'parent' }) {
+  async function loginByPhoneFromDatabase({ phone, portal = 'parent', diagnosticContext }) {
     const normalized = normalizeGhanaPhone(phone);
     if (portal !== 'parent' || !normalized) return loginByPhone({ phone, portal });
     if (!database?.query) return loginByPhone({ phone, portal });
@@ -250,7 +250,14 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     } catch {
       try { rows = await database.query(`SELECT DISTINCT u.id,u.school_id AS schoolId,COALESCE(u.username,u.email) AS username,u.email,u.status,psl.telephone AS parentPhone
         FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id JOIN parent_student_links psl ON psl.parent_user_id=u.id
-        WHERE r.role_key='PARENT' AND UPPER(COALESCE(u.status,'ACTIVE'))='ACTIVE'`, []); } catch { rows = []; }
+        WHERE r.role_key='PARENT' AND UPPER(COALESCE(u.status,'ACTIVE'))='ACTIVE'`, []); } catch (error) {
+        console.error('Parent database authentication query failed', {
+          ...schoolLoginDiagnostics(error, diagnosticContext),
+          component: 'parent_authentication', operation: 'login_lookup', category: 'DATABASE_QUERY_FAILED'
+        });
+        securityEvent('PARENT_LOGIN_DATABASE_ERROR', null);
+        return { ok: false, status: 503, error: 'Authentication service unavailable.' };
+      }
     }
     const row = rows.find((candidate) => normalizeGhanaPhone(candidate.parentPhone) === normalized);
     if (!row) return { ok: false, status: 401, error: 'Phone number is not registered. Contact the school administrator.' };
