@@ -1,87 +1,113 @@
-# OSAAH Supabase 12-table schema reconciliation audit
+# OSAAH Supabase schema and migration-readiness audit
 
-Status: **BLOCKED before migration authoring or hosted validation**
+- **Status:** BLOCKED before migration execution or production cutover
+- **Audit branch baseline:** `codex/schema-reconciliation` at `02b0c0b43be1bd9e7d3b350f91a3bf1ddff1520d`
+- **Target:** Supabase project `douzohkmnuqwbpwcezke` (`OSAAH DAYLIGHT SCHOOL`)
+- **Scope:** read-only catalog review and local validation; no hosted database, Vercel configuration, account, or deployment was changed.
 
-Baseline: `d21c584b45244e58b152b5924ce8140c5be35896`\
-Audit target: Supabase project `douzohkmnuqwbpwcezke` (Production)\
-Scope: read-only comparison; no database or Vercel changes were made.
+## Evidence and limits
 
-## Evidence available
+The Supabase Dashboard SQL Editor showed the expected project reference and name. Read-only catalog queries were run there. They did not retrieve user rows, credentials, or personal data. Catalog evidence below describes the observed `public` schema at audit time; it is not a guarantee that the catalog has not changed since. The dashboard account did not expose a verified backup/restore point or identify the application’s direct PostgreSQL login role. Current Vercel Preview target isolation was not freshly verified in this audit.
 
-The owner-provided read-only catalog results report PostgreSQL 17.11, twelve public base tables, and no `public.schema_migrations` relation. Aggregate counts at the time of inspection were six `users`, six `roles`, six `user_roles`, and zero rows in each of `assessments`, `attendance`, `auth_sessions`, `classes`, `fee_payments`, `permissions`, `role_permissions`, `students`, and `subjects`.
+The database reports PostgreSQL 17.11. The migration ledger relation `public.schema_migrations` is absent. The public schema has 12 base tables, no views, no public routines, no public triggers, six sequences, and five installed extensions (`pg_stat_statements`, `pgcrypto`, `plpgsql`, `supabase_vault`, `uuid-ossp`). The read-only catalog counts are 12 primary keys, 11 unique constraints, 15 foreign keys, eight check constraints, and 27 indexes.
 
-The reported `public.users` columns are `id`, `email`, `full_name`, `role`, `phone_number`, `is_active`, `created_at`, and `updated_at`. Reported columns for other relevant tables are:
+### Observed public columns
 
-| Table | Reported columns |
+The catalog returned 77 columns across these tables. Types, nullability, identity/default details shown here are from `information_schema.columns`/PostgreSQL catalog output.
+
+| Table | Observed definition (column: type and notable attributes) |
 |---|---|
-| `roles` | `id`, `name`, `description`, `created_at` |
-| `permissions` | `id`, `name`, `description`, `created_at` |
-| `user_roles` | `id`, `user_id`, `role_id`, `created_at` |
-| `role_permissions` | `id`, `role_id`, `permission_id`, `created_at` |
-| `auth_sessions` | `id`, `user_id`, `token_hash`, `expires_at`, `created_at` |
+| `assessments` | `id bigint NOT NULL IDENTITY ALWAYS`; `student_id integer`; `subject_id integer`; `academic_term text NOT NULL`; `academic_year text NOT NULL`; `class_score numeric(5,2) DEFAULT 0.00`; `exam_score numeric(5,2) DEFAULT 0.00`; `total_score numeric`; `remarks text`; `created_at timestamptz DEFAULT now()`; `updated_at timestamptz DEFAULT now()` |
+| `attendance` | `id bigint NOT NULL IDENTITY ALWAYS`; `student_id integer`; `class_id integer`; `attendance_date date NOT NULL`; `status text NOT NULL`; `recorded_by uuid`; `created_at timestamptz DEFAULT now()` |
+| `auth_sessions` | `id uuid NOT NULL DEFAULT gen_random_uuid()`; `user_id uuid NOT NULL`; `token_hash text NOT NULL`; `expires_at timestamptz NOT NULL`; `created_at timestamptz NOT NULL DEFAULT timezone('utc'::text, now())` |
+| `classes` | `id integer NOT NULL IDENTITY ALWAYS`; `class_name text NOT NULL`; `section text`; `capacity integer DEFAULT 30`; `created_at timestamptz DEFAULT now()` |
+| `fee_payments` | `id integer NOT NULL IDENTITY ALWAYS`; `student_id integer`; `amount_paid numeric(10,2) NOT NULL`; `payment_method text`; `reference_number text`; `academic_term text NOT NULL`; `academic_year text NOT NULL`; `recorded_by uuid`; `created_at timestamptz DEFAULT now()` |
+| `permissions` | `id uuid NOT NULL DEFAULT gen_random_uuid()`; `name text NOT NULL`; `description text`; `created_at timestamptz NOT NULL DEFAULT timezone('utc'::text, now())` |
+| `role_permissions` | `id uuid NOT NULL DEFAULT gen_random_uuid()`; `role_id uuid NOT NULL`; `permission_id uuid NOT NULL`; `created_at timestamptz NOT NULL DEFAULT timezone('utc'::text, now())` |
+| `roles` | `id uuid NOT NULL DEFAULT gen_random_uuid()`; `name text NOT NULL`; `description text`; `created_at timestamptz NOT NULL DEFAULT timezone('utc'::text, now())` |
+| `students` | `id integer NOT NULL IDENTITY ALWAYS`; `student_id text NOT NULL`; `first_name text NOT NULL`; `last_name text NOT NULL`; `gender text`; `date_of_birth date`; `class_id integer`; `parent_id uuid`; `enrollment_status text DEFAULT 'active'::text`; `created_at timestamptz DEFAULT now()`; `updated_at timestamptz DEFAULT now()` |
+| `subjects` | `id integer NOT NULL IDENTITY ALWAYS`; `subject_code text NOT NULL`; `subject_name text NOT NULL`; `class_id integer`; `created_at timestamptz DEFAULT now()` |
+| `user_roles` | `id uuid NOT NULL DEFAULT gen_random_uuid()`; `user_id uuid NOT NULL`; `role_id uuid NOT NULL`; `created_at timestamptz NOT NULL DEFAULT timezone('utc'::text, now())` |
+| `users` | `id uuid NOT NULL DEFAULT gen_random_uuid()`; `email text NOT NULL`; `full_name text NOT NULL`; `role text NOT NULL`; `phone_number text`; `is_active boolean DEFAULT true`; `created_at timestamptz DEFAULT now()`; `updated_at timestamptz DEFAULT now()` |
 
-Read-only `EXPLAIN` results against the hosted database showed the staff authentication statement fails with SQLSTATE `42703` because `users.school_id` is absent. The parent lookup fails with SQLSTATE `42P01` because `public.parent_student_links` is absent. Those reproduce schema errors; they do not establish that either error is the same underlying cause as an earlier generic application `XX000` event.
+The catalog reported all 12 public tables with RLS enabled and not forced. It returned three policies, all `SELECT` policies applying to `PUBLIC`: `classes`, `students`, and `subjects`, each named `Allow anon read access`. Previously captured policy definitions show unrestricted `USING (true)`. No policies were returned for the other nine tables.
 
-The available counts and column lists are partial catalog evidence, not a complete schema dump. No database credentials, connection string, personal records, or authentication secrets are included here.
+The table-grant aggregate covered all 12 public tables. `anon`, `authenticated`, and `service_role` each had `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`, `REFERENCES`, and `TRIGGER` privileges on every table (84 privilege rows per grantee). RLS does not filter `TRUNCATE`; it is not a row-level operation. Therefore the broad table grants are a serious exposure if the API roles are usable against this schema. The three unrestricted read policies also make rows in `classes`, `students`, and `subjects` selectable to grantees with `SELECT`. This report records the risk; it does not alter any grant or policy. Effective access still depends on role membership, API exposure, and connection path.
 
-## Required application contract
+The catalog returned 15 foreign keys, including relationships from assessments, attendance, and payments to students/classes/users; students to classes/users; sessions to users; and role assignments to roles/permissions. No views, routines, or triggers were found in `public`. The five extension names are listed above. Schema ownership, schema-level privileges, sequence privileges, function privileges, and the actual role used by `OSAAH_POSTGRES_URL` were not established by the captured result set; do not treat table grants as a complete effective-permissions analysis.
 
-`src/auth.js` staff login selects and joins:
+### Aggregate data observations
 
-- `users.id`, `school_id`, `username`, `email`, `password_hash`, and `status`;
-- `user_roles.user_id` and `role_id`;
-- `roles.id`, `role_key`, and `oversight_rank`;
-- `role_permissions.role_id` and `permission_id`;
-- `permissions.id` and `permission_key`.
+The most recent captured aggregate counts reported six rows each in `users`, `roles`, and `user_roles`, and zero rows in each of `assessments`, `attendance`, `auth_sessions`, `classes`, `fee_payments`, `permissions`, `role_permissions`, `students`, and `subjects`. These are counts only and can change after inspection. A joined aggregate showed one assignment for each of the six role labels `accountant`, `admin`, `assistant_headteacher`, `headteacher`, `proprietor`, and `teacher`; each matching `users.role` value agreed with its joined role name. No personal fields or records were retrieved. Empty Supabase school-data tables do not establish that the records are lost: TiDB, exports, or backups have not been verified in this phase.
 
-It filters to active users and uses role keys and oversight rank to resolve authorization and dashboard routing. Durable session restoration additionally uses `auth_sessions.school_id`, `revoked_at`, and `last_used_at`, alongside `token_hash`, `user_id`, and `expires_at`.
+## Application authentication and authorization contract
 
-Parent login joins `users`, `user_roles`, `roles`, and `parent_student_links`. It expects `school_id`, `username`/`email`, `status`, `role_key`, `parent_user_id`, `telephone`, and `link_status`. Child authorization relies on the parent-to-student relationship; an empty link table would not restore access to any child.
+The runtime uses a server-side PostgreSQL adapter selected by `OSAAH_POSTGRES_URL`; application code does not use Supabase Auth/PostgREST as the school-login authority. The actual database role behind the deployed URL remains unknown because secret values and connection details were not inspected. The runtime URL must remain server-only.
 
-The canonical baseline migration defines string identifiers and a broader OSAAH data model (including `schools`, staff/role/permission objects, `parent_student_links`, and durable sessions). The existing `202610150002_reconcile_existing_supabase.sql` is pinned to a different seven-table, empty starter catalog. Its exact table-set, object-signature, and empty-row preconditions do not match the reported twelve-table database and populated authentication tables. It must not be run on this target.
+In `src/auth.js`, staff lookup expects `users.id`, `school_id`, `username`/`email`, `password_hash`, and `status`, and joins role/permission data using `user_roles`, `roles.role_key`/`oversight_rank`, `role_permissions`, and `permissions.permission_key`. The live catalog lacks `users.school_id`, `username`, `password_hash`, `status`, `roles.role_key`, `roles.oversight_rank`, and `permissions.permission_key`. Read-only `EXPLAIN` previously reproduced the missing `users.school_id` as SQLSTATE `42703`.
 
-## Gap assessment
+Password verification expects the application’s stored password-hash representation (bcrypt or the supported encoded form). There is no `password_hash` column in the observed `users` table. No safe migration can recreate these values from the observed data. Existing accounts need an owner-approved credential recovery/enrollment process; no password reset or account change is part of this audit.
 
-| Area | Observed | Required / canonical | Assessment |
-|---|---|---|---|
-| Staff identity | Six users; `users` has no reported `school_id`, `username`, `password_hash`, or `status` | School scope, login identity, credential hash, active status | Confirmed schema incompatibility. Existing `email`, `role`, and `is_active` could inform a reviewed mapping, but cannot supply credential hashes or prove role semantics. |
-| Roles and permissions | Six roles and six assignments; reported columns use `name`, not canonical role/permission keys | Canonical role key/rank and permission key, preserving assignment relationships | Incompatible names and populated records. Actual role labels/IDs and assignment relationships have not been reviewed in this audit; do not infer mappings. |
-| Sessions | Empty `auth_sessions`; reported schema lacks school/revocation/last-use fields | Durable sessions scoped to user and school, with revocation and expiry | Required columns/indexes/constraints must be reconciled. Existing rows were zero at the reported count, but catalog definitions and grants remain to be verified. |
-| Parent Portal | No `parent_student_links` table; `students` count zero | Explicit parent-to-student relationship and authorized lookup | Confirmed missing relation. Creating an empty relationship table alone does not make parent authentication/data access operational. |
-| Other school workflows | Nine listed non-auth tables were empty at count time; twelve-table inventory includes only a subset of canonical application tables | Full canonical schema supports admissions, fees, attendance, results, reporting, and other features | The 12-table catalog is not the full OSAAH schema. The reported empty counts do not prove that authoritative records are absent from TiDB or backups. |
-| Migration history | No `public.schema_migrations` relation reported | A reviewed migration history and controlled rollout | No ledger evidence. Do not mark an existing migration applied or rerun baseline files based on assumptions. |
-| Constraints/security | Partial grants/RLS observations exist in earlier audits, but no complete catalog export is attached to this phase | Reviewed FK/unique/index/RLS/grant contract with server-only access | Full live object inventory and effective runtime role remain prerequisites to migration approval. |
+The six observed labels map as follows against `src/auth.js` canonicalization: `accountant` is explicitly aliased to `ACCOUNTANT_BURSAR`; `assistant_headteacher`, `headteacher`, `proprietor`, and `teacher` normalize to corresponding uppercase role keys. `admin` normalizes to `ADMIN`, but application aliases do not establish whether it should mean `SCHOOL_ADMIN` or another role. That mapping is an owner decision. The current `permissions` and `role_permissions` tables were empty at count time; any move must preserve the effective authorization model and cannot assume the existing assignments express the eight runtime roles. There are eight OSAAH runtime role boundaries; this six-role source map is not sufficient to prove all eight.
 
-## Why an executable migration is not included
+Parent login expects `parent_student_links` with parent identity, telephone, and link status fields. That relation is absent; read-only `EXPLAIN` previously returned `42P01`. The current `students` table has a nullable `parent_id`, but it had zero rows at count time and does not establish the intended parent-to-student authorization semantics. Creating an empty link table would not make Parent access operational.
 
-The six existing users have no reported `password_hash` field. A schema change cannot reconstruct valid password hashes. Copying accounts into canonical `users` with a null hash would preserve identities but would not make them authenticatable; inventing credentials or hashes would violate the security requirements. A reviewed credential reset/enrollment procedure is required.
+Session restoration expects `auth_sessions.school_id`, `revoked_at`, and `last_used_at` in addition to token/user/expiry fields. Those fields are absent. The current `auth_sessions` count was zero, so there are no reported live rows to translate, but that does not resolve the authentication contract. The canonical single-school identifier is `sch_default_01`; current `users` has no `school_id`, and the observed catalog has no `schools` table.
 
-The six populated role rows and assignments need explicit, semantically correct canonical role-key mappings. The current evidence contains neither the role labels/IDs nor an approved mapping to the application's role catalog. Guessing from `roles.name` or `users.role` could grant the wrong permissions. The existing `permissions` and `role_permissions` counts are empty, so current effective authorization would also require an approved role-permission provisioning plan; do not silently substitute hard-coded grants.
+## Canonical schema comparison and migration history
 
-The exact types, constraints, indexes, RLS policies, triggers, ownership, grants, and dependencies for all twelve current tables have not been captured in the evidence available to this worktree. Those details determine whether existing identifiers can be preserved as-is or whether a copy into canonical tables is needed. A generic rename, `ALTER COLUMN TYPE`, table archive, or canonical baseline rerun could break existing foreign keys or change security behavior.
+The canonical baseline `supabase/migrations/202610150001_osaah_daylight_schema.sql` defines 159 tables, six views, 448 foreign-key references, RLS on every table, and the school identity `sch_default_01`. It is not the observed 12-table schema. The existing `202610150002_reconcile_existing_supabase.sql` was prepared for a different seven-table starter catalog and has strict table/signature/empty-row preconditions. It cannot safely reconcile the observed 12-table catalog, which includes three populated authentication/authorization tables. The absent `public.schema_migrations` relation means the expected migration ledger is not present; do not mark scripts applied or rerun migrations based on assumption.
 
-For those reasons, this phase intentionally does not ship a migration that merely adds columns or creates an empty parent-link table while leaving the remaining application contract unsatisfied. Such a partial migration could appear successful while authentication and workflows remain broken.
+No hosted migration was run. Do not apply the baseline or seven-table reconciliation migration to this target. Static/PGlite success does not establish compatibility with the hosted catalog.
 
-## Required evidence and decisions before migration authoring
+## Proposed data-preserving migration design (not executable and not approved)
 
-1. Run a fresh, read-only catalog export for the intended project ref: all columns with exact types/defaults/nullability; primary/unique/foreign/check constraints; indexes; sequences; views/functions/triggers; owners; RLS flags and policies; table/sequence grants; and dependencies for all twelve public tables.
-2. Confirm current aggregate row counts again immediately before planning. For roles, return only role labels plus assignment counts, and a non-personal mapping of source role IDs to approved canonical role keys. Do not export user rows or credentials.
-3. Approve how the six existing user accounts regain credentials without weakening authentication (for example, an established secure password-reset process). Never generate or log temporary credentials in a migration.
-4. Confirm whether existing `user_roles` assignments map to the eight OSAAH runtime roles and which canonical permissions should be assigned. Require an owner-reviewed mapping; do not infer it from table names.
-5. Determine authoritative school-data source and obtain a verified, restorable recovery point. Current evidence does not establish TiDB contents, backups, or a successful restore.
-6. Provision a separate non-Production Supabase database with a confirmed project reference and verified TLS. The current target is identified as Production; it is not an acceptable migration test target.
-7. Use the resulting exact catalog and approved mapping manifest to author a one-time transactional migration with preflight fingerprints, data-preservation assertions, post-validation, and rollback instructions. Test it against an isolated reproduction of the exact 12-table schema before requesting a hosted Preview rehearsal.
+An eventual migration needs a reviewed manifest and a separate isolated rehearsal. A safe design should be additive and staged:
 
-## Validation status
+1. **Preflight and freeze:** confirm project ref/environment, backup restore test, source authority, and maintenance window. Snapshot exact table/column/constraint/index/policy/grant/ownership/dependency fingerprints and aggregate counts. Abort on any drift, unexpected object, missing recovery point, active writes, or unapproved mapping.
+2. **Preserve original objects:** in a transaction on the isolated rehearsal only, move the observed 12 source tables and their dependent indexes/sequences/constraints intact into a private, non-API-exposed legacy schema. Revoke client access there only as part of the explicitly reviewed rehearsal. Never drop/truncate or overwrite them. If dependency analysis shows a move is unsafe, stop and choose a reviewed copy-and-rename design.
+3. **Install canonical schema:** apply the canonical schema to new public names, preserving one school with ID `sch_default_01`; establish server-only access, reviewed RLS and grants, constraints, indexes, and migration-ledger handling. Do not run the current seven-table reconciliation file unchanged.
+4. **Map only approved records:** prepare a source-to-target mapping that preserves source user/role/assignment identifiers where types allow; explicitly map `email`, `phone_number`, and `is_active`; require owner-approved canonical role mapping, including `admin`. Do not fabricate password hashes. Leave accounts unable to authenticate until a separate, controlled credential-reset/enrollment process is approved and verified. Do not create Parent links without an authoritative source and reviewed parent-child mapping.
+5. **Validate before cutover:** compare aggregate counts and stable key sets; check unique constraints, FK orphans, numeric totals, date/time handling, school scoping, grants/RLS, session behavior, and audit history. Run staff, invalid-login, session-restore/revoke, all eight role boundaries, Parent linked/unlinked/cross-school denial, admissions, Fee Hub, payments, attendance, assessment/results, reports, and dashboards against synthetic data in isolated Preview.
+6. **Cutover and rollback gate:** only after owner approval, verified source/target reconciliation, successful restore test, and accepted Preview evidence, switch Preview first. Keep TiDB and the legacy archive unchanged during the rollback window. Production cutover and retirement require a separate explicit approval.
 
-- Hosted read-only `EXPLAIN`: confirms missing `users.school_id` (`42703`) and missing `parent_student_links` (`42P01`).
-- Hosted migration: **not run**.
-- Isolated hosted test database: **not available/verified in this phase**.
-- The isolated worktree initially lacked the original worktree's narrow trailing-literal-`\\n` correction in the baseline migration. I applied that same two-line removal locally in this worktree because the focused PGlite suite otherwise stopped at SQLSTATE `42601`; the original worktree file was not edited. With the corrected local baseline, the seven focused authentication, session, PostgreSQL adapter, and PGlite files passed **42/42** using loopback access. These are local tests only; they do not connect to hosted Supabase and do not validate the reported twelve-table starting schema.
-- `npm run test:supabase`: **26/26 passed** after making the reconciliation test normalize CRLF line endings before locating the migration's SQL block. This is local PGlite/CLI validation; it does not test the hosted 12-table schema.
-- `node scripts/validate-supabase-migration.mjs`: passed static validation (159 tables, six views, 448 foreign-key references, RLS enablement present).
-- No Preview login/session/RBAC test against Supabase was performed.
+Before cutover, stop writes or capture and reconcile all post-snapshot deltas; otherwise renaming back is not a safe rollback. A transaction rollback is available only before commit. After commit, rollback needs the retained original schema plus a reviewed reverse/delta procedure or verified restore point. No restore point or source export was verified here, so a rollback plan is not yet executable.
+
+## Recovery, Preview, and owner gates
+
+| Gate | Status | Evidence / next action |
+|---|---|---|
+| Supabase target identity | **PASS (identity only)** | Dashboard displayed ref `douzohkmnuqwbpwcezke` and project name `OSAAH DAYLIGHT SCHOOL`. This does not prove Preview is pointed at it. |
+| Current catalog inventory | **PASS (captured public catalog)** | 12 tables, 77 columns, constraints/index counts, RLS, policies, grants, sequences/extensions summarized above. Ownership/schema/sequence/function effective privileges and runtime role remain incomplete. |
+| Data source authority | **BLOCKED** | Supabase counts do not establish source of truth. Obtain authorized aggregate inventory/export evidence from TiDB and any other backups without exposing personal records. |
+| Restorable recovery point | **BLOCKED** | No backup/PITR inventory or successful restore-to-new-project evidence was available. Owner must identify a point-in-time backup for the exact project and authorized recovery operator; rehearse restore to a separate project if possible. |
+| Isolated Supabase Preview DB | **BLOCKED** | Current catalog target is production. Provision or identify a separate non-production Supabase project/database and prove its ref/region and non-production isolation. |
+| Vercel Preview configuration | **BLOCKED / not freshly verified** | Historical audit notes say Preview lacked `OSAAH_POSTGRES_URL`; do not treat that as current. In the correct Vercel project/team, inspect variable names/scopes only, confirm a Preview-only URL to the approved isolated database, verified TLS CA, and independent Preview session secret. Never copy production secrets. |
+| Runtime database role | **BLOCKED** | `OSAAH_POSTGRES_URL` is the code selector, but do not inspect or print its value. An authorized operator should run a safe session query (`current_database()`, `current_user`, `session_user`, `inet_server_addr()`, and `version()`) through the configured Preview runtime and report only non-secret identity/role data. |
+| User credential continuity | **BLOCKED** | Source catalog has no `password_hash`. Owner must approve secure reset/enrollment and account notification process. Do not infer or seed passwords. |
+| Role/permission preservation | **BLOCKED** | Owner must map the six source labels and assignments to canonical runtime roles and permission sets; specifically resolve `admin` and account for all eight OSAAH roles. |
+| Parent data authorization | **BLOCKED** | Identify authoritative parent-child relationship source and approve mapping. `parent_student_links` is absent and no student rows were reported. |
+| Hosted application workflow validation | **BLOCKED** | No authenticated Preview test against an isolated Supabase target was performed. Local tests do not substitute for it. |
+
+### Required read-only checks before design approval
+
+- Refresh catalog and aggregate counts immediately before rehearsal; collect schema/table/sequence ownership and schema/sequence/function grants plus dependency inventory.
+- Capture all table grants and all policy definitions for every schema exposed through PostgREST; review effective role memberships and `BYPASSRLS` without revealing secrets.
+- Verify the exact runtime role using an authorized non-production Preview connection; no database URL or credential values should be shared.
+- Verify a recovery point and perform a restore-to-new-project rehearsal; establish the authorized operator and recovery procedure.
+- Inventory TiDB and backups to identify the authoritative school records. Compare aggregate counts and non-sensitive key-set hashes only; do not export personal data into this report.
+- Approve role/permission mapping, account recovery, parent-student linkage, school ID handling, archive retention, maintenance window, and rollback ownership.
+
+## Local validation evidence
+
+The audit branch contains the reviewed local validator/reconciliation fixes from commit `02b0c0b`; this update changes documentation only.
+
+- `npm run test:supabase`: **26/26 passed** (local PGlite/CLI only).
+- `node --test test/parent-auth-database-diagnostics.test.js test/durable-auth-sessions.test.js test/production-user-auth-migration.test.js test/proprietor-authentication.test.js test/staff-authentication-part3.test.js test/serverless-auth-session.test.js`: **30/30 passed** (local HTTP fixtures; loopback access enabled; no hosted connection).
+- `node scripts/validate-supabase-migration.mjs`: passed static validation (159 tables, six views, 55 explicit indexes, 448 foreign-key references, RLS enabled for every table).
+- `git diff --check`: passed after the report edit.
+- These checks do not connect to the hosted database or prove application login works against the 12-table schema. No hosted migration, Preview login, production setting, or deployment was changed.
 
 ## Release decision
 
-**BLOCKED.** The schema failure is demonstrated, but there is not enough verified schema and mapping evidence to produce or validate a safe data-preserving upgrade. No database, Vercel configuration, or deployment was changed. Do not run either existing migration against the current hosted target.
+**BLOCKED.** The target catalog and schema incompatibilities are now substantially better characterized, but no restorable recovery point, authoritative school-data source, isolated Preview database, actual runtime database role, password recovery mechanism, complete role mapping, or Parent relationship mapping has been verified. Do not execute a hosted migration or cut over. This is not a claim that school data is lost or that authentication has been repaired.
