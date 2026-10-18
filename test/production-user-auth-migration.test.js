@@ -34,7 +34,7 @@ test('production auth reports safe structured details for an unknown login colum
       component: 'school_authentication', operation: 'login_lookup', category: 'SCHEMA_COLUMN_MISMATCH',
       requestId: logged[0][1].requestId,
       requestPath: null, name: 'Error', code: 'ER_BAD_FIELD_ERROR', sqlState: '42S22', severity: null,
-      errno: 1054, message: 'Unknown column [redacted] in [redacted]', detail: null, hint: null, context: null,
+      errno: 1054, message: '[redacted-diagnostic-text]', detail: null, hint: null, context: null,
       schema: null, table: null, column: null, constraint: null, routine: null
     });
     assert.doesNotMatch(JSON.stringify(logged), /safe@example\.test|not-a-real-password/);
@@ -73,7 +73,7 @@ test('PostgreSQL login diagnostics capture safe fields and redact sensitive valu
     assert.ok(payload.context);
     const output = JSON.stringify({ logged, result });
     for (const secret of ['secret-login', 'student@example.test', 'staff@example.test', 'Ama Mensah', '+233241234567', 'top-secret-access-code', 'url-secret', 'db.example.test', 'SELECT with bind values']) assert.doesNotMatch(output, new RegExp(secret.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
-    assert.match(JSON.stringify(payload), /\[redacted\]/);
+    assert.match(JSON.stringify(payload), /\[redacted-diagnostic-text\]/);
   } finally { console.error = previousError; }
 });
 

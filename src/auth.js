@@ -17,7 +17,7 @@ function safeDiagnosticCode(value) { return typeof value === 'string' && /^[A-Za
 function safeDiagnosticText(value) {
   if (typeof value !== 'string' || !value) return null;
   if (/failing row contains/i.test(value)) return '[redacted-row-detail]';
-  return value.slice(0, 1000)
+  const sanitized = value.slice(0, 1000)
     .replace(/[\u0000-\u001f\u007f]/g, ' ')
     .replace(/\b(?:postgres(?:ql)?|https?):\/\/[^\s]+/gi, '[redacted-url]')
     .replace(/\bBearer\s+[^\s]+/gi, 'Bearer [redacted]')
@@ -28,6 +28,20 @@ function safeDiagnosticText(value) {
     .replace(/\b[0-9a-f]{8}-[0-9a-f-]{27,}\b/gi, '[redacted-id]')
     .replace(/\b[A-Za-z0-9_-]{32,}\b/g, '[redacted-token]')
     .replace(/\s+/g, ' ').trim().slice(0, 500) || null;
+  if (!sanitized) return null;
+  const safeForms = [
+    /^relation \[redacted\] does not exist$/i,
+    /^column (?:\[redacted\]|[A-Za-z_][A-Za-z0-9_$.]*) does not exist$/i,
+    /^column \[redacted\] of relation \[redacted\] does not exist$/i,
+    /^permission denied for (?:table|sequence|schema|relation) \[redacted\]$/i,
+    /^duplicate key value violates unique constraint \[redacted\]$/i,
+    /^null value in column \[redacted\] of relation \[redacted\] violates not-null constraint$/i,
+    /^insert or update on table \[redacted\] violates foreign key constraint \[redacted\]$/i,
+    /^new row for relation \[redacted\] violates check constraint \[redacted\]$/i,
+    /^current transaction is aborted, commands ignored until end of transaction block$/i,
+    /^syntax error at or near \[redacted\]$/i,
+  ];
+  return safeForms.some((pattern) => pattern.test(sanitized)) ? sanitized : '[redacted-diagnostic-text]';
 }
 function postgresObjectNames(message) {
   const text = typeof message === 'string' ? message : '';
@@ -46,8 +60,10 @@ function schoolLoginDiagnostics(error, { requestId, requestPath } = {}) {
     name: safeDiagnosticIdentifier(error?.name), code: safeDiagnosticCode(error?.code),
     sqlState: /^[0-9A-Z]{5}$/.test(error?.sqlState ?? '') ? error.sqlState : (/^[0-9A-Z]{5}$/.test(error?.code ?? '') ? error.code : null), severity: safeDiagnosticIdentifier(error?.severity),
     errno: Number.isSafeInteger(error?.errno) ? error.errno : null,
-    message: safeDiagnosticText(error?.message), detail: safeDiagnosticText(error?.detail),
-    hint: safeDiagnosticText(error?.hint), context: safeDiagnosticText(error?.where),
+    message: safeDiagnosticText(error?.message),
+    detail: error?.detail ? '[redacted-diagnostic-text]' : null,
+    hint: error?.hint ? '[redacted-diagnostic-text]' : null,
+    context: error?.where ? '[redacted-diagnostic-text]' : null,
   };
   for (const field of POSTGRES_DIAGNOSTIC_FIELDS) diagnostic[field] = safeDiagnosticIdentifier(error?.[field]) ?? (field === 'table' || field === 'column' ? parsed[field] : null);
   return diagnostic;
