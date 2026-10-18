@@ -43,7 +43,7 @@ async function createStarterDatabase({ withClassRow = false } = {}) {
 }
 
 async function migrationForFixture(database) {
-  const migration = await readFile(migrationPath, 'utf8');
+  const migration = (await readFile(migrationPath, 'utf8')).replace(/\r\n/g, '\n');
   const signatureStart = migration.indexOf('  WITH\n  cols AS (');
   const signatureEnd = migration.indexOf('  SELECT md5(cols.j::text)', signatureStart);
   assert.notEqual(signatureStart, -1, 'migration must pin the hosted catalog signature');

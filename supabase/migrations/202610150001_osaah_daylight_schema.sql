@@ -891,5 +891,3 @@ grant select on public.schools to anon, authenticated;
 create policy schools_public_read on public.schools for select to anon, authenticated using (id='sch_default_01');
 
 commit;
-
-\n
