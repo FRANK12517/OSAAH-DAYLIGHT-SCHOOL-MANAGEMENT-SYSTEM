@@ -1354,7 +1354,40 @@ if (process.env.NODE_ENV !== 'production' && isDirectExecution) {
 export { server };
 export default app;
 function publicUser(user) { const identity = { id: user.id, username: user.username, portal: user.portal, roleKey: user.roleKey, schoolId: user.schoolId }; return user.portal === 'parent' ? identity : { ...identity, children: user.children ?? [], assignedStudentIds: user.assignedStudentIds ?? [], assignedClassIds: user.assignedClassIds ?? [], assignedSubjectIds: user.assignedSubjectIds ?? [], assignedDepartmentIds: user.assignedDepartmentIds ?? [] }; }
-async function login(request, response, auth, audit) { const body = await readJson(request); const isParentPhoneLogin = body.portal === 'parent' && Object.prototype.hasOwnProperty.call(body, 'phone'); const requestIdHeader = request.headers['x-vercel-id'] ?? request.headers['x-request-id']; const requestId = typeof requestIdHeader === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(requestIdHeader) ? requestIdHeader : randomUUID(); const diagnosticContext = { requestId, requestPath: '/api/auth/login' }; const credentials = { ...body, diagnosticContext }; const result = isParentPhoneLogin ? (typeof auth.loginByPhoneFromDatabase === 'function' ? await auth.loginByPhoneFromDatabase(credentials) : auth.loginByPhone(body)) : (typeof auth.loginFromDatabase === 'function' ? await auth.loginFromDatabase(credentials) : auth.login(body)); if (!result.ok) return json(response, { error: result.error }, result.status); audit(createAuditLog({ userId: result.user.id, roleId: result.user.roleKey, sessionId: result.user.sessionId, action: 'LOGIN_SUCCESS', entity: 'Authentication' })); return json(response, { user: result.user, redirectTo: result.redirectTo, expiresAt: result.expiresAt }, 200, `osaah_session=${result.token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Math.floor(auth.sessionTtlMs / 1000)}${secureCookieSuffix(request)}`); }
+async function login(request, response, auth, audit) {
+  const requestIdHeader = request.headers['x-vercel-id'] ?? request.headers['x-request-id'];
+  const requestId = typeof requestIdHeader === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(requestIdHeader) ? requestIdHeader : randomUUID();
+  const diagnosticContext = { requestId, requestPath: '/api/auth/login' };
+  try {
+    const body = await readJson(request);
+    const isParentPhoneLogin = body.portal === 'parent' && Object.prototype.hasOwnProperty.call(body, 'phone');
+    const credentials = { ...body, diagnosticContext };
+    const result = isParentPhoneLogin
+      ? (typeof auth.loginByPhoneFromDatabase === 'function' ? await auth.loginByPhoneFromDatabase(credentials) : auth.loginByPhone(body))
+      : (typeof auth.loginFromDatabase === 'function' ? await auth.loginFromDatabase(credentials) : auth.login(body));
+    if (!result.ok) return json(response, { error: result.error }, result.status);
+
+    audit(createAuditLog({ userId: result.user.id, roleId: result.user.roleKey, sessionId: result.user.sessionId, action: 'LOGIN_SUCCESS', entity: 'Authentication' }));
+    return json(response, { user: result.user, redirectTo: result.redirectTo, expiresAt: result.expiresAt }, 200, `osaah_session=${result.token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Math.floor(auth.sessionTtlMs / 1000)}${secureCookieSuffix(request)}`);
+  } catch (error) {
+    const clientErrors = {
+      INVALID_JSON: { status: 400, message: 'Invalid JSON request body.' },
+      REQUEST_BODY_TOO_LARGE: { status: 413, message: 'Request body is too large.' }
+    };
+    const clientError = clientErrors[error?.code];
+    console.error('Authentication login request failed', {
+      component: 'school_authentication',
+      operation: 'login_request',
+      category: clientError ? 'INVALID_LOGIN_REQUEST' : 'AUTHENTICATION_SERVICE_FAILED',
+      requestId,
+      requestPath: '/api/auth/login',
+      code: /^[A-Z0-9_]+$/.test(String(error?.code ?? '')) ? error.code : 'UNKNOWN'
+    });
+    return json(response, {
+      error: clientError?.message ?? 'Authentication service unavailable.'
+    }, clientError?.status ?? 503);
+  }
+}
 function secureCookieSuffix(request) {
   const forwardedProto = String(request.headers['x-forwarded-proto'] ?? '').split(',')[0].trim().toLowerCase();
   const trustedProxy = process.env.OSAAH_TRUST_PROXY === 'true' || process.env.VERCEL === '1';

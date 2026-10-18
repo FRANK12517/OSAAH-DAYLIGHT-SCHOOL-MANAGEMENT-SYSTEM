@@ -173,8 +173,8 @@ export function createDatabaseAdapter({
   poolFactory = (options) => new Pool(options),
   retryDelay = (attempt) => new Promise((resolve) => setTimeout(resolve, Math.min(25 * 2 ** attempt, 250)))
 } = {}) {
-  const connectionString = environment?.OSAAH_POSTGRES_URL;
-  if (!connectionString) throw pgError('POSTGRES_URL_REQUIRED', 'OSAAH_POSTGRES_URL is required for the PostgreSQL adapter.');
+  const connectionString = environment?.OSAAH_POSTGRES_URL || environment?.POSTGRES_URL;
+  if (!connectionString) throw pgError('POSTGRES_URL_REQUIRED', 'OSAAH_POSTGRES_URL or POSTGRES_URL is required for the PostgreSQL adapter.');
   let url;
   try { url = new URL(connectionString); }
   catch { throw pgError('DATABASE_URL_INVALID', 'PostgreSQL connection URL is invalid.'); }

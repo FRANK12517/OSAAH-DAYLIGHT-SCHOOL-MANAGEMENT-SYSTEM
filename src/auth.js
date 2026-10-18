@@ -194,8 +194,8 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     const sessionId = randomUUID(); const expiresAt = now() + SESSION_TTL_MS;
     const session = { userId: user.id, roleKey: canonicalRoleKey(user.roleKey), sessionId, expiresAt, ...(user.id === TEST_PARENT_ID && user.isTestFixture === true ? { testParentFixture: true } : {}) };
     const token = signingKey ? signSession(session) : randomBytes(32).toString('hex');
-    sessions.set(token, session);
     await persistDurableSession(user, session, token);
+    sessions.set(token, session);
     if (durableSessionStore) durableSessionIds.add(session.sessionId);
     securityEvent('LOGIN_SUCCESS', user, sessionId);
     return { ok: true, token, user: sanitize(user, sessionId), redirectTo: SCHOOL_PORTAL_DASHBOARDS[canonicalRoleKey(user.roleKey)] ?? '/', expiresAt };

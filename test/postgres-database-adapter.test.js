@@ -183,6 +183,13 @@ test('configured app adapter selects PostgreSQL only when the separate PostgreSQ
   await adapter.close();
 });
 
+test('Vercel PostgreSQL integration URL configures the runtime when the app-specific URL is absent', async () => {
+  const adapter = await loadConfiguredDatabaseAdapter({ environment: { POSTGRES_URL: environment.OSAAH_POSTGRES_URL } });
+  assert.equal(typeof adapter?.transaction, 'function');
+  assert.equal(typeof adapter?.healthCheck, 'function');
+  await adapter.close();
+});
+
 test('application adapter refuses TiDB DATABASE_URL instead of loading the legacy adapter', async () => {
   await assert.rejects(
     () => loadConfiguredDatabaseAdapter({ environment: { DATABASE_URL: 'mysql://user:password@localhost:4000/osaah' } }),
@@ -190,7 +197,7 @@ test('application adapter refuses TiDB DATABASE_URL instead of loading the legac
   );
 });
 
-test('application adapter requires explicit OSAAH_POSTGRES_URL for PostgreSQL', async () => {
+test('application adapter rejects legacy DATABASE_URL and requires an explicit PostgreSQL runtime URL', async () => {
   await assert.rejects(
     () => loadConfiguredDatabaseAdapter({ environment: { DATABASE_URL: 'postgresql://private:secret@localhost:5432/osaah' } }),
     (error) => error.code === 'POSTGRES_URL_REQUIRED' && !error.message.includes('secret')
