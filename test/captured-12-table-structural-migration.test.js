@@ -12,7 +12,7 @@ const capturedFixture = `
 CREATE ROLE anon;
 CREATE ROLE authenticated;
 CREATE ROLE service_role BYPASSRLS;
-CREATE TABLE public.assessments (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, student_id integer, subject_id integer, academic_term text NOT NULL, academic_year text NOT NULL, class_score numeric(5,2) DEFAULT 0, exam_score numeric(5,2) DEFAULT 0, total_score numeric GENERATED ALWAYS AS (class_score + exam_score) STORED, remarks text, created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now());
+CREATE TABLE public.assessments (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, student_id integer, subject_id integer, academic_term text NOT NULL, academic_year text NOT NULL, class_score numeric(5,2) DEFAULT 0, exam_score numeric(5,2) DEFAULT 0, total_score numeric(5,2) GENERATED ALWAYS AS (class_score + exam_score) STORED, remarks text, created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now());
 CREATE TABLE public.attendance (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, student_id integer, class_id integer, attendance_date date NOT NULL, status text NOT NULL, recorded_by uuid, created_at timestamptz DEFAULT now());
 CREATE TABLE public.auth_sessions (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL, token_hash text NOT NULL, expires_at timestamptz NOT NULL, created_at timestamptz NOT NULL DEFAULT timezone('utc'::text, now()));
 CREATE TABLE public.classes (id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY, class_name text NOT NULL, section text, capacity integer DEFAULT 30, created_at timestamptz DEFAULT now());
@@ -84,11 +84,12 @@ async function migrationSql() {
   return saved;
 }
 
-async function seedCapturedDatabase({ extraColumn = false, invalidType = false, duplicateKeys = false, extraTable = false } = {}) {
+async function seedCapturedDatabase({ extraColumn = false, invalidType = false, invalidGeneration = false, duplicateKeys = false, extraTable = false } = {}) {
   const database = new PGlite();
   let fixture = capturedFixture;
   if (extraColumn) fixture = fixture.replace('updated_at timestamptz DEFAULT now());\nALTER TABLE public.roles', 'updated_at timestamptz DEFAULT now(), unexpected text);\nALTER TABLE public.roles');
   if (invalidType) fixture = fixture.replace('email text NOT NULL UNIQUE', 'email varchar(255) NOT NULL UNIQUE');
+  if (invalidGeneration) fixture = fixture.replace('class_score + exam_score', 'class_score - exam_score');
   if (duplicateKeys) fixture = fixture.replace('email text NOT NULL UNIQUE', 'email text NOT NULL').replace('ALTER TABLE public.users ADD CONSTRAINT chk_capture_email', 'ALTER TABLE public.users ADD CONSTRAINT uq_capture_users_full_name UNIQUE(full_name);\nALTER TABLE public.users ADD CONSTRAINT chk_capture_email');
   if (extraTable) fixture += '\nCREATE TABLE public.unexpected_extra_table (id uuid PRIMARY KEY);\n';
   await database.exec(fixture);
@@ -125,7 +126,8 @@ test('captured 12-table structural stage installs a private canonical schema and
     const comparisonMarker = 'DO $$\nBEGIN\n  IF EXISTS (\n    (SELECT table_name, column_name';
     await database.exec(sql.slice(0, sql.indexOf(comparisonMarker)));
     const catalogDiff = (await database.query(`WITH actual AS (
-      SELECT table_name, column_name, udt_name, numeric_precision, numeric_scale, is_nullable='NO' is_not_null, is_identity='YES' is_identity
+      SELECT table_name, column_name, udt_name, numeric_precision, numeric_scale, is_nullable='NO' is_not_null, is_identity='YES' is_identity,
+        CASE WHEN generation_expression ~ '^\\([^()]*\\)$' THEN substr(generation_expression,2,length(generation_expression)-2) ELSE generation_expression END generation_expression
       FROM information_schema.columns WHERE table_schema='public'
     ), differences AS (
       (SELECT * FROM pg_temp.osaah_captured_expected_columns EXCEPT SELECT * FROM actual)
@@ -169,7 +171,7 @@ test('captured migration rejects an unexpected public column before creating the
   const database = await seedCapturedDatabase({ extraColumn: true });
   try {
     const sql = await migrationSql();
-    await assert.rejects(() => database.exec(sql), /columns, types, nullability, or identity attributes changed/);
+    await assert.rejects(() => database.exec(sql), /columns, types, nullability, identity attributes, or generated expressions changed/);
     await database.exec('ROLLBACK');
     assert.equal((await database.query(`SELECT to_regnamespace($1) IS NULL absent`, [CAPTURED_SCHEMA])).rows[0].absent, true);
     assert.equal((await database.query('SELECT count(*)::int count FROM public.users')).rows[0].count, 6);
@@ -180,10 +182,29 @@ test('captured migration rejects an incompatible source type before creating the
   const database = await seedCapturedDatabase({ invalidType: true });
   try {
     const sql = await migrationSql();
-    await assert.rejects(() => database.exec(sql), /columns, types, nullability, or identity attributes changed/);
+    await assert.rejects(() => database.exec(sql), /columns, types, nullability, identity attributes, or generated expressions changed/);
     await database.exec('ROLLBACK');
     assert.equal((await database.query(`SELECT to_regnamespace($1) IS NULL absent`, [CAPTURED_SCHEMA])).rows[0].absent, true);
   } finally { await database.close(); }
+});
+
+test('captured migration accepts the observed generated total and rejects a changed generation expression', async () => {
+  const accepted = await seedCapturedDatabase();
+  try {
+    const sql = await migrationSql();
+    await accepted.exec(sql);
+    assert.equal((await accepted.query(`SELECT to_regnamespace($1) IS NOT NULL present`, [CAPTURED_SCHEMA])).rows[0].present, true);
+    assert.equal((await accepted.query(`SELECT count(*)::int count FROM ${CAPTURED_SCHEMA}.schema_migrations`)).rows[0].count, 1);
+  } finally { await accepted.close(); }
+
+  const rejected = await seedCapturedDatabase({ invalidGeneration: true });
+  try {
+    const sql = await migrationSql();
+    await assert.rejects(() => rejected.exec(sql), /generated expressions changed/);
+    await rejected.exec('ROLLBACK');
+    assert.equal((await rejected.query(`SELECT to_regnamespace($1) IS NULL absent`, [CAPTURED_SCHEMA])).rows[0].absent, true);
+    assert.equal((await rejected.query('SELECT count(*)::int count FROM public.users')).rows[0].count, 6);
+  } finally { await rejected.close(); }
 });
 
 test('captured migration rejects an unexpected source table before creating the prepared schema', async () => {

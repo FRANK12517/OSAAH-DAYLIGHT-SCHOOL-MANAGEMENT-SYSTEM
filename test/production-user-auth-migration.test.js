@@ -93,6 +93,32 @@ test('PostgreSQL login diagnostics tolerate missing fields and reject unsafe ide
   } finally { console.error = previousError; }
 });
 
+test('PostgreSQL login diagnostics classify structural and permission SQLSTATEs without exposing details', async (t) => {
+  const cases = [
+    ['42703', 'SCHEMA_COLUMN_MISMATCH', 'column "school_id" does not exist'],
+    ['42P01', 'SCHEMA_TABLE_MISSING', 'relation "parent_student_links" does not exist'],
+    ['3F000', 'SCHEMA_NOT_FOUND', 'schema "osaah" does not exist'],
+    ['42501', 'DATABASE_PERMISSION_DENIED', 'permission denied for table users']
+  ];
+  const previousError = console.error;
+  for (const [sqlState, category, message] of cases) {
+    await t.test(sqlState, async () => {
+      const logged = [];
+      console.error = (...args) => logged.push(args);
+      try {
+        const auth = createAuthService({ database: { async query() { throw Object.assign(new Error(message), { code: sqlState, severity: 'ERROR' }); } }, sessionSecret: 'test-only-session-secret-with-at-least-32-characters' });
+        const result = await auth.loginFromDatabase({ username: 'private@example.test', password: 'never-log-this', portal: 'school' });
+        assert.deepEqual(result, { ok: false, status: 503, error: 'Authentication service unavailable.' });
+        assert.equal(logged.length, 1);
+        assert.equal(logged[0][1].sqlState, sqlState);
+        assert.equal(logged[0][1].category, category);
+        assert.doesNotMatch(JSON.stringify({ logged, result }), /private@example\.test|never-log-this/);
+      } finally { console.error = previousError; }
+    });
+  }
+  console.error = previousError;
+});
+
 
 test('migration 069 is additive and backfills only deterministic legacy login/timestamp values', async () => {
   const sql = await readFile(migrationUrl, 'utf8');

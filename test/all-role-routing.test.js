@@ -136,6 +136,14 @@ test('workspace navigation normalizes the route inside the renderer and terminat
   assert.match(renderBody, /Unable to open \$\{title\}/);
 });
 
+test('school dashboard bootstrap consumes the server role redirect after login and session restoration', async () => {
+  const app = await readFile(new URL('../public/app.js', import.meta.url), 'utf8');
+  assert.match(app, /function renderDashboard\(user, redirectTo = '\/'\)/);
+  assert.match(app, /location\.pathname === '\/' && safeRedirect && redirectLink/);
+  assert.match(app, /navigateToRoute\(dashboard, safeRedirect\.pathname/);
+  assert.match(app, /renderDashboard\(result\.user, result\.redirectTo\)/);
+});
+
 test('every configured role sidebar child has a stable identity and deterministic route', () => {
   const roles = ['ACCOUNTANT_BURSAR', 'HEADTEACHER', 'ASSISTANT_HEADTEACHER', 'TEACHER'];
   for (const roleKey of roles) {

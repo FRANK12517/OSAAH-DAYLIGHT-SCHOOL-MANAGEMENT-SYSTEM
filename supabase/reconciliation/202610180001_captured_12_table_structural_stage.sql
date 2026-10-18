@@ -53,106 +53,106 @@ END $$;
 
 CREATE TEMP TABLE osaah_captured_expected_columns (
   table_name text, column_name text, udt_name text, numeric_precision integer, numeric_scale integer,
-  is_not_null boolean, is_identity boolean, PRIMARY KEY (table_name, column_name)
+  is_not_null boolean, is_identity boolean, generation_expression text, PRIMARY KEY (table_name, column_name)
 ) ON COMMIT DROP;
 INSERT INTO pg_temp.osaah_captured_expected_columns VALUES
-    ('assessments', 'id', 'int8', 64, 0, true, true),
-    ('assessments', 'student_id', 'int4', 32, 0, false, false),
-    ('assessments', 'subject_id', 'int4', 32, 0, false, false),
-    ('assessments', 'academic_term', 'text', null, null, true, false),
-    ('assessments', 'academic_year', 'text', null, null, true, false),
-    ('assessments', 'class_score', 'numeric', 5, 2, false, false),
-    ('assessments', 'exam_score', 'numeric', 5, 2, false, false),
-    ('assessments', 'total_score', 'numeric', null, null, false, false),
-    ('assessments', 'remarks', 'text', null, null, false, false),
-    ('assessments', 'created_at', 'timestamptz', null, null, false, false),
-    ('assessments', 'updated_at', 'timestamptz', null, null, false, false),
-    ('attendance', 'id', 'int8', 64, 0, true, true),
-    ('attendance', 'student_id', 'int4', 32, 0, false, false),
-    ('attendance', 'class_id', 'int4', 32, 0, false, false),
-    ('attendance', 'attendance_date', 'date', null, null, true, false),
-    ('attendance', 'status', 'text', null, null, true, false),
-    ('attendance', 'recorded_by', 'uuid', null, null, false, false),
-    ('attendance', 'created_at', 'timestamptz', null, null, false, false),
-    ('auth_sessions', 'id', 'uuid', null, null, true, false),
-    ('auth_sessions', 'user_id', 'uuid', null, null, true, false),
-    ('auth_sessions', 'token_hash', 'text', null, null, true, false),
-    ('auth_sessions', 'expires_at', 'timestamptz', null, null, true, false),
-    ('auth_sessions', 'created_at', 'timestamptz', null, null, true, false),
-    ('classes', 'id', 'int4', 32, 0, true, true),
-    ('classes', 'class_name', 'text', null, null, true, false),
-    ('classes', 'section', 'text', null, null, false, false),
-    ('classes', 'capacity', 'int4', 32, 0, false, false),
-    ('classes', 'created_at', 'timestamptz', null, null, false, false),
-    ('fee_payments', 'id', 'int4', 32, 0, true, true),
-    ('fee_payments', 'student_id', 'int4', 32, 0, false, false),
-    ('fee_payments', 'amount_paid', 'numeric', 10, 2, true, false),
-    ('fee_payments', 'payment_method', 'text', null, null, false, false),
-    ('fee_payments', 'reference_number', 'text', null, null, false, false),
-    ('fee_payments', 'academic_term', 'text', null, null, true, false),
-    ('fee_payments', 'academic_year', 'text', null, null, true, false),
-    ('fee_payments', 'recorded_by', 'uuid', null, null, false, false),
-    ('fee_payments', 'created_at', 'timestamptz', null, null, false, false),
-    ('permissions', 'id', 'uuid', null, null, true, false),
-    ('permissions', 'name', 'text', null, null, true, false),
-    ('permissions', 'description', 'text', null, null, false, false),
-    ('permissions', 'created_at', 'timestamptz', null, null, true, false),
-    ('role_permissions', 'id', 'uuid', null, null, true, false),
-    ('role_permissions', 'role_id', 'uuid', null, null, true, false),
-    ('role_permissions', 'permission_id', 'uuid', null, null, true, false),
-    ('role_permissions', 'created_at', 'timestamptz', null, null, true, false),
-    ('roles', 'id', 'uuid', null, null, true, false),
-    ('roles', 'name', 'text', null, null, true, false),
-    ('roles', 'description', 'text', null, null, false, false),
-    ('roles', 'created_at', 'timestamptz', null, null, true, false),
-    ('students', 'id', 'int4', 32, 0, true, true),
-    ('students', 'student_id', 'text', null, null, true, false),
-    ('students', 'first_name', 'text', null, null, true, false),
-    ('students', 'last_name', 'text', null, null, true, false),
-    ('students', 'gender', 'text', null, null, false, false),
-    ('students', 'date_of_birth', 'date', null, null, false, false),
-    ('students', 'class_id', 'int4', 32, 0, false, false),
-    ('students', 'parent_id', 'uuid', null, null, false, false),
-    ('students', 'enrollment_status', 'text', null, null, false, false),
-    ('students', 'created_at', 'timestamptz', null, null, false, false),
-    ('students', 'updated_at', 'timestamptz', null, null, false, false),
-    ('subjects', 'id', 'int4', 32, 0, true, true),
-    ('subjects', 'subject_code', 'text', null, null, true, false),
-    ('subjects', 'subject_name', 'text', null, null, true, false),
-    ('subjects', 'class_id', 'int4', 32, 0, false, false),
-    ('subjects', 'created_at', 'timestamptz', null, null, false, false),
-    ('user_roles', 'id', 'uuid', null, null, true, false),
-    ('user_roles', 'user_id', 'uuid', null, null, true, false),
-    ('user_roles', 'role_id', 'uuid', null, null, true, false),
-    ('user_roles', 'created_at', 'timestamptz', null, null, true, false),
-    ('users', 'id', 'uuid', null, null, true, false),
-    ('users', 'email', 'text', null, null, true, false),
-    ('users', 'full_name', 'text', null, null, true, false),
-    ('users', 'role', 'text', null, null, true, false),
-    ('users', 'phone_number', 'text', null, null, false, false),
-    ('users', 'is_active', 'bool', null, null, false, false),
-    ('users', 'created_at', 'timestamptz', null, null, false, false),
-    ('users', 'updated_at', 'timestamptz', null, null, false, false);
+    ('assessments', 'id', 'int8', 64, 0, true, true, null),
+    ('assessments', 'student_id', 'int4', 32, 0, false, false, null),
+    ('assessments', 'subject_id', 'int4', 32, 0, false, false, null),
+    ('assessments', 'academic_term', 'text', null, null, true, false, null),
+    ('assessments', 'academic_year', 'text', null, null, true, false, null),
+    ('assessments', 'class_score', 'numeric', 5, 2, false, false, null),
+    ('assessments', 'exam_score', 'numeric', 5, 2, false, false, null),
+    ('assessments', 'total_score', 'numeric', 5, 2, false, false, 'class_score + exam_score'),
+    ('assessments', 'remarks', 'text', null, null, false, false, null),
+    ('assessments', 'created_at', 'timestamptz', null, null, false, false, null),
+    ('assessments', 'updated_at', 'timestamptz', null, null, false, false, null),
+    ('attendance', 'id', 'int8', 64, 0, true, true, null),
+    ('attendance', 'student_id', 'int4', 32, 0, false, false, null),
+    ('attendance', 'class_id', 'int4', 32, 0, false, false, null),
+    ('attendance', 'attendance_date', 'date', null, null, true, false, null),
+    ('attendance', 'status', 'text', null, null, true, false, null),
+    ('attendance', 'recorded_by', 'uuid', null, null, false, false, null),
+    ('attendance', 'created_at', 'timestamptz', null, null, false, false, null),
+    ('auth_sessions', 'id', 'uuid', null, null, true, false, null),
+    ('auth_sessions', 'user_id', 'uuid', null, null, true, false, null),
+    ('auth_sessions', 'token_hash', 'text', null, null, true, false, null),
+    ('auth_sessions', 'expires_at', 'timestamptz', null, null, true, false, null),
+    ('auth_sessions', 'created_at', 'timestamptz', null, null, true, false, null),
+    ('classes', 'id', 'int4', 32, 0, true, true, null),
+    ('classes', 'class_name', 'text', null, null, true, false, null),
+    ('classes', 'section', 'text', null, null, false, false, null),
+    ('classes', 'capacity', 'int4', 32, 0, false, false, null),
+    ('classes', 'created_at', 'timestamptz', null, null, false, false, null),
+    ('fee_payments', 'id', 'int4', 32, 0, true, true, null),
+    ('fee_payments', 'student_id', 'int4', 32, 0, false, false, null),
+    ('fee_payments', 'amount_paid', 'numeric', 10, 2, true, false, null),
+    ('fee_payments', 'payment_method', 'text', null, null, false, false, null),
+    ('fee_payments', 'reference_number', 'text', null, null, false, false, null),
+    ('fee_payments', 'academic_term', 'text', null, null, true, false, null),
+    ('fee_payments', 'academic_year', 'text', null, null, true, false, null),
+    ('fee_payments', 'recorded_by', 'uuid', null, null, false, false, null),
+    ('fee_payments', 'created_at', 'timestamptz', null, null, false, false, null),
+    ('permissions', 'id', 'uuid', null, null, true, false, null),
+    ('permissions', 'name', 'text', null, null, true, false, null),
+    ('permissions', 'description', 'text', null, null, false, false, null),
+    ('permissions', 'created_at', 'timestamptz', null, null, true, false, null),
+    ('role_permissions', 'id', 'uuid', null, null, true, false, null),
+    ('role_permissions', 'role_id', 'uuid', null, null, true, false, null),
+    ('role_permissions', 'permission_id', 'uuid', null, null, true, false, null),
+    ('role_permissions', 'created_at', 'timestamptz', null, null, true, false, null),
+    ('roles', 'id', 'uuid', null, null, true, false, null),
+    ('roles', 'name', 'text', null, null, true, false, null),
+    ('roles', 'description', 'text', null, null, false, false, null),
+    ('roles', 'created_at', 'timestamptz', null, null, true, false, null),
+    ('students', 'id', 'int4', 32, 0, true, true, null),
+    ('students', 'student_id', 'text', null, null, true, false, null),
+    ('students', 'first_name', 'text', null, null, true, false, null),
+    ('students', 'last_name', 'text', null, null, true, false, null),
+    ('students', 'gender', 'text', null, null, false, false, null),
+    ('students', 'date_of_birth', 'date', null, null, false, false, null),
+    ('students', 'class_id', 'int4', 32, 0, false, false, null),
+    ('students', 'parent_id', 'uuid', null, null, false, false, null),
+    ('students', 'enrollment_status', 'text', null, null, false, false, null),
+    ('students', 'created_at', 'timestamptz', null, null, false, false, null),
+    ('students', 'updated_at', 'timestamptz', null, null, false, false, null),
+    ('subjects', 'id', 'int4', 32, 0, true, true, null),
+    ('subjects', 'subject_code', 'text', null, null, true, false, null),
+    ('subjects', 'subject_name', 'text', null, null, true, false, null),
+    ('subjects', 'class_id', 'int4', 32, 0, false, false, null),
+    ('subjects', 'created_at', 'timestamptz', null, null, false, false, null),
+    ('user_roles', 'id', 'uuid', null, null, true, false, null),
+    ('user_roles', 'user_id', 'uuid', null, null, true, false, null),
+    ('user_roles', 'role_id', 'uuid', null, null, true, false, null),
+    ('user_roles', 'created_at', 'timestamptz', null, null, true, false, null),
+    ('users', 'id', 'uuid', null, null, true, false, null),
+    ('users', 'email', 'text', null, null, true, false, null),
+    ('users', 'full_name', 'text', null, null, true, false, null),
+    ('users', 'role', 'text', null, null, true, false, null),
+    ('users', 'phone_number', 'text', null, null, false, false, null),
+    ('users', 'is_active', 'bool', null, null, false, false, null),
+    ('users', 'created_at', 'timestamptz', null, null, false, false, null),
+    ('users', 'updated_at', 'timestamptz', null, null, false, false, null);
 DO $$
 BEGIN
   IF EXISTS (
     (SELECT table_name, column_name, udt_name, numeric_precision, numeric_scale,
-            is_not_null, is_identity
+            is_not_null, is_identity, generation_expression
        FROM pg_temp.osaah_captured_expected_columns
      EXCEPT
      SELECT table_name, column_name, udt_name, numeric_precision, numeric_scale,
-            is_nullable='NO', is_identity='YES'
+            is_nullable='NO', is_identity='YES', CASE WHEN generation_expression = '(class_score + exam_score)' THEN 'class_score + exam_score' ELSE generation_expression END
        FROM information_schema.columns WHERE table_schema='public')
     UNION ALL
     (SELECT table_name, column_name, udt_name, numeric_precision, numeric_scale,
-            is_nullable='NO', is_identity='YES'
+            is_nullable='NO', is_identity='YES', CASE WHEN generation_expression = '(class_score + exam_score)' THEN 'class_score + exam_score' ELSE generation_expression END
        FROM information_schema.columns WHERE table_schema='public'
      EXCEPT
      SELECT table_name, column_name, udt_name, numeric_precision, numeric_scale,
-            is_not_null, is_identity
+            is_not_null, is_identity, generation_expression
        FROM pg_temp.osaah_captured_expected_columns)
   ) THEN
-    RAISE EXCEPTION 'Captured source columns, types, nullability, or identity attributes changed';
+    RAISE EXCEPTION 'Captured source columns, types, nullability, identity attributes, or generated expressions changed';
   END IF;
   IF EXISTS (SELECT 1 FROM public.users GROUP BY email HAVING count(*) > 1)
      OR EXISTS (SELECT 1 FROM public.roles GROUP BY name HAVING count(*) > 1)
@@ -1039,7 +1039,7 @@ REVOKE ALL ON ALL TABLES IN SCHEMA osaah_recovery_20261018 FROM PUBLIC, anon, au
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA osaah_recovery_20261018 FROM PUBLIC, anon, authenticated, service_role;
 
 INSERT INTO osaah_recovery_20261018.schema_migrations(version,name,checksum,applied_at)
-VALUES (20261018,'captured-12-table-structural-stage','35f177ffd2948f01dcf117ee6632c168b3aba38aeca5e5f21eb1353e696ea90c',now());
+VALUES (20261018,'captured-12-table-structural-stage','6d960fff24f381775b84d53c33f0ce36a9100e4e9882b6d6af186cf51447608a',now());
 
 -- Structural postconditions; source rows and public objects remain untouched.
 DO $$
@@ -1061,7 +1061,7 @@ BEGIN
   IF (SELECT count(*) FROM osaah_recovery_20261018.schema_migrations) <> 1
      OR NOT EXISTS (SELECT 1 FROM osaah_recovery_20261018.schema_migrations
                     WHERE version=20261018 AND name='captured-12-table-structural-stage'
-                      AND checksum='35f177ffd2948f01dcf117ee6632c168b3aba38aeca5e5f21eb1353e696ea90c') THEN
+                      AND checksum='6d960fff24f381775b84d53c33f0ce36a9100e4e9882b6d6af186cf51447608a') THEN
     RAISE EXCEPTION 'Structural migration ledger postcondition failed';
   END IF;
   IF (SELECT count(*) FROM osaah_recovery_20261018.schools) <> 0

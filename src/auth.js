@@ -52,13 +52,23 @@ function postgresObjectNames(message) {
 }
 function schoolLoginDiagnostics(error, { requestId, requestPath } = {}) {
   const parsed = postgresObjectNames(error?.message);
+  const sqlState = /^[0-9A-Z]{5}$/.test(error?.sqlState ?? '') ? error.sqlState : (/^[0-9A-Z]{5}$/.test(error?.code ?? '') ? error.code : null);
+  const category = ['ER_BAD_FIELD_ERROR'].includes(error?.code) || ['42703', '42S22'].includes(sqlState)
+    ? 'SCHEMA_COLUMN_MISMATCH'
+    : ['ER_NO_SUCH_TABLE'].includes(error?.code) || ['42P01', '42S02'].includes(sqlState)
+      ? 'SCHEMA_TABLE_MISSING'
+      : sqlState === '3F000'
+        ? 'SCHEMA_NOT_FOUND'
+        : sqlState === '42501'
+          ? 'DATABASE_PERMISSION_DENIED'
+          : 'DATABASE_QUERY_FAILED';
   const diagnostic = {
     component: 'school_authentication', operation: 'login_lookup',
-    category: error?.code === 'ER_BAD_FIELD_ERROR' ? 'SCHEMA_COLUMN_MISMATCH' : error?.code === 'ER_NO_SUCH_TABLE' ? 'SCHEMA_TABLE_MISSING' : 'DATABASE_QUERY_FAILED',
+    category,
     requestId: safeDiagnosticIdentifier(requestId) ?? randomUUID(),
     requestPath: requestPath === '/api/auth/login' ? requestPath : null,
     name: safeDiagnosticIdentifier(error?.name), code: safeDiagnosticCode(error?.code),
-    sqlState: /^[0-9A-Z]{5}$/.test(error?.sqlState ?? '') ? error.sqlState : (/^[0-9A-Z]{5}$/.test(error?.code ?? '') ? error.code : null), severity: safeDiagnosticIdentifier(error?.severity),
+    sqlState, severity: safeDiagnosticIdentifier(error?.severity),
     errno: Number.isSafeInteger(error?.errno) ? error.errno : null,
     message: safeDiagnosticText(error?.message),
     detail: error?.detail ? '[redacted-diagnostic-text]' : null,
