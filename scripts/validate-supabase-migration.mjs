@@ -10,6 +10,8 @@ const setup = normalize(await readFile(setupPath, 'utf8'));
 const failures = [];
 const check = (condition, message) => { if (!condition) failures.push(message); };
 
+check(!/\\n\s*$/.test(await readFile(migrationPath, 'utf8')), 'Canonical migration ends with a stray literal \\n instead of SQL whitespace.');
+
 const tables = [...sql.matchAll(/create\s+table\s+if\s+not\s+exists\s+public\.([a-z_][a-z0-9_]*)/g)].map((m) => m[1]);
 const views = [...sql.matchAll(/create\s+or\s+replace\s+view\s+public\.([a-z_][a-z0-9_]*)/g)].map((m) => m[1]);
 const setupTables = [...setup.matchAll(/create\s+table\s+if\s+not\s+exists\s+public\.([a-z_][a-z0-9_]*)/g)].map((m) => m[1]);
