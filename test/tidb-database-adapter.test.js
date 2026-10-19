@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createDatabaseAdapter } from '../src/ai/tidb-database-adapter.js';
-import { loadConfiguredAIPersistence } from '../src/ai/durable-stores.js';
+import { loadConfiguredAIPersistence, loadConfiguredDatabaseAdapter } from '../src/ai/durable-stores.js';
 
 function fakeAdapter({ resolver = () => [] } = {}) {
   return createDatabaseAdapter({
@@ -60,11 +60,13 @@ test('TiDB adapter query returns rows directly for database, zero, single, multi
   } finally { await adapter.close(); }
 });
 
-test('application AI persistence rejects TiDB DATABASE_URL instead of selecting legacy runtime', async () => {
-  await assert.rejects(
-    () => loadConfiguredAIPersistence({ environment: { NODE_ENV: 'production', DATABASE_URL: 'mysql://user:password@example.test:4000/osaah' } }),
-    (error) => error.code === 'POSTGRES_URL_REQUIRED' && !error.message.includes('password')
-  );
+test('application AI persistence receives the selected TiDB application adapter', async () => {
+  const environment = { NODE_ENV: 'production', OSAAH_DATABASE_ADAPTER: 'tidb', DATABASE_URL: 'mysql://user:password@example.test:4000/osaah' };
+  const databaseAdapter = await loadConfiguredDatabaseAdapter({ environment });
+  const persistence = await loadConfiguredAIPersistence({ environment, databaseAdapter });
+  assert.equal(persistence.durable, true);
+  assert.equal(Object.hasOwn(persistence, 'close'), false);
+  await databaseAdapter.close();
 });
 
 function migrationPool({ failOn } = {}) {
