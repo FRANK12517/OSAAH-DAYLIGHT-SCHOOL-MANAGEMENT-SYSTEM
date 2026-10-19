@@ -75,7 +75,7 @@ export async function checkAuthenticationDatabaseHealth(database) {
   try { await database.query('SELECT 1', []); result.db = 'up'; }
   catch (error) { return { ...result, databaseErrorCode: error?.code ?? 'UNKNOWN' }; }
   if (database.supportsDurableAuthSessions) {
-    try { await database.query('SELECT id FROM auth_sessions LIMIT 0', []); result.sessionStore = 'up'; }
+    try { await database.query('SELECT id, user_id, school_id, token_hash, created_at, expires_at, revoked_at, last_used_at FROM auth_sessions LIMIT 0', []); result.sessionStore = 'up'; }
     catch (error) { result.sessionErrorCode = error?.code ?? 'UNKNOWN'; }
   }
   return result;

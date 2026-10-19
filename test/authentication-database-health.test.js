@@ -8,7 +8,10 @@ test('health checks the shared adapter database and unqualified durable session 
     supportsDurableAuthSessions: true,
     async query(sql) { queries.push(sql); return []; }
   });
-  assert.deepEqual(queries, ['SELECT 1', 'SELECT id FROM auth_sessions LIMIT 0']);
+  assert.deepEqual(queries, [
+    'SELECT 1',
+    'SELECT id, user_id, school_id, token_hash, created_at, expires_at, revoked_at, last_used_at FROM auth_sessions LIMIT 0'
+  ]);
   assert.deepEqual(health, { db: 'up', sessionStore: 'up' });
 });
 
@@ -21,6 +24,17 @@ test('health reports a missing session store as unavailable without exposing dat
     }
   });
   assert.deepEqual(health, { db: 'up', sessionStore: 'down', sessionErrorCode: 'ER_NO_SUCH_TABLE' });
+});
+
+test('health reports a missing durable-session column as unavailable', async () => {
+  const health = await checkAuthenticationDatabaseHealth({
+    supportsDurableAuthSessions: true,
+    async query(sql) {
+      if (sql.includes('auth_sessions')) throw Object.assign(new Error('Unknown column token_hash'), { code: 'ER_BAD_FIELD_ERROR' });
+      return [];
+    }
+  });
+  assert.deepEqual(health, { db: 'up', sessionStore: 'down', sessionErrorCode: 'ER_BAD_FIELD_ERROR' });
 });
 
 test('health does not report ready when database or durable-session capability is unavailable', async () => {
