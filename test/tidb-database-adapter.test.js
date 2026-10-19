@@ -60,10 +60,10 @@ test('TiDB adapter query returns rows directly for database, zero, single, multi
   } finally { await adapter.close(); }
 });
 
-test('application AI persistence rejects TiDB DATABASE_URL instead of selecting legacy runtime', async () => {
+test('application AI persistence requires explicit TiDB selection for DATABASE_URL', async () => {
   await assert.rejects(
     () => loadConfiguredAIPersistence({ environment: { NODE_ENV: 'production', DATABASE_URL: 'mysql://user:password@example.test:4000/osaah' } }),
-    (error) => error.code === 'POSTGRES_URL_REQUIRED' && !error.message.includes('password')
+    (error) => error.code === 'DATABASE_ADAPTER_REQUIRED' && !error.message.includes('password')
   );
 });
 
