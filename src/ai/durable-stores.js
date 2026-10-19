@@ -15,12 +15,10 @@ function configuredDatabaseAdapterModule(environment) {
   const databaseUrl = typeof environment.DATABASE_URL === 'string' ? environment.DATABASE_URL.trim() : '';
   const hasPostgresUrl = Boolean(postgresUrl);
   const mysqlUrl = /^mysql(?:2)?:/i.test(databaseUrl);
-  if (mysqlUrl && hasPostgresUrl) fail('DATABASE_CONFIGURATION_CONFLICT', 'MySQL DATABASE_URL conflicts with a PostgreSQL runtime URL.');
   if (selection && !['postgres', 'tidb'].includes(selection)) {
     fail('DATABASE_ADAPTER_INVALID', 'OSAAH_DATABASE_ADAPTER must be postgres or tidb.');
   }
   if (selection === 'tidb') {
-    if (hasPostgresUrl) fail('DATABASE_CONFIGURATION_CONFLICT', 'TiDB selection conflicts with a PostgreSQL runtime URL.');
     validateMySqlRuntimeUrl(databaseUrl);
     return fileURLToPath(new URL('./tidb-database-adapter.js', import.meta.url));
   }
@@ -30,6 +28,7 @@ function configuredDatabaseAdapterModule(environment) {
     if (databaseUrl && postgresDestination(databaseUrl) !== postgresDestination(postgresUrl)) fail('DATABASE_CONFIGURATION_CONFLICT', 'DATABASE_URL conflicts with the selected PostgreSQL runtime URL.');
     return postgresAdapterModule(environment);
   }
+  if (mysqlUrl && hasPostgresUrl) fail('DATABASE_CONFIGURATION_CONFLICT', 'MySQL DATABASE_URL conflicts with a PostgreSQL runtime URL.');
   if (mysqlUrl) fail('DATABASE_ADAPTER_REQUIRED', 'Set OSAAH_DATABASE_ADAPTER=tidb to use a MySQL-compatible DATABASE_URL.');
   if (hasPostgresUrl) {
     if (databaseUrl && postgresDestination(databaseUrl) !== postgresDestination(postgresUrl)) fail('DATABASE_CONFIGURATION_CONFLICT', 'DATABASE_URL conflicts with the configured PostgreSQL runtime URL.');
