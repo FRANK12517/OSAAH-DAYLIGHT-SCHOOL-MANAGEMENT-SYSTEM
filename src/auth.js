@@ -13,6 +13,7 @@ const LOCKOUT_MS = 15 * 60 * 1000;
 const GENERIC_LOGIN_ERROR = 'Incorrect username or password.';
 const POSTGRES_DIAGNOSTIC_FIELDS = Object.freeze(['schema', 'table', 'column', 'constraint', 'routine']);
 function safeDiagnosticIdentifier(value) { return typeof value === 'string' && /^[A-Za-z_][A-Za-z0-9_.-]{0,127}$/.test(value) ? value : null; }
+function safeRequestId(value) { return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value) ? value : null; }
 function safeDiagnosticCode(value) { return typeof value === 'string' && /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,31}$/.test(value) ? value : null; }
 function safeDiagnosticText(value) {
   if (typeof value !== 'string' || !value) return null;
@@ -67,6 +68,19 @@ function schoolLoginDiagnostics(error, { requestId, requestPath } = {}) {
   };
   for (const field of POSTGRES_DIAGNOSTIC_FIELDS) diagnostic[field] = safeDiagnosticIdentifier(error?.[field]) ?? (field === 'table' || field === 'column' ? parsed[field] : null);
   return diagnostic;
+}
+function durableSessionPersistenceDiagnostics(error, { requestId, requestPath } = {}) {
+  const sqlState = error?.sqlState ?? error?.cause?.sqlState;
+  return {
+    component: 'school_authentication',
+    operation: 'session_persist',
+    category: 'AUTH_SESSION_STORE_FAILED',
+    requestId: safeRequestId(requestId),
+    requestPath: requestPath === '/api/auth/login' ? requestPath : null,
+    errorName: safeDiagnosticIdentifier(error?.name) ?? 'Error',
+    databaseCode: safeDiagnosticCode(error?.code ?? error?.cause?.code),
+    sqlState: /^[0-9A-Z]{5}$/.test(String(sqlState ?? '')) ? sqlState : null
+  };
 }
 const PARENT_PERMISSIONS = Object.freeze(['children.read', 'communication.read', 'messages.read', 'messages.write', 'calendar.read', 'library.read', 'transport.read', 'hostel.read', 'discipline.read']);
 export const SCHOOL_PORTAL_ROLE_ALIASES = Object.freeze({ ADMINISTRATOR: 'SCHOOL_ADMIN', SCHOOL_ADMINISTRATOR: 'SCHOOL_ADMIN', ACCOUNTANT: 'ACCOUNTANT_BURSAR', CLASSROOM_TEACHER: 'TEACHER', PROPRIETOR: 'PROPRIETOR', PROPRIETRESS: 'PROPRIETOR', SCHOOL_PROPRIETOR: 'PROPRIETOR', SCHOOL_PROPRIETRESS: 'PROPRIETOR' });
@@ -178,14 +192,19 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     sessions.set(token, session); securityEvent('LOGIN_SUCCESS', user, sessionId);
     return { ok: true, token, user: sanitize(user, sessionId), redirectTo: SCHOOL_PORTAL_DASHBOARDS[canonicalRoleKey(user.roleKey)] ?? '/', expiresAt };
   }
-  async function createDurableSessionResult(user) {
+  async function createDurableSessionResult(user, diagnosticContext) {
     if (process.env.NODE_ENV === 'production' && !durableSessionStore) return { ok: false, status: 503, error: 'Authentication service unavailable.' };
     attempts.delete(user.id);
     const sessionId = randomUUID(); const expiresAt = now() + SESSION_TTL_MS;
     const session = { userId: user.id, roleKey: canonicalRoleKey(user.roleKey), sessionId, expiresAt, ...(user.id === TEST_PARENT_ID && user.isTestFixture === true ? { testParentFixture: true } : {}) };
     const token = signingKey ? signSession(session) : randomBytes(32).toString('hex');
     sessions.set(token, session);
-    await persistDurableSession(user, session, token);
+    try {
+      await persistDurableSession(user, session, token);
+    } catch (error) {
+      console.error('Durable authentication session persistence failed', durableSessionPersistenceDiagnostics(error, diagnosticContext));
+      throw error;
+    }
     if (durableSessionStore) durableSessionIds.add(session.sessionId);
     securityEvent('LOGIN_SUCCESS', user, sessionId);
     return { ok: true, token, user: sanitize(user, sessionId), redirectTo: SCHOOL_PORTAL_DASHBOARDS[canonicalRoleKey(user.roleKey)] ?? '/', expiresAt };
@@ -262,7 +281,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     const row = rows.find((candidate) => normalizeGhanaPhone(candidate.parentPhone) === normalized);
     if (!row) return { ok: false, status: 401, error: 'Phone number is not registered. Contact the school administrator.' };
     const user = { id: row.id, username: row.username ?? row.email ?? row.id, email: row.email, portal: 'parent', roleKey: 'PARENT', schoolId: row.schoolId, phone: normalized, accountStatus: 'ACTIVE', is_active: true, permissions: new Set(PARENT_PERMISSIONS) };
-    users.push(user); return await createDurableSessionResult(user);
+    users.push(user); return await createDurableSessionResult(user, diagnosticContext);
   }
   async function loginFromDatabase({ username, password, portal, role, diagnosticContext }) {
     const key = String(username ?? '').trim().toLowerCase();
@@ -304,7 +323,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     const user = addStaffAttendanceRoleGrants({ id: row.id, username: row.username ?? row.email, email: row.email, portal: 'school', roleKey, schoolId: row.schoolId, accountStatus: 'ACTIVE', is_active: true, permissions: new Set(scopedRows.map((candidate) => candidate.permissionKey).filter(Boolean)) });
     if (!user.permissions.size) for (const permission of ROLE_PERMISSIONS[roleKey] ?? []) user.permissions.add(permission);
     await hydrateStaffAssignments(user);
-    attempts.delete(key); users.push(user); return await createDurableSessionResult(user);
+    attempts.delete(key); users.push(user); return await createDurableSessionResult(user, diagnosticContext);
   }
   function authenticate(token) {
     const session = verifiedSession(token);
