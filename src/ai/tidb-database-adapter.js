@@ -108,11 +108,44 @@ async function executeMigrationSqlOn(connection, sql, context = {}) {
 }
 
 export function createDatabaseAdapter({ environment, poolFactory = mysql.createPool } = {}) {
-  const connectionString = environment?.DATABASE_URL || process.env.DATABASE_URL;
-  if (!connectionString) throw new Error('DATABASE_URL is required for the TiDB database adapter.');
+  const env = environment ?? process.env;
+  const connectionString = String(env.DATABASE_URL ?? '').trim();
+  let url = null;
+  if (connectionString) {
+    try { url = new URL(connectionString); }
+    catch { throw Object.assign(new Error('DATABASE_URL is not a valid MySQL connection URL.'), { code: 'DATABASE_URL_INVALID' }); }
+    if (!['mysql:', 'mysql2:'].includes(url.protocol)) {
+      throw Object.assign(new Error('TiDB DATABASE_URL must use the mysql:// scheme.'), { code: 'DATABASE_URL_INVALID' });
+    }
+  }
+  const decode = (value) => {
+    try { return decodeURIComponent(value); }
+    catch { throw Object.assign(new Error('DATABASE_URL contains invalid URL encoding.'), { code: 'DATABASE_URL_INVALID' }); }
+  };
+  const firstValue = (...values) => values.find((value) => typeof value === 'string' && value.trim())?.trim();
+  const host = firstValue(env.HOST, env.TIDB_HOST, url?.hostname);
+  const user = firstValue(env.TIDB_USER, url?.username ? decode(url.username) : undefined);
+  const password = firstValue(env.TIDB_PASSWORD, url?.password ? decode(url.password) : undefined);
+  const database = firstValue(env.DATABASE, env.TIDB_DATABASE, url?.pathname ? decode(url.pathname.slice(1)) : undefined);
+  const portValue = firstValue(env.PORT, env.TIDB_PORT, url?.port);
+  const port = portValue ? Number(portValue) : 3306;
+  if (!host || !user || !password || !database || !Number.isInteger(port) || port < 1 || port > 65535) {
+    throw Object.assign(new Error('TiDB configuration requires a database URL or valid host, port, database, user, and password settings.'), { code: 'DATABASE_CONFIGURATION_INVALID' });
+  }
+  const ca = typeof env.TIDB_CA_CERT === 'string' && env.TIDB_CA_CERT.trim()
+    ? env.TIDB_CA_CERT.trim().replace(/(?:\\r)?\\n/g, '\n')
+    : undefined;
   const pool = poolFactory({
-    uri: connectionString,
-    ssl: { minVersion: 'TLSv1.2', rejectUnauthorized: true },
+    host,
+    user,
+    password,
+    database,
+    port,
+    ssl: {
+      minVersion: 'TLSv1.2',
+      rejectUnauthorized: true,
+      ...(ca ? { ca } : {})
+    },
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0,

@@ -15,17 +15,55 @@ function fakeAdapter({ resolver = () => [] } = {}) {
   });
 }
 
-test('TiDB database adapter requires DATABASE_URL', () => {
-  const original = process.env.DATABASE_URL;
+test('TiDB database adapter accepts direct environment-variable connection settings', () => {
+  let options;
+  const adapter = createDatabaseAdapter({
+    environment: { TIDB_HOST: 'db.example.test', TIDB_USER: 'user', TIDB_PASSWORD: 'password', TIDB_DATABASE: 'osaah', TIDB_PORT: '4000', TIDB_CA_CERT: 'ca\\ncertificate' },
+    poolFactory: (value) => { options = value; return { async end() {} }; }
+  });
+  assert.equal(options.host, 'db.example.test');
+  assert.equal(options.user, 'user');
+  assert.equal(options.password, 'password');
+  assert.equal(options.database, 'osaah');
+  assert.equal(options.port, 4000);
+  assert.deepEqual(options.ssl, { minVersion: 'TLSv1.2', rejectUnauthorized: true, ca: 'ca\ncertificate' });
+  return adapter.close();
+});
+
+test('TiDB database URL supplies credentials while HOST, PORT, and DATABASE override its destination', async () => {
+  let options;
+  const adapter = createDatabaseAdapter({
+    environment: {
+      DATABASE_URL: 'mysql://uri-user:p%40ssword@uri.example.test:4000/uri_database',
+      HOST: 'tidb.example.test',
+      PORT: '4100',
+      DATABASE: 'osaahdaylightschool',
+      TIDB_CA_CERT: '-----BEGIN CERTIFICATE-----\\nca-data\\n-----END CERTIFICATE-----'
+    },
+    poolFactory: (value) => { options = value; return { async end() {} }; }
+  });
   try {
-    delete process.env.DATABASE_URL;
-    assert.throws(() => createDatabaseAdapter({ environment: {} }), {
-      message: 'DATABASE_URL is required for the TiDB database adapter.'
+    assert.equal(options.host, 'tidb.example.test');
+    assert.equal(options.port, 4100);
+    assert.equal(options.database, 'osaahdaylightschool');
+    assert.equal(options.user, 'uri-user');
+    assert.equal(options.password, 'p@ssword');
+    assert.deepEqual(options.ssl, { minVersion: 'TLSv1.2', rejectUnauthorized: true, ca: '-----BEGIN CERTIFICATE-----\nca-data\n-----END CERTIFICATE-----' });
+  } finally { await adapter.close(); }
+});
+
+test('TiDB database URL supplies connection fields when component variables are absent', async () => {
+  let options;
+  const adapter = createDatabaseAdapter({
+    environment: { DATABASE_URL: 'mysql://uri-user:uri-password@tidb.example.test:4000/osaahdaylightschool' },
+    poolFactory: (value) => { options = value; return { async end() {} }; }
+  });
+  try {
+    assert.deepEqual({ host: options.host, port: options.port, database: options.database, user: options.user, password: options.password }, {
+      host: 'tidb.example.test', port: 4000, database: 'osaahdaylightschool', user: 'uri-user', password: 'uri-password'
     });
-  } finally {
-    if (original === undefined) delete process.env.DATABASE_URL;
-    else process.env.DATABASE_URL = original;
-  }
+    assert.deepEqual(options.ssl, { minVersion: 'TLSv1.2', rejectUnauthorized: true });
+  } finally { await adapter.close(); }
 });
 
 test('TiDB database adapter exposes the durable persistence contract', async () => {
@@ -60,11 +98,16 @@ test('TiDB adapter query returns rows directly for database, zero, single, multi
   } finally { await adapter.close(); }
 });
 
-test('application AI persistence rejects TiDB DATABASE_URL instead of selecting legacy runtime', async () => {
-  await assert.rejects(
-    () => loadConfiguredAIPersistence({ environment: { NODE_ENV: 'production', DATABASE_URL: 'mysql://user:password@example.test:4000/osaah' } }),
-    (error) => error.code === 'POSTGRES_URL_REQUIRED' && !error.message.includes('password')
-  );
+test('application AI persistence selects TiDB from the explicit adapter setting', async () => {
+  const persistence = await loadConfiguredAIPersistence({ environment: { NODE_ENV: 'production', OSAAH_DATABASE_ADAPTER: 'tidb', DATABASE_URL: 'mysql://user:password@example.test:4000/osaah' } });
+  assert.equal(persistence.durable, true);
+  await persistence.close();
+});
+
+test('application adapter auto-detects a MySQL DATABASE_URL when no adapter is specified', async () => {
+  const persistence = await loadConfiguredAIPersistence({ environment: { NODE_ENV: 'production', DATABASE_URL: 'mysql://user:password@example.test:4000/osaah' } });
+  assert.equal(persistence.durable, true);
+  await persistence.close();
 });
 
 function migrationPool({ failOn } = {}) {

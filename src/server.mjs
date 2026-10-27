@@ -69,6 +69,27 @@ const releaseMetadata = Object.freeze({
   deploymentId: process.env.VERCEL_DEPLOYMENT_ID ?? process.env.VERCEL_URL ?? 'local',
   environment: process.env.VERCEL_ENV ?? 'development'
 });
+
+export async function checkAuthenticationDatabaseHealth(database) {
+  const safeCode = (error) => /^[A-Z0-9_]+$/.test(String(error?.code ?? '')) ? error.code : 'UNKNOWN';
+  const result = { db: 'down', sessionStore: database?.supportsDurableAuthSessions ? 'down' : 'unsupported' };
+  if (!database?.query) return result;
+  try {
+    await database.query('SELECT 1', []);
+    result.db = 'up';
+  } catch (error) {
+    return { ...result, databaseErrorCode: safeCode(error) };
+  }
+  if (database.supportsDurableAuthSessions) {
+    try {
+      await database.query('SELECT id, user_id, school_id, token_hash, created_at, expires_at, revoked_at, last_used_at FROM auth_sessions LIMIT 0', []);
+      result.sessionStore = 'up';
+    } catch (error) {
+      result.sessionErrorCode = safeCode(error);
+    }
+  }
+  return result;
+}
 import { createOperationalAnalyticsRegistry, createOperationalIntelligence, registerBuiltInOperationalProviders } from './ai/operational-intelligence.js';
 import { createSchoolKnowledgeIntelligence, syncRepositoryKnowledgeSources } from './ai/school-knowledge-intelligence.js';
 import { createExecutiveCapabilityAdapters, createExecutiveIntelligence } from './ai/executive-intelligence.js';
@@ -312,6 +333,15 @@ export function createApp({ auth = null, students = null, attendance = null, att
   function dispatchAnnouncement(body, actor) { if (body.confirm !== true) throw Object.assign(new Error('Explicit bulk-send confirmation is required.'), { status: 400 }); const links = announcementRecipients(body, actor); const emergency = Boolean(body.emergency); const title = emergency ? 'Emergency notice' : String(body.title ?? 'School announcement'); const message = emergency ? `URGENT — ${branding.schoolName}: ${String(body.message ?? '').trim()}` : String(body.message ?? '').trim(); if (!message) throw new Error('Announcement message is required.'); links.forEach((link) => { const key = `ANNOUNCEMENT:${body.idempotencyKey ?? `${title}:${message}`}:${link.parentId}:${link.permanentStudentId}`; if (body.channel !== 'SMS') communication.notify({ type: emergency ? 'EMERGENCY' : 'ANNOUNCEMENT', category: emergency ? 'EMERGENCY' : 'ANNOUNCEMENT', recipientId: link.parentId, studentId: link.studentId, permanentStudentId: link.permanentStudentId, studentName: link.studentName, title, body: message }, { userId: actor.id }); if (body.channel !== 'IN_APP' && link.telephone) { const queued = communicationEngine.enqueue({ channel: 'SMS', recipient: link.telephone, payload: { body: message, priority: emergency ? 'HIGH' : 'NORMAL' }, idempotencyKey: key }, { id: actor.id, schoolId: actor.schoolId }); communicationEngine.process(queued.id, actor).catch(() => {}); } }); return { queuedRecipients: links.length, channel: body.channel ?? 'BOTH', emergency, confirmed: true }; }
   return async function handle(request, response) {
     const pathname = new URL(request.url, 'http://localhost').pathname;
+    if (pathname === '/api/health' && request.method === 'GET') {
+      const startedAt = Date.now();
+      const health = await checkAuthenticationDatabaseHealth(database);
+      if (health.db === 'down') console.error('Authentication health check failed', { component: 'application_database', operation: 'health_check', code: health.databaseErrorCode ?? 'DATABASE_ADAPTER_UNAVAILABLE' });
+      if (health.sessionStore === 'down') console.error('Authentication health check failed', { component: 'application_database', operation: 'session_store_check', code: health.sessionErrorCode ?? 'UNKNOWN' });
+      const { databaseErrorCode, sessionErrorCode, ...publicHealth } = health;
+      const result = { ok: health.db === 'up' && health.sessionStore === 'up', ...publicHealth, latencyMs: Date.now() - startedAt };
+      return json(response, result, result.ok ? 200 : 503);
+    }
     if (pathname.startsWith('/assets/')) {
       const assetRoot = resolve(root);
       const assetFile = resolve(assetRoot, `.${pathname}`);

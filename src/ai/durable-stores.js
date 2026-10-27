@@ -10,14 +10,33 @@ function safeDatabaseError(cause, code = 'PERSISTENCE_UNAVAILABLE') { if (cause?
 function parse(value, fallback = null) { if (value === null || value === undefined || value === '') return fallback; try { return JSON.parse(value); } catch { return fallback; } }
 
 function postgresConnectionString(value) { return typeof value === 'string' && /^\s*postgres(?:ql)?:/i.test(value); }
+function mysqlConnectionString(value) { return typeof value === 'string' && /^\s*mysql(?:2)?:/i.test(value); }
 function configuredDatabaseAdapterModule(environment) {
-  const postgresUrl = environment.OSAAH_POSTGRES_URL || environment.POSTGRES_URL;
-  const legacyUrl = environment.DATABASE_URL;
+  const selection = String(environment.OSAAH_DATABASE_ADAPTER ?? '').trim().toLowerCase();
+  const postgresUrl = [environment.OSAAH_POSTGRES_URL, environment.POSTGRES_URL].find((value) => typeof value === 'string' && value.trim())?.trim() ?? '';
+  const databaseUrl = typeof environment.DATABASE_URL === 'string' ? environment.DATABASE_URL.trim() : '';
+  const postgresDatabaseUrl = postgresConnectionString(databaseUrl);
+  const mysqlDatabaseUrl = mysqlConnectionString(databaseUrl);
+  if (selection && !['postgres', 'tidb'].includes(selection)) {
+    fail('DATABASE_ADAPTER_INVALID', 'OSAAH_DATABASE_ADAPTER must be postgres or tidb.');
+  }
+  if (selection === 'tidb') {
+    if (postgresDatabaseUrl || postgresUrl) fail('DATABASE_CONFIGURATION_CONFLICT', 'TiDB selection conflicts with a PostgreSQL runtime URL.');
+    return fileURLToPath(new URL('./tidb-database-adapter.js', import.meta.url));
+  }
+  if (selection === 'postgres') {
+    if (mysqlDatabaseUrl) fail('DATABASE_CONFIGURATION_CONFLICT', 'PostgreSQL selection conflicts with a MySQL DATABASE_URL.');
+    if (!postgresUrl) fail('POSTGRES_URL_REQUIRED', 'OSAAH_POSTGRES_URL or POSTGRES_URL is required for PostgreSQL selection.');
+  }
+  if (!selection && mysqlDatabaseUrl) {
+    if (!postgresUrl) return fileURLToPath(new URL('./tidb-database-adapter.js', import.meta.url));
+  }
+  if (databaseUrl && !postgresDatabaseUrl && !mysqlDatabaseUrl) fail('DATABASE_URL_INVALID', 'DATABASE_URL must use mysql://, mysql2://, postgres://, or postgresql://.');
   if (postgresUrl) {
     if (!postgresConnectionString(postgresUrl)) {
       fail('DATABASE_URL_INVALID', 'PostgreSQL runtime URL must use the postgres:// or postgresql:// scheme.');
     }
-    if (legacyUrl && legacyUrl !== postgresUrl) {
+    if (databaseUrl && databaseUrl !== postgresUrl) {
       // Vercel may retain an obsolete platform DATABASE_URL after the app's
       // database has moved. Only the explicit app URL or Vercel's PostgreSQL
       // integration URL is accepted; never route to the deprecated variable.
@@ -25,11 +44,7 @@ function configuredDatabaseAdapterModule(environment) {
     }
     return fileURLToPath(new URL('./postgres-database-adapter.js', import.meta.url));
   }
-  if (legacyUrl) {
-    fail('POSTGRES_URL_REQUIRED', postgresConnectionString(legacyUrl)
-      ? 'Configure OSAAH_POSTGRES_URL or POSTGRES_URL explicitly; DATABASE_URL is not used by application runtime.'
-      : 'TiDB/MySQL DATABASE_URL is not supported by application runtime. Configure OSAAH_POSTGRES_URL or POSTGRES_URL for PostgreSQL.');
-  }
+  if (postgresDatabaseUrl) fail('POSTGRES_URL_REQUIRED', 'Configure OSAAH_POSTGRES_URL or POSTGRES_URL explicitly for PostgreSQL.');
   return null;
 }
 
@@ -81,7 +96,7 @@ export async function loadConfiguredAIPersistence({ environment = process.env } 
 
 export async function loadConfiguredDatabaseAdapter({ environment = process.env, required = false } = {}) {
   const modulePath = configuredDatabaseAdapterModule(environment);
-  if (!modulePath && required) fail('POSTGRES_URL_REQUIRED', 'OSAAH_POSTGRES_URL or POSTGRES_URL is required for application startup.');
+  if (!modulePath && required) fail('POSTGRES_URL_REQUIRED', 'Configure OSAAH_DATABASE_ADAPTER=tidb with DATABASE_URL, or provide OSAAH_POSTGRES_URL/POSTGRES_URL.');
   if (!modulePath) return null;
   const loaded = await import(pathToFileURL(resolve(modulePath)));
   return loaded.createDatabaseAdapter?.({ environment }) ?? null;
