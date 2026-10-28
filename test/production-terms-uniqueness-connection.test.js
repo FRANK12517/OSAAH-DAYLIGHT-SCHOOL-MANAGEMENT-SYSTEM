@@ -14,11 +14,11 @@ test('ledger validation and Migration 060 both select the canonical TiDB adapter
   assert.match(preflightCliSource, /from '\.\.\/src\/ai\/tidb-database-adapter\.js'/);
   assert.match(preflightCliSource, /adapterFactory = createDatabaseAdapter/);
   assert.doesNotMatch(preflightCliSource, /mysql2\/promise/);
-  assert.match(adapterSource, /uri: connectionString/);
+  assert.ok(adapterSource.includes('(?:\\\\r)?\\\\n/g'));
 });
 
-test('canonical TiDB adapter uses strict TLS and retains the configured DATABASE_URL', async () => {
-  const environment = { DATABASE_URL: 'mysql://private-user:private-password@db.example.test/osaah' };
+test('canonical TiDB adapter uses environment credentials and normalizes its CA certificate', async () => {
+  const environment = { TIDB_HOST: 'db.example.test', TIDB_USER: 'private-user', TIDB_PASSWORD: 'private-password', TIDB_DATABASE: 'osaah', TIDB_PORT: '4000', TIDB_CA_CERT: 'line one\\nline two' };
   let options;
   let closeCount = 0;
   const adapter = createDatabaseAdapter({
@@ -28,8 +28,12 @@ test('canonical TiDB adapter uses strict TLS and retains the configured DATABASE
       return { async end() { closeCount += 1; } };
     }
   });
-  assert.equal(options.uri, environment.DATABASE_URL);
-  assert.deepEqual(options.ssl, { minVersion: 'TLSv1.2', rejectUnauthorized: true });
+  assert.equal(options.host, environment.TIDB_HOST);
+  assert.equal(options.user, environment.TIDB_USER);
+  assert.equal(options.password, environment.TIDB_PASSWORD);
+  assert.equal(options.database, environment.TIDB_DATABASE);
+  assert.equal(options.port, Number(environment.TIDB_PORT));
+  assert.deepEqual(options.ssl, { minVersion: 'TLSv1.2', rejectUnauthorized: true, ca: 'line one\nline two' });
   assert.equal(options.waitForConnections, true);
   assert.equal(options.connectTimeout, 15000);
   await adapter.close();

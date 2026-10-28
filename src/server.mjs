@@ -69,14 +69,24 @@ const releaseMetadata = Object.freeze({
   deploymentId: process.env.VERCEL_DEPLOYMENT_ID ?? process.env.VERCEL_URL ?? 'local',
   environment: process.env.VERCEL_ENV ?? 'development'
 });
+
 export async function checkAuthenticationDatabaseHealth(database) {
+  const safeCode = (error) => /^[A-Z0-9_]+$/.test(String(error?.code ?? '')) ? error.code : 'UNKNOWN';
   const result = { db: 'down', sessionStore: database?.supportsDurableAuthSessions ? 'down' : 'unsupported' };
   if (!database?.query) return result;
-  try { await database.query('SELECT 1', []); result.db = 'up'; }
-  catch (error) { return { ...result, databaseErrorCode: error?.code ?? 'UNKNOWN' }; }
+  try {
+    await database.query('SELECT 1', []);
+    result.db = 'up';
+  } catch (error) {
+    return { ...result, databaseErrorCode: safeCode(error) };
+  }
   if (database.supportsDurableAuthSessions) {
-    try { await database.query('SELECT id, user_id, school_id, token_hash, created_at, expires_at, revoked_at, last_used_at FROM auth_sessions LIMIT 0', []); result.sessionStore = 'up'; }
-    catch (error) { result.sessionErrorCode = error?.code ?? 'UNKNOWN'; }
+    try {
+      await database.query('SELECT id, user_id, school_id, token_hash, created_at, expires_at, revoked_at, last_used_at FROM auth_sessions LIMIT 0', []);
+      result.sessionStore = 'up';
+    } catch (error) {
+      result.sessionErrorCode = safeCode(error);
+    }
   }
   return result;
 }
@@ -86,7 +96,7 @@ import { createExecutiveCapabilityAdapters, createExecutiveIntelligence } from '
 import { createAIActionAdapters, createHumanControlledActions } from './ai/human-controlled-actions.js';
 import { createAIAdministration } from './ai/administration.js';
 import { createAIAuditLogger } from './ai/audit-logger.js';
-import { createDisabledAIPersistence, loadConfiguredAIPersistence, loadConfiguredDatabaseAdapter, selectAIPersistence, validateRuntimeDatabaseConfiguration } from './ai/durable-stores.js';
+import { createDisabledAIPersistence, loadConfiguredAIPersistence, loadConfiguredDatabaseAdapter, selectAIPersistence } from './ai/durable-stores.js';
 import { assertProductionAISystemOfRecordReady } from './ai/system-of-record-readiness.js';
 import { buildAIRegistry } from './ai/registry.js';
 import { createProductionDataGuard } from './ai/production-data-guard.js';
@@ -324,13 +334,12 @@ export function createApp({ auth = null, students = null, attendance = null, att
   return async function handle(request, response) {
     const pathname = new URL(request.url, 'http://localhost').pathname;
     if (pathname === '/api/health' && request.method === 'GET') {
-      const config = validateRuntimeDatabaseConfiguration(process.env, { log: false });
       const startedAt = Date.now();
       const health = await checkAuthenticationDatabaseHealth(database);
       if (health.db === 'down') console.error('Authentication health check failed', { component: 'application_database', operation: 'health_check', code: health.databaseErrorCode ?? 'DATABASE_ADAPTER_UNAVAILABLE' });
       if (health.sessionStore === 'down') console.error('Authentication health check failed', { component: 'application_database', operation: 'session_store_check', code: health.sessionErrorCode ?? 'UNKNOWN' });
       const { databaseErrorCode, sessionErrorCode, ...publicHealth } = health;
-      const result = { ok: config.ok && health.db === 'up' && health.sessionStore === 'up', ...publicHealth, configOk: config.ok, latencyMs: Date.now() - startedAt };
+      const result = { ok: health.db === 'up' && health.sessionStore === 'up', ...publicHealth, latencyMs: Date.now() - startedAt };
       return json(response, result, result.ok ? 200 : 503);
     }
     if (pathname.startsWith('/assets/')) {
@@ -1350,9 +1359,7 @@ if (durableAcademic && body.sampleMode === true) {
 }
 const aiEnabled = String(process.env.OSAAH_AI_ENABLED ?? 'false').toLowerCase() === 'true';
 assertProductionAISystemOfRecordReady({ aiEnabled });
-const isDirectExecution = process.argv[1] === fileURLToPath(import.meta.url);
-const configuredDatabase = await loadConfiguredDatabaseAdapter({ required: isDirectExecution || process.env.NODE_ENV === 'production' });
-const aiPersistence = aiEnabled ? await loadConfiguredAIPersistence({ databaseAdapter: configuredDatabase }) : createDisabledAIPersistence();
+const aiPersistence = aiEnabled ? await loadConfiguredAIPersistence() : createDisabledAIPersistence();
 const { capabilities: capabilityRegistry, tools: toolRegistry } = await buildAIRegistry();
 const aiAuditLoggerForWiring = createAIAuditLogger({ sink: aiPersistence.auditSink });
 const productionDataGuard = createProductionDataGuard({ environment: process.env.NODE_ENV ?? 'development' });
@@ -1362,10 +1369,13 @@ const { registry: providerRegistry, providerId, enabled: providerEnabled } = cre
 const orchestrator = providerEnabled ? createAIOrchestrator({ providerRegistry, providerId, capabilityRegistry, toolRegistry, productionDataGuard, dataQualityGuard, auditLogger: aiAuditLoggerForWiring }) : null;
 const aiGateway = aiEnabled ? createAIGateway({ capabilityRegistry, toolRegistry, schoolContextService, productionDataGuard, dataQualityGuard, auditLogger: aiAuditLoggerForWiring, providerRegistry, providerId, orchestrator }) : null;
 const aiConversation = aiEnabled ? createAIConversationService({ gateway: aiGateway, capabilityRegistry, toolRegistry }) : null;
+const isDirectExecution = process.argv[1] === fileURLToPath(import.meta.url);
+const configuredDatabase = await loadConfiguredDatabaseAdapter({ required: isDirectExecution || process.env.NODE_ENV === 'production' });
 const app = createApp({ aiEnabled, aiPersistence, capabilityRegistry, toolRegistry, providerRegistry, providerId, aiGateway, aiConversation, database: configuredDatabase });
 const server = createServer(app);
 server.on('close', () => {
   void configuredDatabase?.close?.().catch(() => {});
+  void aiPersistence.close?.().catch(() => {});
 });
 const port = Number(process.env.OSAAH_PORT || 3000);
 if (process.env.NODE_ENV !== 'production' && isDirectExecution) {
