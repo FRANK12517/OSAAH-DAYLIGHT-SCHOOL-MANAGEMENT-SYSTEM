@@ -76,7 +76,36 @@ document.querySelector('#back-button')?.addEventListener('click', () => { form.h
 const passwordInput = document.querySelector('#password-input');
 const passwordToggle = document.querySelector('#password-toggle');
 passwordToggle?.addEventListener('click', () => { const shouldShow = passwordInput.type === 'password'; passwordInput.type = shouldShow ? 'text' : 'password'; const label = shouldShow ? 'Hide password' : 'Show password'; passwordToggle.setAttribute('aria-label', label); passwordToggle.setAttribute('aria-pressed', String(shouldShow)); passwordToggle.title = label; passwordInput.focus({ preventScroll: true }); });
-form.addEventListener('submit', async (event) => { event.preventDefault(); const data = Object.fromEntries(new FormData(form)); data.portal = state.portal; if (state.portal === 'parent') { delete data.username; delete data.password; delete data.role; } else delete data.phone; const submit = form.querySelector('button[type="submit"]'); submit.disabled = true; submit.textContent = 'Signing in…'; document.querySelector('#login-error').textContent = ''; try { const response = await fetchWithTimeout('/api/auth/login', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }, 'Sign-in'); const result = await response.json(); if (!response.ok || result.error) { document.querySelector('#login-error').textContent = result.error || 'Incorrect username or password.'; return; } await renderDashboard(result.user, result.redirectTo); } catch (error) { document.querySelector('#login-error').textContent = error?.message || 'Sign-in could not be completed. Please try again.'; } finally { submit.disabled = false; submit.textContent = 'Sign in securely'; } });
+form.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(form));
+  const isParent = state.portal === 'parent';
+  const credentials = isParent ? { portal: 'parent', phone: data.phone } : { ...data, portal: 'school' };
+  if (!isParent) delete credentials.phone;
+  const submit = form.querySelector('button[type="submit"]');
+  submit.disabled = true;
+  submit.textContent = 'Signing in…';
+  document.querySelector('#login-error').textContent = '';
+  try {
+    const response = await fetchWithTimeout('/api/auth/login', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(credentials)
+    }, 'Sign-in');
+    const result = await response.json();
+    if (!response.ok || result.error || !result.user) throw new Error(result.error || (isParent ? 'Parent sign-in could not be completed.' : 'Incorrect username or password.'));
+    if (result.user.portal === 'school' && result.user.roleKey === 'PROPRIETOR') {
+      window.location.assign('/reports');
+      return;
+    }
+    await renderDashboard(result.user, result.redirectTo);
+  } catch (error) {
+    document.querySelector('#login-error').textContent = error?.message || 'Sign-in could not be completed. Please try again.';
+  } finally {
+    submit.disabled = false;
+    submit.textContent = isParent ? 'Continue' : 'Sign in securely';
+  }
+});
 restoreSession();
 async function restoreSession() { try { const response = await fetch('/api/auth/session', { credentials: 'same-origin', headers: { Accept: 'application/json' } }); if (!response.ok) return; const result = await response.json(); if (result.user) { document.querySelector('.portal-grid').hidden = true; await renderDashboard(result.user, result.redirectTo); } } catch {} }
 function resolvePostLoginRoute(user, redirectTo) { if (user?.portal !== 'school') return '/'; return typeof redirectTo === 'string' && redirectTo.startsWith('/') && !redirectTo.startsWith('//') ? redirectTo : '/'; }
