@@ -1390,11 +1390,18 @@ async function login(request, response, auth, audit) {
   const diagnosticContext = { requestId, requestPath: '/api/auth/login' };
   try {
     const body = await readJson(request);
+    const emailValue = typeof body.email === 'string' ? body.email : body.username;
+    const normalizedEmail = typeof emailValue === 'string' ? emailValue.trim().toLowerCase() : '';
+    const maskedEmail = normalizedEmail.includes('@') ? `${normalizedEmail[0]}***@${normalizedEmail.split('@').at(-1)}` : null;
+    const requestedSchoolId = body.school_id ?? body.schoolId;
+    const schoolId = typeof requestedSchoolId === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(requestedSchoolId) ? requestedSchoolId : null;
+    console.info('Authentication login checkpoint', { stage: 'request_received', requestId, requestPath: '/api/auth/login', email: maskedEmail, schoolId, portal: body.portal === 'parent' ? 'parent' : 'school' });
     const isParentPhoneLogin = body.portal === 'parent' && Object.prototype.hasOwnProperty.call(body, 'phone');
     const credentials = { ...body, diagnosticContext };
     const result = isParentPhoneLogin
       ? (typeof auth.loginByPhoneFromDatabase === 'function' ? await auth.loginByPhoneFromDatabase(credentials) : auth.loginByPhone(body))
       : (typeof auth.loginFromDatabase === 'function' ? await auth.loginFromDatabase(credentials) : auth.login(body));
+    console.info('Authentication login checkpoint', { stage: result.ok ? 'session_created' : 'authentication_rejected', requestId, status: result.status ?? 200, authenticated: Boolean(result.ok) });
     if (!result.ok) return json(response, { error: result.error }, result.status);
 
     audit(createAuditLog({ userId: result.user.id, roleId: result.user.roleKey, sessionId: result.user.sessionId, action: 'LOGIN_SUCCESS', entity: 'Authentication' }));
@@ -1411,12 +1418,22 @@ async function login(request, response, auth, audit) {
       category: clientError ? 'INVALID_LOGIN_REQUEST' : 'AUTHENTICATION_SERVICE_FAILED',
       requestId,
       requestPath: '/api/auth/login',
-      code: /^[A-Z0-9_]+$/.test(String(error?.code ?? '')) ? error.code : 'UNKNOWN'
+      code: /^[A-Z0-9_]+$/.test(String(error?.code ?? '')) ? error.code : 'UNKNOWN',
+      errorType: /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(String(error?.name ?? '')) ? error.name : 'Error',
+      stack: safeAuthenticationStack(error?.stack)
     });
     return json(response, {
       error: clientError?.message ?? 'Authentication service unavailable.'
     }, clientError?.status ?? 503);
   }
+}
+function safeAuthenticationStack(stack) {
+  if (typeof stack !== 'string') return null;
+  return stack.split('\n').slice(1, 9).map((line) => line.trim()
+    .replace(/(?:mysql|postgres(?:ql)?|https?):\/\/[^\s)]+/gi, '[redacted-url]')
+    .replace(/\bBearer\s+[^\s)]+/gi, 'Bearer [redacted]')
+    .replace(/\b(password|passwd|secret|token|connection[_ -]?string)\s*[:=]\s*[^\s,;)]+/gi, '$1=[redacted]')
+    .slice(0, 300));
 }
 function secureCookieSuffix(request) {
   const forwardedProto = String(request.headers['x-forwarded-proto'] ?? '').split(',')[0].trim().toLowerCase();

@@ -31,12 +31,13 @@ test('production auth reports safe structured details for an unknown login colum
     assert.equal(logged[0][0], 'School database authentication query failed');
     assert.match(logged[0][1].requestId, /^[0-9a-f-]{36}$/);
     assert.deepEqual(logged[0][1], {
-      component: 'school_authentication', operation: 'login_lookup', category: 'SCHEMA_COLUMN_MISMATCH',
+      component: 'school_authentication', operation: 'login_lookup', stage: 'user_query_failed', category: 'SCHEMA_COLUMN_MISMATCH',
       requestId: logged[0][1].requestId,
       requestPath: null, name: 'Error', code: 'ER_BAD_FIELD_ERROR', sqlState: '42S22', severity: null,
-      errno: 1054, message: '[redacted-diagnostic-text]', detail: null, hint: null, context: null,
+      errno: 1054, message: '[redacted-diagnostic-text]', detail: null, hint: null, context: null, stack: logged[0][1].stack,
       schema: null, table: null, column: null, constraint: null, routine: null
     });
+    assert.ok(Array.isArray(logged[0][1].stack));
     assert.doesNotMatch(JSON.stringify(logged), /safe@example\.test|not-a-real-password/);
   } finally { console.error = previousError; }
 });

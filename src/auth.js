@@ -14,6 +14,15 @@ const GENERIC_LOGIN_ERROR = 'Incorrect username or password.';
 const POSTGRES_DIAGNOSTIC_FIELDS = Object.freeze(['schema', 'table', 'column', 'constraint', 'routine']);
 function safeDiagnosticIdentifier(value) { return typeof value === 'string' && /^[A-Za-z_][A-Za-z0-9_.-]{0,127}$/.test(value) ? value : null; }
 function safeDiagnosticCode(value) { return typeof value === 'string' && /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,31}$/.test(value) ? value : null; }
+function safeRequestId(value) { return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value) ? value : null; }
+function safeAuthenticationStack(stack) {
+  if (typeof stack !== 'string') return null;
+  return stack.split('\n').slice(1, 9).map((line) => line.trim()
+    .replace(/(?:mysql|postgres(?:ql)?|https?):\/\/[^\s)]+/gi, '[redacted-url]')
+    .replace(/\bBearer\s+[^\s)]+/gi, 'Bearer [redacted]')
+    .replace(/\b(password|passwd|secret|token|connection[_ -]?string)\s*[:=]\s*[^\s,;)]+/gi, '$1=[redacted]')
+    .slice(0, 300));
+}
 function safeDiagnosticText(value) {
   if (typeof value !== 'string' || !value) return null;
   if (/failing row contains/i.test(value)) return '[redacted-row-detail]';
@@ -63,9 +72,9 @@ function schoolLoginDiagnostics(error, { requestId, requestPath } = {}) {
           ? 'DATABASE_PERMISSION_DENIED'
           : 'DATABASE_QUERY_FAILED';
   const diagnostic = {
-    component: 'school_authentication', operation: 'login_lookup',
+    component: 'school_authentication', operation: 'login_lookup', stage: 'user_query_failed',
     category,
-    requestId: safeDiagnosticIdentifier(requestId) ?? randomUUID(),
+    requestId: safeRequestId(requestId) ?? randomUUID(),
     requestPath: requestPath === '/api/auth/login' ? requestPath : null,
     name: safeDiagnosticIdentifier(error?.name), code: safeDiagnosticCode(error?.code),
     sqlState, severity: safeDiagnosticIdentifier(error?.severity),
@@ -74,6 +83,7 @@ function schoolLoginDiagnostics(error, { requestId, requestPath } = {}) {
     detail: error?.detail ? '[redacted-diagnostic-text]' : null,
     hint: error?.hint ? '[redacted-diagnostic-text]' : null,
     context: error?.where ? '[redacted-diagnostic-text]' : null,
+    stack: safeAuthenticationStack(error?.stack),
   };
   for (const field of POSTGRES_DIAGNOSTIC_FIELDS) diagnostic[field] = safeDiagnosticIdentifier(error?.[field]) ?? (field === 'table' || field === 'column' ? parsed[field] : null);
   return diagnostic;
@@ -277,6 +287,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     if (portal !== 'school' || !database?.query) return login({ username, password, portal, role });
     let rows;
     try {
+      console.info('Authentication login checkpoint', { stage: 'user_query_before', requestId: safeRequestId(diagnosticContext?.requestId) ?? null, requestPath: diagnosticContext?.requestPath === '/api/auth/login' ? diagnosticContext.requestPath : null });
       rows = await database.query(`SELECT u.id,u.school_id AS schoolId,COALESCE(u.username,u.email) AS username,u.email,u.password_hash AS passwordHash,u.status,r.role_key AS roleKey,r.oversight_rank AS oversightRank,p.permission_key AS permissionKey
         FROM users u
         LEFT JOIN user_roles ur ON ur.user_id=u.id
@@ -284,6 +295,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
         LEFT JOIN role_permissions rp ON rp.role_id=r.id
         LEFT JOIN permissions p ON p.id=rp.permission_id
         WHERE LOWER(COALESCE(u.username,u.email,''))=? OR LOWER(COALESCE(u.email,''))=? ORDER BY COALESCE(r.oversight_rank,0) DESC,r.role_key,p.permission_key`, [key, key]);
+      console.info('Authentication login checkpoint', { stage: 'user_query_after', requestId: safeRequestId(diagnosticContext?.requestId) ?? null, requestPath: diagnosticContext?.requestPath === '/api/auth/login' ? diagnosticContext.requestPath : null, rowsReturned: Array.isArray(rows) ? rows.length : 0 });
     } catch (error) {
       console.error('School database authentication query failed', schoolLoginDiagnostics(error, diagnosticContext));
       securityEvent('LOGIN_DATABASE_ERROR', null);
@@ -291,26 +303,52 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     }
     const identityRows = rows ?? [];
     const identity = identityRows[0];
+    console.info('Authentication login checkpoint', { stage: 'user_lookup_result', requestId: safeRequestId(diagnosticContext?.requestId) ?? null, userFound: Boolean(identity) });
     const selected = selectAuthorizedRoleRows(identityRows, role);
     const row = selected.rows[0] ?? identity;
     const userRows = selected.rows;
     const roleKey = selected.roleKey;
+    console.info('Authentication login checkpoint', { stage: 'role_resolution', requestId: safeRequestId(diagnosticContext?.requestId) ?? null, roleResolved: Boolean(roleKey), requestedRole: role ? canonicalRoleKey(role) : null, resolvedRole: roleKey });
     const scopedRows = userRows.filter((candidate) => canonicalRoleKey(candidate.roleKey) === roleKey);
     const active = row && String(row.status ?? 'ACTIVE').toUpperCase() === 'ACTIVE';
+    console.info('Authentication login checkpoint', { stage: 'account_status_validation', requestId: safeRequestId(diagnosticContext?.requestId) ?? null, accountActive: Boolean(active) });
     let passwordValid = false;
+    let passwordCheckFailed = false;
     if (row && typeof password === 'string' && typeof row.passwordHash === 'string') {
       try {
+        console.info('Authentication login checkpoint', { stage: 'password_compare_before', requestId: safeRequestId(diagnosticContext?.requestId) ?? null, algorithm: row.passwordHash.includes(':') ? 'scrypt' : 'bcrypt' });
         passwordValid = row.passwordHash.includes(':') ? passwordMatches(password, row.passwordHash) : await bcrypt.compare(password, row.passwordHash);
-      } catch { passwordValid = false; }
+        console.info('Authentication login checkpoint', { stage: 'password_compare_after', requestId: safeRequestId(diagnosticContext?.requestId) ?? null, passwordMatched: Boolean(passwordValid) });
+      } catch (error) {
+        passwordCheckFailed = true;
+        passwordValid = false;
+        console.error('School password verification failed', { component: 'school_authentication', operation: 'password_verify', category: 'PASSWORD_HASH_INVALID', requestId: safeRequestId(diagnosticContext?.requestId) ?? null, requestPath: diagnosticContext?.requestPath === '/api/auth/login' ? diagnosticContext.requestPath : null, errorType: safeDiagnosticIdentifier(error?.name) ?? 'Error', stack: safeAuthenticationStack(error?.stack) });
+      }
+    } else if (row) {
+      console.info('Authentication login checkpoint', { stage: 'password_compare_skipped', requestId: safeRequestId(diagnosticContext?.requestId) ?? null, reason: typeof password !== 'string' ? 'PASSWORD_NOT_PROVIDED' : 'PASSWORD_HASH_MISSING' });
     }
-    if (row && role && !roleKey) return { ok: false, status: 401, error: 'The selected role does not match this account.' };
+    if (role && !roleKey) {
+      console.info('School login rejected', { component: 'school_authentication', operation: 'login_validation', category: identity ? 'ROLE_MISMATCH' : 'USER_NOT_FOUND', requestId: safeRequestId(diagnosticContext?.requestId) ?? null, accountFound: Boolean(identity), requestedRole: canonicalRoleKey(role), availableRoles: selected.availableRoles });
+      return { ok: false, status: 401, error: 'The selected role does not match this account.' };
+    }
     if (!row || !active || !passwordValid || !roleKey) {
+      const category = !identity ? 'USER_NOT_FOUND' : !active ? 'ACCOUNT_INACTIVE' : passwordCheckFailed ? 'PASSWORD_HASH_INVALID' : !roleKey ? 'ROLE_NOT_ASSIGNED' : 'PASSWORD_MISMATCH';
+      console.info('School login rejected', { component: 'school_authentication', operation: 'login_validation', category, requestId: safeRequestId(diagnosticContext?.requestId) ?? null, accountFound: Boolean(identity), accountActive: Boolean(active), roleAssigned: Boolean(roleKey), requestedRole: role ? canonicalRoleKey(role) : null, availableRoles: selected.availableRoles });
       const next = throttle ?? { count: 0 }; next.count += 1; if (next.count >= MAX_ATTEMPTS) next.lockedUntil = now() + LOCKOUT_MS; attempts.set(key, next); securityEvent('LOGIN_FAILED', row ? { ...row, roleKey } : null); return { ok: false, status: 401, error: GENERIC_LOGIN_ERROR };
     }
     const user = addStaffAttendanceRoleGrants({ id: row.id, username: row.username ?? row.email, email: row.email, portal: 'school', roleKey, schoolId: row.schoolId, accountStatus: 'ACTIVE', is_active: true, permissions: new Set(scopedRows.map((candidate) => candidate.permissionKey).filter(Boolean)) });
     if (!user.permissions.size) for (const permission of ROLE_PERMISSIONS[roleKey] ?? []) user.permissions.add(permission);
     await hydrateStaffAssignments(user);
-    attempts.delete(key); users.push(user); return await createDurableSessionResult(user);
+    attempts.delete(key); users.push(user);
+    console.info('Authentication login checkpoint', { stage: 'session_creation_before', requestId: safeRequestId(diagnosticContext?.requestId) ?? null });
+    try {
+      const result = await createDurableSessionResult(user);
+      console.info('Authentication login checkpoint', { stage: 'session_creation_after', requestId: safeRequestId(diagnosticContext?.requestId) ?? null, sessionCreated: Boolean(result.ok), status: result.status ?? 200 });
+      return result;
+    } catch (error) {
+      console.error('Authentication session creation failed', { component: 'school_authentication', operation: 'session_create', requestId: safeRequestId(diagnosticContext?.requestId) ?? null, errorType: safeDiagnosticIdentifier(error?.name) ?? 'Error', code: safeDiagnosticCode(error?.code), stack: safeAuthenticationStack(error?.stack) });
+      throw error;
+    }
   }
   function authenticate(token) {
     const session = verifiedSession(token);
