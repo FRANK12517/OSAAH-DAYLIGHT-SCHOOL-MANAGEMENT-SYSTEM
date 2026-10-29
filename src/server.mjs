@@ -362,7 +362,7 @@ export function createApp({ auth = null, students = null, attendance = null, att
     if (pathname === '/api/public/admission-prospectus' && request.method === 'GET') return json(response, { prospectuses: admissionProspectus.list(Object.fromEntries(new URL(request.url, 'http://localhost').searchParams), publicProspectusActor) });
     if (pathname.startsWith('/api/public/admission-prospectus/') && pathname.endsWith('/pdf') && request.method === 'GET') { const id = pathname.split('/').filter(Boolean)[3]; const prospectus = admissionProspectus.get(id, publicProspectusActor); if (!prospectus) return json(response, { error: 'Published prospectus not found.' }, 404); try { const body = await prospectusPdf.pdf(prospectus); response.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="${safeProspectusFilename(prospectus)}"`, 'Cache-Control': 'public, max-age=300' }); return response.end(body); } catch { return json(response, { error: 'Prospectus PDF is temporarily unavailable.' }, 500); } }
     if (pathname === '/api/auth/login' && request.method === 'POST') return login(request, response, auth, audit);
-    if (pathname === '/api/auth/logout' && request.method === 'POST') { await auth.logoutSession(readCookie(request, 'osaah_session')); return json(response, { ok: true }, 204, `osaah_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${secureCookieSuffix(request)}`); }
+    if (pathname === '/api/auth/logout' && request.method === 'POST') { await auth.logoutSession(readCookie(request, 'osaah_session')); return json(response, { ok: true }, 204, `osaah_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${secureCookieSuffix(request)}`); }
     if (pathname === '/api/auth/proprietor/login' && request.method === 'POST') {
       if (!proprietorAuthentication) return json(response, { error: 'Authentication service unavailable.' }, 500);
       try {
@@ -384,7 +384,7 @@ export function createApp({ auth = null, students = null, attendance = null, att
       try {
         const result = await auth.changeOwnPassword(user, await readJson(request), token);
         audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, roleId: user.roleKey, action: 'PASSWORD_CHANGED', entity: 'User', entityId: user.id }));
-        return json(response, result, 200, `osaah_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${secureCookieSuffix(request)}`);
+        return json(response, result, 200, `osaah_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${secureCookieSuffix(request)}`);
       } catch (error) {
         return json(response, { error: error.message, code: error.code ?? 'PASSWORD_CHANGE_FAILED' }, error.status ?? 400);
       }
@@ -1405,7 +1405,7 @@ async function login(request, response, auth, audit) {
     if (!result.ok) return json(response, { error: result.error }, result.status);
 
     audit(createAuditLog({ userId: result.user.id, roleId: result.user.roleKey, sessionId: result.user.sessionId, action: 'LOGIN_SUCCESS', entity: 'Authentication' }));
-    return json(response, { user: result.user, redirectTo: result.redirectTo, expiresAt: result.expiresAt }, 200, `osaah_session=${result.token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Math.floor(auth.sessionTtlMs / 1000)}${secureCookieSuffix(request)}`);
+    return json(response, { user: result.user, redirectTo: result.redirectTo, expiresAt: result.expiresAt }, 200, `osaah_session=${result.token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${Math.floor(auth.sessionTtlMs / 1000)}${secureCookieSuffix(request)}`);
   } catch (error) {
     const clientErrors = {
       INVALID_JSON: { status: 400, message: 'Invalid JSON request body.' },
@@ -1438,7 +1438,8 @@ function safeAuthenticationStack(stack) {
 function secureCookieSuffix(request) {
   const forwardedProto = String(request.headers['x-forwarded-proto'] ?? '').split(',')[0].trim().toLowerCase();
   const trustedProxy = process.env.OSAAH_TRUST_PROXY === 'true' || process.env.VERCEL === '1';
-  return request.socket?.encrypted || (trustedProxy && forwardedProto === 'https') ? '; Secure' : '';
+  const secure = process.env.NODE_ENV === 'production' || request.socket?.encrypted || (trustedProxy && forwardedProto === 'https');
+  return secure ? '; Secure' : '';
 }
 function readCookie(request, name) { return (request.headers.cookie ?? '').split(';').map((part) => part.trim().split('=')).find(([key]) => key === name)?.[1]; }
 function safeFeeError(error, fallbackStatus = 503) { const status = Number.isInteger(error?.status) && error.status >= 400 && error.status < 500 ? error.status : fallbackStatus; const safeMessages = new Set(['Forbidden.', 'Parent access required.', 'Financial read permission required.', 'Financial write permission required.', 'Collection not found.', 'Fee obligation not found.', 'Invalid amount.', 'Collection correction reason required.', 'Invalid collection type.', 'Invalid Extra Classes collection period.', 'Canteen collections support only 1st Term, 2nd Term, and 3rd Term.', 'Fee publication input is invalid.', 'Invalid fee target.', 'Academic year, term, fee type, and amount are required.', 'Academic year not found.', 'Term not found.', 'Fee structure not found.', 'Class is required for a specific-class fee.', 'Class not found.', 'A published fee obligation already exists for this student, fee type, and period. Resolve the existing fee before publishing an overlapping target.']); const message = safeMessages.has(error?.message) ? error.message : 'Fee service is temporarily unavailable.'; return { body: { error: message }, status }; }
