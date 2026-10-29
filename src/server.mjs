@@ -1309,10 +1309,23 @@ if (durableAcademic && body.sampleMode === true) {
     const protectedPage = pathname !== '/parent/admission-prospectus' && SIDEBAR_MODULES.some((module) => module.route === pathname && module.moduleKey !== 'dashboard' && module.moduleKey !== 'logout');
     let protectedUser = null;
     if (protectedPage) {
-      const user = await auth.authenticateAsync(readCookie(request, 'osaah_session') ?? bearer(request));
-      const accessibleModules = user ? visibleSidebar({ modules: SIDEBAR_MODULES, permissions: user.permissions, roleKey: user.roleKey, portal: user.portal, schoolType: user.schoolType, subscription: user.subscription, entitlements: user.entitlements, featureAvailability: user.featureAvailability }).flatMap((group) => group.modules.flatMap((module) => [module, ...(module.children ?? [])])) : [];
+      const sessionToken = readCookie(request, 'osaah_session');
+      const bearerToken = sessionToken ? null : bearer(request);
+      const user = await auth.authenticateAsync(sessionToken ?? bearerToken);
+      const roleKey = user ? canonicalRoleKey(user.roleKey ?? user.role) : null;
+      const accessibleModules = user ? visibleSidebar({ modules: SIDEBAR_MODULES, permissions: user.permissions, roleKey, portal: user.portal, schoolType: user.schoolType, subscription: user.subscription, entitlements: user.entitlements, featureAvailability: user.featureAvailability }).flatMap((group) => group.modules.flatMap((module) => [module, ...(module.children ?? [])])) : [];
       const authorized = user && (accessibleModules.some((module) => module.route === pathname) || user.portal === 'parent' && pathname === '/examinations/timetable');
       if (!authorized) {
+        console.warn('Protected page access rejected', {
+          requestPath: pathname,
+          embedded: new URL(request.url, 'http://localhost').searchParams.get('embedded') === '1',
+          sessionCookiePresent: Boolean(sessionToken),
+          bearerTokenPresent: Boolean(bearerToken),
+          authenticated: Boolean(user),
+          portal: user?.portal ?? null,
+          roleKey,
+          routeVisible: Boolean(user && accessibleModules.some((module) => module.route === pathname))
+        });
         const isDocumentNavigation = request.headers['sec-fetch-mode'] === 'navigate' && new URL(request.url, 'http://localhost').searchParams.get('embedded') !== '1';
         if (!user && isDocumentNavigation) { response.writeHead(303, { Location: '/', 'Cache-Control': 'no-store' }); return response.end(); }
         response.writeHead(user ? 403 : 401, { 'Content-Type': 'text/plain; charset=utf-8' }); return response.end(user ? 'Forbidden' : 'Authentication required');
