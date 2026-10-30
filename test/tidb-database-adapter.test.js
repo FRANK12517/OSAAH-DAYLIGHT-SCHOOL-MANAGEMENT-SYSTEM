@@ -89,11 +89,11 @@ test('readiness verifies the TiDB identity and durable authentication schema', a
       throw new Error('unexpected query');
     }, async end() {} })
   });
-  assert.deepEqual(await adapter.verifyReadiness(), { ready: true, database: 'osaahdaylightschool', engine: 'TiDB', serverVersion: '5.7.25-TiDB-v8.5.0' });
+  assert.deepEqual(await adapter.verifyReadiness(), { ready: true, database: 'osaahdaylightschool', engine: 'TiDB', serverVersion: '5.7.25-TiDB-v8.5.0', authenticationSchemaReady: true, schemaErrorCode: null });
   await adapter.close();
 });
 
-test('readiness returns a sanitized schema error when durable sessions are missing', async () => {
+test('missing authentication schema is reported without preventing server startup', async () => {
   const adapter = createDatabaseAdapter({
     environment: { DATABASE_URL: 'mysql://user:password@example.test:4000/osaahdaylightschool' },
     poolFactory: () => ({ async query(sql) {
@@ -101,7 +101,7 @@ test('readiness returns a sanitized schema error when durable sessions are missi
       throw Object.assign(new Error('mysql://private-user:secret@private-host/private-db'), { code: 'ER_NO_SUCH_TABLE' });
     }, async end() {} })
   });
-  await assert.rejects(() => adapter.verifyReadiness(), (error) => error.code === 'AUTH_SCHEMA_NOT_READY' && !/private-user|secret|private-host|private-db/.test(JSON.stringify(error)));
+  assert.deepEqual(await adapter.verifyReadiness(), { ready: true, database: 'osaahdaylightschool', engine: 'TiDB', serverVersion: '5.7.25-TiDB-v8.5.0', authenticationSchemaReady: false, schemaErrorCode: 'AUTH_SCHEMA_NOT_READY' });
   await adapter.close();
 });
 

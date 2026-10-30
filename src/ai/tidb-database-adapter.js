@@ -189,12 +189,18 @@ export function createDatabaseAdapter({ environment, poolFactory = mysql.createP
       if (!/TiDB/i.test(String(identity.server_version ?? ''))) {
         throw adapterError('DATABASE_ENGINE_MISMATCH', 'The configured database server did not identify as TiDB.', { serverVersion: String(identity.server_version ?? '').slice(0, 80) });
       }
+      let authenticationSchemaReady = true;
       try {
         await pool.query('SELECT id, user_id, school_id, token_hash, created_at, expires_at, revoked_at, last_used_at FROM auth_sessions LIMIT 0');
-      } catch (cause) {
-        throw adapterError('AUTH_SCHEMA_NOT_READY', 'TiDB is connected, but the durable authentication session schema is not ready.', { databaseCode: cause?.code ?? null });
-      }
-      return { ready: true, database: TIDB_PRODUCTION_DATABASE, engine: 'TiDB', serverVersion: String(identity.server_version ?? '').slice(0, 80) };
+      } catch { authenticationSchemaReady = false; }
+      return {
+        ready: true,
+        database: TIDB_PRODUCTION_DATABASE,
+        engine: 'TiDB',
+        serverVersion: String(identity.server_version ?? '').slice(0, 80),
+        authenticationSchemaReady,
+        schemaErrorCode: authenticationSchemaReady ? null : 'AUTH_SCHEMA_NOT_READY'
+      };
     },
     async healthCheck() { try { await pool.query('SELECT 1'); return { healthy: true }; } catch (error) { return { healthy: false, error: error.message }; } },
     async ensureMetadata({ create = true } = {}) {
