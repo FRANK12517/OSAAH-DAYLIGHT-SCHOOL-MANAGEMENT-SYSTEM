@@ -374,7 +374,11 @@ export function createApp({ auth = null, students = null, attendance = null, att
       }
     }
     if (pathname === '/api/auth/session' && request.method === 'GET') {
-      const user = await auth.authenticateAsync(readCookie(request, 'osaah_session') ?? bearer(request));
+      const sessionToken = readCookie(request, 'osaah_session');
+      const bearerToken = sessionToken ? null : bearer(request);
+      const authContext = sessionDiagnosticContext(request, pathname, sessionToken ?? bearerToken, sessionToken ? 'cookie' : bearerToken ? 'bearer' : 'unknown');
+      const user = await auth.authenticateAsync(sessionToken ?? bearerToken, authContext);
+      if (process.env.OSAAH_AUTH_SESSION_DIAGNOSTICS === '1') console.info('Authentication session diagnostic', { requestId: authContext.requestId, requestPath: pathname, stage: 'session_endpoint_result', authenticated: Boolean(user), roleKey: user?.roleKey === 'PROPRIETOR' ? 'PROPRIETOR' : user ? 'OTHER' : null });
       return user ? json(response, { user: publicUser(user), redirectTo: user.dashboard }) : json(response, { error: 'Authentication required.' }, 401);
     }
     if (pathname === '/api/auth/change-password' && request.method === 'POST') {
@@ -1311,10 +1315,12 @@ if (durableAcademic && body.sampleMode === true) {
     if (protectedPage) {
       const sessionToken = readCookie(request, 'osaah_session');
       const bearerToken = sessionToken ? null : bearer(request);
-      const user = await auth.authenticateAsync(sessionToken ?? bearerToken);
+      const authContext = sessionDiagnosticContext(request, pathname, sessionToken ?? bearerToken, sessionToken ? 'cookie' : bearerToken ? 'bearer' : 'unknown');
+      const user = await auth.authenticateAsync(sessionToken ?? bearerToken, authContext);
       const roleKey = user ? canonicalRoleKey(user.roleKey ?? user.role) : null;
       const accessibleModules = user ? visibleSidebar({ modules: SIDEBAR_MODULES, permissions: user.permissions, roleKey, portal: user.portal, schoolType: user.schoolType, subscription: user.subscription, entitlements: user.entitlements, featureAvailability: user.featureAvailability }).flatMap((group) => group.modules.flatMap((module) => [module, ...(module.children ?? [])])) : [];
       const authorized = user && (accessibleModules.some((module) => module.route === pathname) || user.portal === 'parent' && pathname === '/examinations/timetable');
+      if (process.env.OSAAH_AUTH_SESSION_DIAGNOSTICS === '1') console.info('Authentication session diagnostic', { requestId: authContext.requestId, requestPath: pathname, stage: 'protected_page_authorization', authenticated: Boolean(user), roleKey: user?.roleKey === 'PROPRIETOR' ? 'PROPRIETOR' : user ? 'OTHER' : null, authorizationGranted: Boolean(authorized) });
       if (!authorized) {
         console.warn('Protected page access rejected', {
           requestPath: pathname,
@@ -1418,7 +1424,9 @@ async function login(request, response, auth, audit) {
     if (!result.ok) return json(response, { error: result.error }, result.status);
 
     audit(createAuditLog({ userId: result.user.id, roleId: result.user.roleKey, sessionId: result.user.sessionId, action: 'LOGIN_SUCCESS', entity: 'Authentication' }));
-    return json(response, { user: result.user, redirectTo: result.redirectTo, expiresAt: result.expiresAt }, 200, `osaah_session=${result.token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${Math.floor(auth.sessionTtlMs / 1000)}${secureCookieSuffix(request)}`);
+    const cookie = `osaah_session=${result.token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${Math.floor(auth.sessionTtlMs / 1000)}${secureCookieSuffix(request)}`;
+    if (process.env.OSAAH_AUTH_SESSION_DIAGNOSTICS === '1') console.info('Authentication session diagnostic', { requestId, requestPath: '/api/auth/login', stage: 'session_cookie_issued', cookieIssued: true, cookieName: 'osaah_session', path: '/', hostOnly: true, sameSite: 'Lax', secure: cookie.includes('; Secure'), httpOnly: true, maxAgeSeconds: Math.floor(auth.sessionTtlMs / 1000), trustedProxy: process.env.OSAAH_TRUST_PROXY === 'true' || process.env.VERCEL === '1' });
+    return json(response, { user: result.user, redirectTo: result.redirectTo, expiresAt: result.expiresAt }, 200, cookie);
   } catch (error) {
     const clientErrors = {
       INVALID_JSON: { status: 400, message: 'Invalid JSON request body.' },
@@ -1463,6 +1471,12 @@ function readCookie(request, name) {
     return part.slice(separator + 1).trim();
   }
   return undefined;
+}
+function sessionDiagnosticContext(request, requestPath, token, credentialSource) {
+  const suppliedId = request.headers['x-vercel-id'] ?? request.headers['x-request-id'];
+  const requestId = typeof suppliedId === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(suppliedId) ? suppliedId : randomUUID();
+  const cookieReceived = /(?:^|;\s*)osaah_session=/.test(String(request.headers.cookie ?? '')) || Boolean(request.cookies?.osaah_session);
+  return { requestId, requestPath, cookieReceived, cookieParsed: credentialSource === 'cookie' && Boolean(token), credentialSource };
 }
 function safeFeeError(error, fallbackStatus = 503) { const status = Number.isInteger(error?.status) && error.status >= 400 && error.status < 500 ? error.status : fallbackStatus; const safeMessages = new Set(['Forbidden.', 'Parent access required.', 'Financial read permission required.', 'Financial write permission required.', 'Collection not found.', 'Fee obligation not found.', 'Invalid amount.', 'Collection correction reason required.', 'Invalid collection type.', 'Invalid Extra Classes collection period.', 'Canteen collections support only 1st Term, 2nd Term, and 3rd Term.', 'Fee publication input is invalid.', 'Invalid fee target.', 'Academic year, term, fee type, and amount are required.', 'Academic year not found.', 'Term not found.', 'Fee structure not found.', 'Class is required for a specific-class fee.', 'Class not found.', 'A published fee obligation already exists for this student, fee type, and period. Resolve the existing fee before publishing an overlapping target.']); const message = safeMessages.has(error?.message) ? error.message : 'Fee service is temporarily unavailable.'; return { body: { error: message }, status }; }
 function parentApiError(response, error, endpoint) {
