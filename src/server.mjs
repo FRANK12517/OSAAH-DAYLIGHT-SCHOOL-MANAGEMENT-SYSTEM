@@ -1390,6 +1390,7 @@ const aiGateway = aiEnabled ? createAIGateway({ capabilityRegistry, toolRegistry
 const aiConversation = aiEnabled ? createAIConversationService({ gateway: aiGateway, capabilityRegistry, toolRegistry }) : null;
 const isDirectExecution = process.argv[1] === fileURLToPath(import.meta.url);
 const configuredDatabase = await loadConfiguredDatabaseAdapter({ required: isDirectExecution || process.env.NODE_ENV === 'production' });
+if (configuredDatabase && (isDirectExecution || process.env.NODE_ENV === 'production')) await configuredDatabase.verifyReadiness();
 const app = createApp({ aiEnabled, aiPersistence, capabilityRegistry, toolRegistry, providerRegistry, providerId, aiGateway, aiConversation, database: configuredDatabase });
 const server = createServer(app);
 server.on('close', () => {

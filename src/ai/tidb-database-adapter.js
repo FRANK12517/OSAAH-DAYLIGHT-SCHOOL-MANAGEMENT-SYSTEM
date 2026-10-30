@@ -1,5 +1,7 @@
 import mysql from 'mysql2/promise';
 
+export const TIDB_PRODUCTION_DATABASE = 'osaahdaylightschool';
+
 const schemaMigrationDdl = `CREATE TABLE IF NOT EXISTS schema_migrations (
   version INT PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
@@ -132,6 +134,9 @@ export function createDatabaseAdapter({ environment, poolFactory = mysql.createP
   if (!host || !user || !password || !database || !Number.isInteger(port) || port < 1 || port > 65535) {
     throw Object.assign(new Error('TiDB configuration requires a database URL or valid host, port, database, user, and password settings.'), { code: 'DATABASE_CONFIGURATION_INVALID' });
   }
+  if (database !== TIDB_PRODUCTION_DATABASE) {
+    throw Object.assign(new Error(`TiDB DATABASE_URL must select ${TIDB_PRODUCTION_DATABASE}.`), { code: 'DATABASE_NAME_MISMATCH' });
+  }
   const ca = typeof env.TIDB_CA_CERT === 'string' && env.TIDB_CA_CERT.trim()
     ? env.TIDB_CA_CERT.trim().replace(/(?:\\r)?\\n/g, '\n')
     : undefined;
@@ -154,6 +159,7 @@ export function createDatabaseAdapter({ environment, poolFactory = mysql.createP
   const metadataTables = ['schema_migrations', 'schema_migration_lock'];
 
   return {
+    dialect: 'tidb',
     supportsDurableAuthSessions: true,
     async query(sql, params = []) { const [rows] = await pool.query(sql, params); return rows; },
     async execute(sql, params = []) { const [result] = await pool.execute(sql, params); return { insertId: result.insertId, affectedRows: result.affectedRows }; },
@@ -168,6 +174,27 @@ export function createDatabaseAdapter({ environment, poolFactory = mysql.createP
         };
         const result = await callback(transactionalAdapter); await connection.commit(); return result;
       } catch (error) { await connection.rollback(); throw error; } finally { connection.release(); }
+    },
+    async verifyReadiness() {
+      let identity;
+      try {
+        const [rows] = await pool.query('SELECT DATABASE() AS database_name, VERSION() AS server_version');
+        identity = rows?.[0];
+      } catch (cause) {
+        throw adapterError('TIDB_CONNECTION_UNAVAILABLE', 'Could not connect to the configured TiDB database.', { databaseCode: cause?.code ?? null });
+      }
+      if (identity?.database_name !== TIDB_PRODUCTION_DATABASE) {
+        throw adapterError('DATABASE_NAME_MISMATCH', `Connected database must be ${TIDB_PRODUCTION_DATABASE}.`, { selectedDatabase: identity?.database_name ?? null });
+      }
+      if (!/TiDB/i.test(String(identity.server_version ?? ''))) {
+        throw adapterError('DATABASE_ENGINE_MISMATCH', 'The configured database server did not identify as TiDB.', { serverVersion: String(identity.server_version ?? '').slice(0, 80) });
+      }
+      try {
+        await pool.query('SELECT id, user_id, school_id, token_hash, created_at, expires_at, revoked_at, last_used_at FROM auth_sessions LIMIT 0');
+      } catch (cause) {
+        throw adapterError('AUTH_SCHEMA_NOT_READY', 'TiDB is connected, but the durable authentication session schema is not ready.', { databaseCode: cause?.code ?? null });
+      }
+      return { ready: true, database: TIDB_PRODUCTION_DATABASE, engine: 'TiDB', serverVersion: String(identity.server_version ?? '').slice(0, 80) };
     },
     async healthCheck() { try { await pool.query('SELECT 1'); return { healthy: true }; } catch (error) { return { healthy: false, error: error.message }; } },
     async ensureMetadata({ create = true } = {}) {

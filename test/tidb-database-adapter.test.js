@@ -5,7 +5,7 @@ import { loadConfiguredAIPersistence } from '../src/ai/durable-stores.js';
 
 function fakeAdapter({ resolver = () => [] } = {}) {
   return createDatabaseAdapter({
-    environment: { DATABASE_URL: 'mysql://user:password@example.test:4000/osaah' },
+    environment: { DATABASE_URL: 'mysql://user:password@example.test:4000/osaahdaylightschool' },
     poolFactory: () => ({
       async query(sql, params) { return [resolver(sql, params), []]; },
       async execute() { return [{ insertId: 0, affectedRows: 0 }, []]; },
@@ -18,13 +18,13 @@ function fakeAdapter({ resolver = () => [] } = {}) {
 test('TiDB database adapter accepts direct environment-variable connection settings', () => {
   let options;
   const adapter = createDatabaseAdapter({
-    environment: { TIDB_HOST: 'db.example.test', TIDB_USER: 'user', TIDB_PASSWORD: 'password', TIDB_DATABASE: 'osaah', TIDB_PORT: '4000', TIDB_CA_CERT: 'ca\\ncertificate' },
+    environment: { TIDB_HOST: 'db.example.test', TIDB_USER: 'user', TIDB_PASSWORD: 'password', TIDB_DATABASE: 'osaahdaylightschool', TIDB_PORT: '4000', TIDB_CA_CERT: 'ca\\ncertificate' },
     poolFactory: (value) => { options = value; return { async end() {} }; }
   });
   assert.equal(options.host, 'db.example.test');
   assert.equal(options.user, 'user');
   assert.equal(options.password, 'password');
-  assert.equal(options.database, 'osaah');
+  assert.equal(options.database, 'osaahdaylightschool');
   assert.equal(options.port, 4000);
   assert.deepEqual(options.ssl, { minVersion: 'TLSv1.2', rejectUnauthorized: true, ca: 'ca\ncertificate' });
   return adapter.close();
@@ -67,8 +67,9 @@ test('TiDB database URL supplies connection fields when component variables are 
 });
 
 test('TiDB database adapter exposes the durable persistence contract', async () => {
-  const adapter = createDatabaseAdapter({ environment: { DATABASE_URL: 'mysql://user:password@example.test:4000/osaah' } });
-  assert.deepEqual(Object.keys(adapter).sort(), ['acquireLock', 'close', 'ensureMetadata', 'execute', 'healthCheck', 'listApplied', 'listBaselines', 'query', 'recordApplied', 'recordBaseline', 'releaseLock', 'supportsDurableAuthSessions', 'transaction']);
+  const adapter = createDatabaseAdapter({ environment: { DATABASE_URL: 'mysql://user:password@example.test:4000/osaahdaylightschool' } });
+  assert.deepEqual(Object.keys(adapter).sort(), ['acquireLock', 'close', 'dialect', 'ensureMetadata', 'execute', 'healthCheck', 'listApplied', 'listBaselines', 'query', 'recordApplied', 'recordBaseline', 'releaseLock', 'supportsDurableAuthSessions', 'transaction', 'verifyReadiness']);
+  assert.equal(adapter.dialect, 'tidb');
   assert.equal(adapter.supportsDurableAuthSessions, true);
   assert.equal(typeof adapter.query, 'function');
   assert.equal(typeof adapter.execute, 'function');
@@ -77,6 +78,31 @@ test('TiDB database adapter exposes the durable persistence contract', async () 
   assert.equal(typeof adapter.ensureMetadata, 'function');
   assert.equal(typeof adapter.listApplied, 'function');
   assert.equal(typeof adapter.recordBaseline, 'function');
+});
+
+test('readiness verifies the TiDB identity and durable authentication schema', async () => {
+  const adapter = createDatabaseAdapter({
+    environment: { DATABASE_URL: 'mysql://user:password@example.test:4000/osaahdaylightschool' },
+    poolFactory: () => ({ async query(sql) {
+      if (sql.startsWith('SELECT DATABASE()')) return [[{ database_name: 'osaahdaylightschool', server_version: '5.7.25-TiDB-v8.5.0' }]];
+      if (sql.includes('FROM auth_sessions')) return [[], []];
+      throw new Error('unexpected query');
+    }, async end() {} })
+  });
+  assert.deepEqual(await adapter.verifyReadiness(), { ready: true, database: 'osaahdaylightschool', engine: 'TiDB', serverVersion: '5.7.25-TiDB-v8.5.0' });
+  await adapter.close();
+});
+
+test('readiness returns a sanitized schema error when durable sessions are missing', async () => {
+  const adapter = createDatabaseAdapter({
+    environment: { DATABASE_URL: 'mysql://user:password@example.test:4000/osaahdaylightschool' },
+    poolFactory: () => ({ async query(sql) {
+      if (sql.startsWith('SELECT DATABASE()')) return [[{ database_name: 'osaahdaylightschool', server_version: '5.7.25-TiDB-v8.5.0' }]];
+      throw Object.assign(new Error('mysql://private-user:secret@private-host/private-db'), { code: 'ER_NO_SUCH_TABLE' });
+    }, async end() {} })
+  });
+  await assert.rejects(() => adapter.verifyReadiness(), (error) => error.code === 'AUTH_SCHEMA_NOT_READY' && !/private-user|secret|private-host|private-db/.test(JSON.stringify(error)));
+  await adapter.close();
 });
 
 test('TiDB adapter query returns rows directly for database, zero, single, multiple, and parameterized SELECTs', async () => {
@@ -99,13 +125,13 @@ test('TiDB adapter query returns rows directly for database, zero, single, multi
 });
 
 test('application AI persistence selects TiDB from the explicit adapter setting', async () => {
-  const persistence = await loadConfiguredAIPersistence({ environment: { NODE_ENV: 'production', OSAAH_DATABASE_ADAPTER: 'tidb', DATABASE_URL: 'mysql://user:password@example.test:4000/osaah' } });
+  const persistence = await loadConfiguredAIPersistence({ environment: { NODE_ENV: 'production', OSAAH_DATABASE_ADAPTER: 'tidb', DATABASE_URL: 'mysql://user:password@example.test:4000/osaahdaylightschool' } });
   assert.equal(persistence.durable, true);
   await persistence.close();
 });
 
 test('application adapter auto-detects a MySQL DATABASE_URL when no adapter is specified', async () => {
-  const persistence = await loadConfiguredAIPersistence({ environment: { NODE_ENV: 'production', DATABASE_URL: 'mysql://user:password@example.test:4000/osaah' } });
+  const persistence = await loadConfiguredAIPersistence({ environment: { NODE_ENV: 'production', DATABASE_URL: 'mysql://user:password@example.test:4000/osaahdaylightschool' } });
   assert.equal(persistence.durable, true);
   await persistence.close();
 });
@@ -126,7 +152,7 @@ function migrationPool({ failOn } = {}) {
 test('migration execution runs statements individually without enabling normal multi-statements', async () => {
   const { pool, statements } = migrationPool();
   let poolOptions;
-  const adapter = createDatabaseAdapter({ environment: { DATABASE_URL: 'mysql://user:password@example.test:4000/osaah' }, poolFactory: (options) => { poolOptions = options; return pool; } });
+  const adapter = createDatabaseAdapter({ environment: { DATABASE_URL: 'mysql://user:password@example.test:4000/osaahdaylightschool' }, poolFactory: (options) => { poolOptions = options; return pool; } });
   try {
     await adapter.transaction(async (transaction) => transaction.executeMigrationSql("-- comment;\nCREATE TABLE one (value TEXT DEFAULT 'a;b'); CREATE TABLE two (id TEXT);", { migrationName: '049_production_schema_reconciliation.sql', version: 49 }));
     assert.deepEqual(statements, ["-- comment;\nCREATE TABLE one (value TEXT DEFAULT 'a;b')", 'CREATE TABLE two (id TEXT)']);
@@ -136,7 +162,7 @@ test('migration execution runs statements individually without enabling normal m
 
 test('migration execution reports statement diagnostics without private database details', async () => {
   const { pool, statements } = migrationPool({ failOn: 'BROKEN' });
-  const adapter = createDatabaseAdapter({ environment: { DATABASE_URL: 'mysql://user:password@example.test:4000/osaah' }, poolFactory: () => pool });
+  const adapter = createDatabaseAdapter({ environment: { DATABASE_URL: 'mysql://user:password@example.test:4000/osaahdaylightschool' }, poolFactory: () => pool });
   try {
     await assert.rejects(() => adapter.transaction((transaction) => transaction.executeMigrationSql('CREATE TABLE ok (id TEXT); BROKEN;', { migrationName: '049_production_schema_reconciliation.sql', version: 49 })), (error) => {
       assert.equal(error.code, 'MIGRATION_STATEMENT_FAILED');
