@@ -12,6 +12,8 @@ const MAX_ATTEMPTS = 5;
 const LOCKOUT_MS = 15 * 60 * 1000;
 const GENERIC_LOGIN_ERROR = 'Incorrect username or password.';
 const POSTGRES_DIAGNOSTIC_FIELDS = Object.freeze(['schema', 'table', 'column', 'constraint', 'routine']);
+const AUTH_SESSION_DIAGNOSTICS = process.env.OSAAH_AUTH_SESSION_DIAGNOSTICS === '1';
+const AUTH_PROCESS_INSTANCE_ID = randomUUID();
 function safeDiagnosticIdentifier(value) { return typeof value === 'string' && /^[A-Za-z_][A-Za-z0-9_.-]{0,127}$/.test(value) ? value : null; }
 function safeDiagnosticCode(value) { return typeof value === 'string' && /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,31}$/.test(value) ? value : null; }
 function safeRequestId(value) { return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value) ? value : null; }
@@ -123,7 +125,7 @@ export const DEMO_USERS = [
   { id: 'user-dpo-1', username: 'dpo@osaah.edu.gh', passwordHash: passwordHash('DataProtection123!', 'dpo-salt'), portal: 'school', roleKey: 'DATA_PROTECTION_OFFICER', schoolId: 'school-osaah-daylight', permissions: new Set(['privacy.read', 'privacy.write', 'documents.read']) }
 ];
 
-export function createAuthService({ users = DEMO_USERS, database = null, now = () => Date.now(), audit = () => {}, sessionSecret = process.env.OSAAH_SESSION_SECRET, testParentSchoolId = TEST_PARENT_SCHOOL_ID } = {}) {
+export function createAuthService({ users = DEMO_USERS, database = null, now = () => Date.now(), audit = () => {}, sessionSecret = process.env.OSAAH_SESSION_SECRET, testParentSchoolId = TEST_PARENT_SCHOOL_ID, sessionDiagnostics = AUTH_SESSION_DIAGNOSTICS } = {}) {
   users = users.map((user) => addStaffAttendanceRoleGrants({ ...user, permissions: new Set(user.permissions), children: user.children?.map((child) => ({ ...child })) }));
   const sessions = new Map(); const durableSessionIds = new Set(); const revokedSessionIds = new Set(); const attempts = new Map(); const resetTokens = new Map();
   const administratorAssignments = [];
@@ -137,6 +139,34 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
   const signingKey = typeof sessionSecret === 'string' && sessionSecret.length >= 32 ? sessionSecret : null;
   const durableSessionStore = Boolean(database?.supportsDurableAuthSessions && database?.query && database?.execute);
   const tokenHash = (token) => createHash('sha256').update(String(token)).digest('hex');
+  const fingerprint = (value) => value ? createHash('sha256').update(String(value)).digest('hex').slice(0, 20) : null;
+  function databaseTargetFingerprint() {
+    const dialect = ['tidb', 'postgres', 'mysql'].includes(database?.dialect) ? database.dialect : 'unknown';
+    const candidateUrl = dialect === 'postgres' ? process.env.OSAAH_POSTGRES_URL || process.env.POSTGRES_URL || process.env.DATABASE_URL : process.env.DATABASE_URL;
+    let url = null;
+    if (typeof candidateUrl === 'string' && candidateUrl) { try { url = new URL(candidateUrl); } catch { /* never log malformed endpoint values */ } }
+    const host = dialect === 'tidb' ? process.env.HOST || process.env.TIDB_HOST || url?.hostname : url?.hostname;
+    const port = dialect === 'tidb' ? process.env.PORT || process.env.TIDB_PORT || url?.port : url?.port;
+    const databaseName = dialect === 'tidb' ? process.env.DATABASE || process.env.TIDB_DATABASE || url?.pathname : url?.pathname;
+    if (!host && !databaseName) return null;
+    return fingerprint([dialect, host ?? '', port ?? '', String(databaseName ?? '').replace(/^\//, '')].join('\0'));
+  }
+  function sessionDiagnostic(context, stage, details = {}) {
+    if (!sessionDiagnostics || !context || !/^\/(?!\/)[A-Za-z0-9._/-]{0,160}$/.test(context.requestPath ?? '')) return;
+    console.info('Authentication session diagnostic', {
+      requestId: safeRequestId(context.requestId) ?? null,
+      requestPath: context.requestPath,
+      processInstance: AUTH_PROCESS_INSTANCE_ID,
+      tokenFingerprint: context.tokenFingerprint ?? null,
+      signingKeyFingerprint: fingerprint(signingKey),
+      durableSessionStore,
+      databaseDialect: ['tidb', 'postgres', 'mysql'].includes(database?.dialect) ? database.dialect : 'unknown',
+      databaseTargetFingerprint: databaseTargetFingerprint(),
+      deploymentCommit: /^[a-f0-9]{40}$/i.test(process.env.VERCEL_GIT_COMMIT_SHA ?? '') ? process.env.VERCEL_GIT_COMMIT_SHA : null,
+      stage,
+      ...details
+    });
+  }
   const nowIso = () => new Date(now()).toISOString();
   async function persistDurableSession(user, session, token) {
     if (!durableSessionStore) return;
@@ -153,17 +183,29 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     });
   }
   function signSession(session) { const payload = Buffer.from(JSON.stringify(session)).toString('base64url'); const signature = createHmac('sha256', signingKey).update(payload).digest('base64url'); return `v1.${payload}.${signature}`; }
-  function verifiedSession(token) {
-    if (!signingKey || typeof token !== 'string' || !token.startsWith('v1.')) return sessions.get(token);
-    const parts = token.split('.'); if (parts.length !== 3) return null;
+  function inspectSessionToken(token) {
+    if (typeof token !== 'string' || !token) return { session: null, verification: 'token_missing' };
+    if (!signingKey || !token.startsWith('v1.')) {
+      const session = sessions.get(token) ?? null;
+      return { session, verification: session ? 'local_session' : !signingKey ? 'signing_key_unavailable' : 'token_format_unsupported' };
+    }
+    const parts = token.split('.'); if (parts.length !== 3) return { session: null, verification: 'token_format_invalid' };
     const expected = createHmac('sha256', signingKey).update(parts[1]).digest(); let actual;
-    try { actual = Buffer.from(parts[2], 'base64url'); } catch { return null; }
+    try { actual = Buffer.from(parts[2], 'base64url'); } catch { return { session: null, verification: 'signature_encoding_invalid' }; }
     // Reject alternate base64url encodings that decode to the same bytes. Without
     // this canonical-form check, changing unused trailing bits can leave the
     // decoded HMAC unchanged and make a tampered token appear valid.
-    if (actual.toString('base64url') !== parts[2]) return null;
-    if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) return null;
-    try { const session = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')); return session && typeof session.userId === 'string' && typeof session.sessionId === 'string' && Number.isFinite(session.expiresAt) && !revokedSessionIds.has(session.sessionId) ? session : null; } catch { return null; }
+    if (actual.toString('base64url') !== parts[2]) return { session: null, verification: 'signature_encoding_invalid' };
+    if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) return { session: null, verification: 'signature_invalid' };
+    try {
+      const session = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+      if (!session || typeof session.userId !== 'string' || typeof session.sessionId !== 'string' || !Number.isFinite(session.expiresAt)) return { session: null, verification: 'payload_invalid' };
+      if (revokedSessionIds.has(session.sessionId)) return { session: null, verification: 'locally_revoked' };
+      return { session, verification: 'signature_valid' };
+    } catch { return { session: null, verification: 'payload_invalid' }; }
+  }
+  function verifiedSession(token) {
+    return inspectSessionToken(token).session;
   }
   function revokeLocalSession(token, session = verifiedSession(token)) { if (session?.sessionId) revokedSessionIds.add(session.sessionId); if (token) sessions.delete(token); if (session?.sessionId) durableSessionIds.delete(session.sessionId); }
   function isActive(user) { return user.is_active !== false && user.isActive !== false && !['DISABLED', 'REVOKED', 'REMOVED', 'SUSPENDED', 'DEACTIVATED'].includes(String(user.accountStatus ?? '').toUpperCase()); }
@@ -198,13 +240,14 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     sessions.set(token, session); securityEvent('LOGIN_SUCCESS', user, sessionId);
     return { ok: true, token, user: sanitize(user, sessionId), redirectTo: SCHOOL_PORTAL_DASHBOARDS[canonicalRoleKey(user.roleKey)] ?? '/', expiresAt };
   }
-  async function createDurableSessionResult(user) {
+  async function createDurableSessionResult(user, diagnosticContext = null) {
     if (process.env.NODE_ENV === 'production' && !durableSessionStore) return { ok: false, status: 503, error: 'Authentication service unavailable.' };
     attempts.delete(user.id);
     const sessionId = randomUUID(); const expiresAt = now() + SESSION_TTL_MS;
     const session = { userId: user.id, roleKey: canonicalRoleKey(user.roleKey), sessionId, expiresAt, ...(user.id === TEST_PARENT_ID && user.isTestFixture === true ? { testParentFixture: true } : {}) };
     const token = signingKey ? signSession(session) : randomBytes(32).toString('hex');
     await persistDurableSession(user, session, token);
+    sessionDiagnostic(diagnosticContext ? { ...diagnosticContext, tokenFingerprint: fingerprint(token) } : null, 'session_persisted', { persistenceCompleted: Boolean(durableSessionStore), sessionIdFingerprint: fingerprint(session.sessionId), sessionNotExpired: session.expiresAt > now() });
     sessions.set(token, session);
     if (durableSessionStore) durableSessionIds.add(session.sessionId);
     securityEvent('LOGIN_SUCCESS', user, sessionId);
@@ -342,7 +385,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     attempts.delete(key); users.push(user);
     console.info('Authentication login checkpoint', { stage: 'session_creation_before', requestId: safeRequestId(diagnosticContext?.requestId) ?? null });
     try {
-      const result = await createDurableSessionResult(user);
+      const result = await createDurableSessionResult(user, diagnosticContext);
       console.info('Authentication login checkpoint', { stage: 'session_creation_after', requestId: safeRequestId(diagnosticContext?.requestId) ?? null, sessionCreated: Boolean(result.ok), status: result.status ?? 200 });
       return result;
     } catch (error) {
@@ -362,13 +405,43 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     if (!isActive(user)) { revokeLocalSession(token, session); securityEvent('SESSION_REVOKED', user, session.sessionId); return null; }
     return { ...sanitize(user, session.sessionId), permissions: user.permissions };
   }
-  async function authenticateAsync(token) {
+  async function authenticateAsync(token, diagnosticContext = null) {
+    const context = diagnosticContext ? { ...diagnosticContext, tokenFingerprint: fingerprint(token) } : null;
     const local = authenticate(token);
-    const session = verifiedSession(token);
-    if (!durableSessionStore || typeof token !== 'string' || !token || local && (!session || !durableSessionIds.has(session.sessionId))) return local;
-    const rows = await database.query(`SELECT s.id AS sessionId,s.user_id AS userId,s.school_id AS schoolId,s.expires_at AS expiresAt,COALESCE(u.username,u.email) AS username,u.email,u.status,r.role_key AS roleKey,r.oversight_rank AS oversightRank,p.permission_key AS permissionKey FROM auth_sessions s JOIN users u ON u.id=s.user_id LEFT JOIN user_roles ur ON ur.user_id=u.id LEFT JOIN roles r ON r.id=ur.role_id LEFT JOIN role_permissions rp ON rp.role_id=r.id LEFT JOIN permissions p ON p.id=rp.permission_id WHERE s.token_hash=? AND s.revoked_at IS NULL AND s.expires_at>? AND u.status='ACTIVE' ORDER BY COALESCE(r.oversight_rank,0) DESC,r.role_key,p.permission_key`, [tokenHash(token), nowIso()]);
+    const inspected = inspectSessionToken(token);
+    const session = inspected.session;
+    sessionDiagnostic(context, 'credential_received', { credentialPresent: Boolean(token), cookieReceived: context?.cookieReceived === true, cookieParsed: context?.cookieParsed === true, credentialSource: ['cookie', 'bearer', 'unknown'].includes(context?.credentialSource) ? context.credentialSource : 'unknown' });
+    sessionDiagnostic(context, 'signature_verification', { result: inspected.verification, sessionClaimsValid: Boolean(session), sessionNotExpired: Boolean(session && session.expiresAt > now()), sessionIdFingerprint: fingerprint(session?.sessionId) });
+    if (!durableSessionStore || typeof token !== 'string' || !token || local && (!session || !durableSessionIds.has(session.sessionId))) {
+      sessionDiagnostic(context, 'session_store_lookup', { lookupExecuted: false, reason: !durableSessionStore ? 'durable_store_unavailable' : !token ? 'credential_missing' : 'local_session_sufficient', recordFound: Boolean(local) });
+      sessionDiagnostic(context, 'identity_restoration', { deserialized: Boolean(local), identityRestored: Boolean(local?.id), roleRestored: Boolean(local?.roleKey), roleKey: local?.roleKey === 'PROPRIETOR' ? 'PROPRIETOR' : local ? 'OTHER' : null, schoolAssignmentRestored: Boolean(local?.schoolId), authorizationGranted: Boolean(local) });
+      return local;
+    }
+    let rows;
+    try {
+      rows = await database.query(`SELECT s.id AS sessionId,s.user_id AS userId,s.school_id AS schoolId,s.expires_at AS expiresAt,COALESCE(u.username,u.email) AS username,u.email,u.status,r.role_key AS roleKey,r.oversight_rank AS oversightRank,p.permission_key AS permissionKey FROM auth_sessions s JOIN users u ON u.id=s.user_id LEFT JOIN user_roles ur ON ur.user_id=u.id LEFT JOIN roles r ON r.id=ur.role_id LEFT JOIN role_permissions rp ON rp.role_id=r.id LEFT JOIN permissions p ON p.id=rp.permission_id WHERE s.token_hash=? AND s.revoked_at IS NULL AND s.expires_at>? AND u.status='ACTIVE' ORDER BY COALESCE(r.oversight_rank,0) DESC,r.role_key,p.permission_key`, [tokenHash(token), nowIso()]);
+      sessionDiagnostic(context, 'session_store_lookup', { lookupExecuted: true, querySucceeded: true, matchingRecord: Boolean(rows?.length), resultRowCount: Array.isArray(rows) ? rows.length : 0 });
+    } catch (error) {
+      sessionDiagnostic(context, 'session_store_lookup', { lookupExecuted: true, querySucceeded: false, errorType: safeDiagnosticIdentifier(error?.name) ?? 'Error', errorCode: safeDiagnosticCode(error?.code) });
+      throw error;
+    }
     const row = rows?.[0];
-    if (!row) { if (session) revokeLocalSession(token, session); else sessions.delete(token); return null; }
+    if (!row) {
+      if (session) revokeLocalSession(token, session); else sessions.delete(token);
+      if (sessionDiagnostics && context) {
+        try {
+          const diagnosticRows = await database.query("SELECT s.expires_at AS expiresAt,s.revoked_at AS revokedAt,CASE WHEN u.id IS NULL THEN 0 ELSE 1 END AS identityFound,CASE WHEN u.status='ACTIVE' THEN 1 ELSE 0 END AS restoreStatusAccepted,u.status AS accountStatus FROM auth_sessions s LEFT JOIN users u ON u.id=s.user_id WHERE s.token_hash=? LIMIT 1", [tokenHash(token)]);
+          const diagnosticRow = diagnosticRows?.[0];
+          const expiry = diagnosticRow?.expiresAt == null ? NaN : new Date(diagnosticRow.expiresAt).getTime();
+          const accountActive = diagnosticRow ? String(diagnosticRow.accountStatus ?? 'ACTIVE').toUpperCase() === 'ACTIVE' : null;
+          sessionDiagnostic(context, 'session_record_classification', { classificationQueryExecuted: true, recordFound: Boolean(diagnosticRow), revoked: Boolean(diagnosticRow?.revokedAt), expired: Number.isFinite(expiry) ? expiry <= now() : null, identityFound: diagnosticRow ? Boolean(Number(diagnosticRow.identityFound)) : null, accountActive, restoreStatusAccepted: diagnosticRow ? Boolean(Number(diagnosticRow.restoreStatusAccepted)) : null });
+        } catch (error) {
+          sessionDiagnostic(context, 'session_record_classification', { classificationQueryExecuted: true, querySucceeded: false, errorType: safeDiagnosticIdentifier(error?.name) ?? 'Error', errorCode: safeDiagnosticCode(error?.code) });
+        }
+      }
+      sessionDiagnostic(context, 'identity_restoration', { deserialized: Boolean(session), identityRestored: false, roleRestored: false, roleKey: null, schoolAssignmentRestored: false, authorizationGranted: false });
+      return null;
+    }
     const userRows = rows.filter((candidate) => candidate.userId === row.userId);
     const selectedRoleKey = canonicalRoleKey(session?.roleKey ?? row.roleKey);
     const roleKey = userRows.some((candidate) => canonicalRoleKey(candidate.roleKey) === selectedRoleKey) ? selectedRoleKey : canonicalRoleKey(row.roleKey);
@@ -378,6 +451,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     if (!user.permissions.size) for (const permission of ROLE_PERMISSIONS[user.roleKey] ?? []) user.permissions.add(permission);
     await hydrateStaffAssignments(user);
     await database.execute('UPDATE auth_sessions SET last_used_at=? WHERE id=? AND revoked_at IS NULL', [nowIso(), row.sessionId]);
+    sessionDiagnostic(context, 'identity_restoration', { deserialized: true, notExpired: true, identityRestored: Boolean(user.id), roleRestored: Boolean(user.roleKey), roleKey: ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'ASSISTANT_HEADTEACHER', 'ACCOUNTANT_BURSAR', 'TEACHER', 'PARENT'].includes(user.roleKey) ? user.roleKey : 'OTHER', schoolAssignmentRestored: Boolean(user.schoolId), authorizationGranted: true });
     return { ...sanitize(user, row.sessionId), permissions: user.permissions };
   }
   async function logoutSession(token) {
