@@ -287,7 +287,22 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     const normalized = normalizeGhanaPhone(phone);
     if (portal !== 'parent') return { ok: false, status: 401, error: PARENT_GENERIC_LOGIN_ERROR };
     if (!normalized) return { ok: false, status: 400, error: 'Enter a valid Ghanaian phone number.' };
-    if (!database?.query || !database?.transaction || !database?.supportsDurableAuthSessions || !durableSessionStore || !signingKey) return { ok: false, status: 503, error: 'Authentication service unavailable.' };
+    const parentAuthRequirements = {
+      queryAvailable: typeof database?.query === 'function',
+      transactionAvailable: typeof database?.transaction === 'function',
+      durableSessionCapability: Boolean(database?.supportsDurableAuthSessions),
+      durableSessionStoreAvailable: durableSessionStore,
+      signingKeyAvailable: Boolean(signingKey)
+    };
+    if (Object.values(parentAuthRequirements).some((available) => !available)) {
+      console.error('Parent authentication unavailable', {
+        component: 'parent_authentication', operation: 'preflight', category: 'AUTH_REQUIREMENT_UNAVAILABLE',
+        requestId: safeRequestId(diagnosticContext?.requestId),
+        requestPath: diagnosticContext?.requestPath === '/api/auth/login' ? diagnosticContext.requestPath : null,
+        ...parentAuthRequirements
+      });
+      return { ok: false, status: 503, error: 'Authentication service unavailable.' };
+    }
     let rows = [], rateLimited = false;
     try {
       await database.transaction(async (tx) => {
@@ -338,7 +353,15 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
       const session = await createDurableSessionResult(user);
       if (session.ok) users.push(user);
       return session;
-    } catch {
+    } catch (error) {
+      console.error('Parent authentication session creation failed', {
+        component: 'parent_authentication', operation: 'session_create', category: 'SESSION_PERSISTENCE_FAILED',
+        requestId: safeRequestId(diagnosticContext?.requestId),
+        requestPath: diagnosticContext?.requestPath === '/api/auth/login' ? diagnosticContext.requestPath : null,
+        errorType: safeDiagnosticIdentifier(error?.name) ?? 'Error',
+        code: safeDiagnosticCode(error?.code),
+        stack: safeAuthenticationStack(error?.stack)
+      });
       return { ok: false, status: 503, error: 'Authentication service unavailable.' };
     }
   }
