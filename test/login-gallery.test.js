@@ -48,8 +48,10 @@ test('parent and school sign-in share an accessible password visibility toggle',
   assert.match(script, /data-switch-portal="parent"/);
   assert.match(script, /data-switch-portal="school"/);
   assert.match(script, /function selectPortal\(portal/);
+  assert.match(script, /state\.portal = portal/);
   assert.match(script, /password\.value = ''/);
-  assert.match(script, /data\.portal = state\.portal/);
+  assert.match(script, /const isParent = state\.portal === 'parent'/);
+  assert.match(script, /const credentials = isParent \? \{ portal: 'parent', phone: data\.phone \} : \{ \.\.\.data, portal: 'school' \}/);
   assert.match(css, /\.password-field\{position:relative/);
   assert.match(css, /\.password-toggle\{position:absolute/);
 });

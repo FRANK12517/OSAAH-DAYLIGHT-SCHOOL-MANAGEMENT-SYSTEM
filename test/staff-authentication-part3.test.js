@@ -158,7 +158,7 @@ test('Part 3 HTTPS login sets a secure HTTP-only cookie and the session endpoint
     assert.equal(login.body.redirectTo, '/settings');
     assert.match(login.headers['set-cookie'][0], /HttpOnly/);
     assert.match(login.headers['set-cookie'][0], /Secure/);
-    assert.match(login.headers['set-cookie'][0], /SameSite=Strict/);
+    assert.match(login.headers['set-cookie'][0], /SameSite=Lax/);
     const cookie = login.headers['set-cookie'][0].split(';')[0];
     const session = await http(server, '/api/auth/session', { cookie });
     assert.equal(session.status, 200);
