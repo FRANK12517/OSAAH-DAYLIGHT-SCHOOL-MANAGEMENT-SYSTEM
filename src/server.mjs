@@ -1454,7 +1454,16 @@ function secureCookieSuffix(request) {
   const secure = process.env.NODE_ENV === 'production' || request.socket?.encrypted || (trustedProxy && forwardedProto === 'https');
   return secure ? '; Secure' : '';
 }
-function readCookie(request, name) { return (request.headers.cookie ?? '').split(';').map((part) => part.trim().split('=')).find(([key]) => key === name)?.[1]; }
+function readCookie(request, name) {
+  const parsedCookie = request.cookies?.[name];
+  if (typeof parsedCookie === 'string') return parsedCookie;
+  for (const part of String(request.headers.cookie ?? '').split(';')) {
+    const separator = part.indexOf('=');
+    if (separator < 0 || part.slice(0, separator).trim() !== name) continue;
+    return part.slice(separator + 1).trim();
+  }
+  return undefined;
+}
 function safeFeeError(error, fallbackStatus = 503) { const status = Number.isInteger(error?.status) && error.status >= 400 && error.status < 500 ? error.status : fallbackStatus; const safeMessages = new Set(['Forbidden.', 'Parent access required.', 'Financial read permission required.', 'Financial write permission required.', 'Collection not found.', 'Fee obligation not found.', 'Invalid amount.', 'Collection correction reason required.', 'Invalid collection type.', 'Invalid Extra Classes collection period.', 'Canteen collections support only 1st Term, 2nd Term, and 3rd Term.', 'Fee publication input is invalid.', 'Invalid fee target.', 'Academic year, term, fee type, and amount are required.', 'Academic year not found.', 'Term not found.', 'Fee structure not found.', 'Class is required for a specific-class fee.', 'Class not found.', 'A published fee obligation already exists for this student, fee type, and period. Resolve the existing fee before publishing an overlapping target.']); const message = safeMessages.has(error?.message) ? error.message : 'Fee service is temporarily unavailable.'; return { body: { error: message }, status }; }
 function parentApiError(response, error, endpoint) {
   const status = Number.isInteger(error?.status) && error.status >= 400 && error.status <= 599 ? error.status : 503;
@@ -1465,7 +1474,7 @@ function parentApiError(response, error, endpoint) {
 }
 function safeReceiptFilename(receiptNumber) { const safe = String(receiptNumber ?? '').replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 80) || 'receipt'; return `OSAAH-Receipt-${safe}.pdf`; }
 function safeProspectusFilename(prospectus) { const detail = `${prospectus.className}-${prospectus.academicYear}`.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 80); return `OSAAH-Admission-Prospectus-${detail || 'Published'}.pdf`; }
-function bearer(request) { const value = request.headers.authorization ?? ''; return value.startsWith('Bearer ') ? value.slice(7) : null; }
+function bearer(request) { const value = request.headers.authorization ?? ''; const match = /^Bearer\s+(.+)$/i.exec(value); return match?.[1] ?? null; }
 function readBytes(request, maxBytes) { return new Promise((resolve, reject) => { const declaredLength = Number(request.headers['content-length'] ?? 0); if (declaredLength > maxBytes) { request.resume(); reject(Object.assign(new Error(`Admission documents may not exceed ${maxBytes} bytes.`), { status: 413 })); return; } const chunks = []; let size = 0, tooLarge = false; request.on('data', (chunk) => { size += chunk.length; if (size > maxBytes) { tooLarge = true; chunks.length = 0; return; } if (!tooLarge) chunks.push(chunk); }); request.on('end', () => tooLarge ? reject(Object.assign(new Error(`Admission documents may not exceed ${maxBytes} bytes.`), { status: 413 })) : resolve(Buffer.concat(chunks))); request.on('error', reject); }); }
 function readJson(request) { return new Promise((resolve, reject) => { let data = ''; let tooLarge = false; request.on('data', (chunk) => { if (tooLarge) return; data += chunk; if (data.length > 100_000) { tooLarge = true; data = ''; } }); request.on('end', () => { if (tooLarge) return reject(Object.assign(new Error('Request body is too large.'), { status: 413, code: 'REQUEST_BODY_TOO_LARGE' })); try { resolve(data ? JSON.parse(data) : {}); } catch { reject(Object.assign(new Error('Invalid JSON request body.'), { status: 400, code: 'INVALID_JSON' })); } }); }); }
 function presentAdmissionApplication(record) { if (!record) return record; const sanitize = (value) => { if (Array.isArray(value)) return value.map(sanitize); if (!value || typeof value !== 'object') return value; return Object.fromEntries(Object.entries(value).filter(([key]) => !['storageKey', 'fileReference'].includes(key)).map(([key, item]) => [key, sanitize(item)])); }; return { ...sanitize(record), documents: sanitize(record.documents ?? []) }; }
