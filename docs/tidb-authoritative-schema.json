@@ -1,0 +1,21 @@
+{
+  "formatVersion": 1,
+  "status": "BLOCKED_NO_COMPLETE_AUTHORITATIVE_APPLICATION_CONTRACT",
+  "dialect": "tidb",
+  "targetDatabase": "osaahdaylightschool",
+  "singleSchoolId": "sch_default_01",
+  "baselineCommit": "c89975d1306d7686adec12c3bbe20e177927570f",
+  "executable": false,
+  "tables": [],
+  "views": [],
+  "constraints": [],
+  "indexes": [],
+  "dependencyOrder": [],
+  "blockers": [
+    "No complete authoritative active TiDB DDL source was recovered for any of the 66 active application tables.",
+    "Production TiDB version and live catalog are unknown; no genuine connection was established.",
+    "Historical SQLite, MySQL-like, TiDB-oriented and PostgreSQL definitions conflict or lack proof of active end-state.",
+    "Column nullability, defaults, key/index state, referential actions, charset/collation, timestamp semantics, and transaction assumptions are not fully verified."
+  ],
+  "policy": "Do not initialize or generate application DDL from inferred, historical, or PostgreSQL-derived definitions."
+}

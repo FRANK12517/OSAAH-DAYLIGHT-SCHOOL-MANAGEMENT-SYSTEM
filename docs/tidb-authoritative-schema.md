@@ -58,6 +58,13 @@ The relationship map contains 400 historical foreign-key candidates and 127 runt
 - Approve incompatible historical definitions only after tracing current writers, readers, test expectations, and data-retention behavior.
 - Verify DDL, indexes, constraints, views, timestamp behavior, JSON, generated-column indexes, and transaction/recovery behavior on the target TiDB release.
 
+## Phase 2C source recovery
+
+- Verified source-review baseline: `c89975d1306d7686adec12c3bbe20e177927570f`.
+- Active runtime application tables assessed: 66; complete authoritative active TiDB definitions: 0; partial evidence records: 66.
+- The executable canonical schema remains empty and fail-closed; no inferred or PostgreSQL-derived definition is promoted.
+- Machine-readable canonical status: `BLOCKED_NO_COMPLETE_AUTHORITATIVE_APPLICATION_CONTRACT`.
+
 ## Migration policy
 
 No new canonical application DDL migration is published from this evidence set. Do not replay historical migrations against an empty TiDB database or use the unresolved inventory as DDL. The next schema version is intentionally unassigned until an approved, complete manifest and its postcondition tests exist.

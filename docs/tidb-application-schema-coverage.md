@@ -2,6 +2,11 @@
 
 > **Status: INCOMPLETE.** This is a source-coverage map, not proof of physical TiDB schema coverage.
 
+## Phase 2C source recovery
+
+- Active runtime tables assessed: 66; authoritative complete TiDB contracts: 0; unresolved tables: 92; unresolved views: 3.
+- Runtime write-column expectations: 129; confirmed physical columns: 0. Complete runtime module contracts: 0.
+
 ## Repository evidence
 
 - Numbered SQL migration files: 82.

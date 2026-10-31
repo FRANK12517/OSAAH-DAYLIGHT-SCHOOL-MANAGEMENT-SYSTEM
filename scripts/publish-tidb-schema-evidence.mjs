@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const manifestPath = resolve(root, 'docs/tidb-schema-requirements-manifest.json');
 const docs = resolve(root, 'docs');
+const sourceEvidence = JSON.parse(await readFile(resolve(docs, 'tidb-schema-source-evidence.json'), 'utf8'));
+const authoritativeSchema = JSON.parse(await readFile(resolve(docs, 'tidb-authoritative-schema.json'), 'utf8'));
 
 function historicalColumnEvidence(table) {
   return (table.historicalColumnCandidates ?? []).map((column) => ({
@@ -80,6 +82,7 @@ function entityInventory(manifest) {
       reconciliation: viewDispositions.get(view.name) ?? null
     })),
     unresolvedSummary: manifest.unresolvedSummary,
+    sourceRecovery: { baselineCommit: sourceEvidence.verifiedBaseline.commit, status: sourceEvidence.status, confidenceLevels: { AUTHORITATIVE: 'AUTHORITATIVE', CORROBORATED: 'CORROBORATED', INFERRED: 'INFERRED', UNKNOWN: 'UNKNOWN' }, counts: sourceEvidence.counts, activeTables: sourceEvidence.activeTables.map(({ name, completeAuthoritativeTiDBDefinition, sources, properties }) => ({ name, completeAuthoritativeTiDBDefinition, sources, properties })), recoveryGeneratedFrom: 'docs/tidb-schema-requirements-manifest.json' },
     rule: 'Evidence records application observations and historical candidates. It does not define executable TiDB DDL.'
   };
 }
@@ -105,6 +108,8 @@ function relationshipMap(manifest) {
     '# TiDB schema relationship map',
     '',
     '> **Status: EVIDENCE ONLY.** Historical foreign-key candidates are not verified relationships. Runtime JOIN evidence proves tables participate in a query, not that a database constraint or delete action is required.',
+    '',
+    `Phase 2C source recovery reviewed ${sourceEvidence.counts.runtimeJoinObservations} runtime JOIN observations and ${sourceEvidence.counts.historicalForeignKeyCandidates} historical FK candidates. Confirmed canonical foreign keys/indexes remain 0.`,
     '',
     `- Historical FK candidate entries: ${fkRows.length}.`,
     '- Confirmed canonical application relationships: 0.',
@@ -145,6 +150,11 @@ function coverageDocument(manifest) {
     '# TiDB application-to-schema coverage',
     '',
     '> **Status: INCOMPLETE.** This is a source-coverage map, not proof of physical TiDB schema coverage.',
+    '',
+    '## Phase 2C source recovery',
+    '',
+    `- Active runtime tables assessed: ${sourceEvidence.counts.activeRuntimeTablesAssessed}; authoritative complete TiDB contracts: ${sourceEvidence.counts.fullAuthoritativeActiveTiDBDefinitions}; unresolved tables: ${sourceEvidence.counts.unresolvedTables}; unresolved views: ${sourceEvidence.counts.unresolvedViews}.`,
+    `- Runtime write-column expectations: ${sourceEvidence.counts.runtimeWriteColumnPairs}; confirmed physical columns: ${sourceEvidence.counts.confirmedPhysicalColumns}. Complete runtime module contracts: ${sourceEvidence.counts.runtimeModulesWithCompleteContracts}.`,
     '',
     '## Repository evidence',
     '',
@@ -237,6 +247,13 @@ function authoritativeSchemaDocument(manifest, inventory, relations) {
     '- Reconcile every active repository query with its current table/column contract, including dynamic SQL and query paths not captured by static extraction.',
     '- Approve incompatible historical definitions only after tracing current writers, readers, test expectations, and data-retention behavior.',
     '- Verify DDL, indexes, constraints, views, timestamp behavior, JSON, generated-column indexes, and transaction/recovery behavior on the target TiDB release.',
+    '',
+    '## Phase 2C source recovery',
+    '',
+    `- Verified source-review baseline: \`${sourceEvidence.verifiedBaseline.commit}\`.`,
+    `- Active runtime application tables assessed: ${sourceEvidence.counts.activeRuntimeTablesAssessed}; complete authoritative active TiDB definitions: ${sourceEvidence.counts.fullAuthoritativeActiveTiDBDefinitions}; partial evidence records: ${sourceEvidence.counts.partiallyRecoveredActiveDefinitions}.`,
+    '- The executable canonical schema remains empty and fail-closed; no inferred or PostgreSQL-derived definition is promoted.',
+    `- Machine-readable canonical status: \`${authoritativeSchema.status}\`.`,
     '',
     '## Migration policy',
     '',

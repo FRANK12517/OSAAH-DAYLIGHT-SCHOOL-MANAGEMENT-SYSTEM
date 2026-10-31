@@ -2,6 +2,8 @@
 
 > **Status: EVIDENCE ONLY.** Historical foreign-key candidates are not verified relationships. Runtime JOIN evidence proves tables participate in a query, not that a database constraint or delete action is required.
 
+Phase 2C source recovery reviewed 127 runtime JOIN observations and 400 historical FK candidates. Confirmed canonical foreign keys/indexes remain 0.
+
 - Historical FK candidate entries: 400.
 - Confirmed canonical application relationships: 0.
 - Confirmed canonical application indexes: 0.
