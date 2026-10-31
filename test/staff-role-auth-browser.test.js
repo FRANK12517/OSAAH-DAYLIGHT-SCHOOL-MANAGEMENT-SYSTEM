@@ -23,7 +23,8 @@ const ROLE_FLOWS = [
   { name: 'assistant-headteacher', roleKey: 'ASSISTANT_HEADTEACHER', route: '/academics', identifier: 'username' },
   { name: 'accountant', roleKey: 'ACCOUNTANT_BURSAR', route: '/fees', identifier: 'username' },
   { name: 'teacher-username', roleKey: 'TEACHER', route: '/academics', identifier: 'username' },
-  { name: 'teacher-email', roleKey: 'TEACHER', route: '/academics', identifier: 'email' }
+  { name: 'teacher-email', roleKey: 'TEACHER', route: '/academics', identifier: 'email' },
+  { name: 'admissions-officer', roleKey: 'ADMISSIONS_OFFICER', route: '/admissions', identifier: 'username' }
 ];
 const ROLE_FILTER = process.env.OSAAH_LOCAL_AUTH_BROWSER_ROLE;
 if (ROLE_FILTER && !ROLE_FLOWS.some((flow) => flow.name === ROLE_FILTER)) throw new Error('OSAAH_LOCAL_AUTH_BROWSER_ROLE must match a named synthetic role flow.');
