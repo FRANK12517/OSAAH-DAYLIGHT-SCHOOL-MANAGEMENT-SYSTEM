@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { createServer, request as httpRequest } from 'node:http';
 import { Readable } from 'node:stream';
 import test from 'node:test';
-import { createAuthService } from '../src/auth.js';
 import { createApp } from '../src/server.js';
 import { createAdmissionDocumentStorage } from '../src/admission-document-storage.js';
 
@@ -13,13 +12,15 @@ test('admission documents upload private bytes, reload metadata, and download on
     async get(pathname, options) { assert.equal(options.access, 'private'); return files.has(pathname) ? { statusCode: 200, stream: Readable.from(files.get(pathname)) } : null; },
     async delete(pathname) { files.delete(pathname); }
   } });
-  const auth = createAuthService();
-  const parent = auth.login({ username: 'parent@example.com', password: 'Parent123!', portal: 'parent' });
-  const teacher = auth.login({ username: 'teacher@osaah.edu.gh', password: 'Teacher123!', portal: 'school' });
+  const actors = {
+    parent: { id: 'test-parent', roleKey: 'PARENT', portal: 'parent', schoolId: 'school-osaah-daylight', permissions: new Set() },
+    teacher: { id: 'test-teacher', roleKey: 'TEACHER', portal: 'school', schoolId: 'school-osaah-daylight', permissions: new Set(['students.read']) }
+  };
+  const auth = { authenticateAsync: async (token) => actors[token] ?? null };
   const server = createServer(createApp({ auth, admissionDocumentStorage: storage }));
   await new Promise((resolve) => server.listen(0, resolve));
   const port = server.address().port;
-  function request(path, { token = parent.token, method = 'GET', body = null, headers = {} } = {}) {
+  function request(path, { token = 'parent', method = 'GET', body = null, headers = {} } = {}) {
     return new Promise((resolve, reject) => {
       const req = httpRequest({ port, path, method, headers: { Authorization: `Bearer ${token}`, ...headers } }, (res) => {
         const chunks = []; res.on('data', (chunk) => chunks.push(chunk)); res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) }));
@@ -44,7 +45,7 @@ test('admission documents upload private bytes, reload metadata, and download on
     const listed = await request(`${path}/documents`);
     assert.equal(listed.status, 200);
     assert.equal(/storageKey|fileReference/.test(listed.body.toString()), false);
-    const denied = await request(`${path}/documents/${document.id}/download`, { token: teacher.token });
+    const denied = await request(`${path}/documents/${document.id}/download`, { token: 'teacher' });
     assert.equal(denied.status, 403);
     const downloaded = await request(`${path}/documents/${document.id}/download`);
     assert.equal(downloaded.status, 200);

@@ -382,8 +382,9 @@ export function createApp({ auth = null, parentSmsAuth = null, students = null, 
       if (!verification.ok) return json(response, verification.body, verification.status);
       const diagnosticContext = { requestPath: '/api/auth/parent/verify-code' };
       const loginResult = typeof auth.loginByPhoneFromDatabase === 'function'
-        ? await auth.loginByPhoneFromDatabase({ phone: verification.identity.phone, portal: 'parent', diagnosticContext })
-        : await auth.loginParentByPhone({ phone: verification.identity.phone, portal: 'parent', diagnosticContext });
+        ? await auth.loginByPhoneFromDatabase({ phone: verification.identity.phone, portal: 'parent', diagnosticContext, verifiedOtp: true })
+        : await auth.loginParentByPhone({ phone: verification.identity.phone, portal: 'parent', diagnosticContext, verifiedOtp: true });
+      if (!loginResult.ok && loginResult.status === 503) return json(response, { error: loginResult.error }, 503);
       if (!loginResult.ok || loginResult.user?.id !== verification.identity.parentUserId) {
         if (loginResult.token) await auth.logoutSession(loginResult.token);
         return json(response, { error: 'The verification code is invalid or expired.' }, 401);
@@ -1448,7 +1449,7 @@ async function login(request, response, auth, audit) {
     const isParentPhoneLogin = body.portal === 'parent' && Object.prototype.hasOwnProperty.call(body, 'phone');
     const credentials = isParentPhoneLogin ? { phone: body.phone, diagnosticContext } : { ...body, diagnosticContext };
     const result = isParentPhoneLogin
-      ? (typeof auth.loginByPhoneFromDatabase === 'function' ? await auth.loginByPhoneFromDatabase(credentials) : auth.loginByPhone(body))
+      ? { ok: false, status: 401, error: 'Unable to sign in. Check the phone number or contact the school.' }
       : (typeof auth.loginFromDatabase === 'function' ? await auth.loginFromDatabase(credentials) : auth.login(body));
     console.info('Authentication login checkpoint', { stage: result.ok ? 'session_created' : 'authentication_rejected', requestId, status: result.status ?? 200, authenticated: Boolean(result.ok) });
     if (!result.ok) return json(response, { error: result.error }, result.status);

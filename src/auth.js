@@ -4,6 +4,7 @@ import { normalizeGhanaPhone } from './ghana-phone.js';
 import { createDurableStaffProvisioning } from './durable-staff-provisioning.js';
 import { createDurableAdministratorCredentialReset } from './durable-administrator-credential-reset.js';
 import { createDurableCredentialManagement, generatedPassword, passwordMeetsPolicy } from './durable-credential-management.js';
+import { tidbInsertIfAbsent } from './tidb-conflict.js';
 
 const SESSION_TTL_MS = 30 * 60 * 1000;
 const RESET_TTL_MS = 15 * 60 * 1000;
@@ -79,7 +80,7 @@ function schoolLoginDiagnostics(error, { requestId, requestPath } = {}) {
     component: 'school_authentication', operation: 'login_lookup', stage: 'user_query_failed',
     category,
     requestId: safeRequestId(requestId) ?? randomUUID(),
-    requestPath: requestPath === '/api/auth/login' ? requestPath : null,
+    requestPath: ['/api/auth/login', '/api/auth/parent/verify-code'].includes(requestPath) ? requestPath : null,
     name: safeDiagnosticIdentifier(error?.name), code: safeDiagnosticCode(error?.code),
     sqlState, severity: safeDiagnosticIdentifier(error?.severity),
     errno: Number.isSafeInteger(error?.errno) ? error.errno : null,
@@ -283,9 +284,10 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     }
     return user;
   }
-  async function loginParentByPhone({ phone, portal = 'parent', diagnosticContext }) {
+  async function loginParentByPhone({ phone, portal = 'parent', diagnosticContext, verifiedOtp = false }) {
     const normalized = normalizeGhanaPhone(phone);
     if (portal !== 'parent') return { ok: false, status: 401, error: PARENT_GENERIC_LOGIN_ERROR };
+    if (verifiedOtp !== true) return { ok: false, status: 401, error: PARENT_GENERIC_LOGIN_ERROR };
     if (!normalized) return { ok: false, status: 400, error: 'Enter a valid Ghanaian phone number.' };
     const parentAuthRequirements = {
       queryAvailable: typeof database?.query === 'function',
@@ -298,7 +300,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
       console.error('Parent authentication unavailable', {
         component: 'parent_authentication', operation: 'preflight', category: 'AUTH_REQUIREMENT_UNAVAILABLE',
         requestId: safeRequestId(diagnosticContext?.requestId),
-        requestPath: diagnosticContext?.requestPath === '/api/auth/login' ? diagnosticContext.requestPath : null,
+        requestPath: ['/api/auth/login', '/api/auth/parent/verify-code'].includes(diagnosticContext?.requestPath) ? diagnosticContext.requestPath : null,
         ...parentAuthRequirements
       });
       return { ok: false, status: 503, error: 'Authentication service unavailable.' };
@@ -306,11 +308,10 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     let rows = [], rateLimited = false;
     try {
       await database.transaction(async (tx) => {
-        if (!['tidb', 'postgres'].includes(database.dialect)) throw new Error('Parent login requires a supported transactional database dialect.');
+        if (database.dialect !== 'tidb') throw new Error('Parent login requires TiDB.');
         const bucketHash = createHmac('sha256', signingKey).update(`parent-phone-login\0${normalized}`).digest('hex');
         const timestamp = new Date(now()).toISOString();
-        if (database.dialect === 'tidb') await tx.execute('INSERT IGNORE INTO parent_auth_rate_limits (bucket_hash,window_started_at,request_count,updated_at) VALUES (?,?,0,?)', [bucketHash, timestamp, timestamp]);
-        else await tx.execute('INSERT INTO parent_auth_rate_limits (bucket_hash,window_started_at,request_count,updated_at) VALUES (?,?,0,?) ON CONFLICT (bucket_hash) DO NOTHING', [bucketHash, timestamp, timestamp]);
+        await tidbInsertIfAbsent(tx, { insertSql:'INSERT INTO parent_auth_rate_limits (bucket_hash,window_started_at,request_count,updated_at) VALUES (?,?,0,?)', insertParameters:[bucketHash,timestamp,timestamp], conflictSql:'SELECT bucket_hash FROM parent_auth_rate_limits WHERE bucket_hash=?', conflictParameters:[bucketHash] });
         const limits = await tx.query('SELECT window_started_at AS windowStartedAt,request_count AS requestCount FROM parent_auth_rate_limits WHERE bucket_hash=? FOR UPDATE', [bucketHash]);
         if (!Array.isArray(limits) || limits.length !== 1) throw new Error('Parent login rate-limit row unavailable.');
         const limitRow = limits[0];
@@ -357,7 +358,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
       console.error('Parent authentication session creation failed', {
         component: 'parent_authentication', operation: 'session_create', category: 'SESSION_PERSISTENCE_FAILED',
         requestId: safeRequestId(diagnosticContext?.requestId),
-        requestPath: diagnosticContext?.requestPath === '/api/auth/login' ? diagnosticContext.requestPath : null,
+        requestPath: ['/api/auth/login', '/api/auth/parent/verify-code'].includes(diagnosticContext?.requestPath) ? diagnosticContext.requestPath : null,
         errorType: safeDiagnosticIdentifier(error?.name) ?? 'Error',
         code: safeDiagnosticCode(error?.code),
         stack: safeAuthenticationStack(error?.stack)
@@ -375,7 +376,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     try {
       console.info('Authentication login checkpoint', {
         stage: 'user_query_before', requestId: safeRequestId(diagnosticContext?.requestId) ?? null,
-        requestPath: diagnosticContext?.requestPath === '/api/auth/login' ? diagnosticContext.requestPath : null
+        requestPath: ['/api/auth/login', '/api/auth/parent/verify-code'].includes(diagnosticContext?.requestPath) ? diagnosticContext.requestPath : null
       });
       rows = await database.query(`SELECT u.id,u.school_id AS schoolId,COALESCE(u.username,u.email) AS username,u.email,u.password_hash AS passwordHash,u.status,r.role_key AS roleKey,r.oversight_rank AS oversightRank,p.permission_key AS permissionKey
         FROM users u
@@ -386,7 +387,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
         WHERE LOWER(COALESCE(u.username,''))=? OR LOWER(COALESCE(u.email,''))=? ORDER BY COALESCE(r.oversight_rank,0) DESC,r.role_key,p.permission_key`, [key, key]);
       console.info('Authentication login checkpoint', {
         stage: 'user_query_after', requestId: safeRequestId(diagnosticContext?.requestId) ?? null,
-        requestPath: diagnosticContext?.requestPath === '/api/auth/login' ? diagnosticContext.requestPath : null,
+        requestPath: ['/api/auth/login', '/api/auth/parent/verify-code'].includes(diagnosticContext?.requestPath) ? diagnosticContext.requestPath : null,
         rowsReturned: Array.isArray(rows) ? rows.length : 0
       });
     } catch (error) {
@@ -434,7 +435,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
         console.error('School password verification failed', {
           component: 'school_authentication', operation: 'password_verify', category: 'PASSWORD_HASH_INVALID',
           requestId: safeRequestId(diagnosticContext?.requestId) ?? null,
-          requestPath: diagnosticContext?.requestPath === '/api/auth/login' ? diagnosticContext.requestPath : null,
+          requestPath: ['/api/auth/login', '/api/auth/parent/verify-code'].includes(diagnosticContext?.requestPath) ? diagnosticContext.requestPath : null,
           errorType: safeDiagnosticIdentifier(error?.name) ?? 'Error'
         });
       }
@@ -448,7 +449,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
       console.info('School login rejected', {
         component: 'school_authentication', operation: 'login_validation', category: identity ? 'ROLE_MISMATCH' : 'USER_NOT_FOUND',
         requestId: safeRequestId(diagnosticContext?.requestId) ?? null,
-        requestPath: diagnosticContext?.requestPath === '/api/auth/login' ? diagnosticContext.requestPath : null,
+        requestPath: ['/api/auth/login', '/api/auth/parent/verify-code'].includes(diagnosticContext?.requestPath) ? diagnosticContext.requestPath : null,
         accountFound: Boolean(identity), requestedRole: canonicalRoleKey(role), availableRoles: selected.availableRoles
       });
       return { ok: false, status: 401, error: 'The selected role does not match this account.' };
@@ -458,7 +459,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
       console.info('School login rejected', {
         component: 'school_authentication', operation: 'login_validation', category,
         requestId: safeRequestId(diagnosticContext?.requestId) ?? null,
-        requestPath: diagnosticContext?.requestPath === '/api/auth/login' ? diagnosticContext.requestPath : null,
+        requestPath: ['/api/auth/login', '/api/auth/parent/verify-code'].includes(diagnosticContext?.requestPath) ? diagnosticContext.requestPath : null,
         accountFound: Boolean(identity), accountActive: Boolean(active), roleAssigned: Boolean(roleKey), requestedRole: role ? canonicalRoleKey(role) : null,
         availableRoles: selected.availableRoles
       });
@@ -518,10 +519,10 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     if (!row) {
       if (sessionDiagnostics && context) {
         try {
-          const diagnosticRows = await database.query(`SELECT s.expires_at AS expiresAt,s.revoked_at AS revokedAt,u.status AS accountStatus FROM auth_sessions s LEFT JOIN users u ON u.id=s.user_id WHERE s.token_hash=? LIMIT 1`, [tokenHash(token)]);
+          const diagnosticRows = await database.query(`SELECT s.expires_at AS expiresAt,s.revoked_at AS revokedAt,u.status AS accountStatus,CASE WHEN u.id IS NULL THEN 0 ELSE 1 END AS identityFound,CASE WHEN u.status='ACTIVE' THEN 1 ELSE 0 END AS restoreStatusAccepted FROM auth_sessions s LEFT JOIN users u ON u.id=s.user_id WHERE s.token_hash=? LIMIT 1`, [tokenHash(token)]);
           const diagnosticRow = diagnosticRows?.[0];
           const expiry = diagnosticRow ? Date.parse(diagnosticRow.expiresAt) : NaN;
-          sessionDiagnostic(context, 'session_record_classification', { recordFound: Boolean(diagnosticRow), revoked: Boolean(diagnosticRow?.revokedAt), expired: Number.isFinite(expiry) ? expiry <= now() : null, identityFound: Boolean(diagnosticRow && diagnosticRow.accountStatus != null), accountActive: diagnosticRow ? String(diagnosticRow.accountStatus ?? 'ACTIVE').toUpperCase() === 'ACTIVE' : null });
+          sessionDiagnostic(context, 'session_record_classification', { classificationQueryExecuted: true, recordFound: Boolean(diagnosticRow), revoked: Boolean(diagnosticRow?.revokedAt), expired: Number.isFinite(expiry) ? expiry <= now() : null, identityFound: Boolean(Number(diagnosticRow?.identityFound)), accountActive: diagnosticRow ? String(diagnosticRow.accountStatus ?? 'ACTIVE').toUpperCase() === 'ACTIVE' : null, restoreStatusAccepted: Boolean(Number(diagnosticRow?.restoreStatusAccepted)) });
         } catch (error) {
           sessionDiagnostic(context, 'session_record_classification', { querySucceeded: false, errorType: safeDiagnosticIdentifier(error?.name) ?? 'Error', errorCode: safeDiagnosticCode(error?.code) });
         }

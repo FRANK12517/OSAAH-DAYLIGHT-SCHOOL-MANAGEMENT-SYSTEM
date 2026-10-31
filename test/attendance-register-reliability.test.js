@@ -149,7 +149,9 @@ function databaseStub({ periodFailure = false, emptyRoster = false, fixtureStore
 test('HTTP register uses the durable active enrollment roster and returns a consistent JSON response', async (t) => {
   const reporter = makeUser('register-reader');
   const auth = createAuthService({ users: [reporter], sessionSecret: SECRET });
-  const database = databaseStub();
+  const fixtureStore = new Map();
+  const database = databaseStub({ fixtureStore });
+  database.dialect = 'tidb';
   const schoolSettings = { async read() { return { settings: [] }; } };
   const students = createStudentService({ schoolId: reporter.schoolId });
   const app = createApp({ auth, database, schoolSettings, students, aiEnabled: false });
@@ -253,7 +255,9 @@ test('malformed and oversized attendance request bodies return controlled JSON e
 test('HTTP Sample / Test saves use isolated fixtures and do not insert official attendance records', async (t) => {
   const reporter = makeUser('register-sample-writer');
   const auth = createAuthService({ users: [reporter], sessionSecret: SECRET });
-  const database = databaseStub();
+  const fixtureStore = new Map();
+  const database = databaseStub({ fixtureStore });
+  database.dialect = 'tidb';
   const students = createStudentService({ schoolId: reporter.schoolId });
   students.seedSampleStudents();
   const sample = students.listStudents({ requestedSchoolId: reporter.schoolId, includeTestRecords: true }).find((student) => student.isTestRecord);

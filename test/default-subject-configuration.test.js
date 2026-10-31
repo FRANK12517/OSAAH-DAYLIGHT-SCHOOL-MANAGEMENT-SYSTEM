@@ -32,6 +32,7 @@ function fakeDatabase({ historyMutation = null, historySeed = {} } = {}) {
   const calls = [];
   const className = (id) => classes.find((row) => row.id === id)?.name;
   const db = {
+    dialect: 'tidb',
     subjects, assignments, nurseryBefore, calls, history, transactionStats,
     async query(sql, p = []) {
       calls.push({ sql, params: p });
@@ -211,10 +212,11 @@ test('score, result, and published-result history mutations fail and roll back c
 test('durable default synchronization commits transactionally and rejects duplicate subjects before writing', async () => {
   const backing = fakeDatabase(); let committed = 0; let rolledBack = 0;
   const database = {
+    dialect: backing.dialect,
     query: (...args) => backing.query(...args),
     execute: (...args) => backing.execute(...args),
     async transaction(callback) {
-      try { const result = await callback({ query: (...args) => backing.query(...args), execute: (...args) => backing.execute(...args) }); committed += 1; return result; }
+      try { const result = await callback({ dialect: backing.dialect, query: (...args) => backing.query(...args), execute: (...args) => backing.execute(...args) }); committed += 1; return result; }
       catch (error) { rolledBack += 1; throw error; }
     }
   };
@@ -227,10 +229,11 @@ test('durable default synchronization commits transactionally and rejects duplic
   const beforeSubjects = backing.subjects.length;
   const beforeAssignments = backing.assignments.length;
   const duplicateDatabase = {
+    dialect: backing.dialect,
     query: (...args) => backing.query(...args),
     execute: (...args) => backing.execute(...args),
     async transaction(callback) {
-      try { return await callback({ query: async (sql, params = []) => sql.includes('GROUP BY LOWER(name)') ? [{ normalizedName: 'english language', recordCount: 2 }] : backing.query(sql, params), execute: (...args) => backing.execute(...args) }); }
+      try { return await callback({ dialect: backing.dialect, query: async (sql, params = []) => sql.includes('GROUP BY LOWER(name)') ? [{ normalizedName: 'english language', recordCount: 2 }] : backing.query(sql, params), execute: (...args) => backing.execute(...args) }); }
       catch (error) { rolledBack += 1; throw error; }
     }
   };

@@ -1,3 +1,5 @@
+import { tidbInsertOrUpdate } from './tidb-conflict.js';
+
 const PROFILE_FIELDS = Object.freeze({
   name: ['name'],
   motto: ['motto'],
@@ -133,7 +135,12 @@ export function createSchoolSettingsService({ database = null, schoolProfile = n
         const submittedInformation = settingUpdates.schoolInformation && typeof settingUpdates.schoolInformation === 'object' && !Array.isArray(settingUpdates.schoolInformation) ? settingUpdates.schoolInformation : {};
         settingUpdates.schoolInformation = { ...existingInformation, ...submittedInformation, ...profileUpdates };
       }
-      for (const [key, value] of Object.entries(settingUpdates)) await db.execute('INSERT INTO system_settings (id,school_id,setting_key,setting_value,value_type,is_sensitive,created_at,updated_at) VALUES (?,?,?,?,?,FALSE,?,?) ON CONFLICT (school_id,setting_key) DO UPDATE SET setting_value=EXCLUDED.setting_value,value_type=EXCLUDED.value_type,updated_at=EXCLUDED.updated_at', [`setting-${schoolId}-${key}`, schoolId, key, typeof value === 'string' ? value : JSON.stringify(value), typeof value, now(), now()]);
+      for (const [key, value] of Object.entries(settingUpdates)) {
+        const encoded = typeof value === 'string' ? value : JSON.stringify(value), timestamp = now();
+        const values = [`setting-${schoolId}-${key}`, schoolId, key, encoded, typeof value, timestamp, timestamp];
+        if (db.dialect === 'tidb') await tidbInsertOrUpdate(db, { insertSql:'INSERT INTO system_settings (id,school_id,setting_key,setting_value,value_type,is_sensitive,created_at,updated_at) VALUES (?,?,?,?,?,FALSE,?,?)', insertParameters:values, conflictSql:'SELECT id FROM system_settings WHERE school_id=? AND setting_key=?', conflictParameters:[schoolId,key], updateSql:'UPDATE system_settings SET setting_value=?,value_type=?,updated_at=? WHERE school_id=? AND setting_key=?', updateParameters:[encoded,typeof value,timestamp,schoolId,key] });
+        else await db.execute('INSERT INTO system_settings (id,school_id,setting_key,setting_value,value_type,is_sensitive,created_at,updated_at) VALUES (?,?,?,?,?,FALSE,?,?)', values);
+      }
     };
     if (database.transaction) await database.transaction(executeAll); else await executeAll(database);
     return read(actor);

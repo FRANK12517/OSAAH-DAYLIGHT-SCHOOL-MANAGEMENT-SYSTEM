@@ -18,7 +18,7 @@ function request(server, path, { method = 'GET', token } = {}) {
 
 test('Staff Management API requires authentication and staff.manage permission, and blocks self-lockout', async () => {
   const auth = createAuthService();
-  const proprietor = auth.login({ username: 'proprietor@osaah.edu.gh', password: 'Proprietor123!', portal: 'school' });
+  const proprietor = auth.login({ username: 'proprietor@osaah.edu.gh', password: 'Synthetic-Proprietor-Test-Only-2026!', portal: 'school' });
   const created = auth.createAdministrator({ fullName: 'Controlled Administrator', staffId: 'ADMIN-CONTROLLED' }, proprietor.user);
   const administrator = auth.login({ username: created.administrator.username, password: created.temporaryPassword, portal: 'school' });
   const teacher = auth.login({ username: 'teacher@osaah.edu.gh', password: 'Teacher123!', portal: 'school' });

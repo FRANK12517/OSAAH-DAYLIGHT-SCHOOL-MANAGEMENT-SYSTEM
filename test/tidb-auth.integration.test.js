@@ -116,10 +116,16 @@ test('approved isolated TiDB authentication integration: staff roles, Parent pho
     const unauthenticatedChildren = await request(server, '/api/parent/children');
     assert.equal(unauthenticatedChildren.status, 401);
 
-    const parentLogin = await request(server, '/api/auth/login', {
-      method: 'POST', body: { portal: 'parent', phone: environment.OSAAH_TIDB_TEST_PARENT_PHONE }
+    const codeRequest = await request(server, '/api/auth/parent/request-code', {
+      method: 'POST', body: { phone: environment.OSAAH_TIDB_TEST_PARENT_PHONE }
     });
-    assert.equal(parentLogin.status, 200, 'The pre-provisioned phone-only Parent test account must authenticate.');
+    assert.equal(codeRequest.status, 202, 'The pre-provisioned Parent OTP request must use the configured provider.');
+    const deliveredCode = typeof process.env.OSAAH_TIDB_TEST_PARENT_OTP_CODE === 'string' ? process.env.OSAAH_TIDB_TEST_PARENT_OTP_CODE : '';
+    assert.match(deliveredCode, /^\d{6}$/, 'Supply the disposable test account OTP through the approved secure environment.');
+    const parentLogin = await request(server, '/api/auth/parent/verify-code', {
+      method: 'POST', body: { phone: environment.OSAAH_TIDB_TEST_PARENT_PHONE, challengeId: safeJson(codeRequest).challengeId, code: deliveredCode }
+    });
+    assert.equal(parentLogin.status, 200, 'The pre-provisioned Parent test account must verify its OTP.');
     const parentBody = safeJson(parentLogin);
     assert.equal(parentBody.user.roleKey, 'PARENT');
     assert.equal(parentBody.redirectTo, '/');

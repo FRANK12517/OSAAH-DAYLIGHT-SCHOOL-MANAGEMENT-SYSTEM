@@ -93,7 +93,7 @@ test('Part 3 uses the existing School Portal route, preserves sessions, applies 
 
 test('Part 3 preserves Proprietor login and canonical dashboard routing', async () => {
   const auth = createAuthService();
-  const result = auth.login({ username: 'proprietor@osaah.edu.gh', password: 'Proprietor123!', portal: 'school' });
+  const result = auth.login({ username: 'proprietor@osaah.edu.gh', password: 'Synthetic-Proprietor-Test-Only-2026!', portal: 'school' });
   assert.equal(result.ok, true);
   assert.equal(result.user.roleKey, 'PROPRIETOR');
   assert.equal(result.redirectTo, '/reports');

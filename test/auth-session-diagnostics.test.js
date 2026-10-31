@@ -37,7 +37,7 @@ async function makeDatabase({ restoreRows = null, classificationRow = null } = {
       return { affectedRows: 1 };
     },
     async query(sql, params) {
-      if (sql.includes('LOWER(COALESCE(u.username,u.email')) return [{ id: USER_ID, schoolId: SCHOOL_ID, username: 'proprietor@example.invalid', email: 'proprietor@example.invalid', passwordHash, status: 'ACTIVE', roleKey: 'PROPRIETOR', oversightRank: 100, permissionKey: '*' }];
+      if (sql.includes('LOWER(COALESCE(u.username')) return [{ id: USER_ID, schoolId: SCHOOL_ID, username: 'proprietor@example.invalid', email: 'proprietor@example.invalid', passwordHash, status: 'ACTIVE', roleKey: 'PROPRIETOR', oversightRank: 100, permissionKey: '*' }];
       if (sql.includes('CASE WHEN u.id IS NULL')) { classificationLookups.push({ sql, params }); return classificationRow ? [{ ...classificationRow }] : []; }
       if (sql.includes('FROM auth_sessions s JOIN users u')) return typeof restoreRows === 'function' ? restoreRows(params, savedSessions) : restoreRows ?? [];
       throw new Error(`Unexpected diagnostic test query: ${sql.slice(0, 40)}`);

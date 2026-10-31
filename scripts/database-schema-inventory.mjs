@@ -6,7 +6,24 @@ const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const schemaDirectory = resolve(root, 'schema');
 const sourceDirectory = resolve(root, 'src');
 const outputFile = resolve(root, 'docs/database-schema-inventory.md');
+const registryFile = resolve(root, 'docs/tidb-migration-registry.md');
 const migrationFiles = (await readdir(schemaDirectory)).filter((name) => /^\d+_.*\.sql$/i.test(name)).sort();
+
+function removeComments(sql) {
+  return sql.replace(/--[^\r\n]*/g, ' ').replace(/\/\*[\s\S]*?\*\//g, ' ');
+}
+
+function classifyMigration(name, sql) {
+  const clean = removeComments(sql).toUpperCase();
+  const reasons = [];
+  if (/\bPRAGMA\b|\bINSERT\s+OR\s+IGNORE\b|\|\|/.test(clean) || /\bTEXT\s+PRIMARY\s+KEY\b/.test(clean)) reasons.push('SQLite syntax');
+  if (/\bON\s+CONFLICT\b|\bJSONB\b|\bSERIAL\b|\bRETURNING\b/.test(clean)) reasons.push('PostgreSQL syntax');
+  if (/\bAUTO_INCREMENT\b|\bENGINE\s*=\s*INNODB\b|\bENUM\s*\(/.test(clean)) reasons.push('MySQL/TiDB syntax');
+  if (/^\d{8}_/.test(name)) reasons.push('dated external migration');
+  if (/\bCREATE\s+TABLE\b|\bALTER\s+TABLE\b|\bCREATE\s+(?:UNIQUE\s+)?INDEX\b/.test(clean) && !reasons.some((reason) => ['SQLite syntax','PostgreSQL syntax'].includes(reason))) reasons.push('MySQL-compatible DDL (TiDB version not live-verified)');
+  if (!reasons.length) reasons.push('unclassified SQL');
+  return reasons.join('; ');
+}
 
 function splitTopLevel(value) {
   const items = [];
@@ -56,14 +73,14 @@ function getTable(name) {
   return tables.get(name);
 }
 function addIndex(table, name, columns, { unique = false, primary = false } = {}) {
-  const cleanColumns = columns.split(',').map((item) => item.trim().replace(/^`|`$/g, '').replace(/\s+.*$/, '')).filter(Boolean);
+  const cleanColumns = splitTopLevel(columns).map((item) => item.trim().replace(/^`|`$/g, '').replace(/\s+(ASC|DESC)\b.*$/i, '').replace(/\(\d+\)$/, '')).filter(Boolean);
   if (primary) table.primaryKeys = cleanColumns;
   else if (unique) table.uniqueConstraints.push(`${name ?? 'UNIQUE'}(${cleanColumns.join(', ')})`);
   else if (name) table.indexes.set(name, cleanColumns);
 }
 
 for (const file of migrationFiles) {
-  const sql = await readFile(resolve(schemaDirectory, file), 'utf8');
+  const sql = removeComments(await readFile(resolve(schemaDirectory, file), 'utf8'));
   for (const { name, body } of createBlocks(sql)) {
     const table = getTable(name); table.migrations.add(file);
     for (const item of splitTopLevel(body)) {
@@ -71,7 +88,7 @@ for (const file of migrationFiles) {
       if ((match = item.match(/^PRIMARY\s+KEY\s*\(([^)]+)\)/i))) { addIndex(table, 'PRIMARY', match[1], { primary: true }); continue; }
       if ((match = item.match(/^(?:CONSTRAINT\s+`?([\w]+)`?\s+)?UNIQUE(?:\s+(?:KEY|INDEX)\s+`?([\w]+)`?)?\s*\(([^)]+)\)/i))) { addIndex(table, match[2] ?? match[1], match[3], { unique: true }); continue; }
       if ((match = item.match(/^(?:CONSTRAINT\s+`?([\w]+)`?\s+)?(?:KEY|INDEX)\s+`?([\w]+)`?\s*\(([^)]+)\)/i))) { addIndex(table, match[2] ?? match[1], match[3]); continue; }
-      if ((match = item.match(/^(?:CONSTRAINT\s+`?([\w]+)`?\s+)?FOREIGN\s+KEY\s*\(([^)]+)\)\s+REFERENCES\s+`?([\w]+)`?\s*\(([^)]+)\)/i))) { table.foreignKeys.push(`${match[2]} → ${match[3]}(${match[4]})`); continue; }
+      if ((match = item.match(/^(?:CONSTRAINT\s+`?([\w]+)`?\s+)?FOREIGN\s+KEY\s*\(([^)]+)\)\s+REFERENCES\s+`?([\w]+)`?\s*\(([^)]+)\)/i))) { table.foreignKeys.push(`${match[1] ? `${match[1]}: ` : ''}${match[2]} → ${match[3]}(${match[4]})`); continue; }
       if ((match = item.match(/^`?([\w]+)`?\s+([A-Za-z]+(?:\s*\([^)]*\))?)/))) {
         const column = match[1], type = match[2].replace(/\s+/g, ' ').trim();
         table.columns.set(column, type);
@@ -85,10 +102,13 @@ for (const file of migrationFiles) {
   for (const match of sql.matchAll(/ALTER\s+TABLE\s+`?([\w]+)`?\s+ADD\s+(?:COLUMN\s+)?(?:IF\s+NOT\s+EXISTS\s+)?`?([\w]+)`?\s+([A-Za-z]+(?:\s*\([^)]*\))?)/ig)) {
     const table = getTable(match[1]); table.migrations.add(file); table.columns.set(match[2], match[3].replace(/\s+/g, ' ').trim());
   }
+  for (const match of sql.matchAll(/ALTER\s+TABLE\s+`?([\w]+)`?\s+ADD\s+(?:CONSTRAINT\s+`?([\w]+)`?\s+)?FOREIGN\s+KEY\s*\(([^)]+)\)\s+REFERENCES\s+`?([\w]+)`?\s*\(([^)]+)\)/ig)) {
+    const table = getTable(match[1]); table.migrations.add(file); table.foreignKeys.push(`${match[2] ? `${match[2]}: ` : ''}${match[3]} → ${match[4]}(${match[5]})`);
+  }
   for (const match of sql.matchAll(/CREATE\s+(UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?`?([\w]+)`?\s+ON\s+`?([\w]+)`?\s*\(([^)]+)\)/ig)) {
     const table = getTable(match[3]); table.migrations.add(file);
-    if (match[1]) table.uniqueConstraints.push(`${match[2]}(${match[4]})`);
-    else table.indexes.set(match[2], match[4].split(',').map((column) => column.trim().replace(/^`|`$/g, '')));
+    if (match[1]) table.uniqueConstraints.push(`${match[2]}(${splitTopLevel(match[4]).join(', ')})`);
+    else table.indexes.set(match[2], splitTopLevel(match[4]).map((column) => column.trim().replace(/^`|`$/g, '')));
   }
   for (const match of sql.matchAll(/ALTER\s+TABLE\s+`?([\w]+)`?\s+ADD\s+(?:UNIQUE\s+)?(?:KEY|INDEX)\s+`?([\w]+)`?\s*\(([^)]+)\)/ig)) {
     const table = getTable(match[1]); table.migrations.add(file);
@@ -133,4 +153,12 @@ for (const table of rows) {
 }
 lines.push('', '## Migration files', '', ...migrationFiles.map((file) => `- \`${file}\``), '');
 await writeFile(outputFile, `${lines.join('\n')}\n`, 'utf8');
-process.stdout.write(`Wrote ${relative(root, outputFile)} with ${rows.length} tables from ${migrationFiles.length} migrations.\n`);
+const registry = ['# TiDB migration registry','',`Repository directory: \`schema/\` (${migrationFiles.length} numbered migrations). This registry classifies observed SQL syntax only; it does not imply a migration is active, applied, or safe for TiDB Cloud. Historical files are retained. See [migration audit](tidb-migration-audit.md) and [runbook](tidb-migration-runbook.md).`,'','| Migration | Observed dialect evidence | DDL objects | Runtime required | TiDB execution status | Unresolved dependency |','|---|---|---|---|---|---|'];
+for (const file of migrationFiles) {
+  const sql = removeComments(await readFile(resolve(schemaDirectory,file),'utf8'));
+  const objects = [...new Set([...sql.matchAll(/(?:CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?|ALTER\s+TABLE\s+|CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?\w+\s+ON\s+)(`?\w+`?)/ig)].map((m)=>m[1].replaceAll('`','')))].join(', ') || '—';
+  registry.push(`| \`${file}\` | ${classifyMigration(file,sql)} | ${cell(objects)} | Unknown; live query inventory needed | Not verified on live TiDB | Baseline/reconciliation and predecessors require review |`);
+}
+registry.push('', '## Classification policy', '', '- SQLite markers and PostgreSQL markers are evidence of incompatibility with direct TiDB replay.', '- MySQL-compatible syntax is not sufficient proof of TiDB compatibility; server version, data-dependent preconditions, and actual schema state still matter.', '- Migration order follows numeric filename versions. Missing numbers are not assumed to be errors.', '- Supabase migration files live separately under `supabase/migrations/` and are historical/non-runtime for the TiDB deployment; they are not executed by this registry.', '');
+await writeFile(registryFile,`${registry.join('\n')}\n`,'utf8');
+process.stdout.write(`Wrote ${relative(root, outputFile)} with ${rows.length} tables and ${relative(root,registryFile)} with ${migrationFiles.length} classified migrations.\n`);

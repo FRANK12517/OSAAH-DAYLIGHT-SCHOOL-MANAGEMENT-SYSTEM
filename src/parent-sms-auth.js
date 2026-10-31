@@ -1,5 +1,6 @@
 import { createHash, createHmac, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
 import { normalizeGhanaPhone } from './ghana-phone.js';
+import { tidbInsertIfAbsent } from './tidb-conflict.js';
 
 const PURPOSE = 'PARENT_LOGIN';
 const SCHOOL_ID = 'sch_default_01';
@@ -35,9 +36,7 @@ export function createParentSmsAuthService({ database, gateway, schoolId = SCHOO
   const configured = Boolean(database?.dialect === 'tidb' && database?.query && database?.execute && database?.transaction && database?.supportsDurableAuthSessions && gateway?.configured && typeof gateway.send === 'function' && secret.length >= 32 && schoolId === SCHOOL_ID);
   const nowIso = () => timestamp(clock());
   const makeBucketId = (scope, value) => createHash('sha256').update(`${scope}\0${value}`).digest('hex');
-  const upsertBucket = async (tx, id, now) => {
-    await tx.execute('INSERT IGNORE INTO parent_auth_rate_limits (bucket_hash,window_started_at,request_count,updated_at) VALUES (?,?,0,?)', [id, now, now]);
-  };
+  const upsertBucket = async (tx, id, now) => tidbInsertIfAbsent(tx, { insertSql: 'INSERT INTO parent_auth_rate_limits (bucket_hash,window_started_at,request_count,updated_at) VALUES (?,?,0,?)', insertParameters: [id, now, now], conflictSql: 'SELECT bucket_hash FROM parent_auth_rate_limits WHERE bucket_hash=?', conflictParameters: [id] });
   async function takeRateLimits(tx, buckets, nowMs) {
     const now = timestamp(nowMs);
     for (const bucket of buckets) await upsertBucket(tx, bucket.id, now);

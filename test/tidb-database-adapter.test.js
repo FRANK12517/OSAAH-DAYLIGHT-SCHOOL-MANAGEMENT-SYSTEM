@@ -68,7 +68,7 @@ test('TiDB database URL supplies connection fields when component variables are 
 
 test('TiDB database adapter exposes the durable persistence contract', async () => {
   const adapter = createDatabaseAdapter({ environment: { DATABASE_URL: 'mysql://user:password@example.test:4000/osaahdaylightschool' } });
-  assert.deepEqual(Object.keys(adapter).sort(), ['acquireLock', 'close', 'dialect', 'ensureMetadata', 'execute', 'healthCheck', 'listApplied', 'listBaselines', 'query', 'recordApplied', 'recordBaseline', 'releaseLock', 'supportsDurableAuthSessions', 'transaction', 'verifyReadiness']);
+  assert.deepEqual(Object.keys(adapter).sort(), ['acquireLock', 'close', 'completeMigration', 'dialect', 'ensureMetadata', 'execute', 'failActiveMigration', 'healthCheck', 'listApplied', 'listBaselines', 'listMigrationRuns', 'query', 'recordApplied', 'recordBaseline', 'releaseLock', 'startMigration', 'supportsDurableAuthSessions', 'transaction', 'verifyReadiness']);
   assert.equal(adapter.dialect, 'tidb');
   assert.equal(adapter.supportsDurableAuthSessions, true);
   assert.equal(typeof adapter.query, 'function');

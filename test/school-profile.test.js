@@ -24,7 +24,7 @@ function requestPage(server, path, token) {
 
 test('School Profile uses the canonical OSAAH record, shows real metrics, and persists edits', async (t) => {
   const auth = createAuthService();
-  const proprietor = auth.login({ username: 'proprietor@osaah.edu.gh', password: 'Proprietor123!', portal: 'school', role: 'PROPRIETOR' });
+  const proprietor = auth.login({ username: 'proprietor@osaah.edu.gh', password: 'Synthetic-Proprietor-Test-Only-2026!', portal: 'school', role: 'PROPRIETOR' });
   assert.equal(proprietor.ok, true);
   const server = createServer(createApp({ auth })); await new Promise((resolve) => server.listen(0, resolve)); t.after(() => new Promise((resolve) => server.close(resolve)));
   const profilePage = await readFile(new URL('../public/school-profile.html', import.meta.url), 'utf8');
@@ -45,7 +45,7 @@ test('School Profile uses the canonical OSAAH record, shows real metrics, and pe
 test('School Profile denies unauthorized users and keeps one canonical school context', async (t) => {
   const auth = createAuthService();
   const teacher = auth.login({ username: 'teacher@osaah.edu.gh', password: 'Teacher123!', portal: 'school', role: 'TEACHER' });
-  const proprietor = auth.login({ username: 'proprietor@osaah.edu.gh', password: 'Proprietor123!', portal: 'school', role: 'PROPRIETOR' });
+  const proprietor = auth.login({ username: 'proprietor@osaah.edu.gh', password: 'Synthetic-Proprietor-Test-Only-2026!', portal: 'school', role: 'PROPRIETOR' });
   const server = createServer(createApp({ auth })); await new Promise((resolve) => server.listen(0, resolve)); t.after(() => new Promise((resolve) => server.close(resolve)));
   assert.equal((await request(server, '/api/school-profile', teacher.token)).status, 403);
   assert.equal((await request(server, '/api/school-profile', teacher.token, 'PATCH', { schoolInformation: { motto: 'Nope' } })).status, 403);
@@ -54,7 +54,7 @@ test('School Profile denies unauthorized users and keeps one canonical school co
 
 test('School Profile exposes safe canonical leadership records and Administrator access', async (t) => {
   const auth = createAuthService();
-  const proprietor = auth.login({ username: 'proprietor@osaah.edu.gh', password: 'Proprietor123!', portal: 'school', role: 'PROPRIETOR' });
+  const proprietor = auth.login({ username: 'proprietor@osaah.edu.gh', password: 'Synthetic-Proprietor-Test-Only-2026!', portal: 'school', role: 'PROPRIETOR' });
   const created = auth.createAdministrator({ fullName: 'Ama Administrator', staffId: 'STAFF-ADMIN-PROFILE', email: 'ama.admin@example.test', phone: '0240000000' }, proprietor.user);
   const admin = auth.login({ username: created.temporaryPassword ? created.administrator.username : '', password: created.temporaryPassword, portal: 'school', role: 'SCHOOL_ADMIN' });
   assert.equal(admin.ok, true);

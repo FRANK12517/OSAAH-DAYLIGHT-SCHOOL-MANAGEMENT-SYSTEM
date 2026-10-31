@@ -87,7 +87,7 @@ test('accepted admission atomically creates the master, profile, enrollment and 
   assert.equal(first.student.permanentStudentId, 'OSAAH/2026/001');
   assert.equal(state.students.length, 1);
   assert.equal(state.students[0].is_test_record, false);
-  assert.ok(state.calls.some(([kind, sql]) => kind === 'execute' && sql.includes('ON CONFLICT (admission_year) DO UPDATE SET updated_at=EXCLUDED.updated_at')));
+  assert.ok(state.calls.some(([kind, sql]) => kind === 'execute' && sql.startsWith('INSERT INTO student_id_sequences')));
   assert.deepEqual(state.profiles[0], { id: 'uuid-1', student_master_id: 'STD-000001', student_id: 'OSAAH/2026/001' });
   const profileInsert = state.calls.find(([kind, sql]) => kind === 'execute' && sql.startsWith('INSERT INTO student_profiles '))[1];
   assert.doesNotMatch(profileInsert, /permanent_student_id/);

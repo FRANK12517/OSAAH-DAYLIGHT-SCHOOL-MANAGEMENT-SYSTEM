@@ -25,6 +25,15 @@ const schemaBaselineDdl = `CREATE TABLE IF NOT EXISTS schema_baselines (
   historical_migrations_executed TINYINT NOT NULL DEFAULT 0,
   created_at DATETIME NOT NULL
 )`;
+const schemaMigrationRunsDdl = `CREATE TABLE IF NOT EXISTS schema_migration_runs (
+  version INT NOT NULL PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  checksum CHAR(64) NOT NULL,
+  state ENUM('RUNNING','FAILED','COMPLETED') NOT NULL,
+  started_at DATETIME NOT NULL,
+  completed_at DATETIME NULL,
+  error_code VARCHAR(80) NULL
+)`;
 const adapterError = (code, message, details) => Object.assign(new Error(message), { code, details });
 
 function stripLeadingComments(statement) {
@@ -156,7 +165,7 @@ export function createDatabaseAdapter({ environment, poolFactory = mysql.createP
     queueLimit: 0,
     connectTimeout: 15000
   });
-  const metadataTables = ['schema_migrations', 'schema_migration_lock'];
+  const metadataTables = ['schema_migrations', 'schema_migration_lock', 'schema_migration_runs'];
 
   return {
     dialect: 'tidb',
@@ -209,6 +218,7 @@ export function createDatabaseAdapter({ environment, poolFactory = mysql.createP
         await pool.query(schemaMigrationLockDdl);
         await pool.execute('INSERT INTO schema_migration_lock (lock_id, locked) VALUES (1, 0) ON DUPLICATE KEY UPDATE lock_id = lock_id');
         await pool.query(schemaBaselineDdl);
+        await pool.query(schemaMigrationRunsDdl);
         return { created: true, tables: [...metadataTables, 'schema_baselines'] };
       }
       const rows = await this.query('SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN (?)', [metadataTables]);
@@ -218,6 +228,28 @@ export function createDatabaseAdapter({ environment, poolFactory = mysql.createP
       return { created: false, tables: metadataTables };
     },
     async listApplied() { return this.query('SELECT version, name, checksum, applied_at AS appliedAt FROM schema_migrations ORDER BY version ASC'); },
+    async listMigrationRuns() { return this.query('SELECT version,name,checksum,state,started_at AS startedAt,completed_at AS completedAt,error_code AS errorCode FROM schema_migration_runs ORDER BY version ASC'); },
+    async startMigration(migration) {
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
+        const [rows] = await connection.execute('SELECT state,checksum FROM schema_migration_runs WHERE version=? FOR UPDATE', [migration.version]);
+        const current = rows[0];
+        if (current?.state === 'RUNNING' || current?.state === 'FAILED') throw adapterError('MIGRATION_RECOVERY_REQUIRED', `Migration ${migration.name} has unresolved state ${current.state}.`);
+        if (current?.state === 'COMPLETED' && current.checksum !== migration.checksum) throw adapterError('MIGRATION_CHECKSUM_MISMATCH', `Migration ${migration.name} checksum changed.`);
+        await connection.execute(`INSERT INTO schema_migration_runs (version,name,checksum,state,started_at,completed_at,error_code) VALUES (?,?,?,'RUNNING',?,NULL,NULL) ON DUPLICATE KEY UPDATE state='RUNNING',started_at=VALUES(started_at),completed_at=NULL,error_code=NULL`, [migration.version,migration.name,migration.checksum,migration.startedAt]);
+        await connection.commit();
+      } catch (cause) { await connection.rollback(); throw cause; }
+      finally { connection.release(); }
+    },
+    async completeMigration(record) {
+      const result = await this.execute("UPDATE schema_migration_runs SET state='COMPLETED',completed_at=?,error_code=NULL WHERE version=? AND name=? AND checksum=? AND state='RUNNING'", [record.completedAt,record.version,record.name,record.checksum]);
+      if (Number(result.affectedRows) !== 1) throw adapterError('MIGRATION_STATE_UPDATE_FAILED', `Could not mark migration ${record.name} completed.`);
+    },
+    async failActiveMigration({ version, failedAt, errorCode }) {
+      if (!Number.isInteger(Number(version))) throw adapterError('MIGRATION_STATE_UPDATE_FAILED', 'A migration version is required to record failure state.');
+      await this.execute("UPDATE schema_migration_runs SET state='FAILED',completed_at=?,error_code=? WHERE version=? AND state='RUNNING'", [failedAt,String(errorCode).slice(0,80),Number(version)]);
+    },
     async recordApplied(record) {
       if (!record || !Number.isInteger(Number(record.version)) || !record.name || !record.checksum || !record.appliedAt) throw new Error('Invalid migration metadata.');
       await this.execute('INSERT INTO schema_migrations (version, name, checksum, applied_at) VALUES (?, ?, ?, ?)', [Number(record.version), record.name, record.checksum, record.appliedAt]);
@@ -233,5 +265,5 @@ export function createDatabaseAdapter({ environment, poolFactory = mysql.createP
   };
 }
 
-export { schemaMigrationDdl, schemaMigrationLockDdl, schemaBaselineDdl, splitMigrationSql, executeMigrationSqlOn };
+export { schemaMigrationDdl, schemaMigrationLockDdl, schemaBaselineDdl, schemaMigrationRunsDdl, splitMigrationSql, executeMigrationSqlOn };
 export default createDatabaseAdapter;

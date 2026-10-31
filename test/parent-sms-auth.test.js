@@ -216,7 +216,7 @@ test('legacy PostgreSQL parent-auth database configuration is not accepted', asy
   assert.equal((await service.requestCode({ phone: PHONE })).status, 503);
   assert.equal(calls, 0);
 });
-test('parent phone login remains available and OTP routes create a verified parent session', async () => {
+test('Parent phone-only login is denied and OTP verification creates the only Parent session', async () => {
   const logins = [];
   const auth = {
     sessionTtlMs: 60_000,
@@ -235,9 +235,9 @@ test('parent phone login remains available and OTP routes create a verified pare
   };
   const app = createApp({ auth, parentSmsAuth });
   const legacyLogin = await post(app, '/api/auth/login', { portal: 'parent', phone: PHONE, password: 'must-not-be-used', code: '123456', role: 'PROPRIETOR' });
-  assert.equal(legacyLogin.status, 200);
-  assert.match(legacyLogin.cookie ?? '', /^osaah_session=server-issued-token; HttpOnly/);
-  assert.deepEqual(Object.keys(logins[0]).sort(), ['diagnosticContext', 'phone']);
+  assert.equal(legacyLogin.status, 401);
+  assert.equal(legacyLogin.cookie, undefined);
+  assert.equal(logins.length, 0, 'unverified phone requests must never reach session creation');
 
   const requestOtp = await post(app, '/api/auth/parent/request-code', { phone: PHONE });
   assert.equal(requestOtp.status, 202);
@@ -246,5 +246,9 @@ test('parent phone login remains available and OTP routes create a verified pare
   assert.equal(verifyOtp.status, 200);
   assert.match(verifyOtp.cookie ?? '', /^osaah_session=server-issued-token; HttpOnly/);
   assert.deepEqual(verified[0], { phone: PHONE, code: '123456', challengeId: 'challenge-1', ipAddress: '127.0.0.1' });
-  assert.equal(logins.length, 2);
+  assert.equal(logins.length, 1);
+  assert.deepEqual(Object.keys(logins[0]).sort(), ['diagnosticContext', 'phone', 'portal', 'verifiedOtp']);
+  assert.equal(logins[0].verifiedOtp, true);
+  assert.equal(logins[0].phone, PHONE);
+  assert.equal(logins[0].portal, 'parent');
 });

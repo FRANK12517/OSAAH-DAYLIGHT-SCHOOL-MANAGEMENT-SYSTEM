@@ -16,7 +16,7 @@ function request(server, path, token, method = 'GET', body = null) {
 
 test('School Settings uses the authenticated canonical school, persists edits, and protects RBAC', async (t) => {
   const auth = createAuthService();
-  const admin = auth.login({ username: 'proprietor@osaah.edu.gh', password: 'Proprietor123!', portal: 'school', role: 'PROPRIETOR' });
+  const admin = auth.login({ username: 'proprietor@osaah.edu.gh', password: 'Synthetic-Proprietor-Test-Only-2026!', portal: 'school', role: 'PROPRIETOR' });
   const teacher = auth.login({ username: 'teacher@osaah.edu.gh', password: 'Teacher123!', portal: 'school', role: 'TEACHER' });
   assert.equal(admin.ok, true); assert.equal(teacher.ok, true);
   const server = createServer(createApp({ auth })); await new Promise((resolve) => server.listen(0, resolve)); t.after(() => new Promise((resolve) => server.close(resolve)));

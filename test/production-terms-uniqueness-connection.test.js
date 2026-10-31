@@ -18,7 +18,7 @@ test('ledger validation and Migration 060 both select the canonical TiDB adapter
 });
 
 test('canonical TiDB adapter uses environment credentials and normalizes its CA certificate', async () => {
-  const environment = { TIDB_HOST: 'db.example.test', TIDB_USER: 'private-user', TIDB_PASSWORD: 'private-password', TIDB_DATABASE: 'osaah', TIDB_PORT: '4000', TIDB_CA_CERT: 'line one\\nline two' };
+  const environment = { TIDB_HOST: 'db.example.test', TIDB_USER: 'private-user', TIDB_PASSWORD: 'private-password', TIDB_DATABASE: 'osaahdaylightschool', TIDB_PORT: '4000', TIDB_CA_CERT: 'line one\\nline two' };
   let options;
   let closeCount = 0;
   const adapter = createDatabaseAdapter({
