@@ -2,6 +2,7 @@ import bcrypt from 'bcrypt';
 import { createHash, createHmac, randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 import { normalizeGhanaPhone } from './ghana-phone.js';
 import { createDurableStaffProvisioning } from './durable-staff-provisioning.js';
+import { ROLE_KEYS } from './roles.js';
 import { createDurableAdministratorCredentialReset } from './durable-administrator-credential-reset.js';
 import { createDurableCredentialManagement, generatedPassword, passwordMeetsPolicy } from './durable-credential-management.js';
 import { tidbInsertIfAbsent } from './tidb-conflict.js';
@@ -95,7 +96,7 @@ function schoolLoginDiagnostics(error, { requestId, requestPath } = {}) {
 }
 const PARENT_PERMISSIONS = Object.freeze(['children.read', 'communication.read', 'messages.read', 'messages.write', 'calendar.read', 'library.read', 'transport.read', 'hostel.read', 'discipline.read']);
 export const SCHOOL_PORTAL_ROLE_ALIASES = Object.freeze({ ADMINISTRATOR: 'SCHOOL_ADMIN', SCHOOL_ADMINISTRATOR: 'SCHOOL_ADMIN', ACCOUNTANT: 'ACCOUNTANT_BURSAR', CLASSROOM_TEACHER: 'TEACHER', PROPRIETOR: 'PROPRIETOR', PROPRIETRESS: 'PROPRIETOR', SCHOOL_PROPRIETOR: 'PROPRIETOR', SCHOOL_PROPRIETRESS: 'PROPRIETOR' });
-export const SCHOOL_PORTAL_DASHBOARDS = Object.freeze({ PROPRIETOR: '/reports', SCHOOL_ADMIN: '/settings', HEADTEACHER: '/academics', ASSISTANT_HEADTEACHER: '/academics', ACCOUNTANT_BURSAR: '/fees', TEACHER: '/academics', ADMISSIONS_OFFICER: '/admissions', DEVELOPER: '/developer/communication-setup' });
+export const SCHOOL_PORTAL_DASHBOARDS = Object.freeze({ PROPRIETOR: '/reports', SCHOOL_ADMIN: '/settings', HEADTEACHER: '/academics', ASSISTANT_HEADTEACHER: '/academics', ACCOUNTANT_BURSAR: '/fees', TEACHER: '/academics', DEVELOPER: '/developer/communication-setup' });
 const STAFF_ASSIGNABLE_ROLES = Object.freeze({ HEADTEACHER: 'HEADTEACHER', ASSISTANT_HEADTEACHER: 'ASSISTANT_HEADTEACHER', ACCOUNTANT: 'ACCOUNTANT_BURSAR', ACCOUNTANT_BURSAR: 'ACCOUNTANT_BURSAR', CLASSROOM_TEACHER: 'TEACHER', TEACHER: 'TEACHER' });
 const ROLE_PERMISSIONS = Object.freeze({ HEADTEACHER: ['students.read', 'academics.read', 'attendance.read', 'examinations.read', 'results.read', 'results.generate', 'results.print', 'admissions.read', 'admissions.review', 'admissions.accept', 'admissions.reject', 'admissions.analytics.read', 'admission.prospectus.manage', 'subjects.read', 'subjects.manage', 'signatures.manage', 'mock.scores.read', 'mock.scores.write', 'mock.results.read', 'mock.results.generate', 'fees.read', 'finance.read', 'staff.read', 'communication.read', 'announcements.create', 'calendar.read', 'calendar.write', 'reports.read', 'sporting_activities.view', 'sporting_activities.create', 'sporting_activities.update', 'sporting_activities.delete', 'sporting_activities.manage_fixtures', 'sporting_activities.record_results', 'sporting_activities.manage_participants', 'sporting_activities.generate_reports', 'subject_register.view', 'subject_register.manage', 'subject_register.assign_teacher', 'subject_register.activate', 'subject_register.deactivate', 'subject_register.copy_register', 'shep_activities.view', 'shep_activities.create', 'shep_activities.update', 'shep_activities.manage_participants', 'shep_activities.record_screening', 'shep_activities.create_referral', 'shep_activities.manage_followup', 'shep_activities.generate_reports', 'staff.attendance.read', 'staff.attendance.write'], ASSISTANT_HEADTEACHER: ['students.read', 'academics.read', 'attendance.read', 'examinations.read', 'results.read', 'results.generate', 'results.print', 'admissions.read', 'admissions.review', 'admissions.accept', 'admissions.reject', 'admissions.analytics.read', 'admission.prospectus.manage', 'subjects.read', 'subjects.manage', 'signatures.manage', 'mock.scores.read', 'mock.scores.write', 'mock.results.read', 'mock.results.generate', 'fees.read', 'finance.read', 'staff.read', 'communication.read', 'announcements.create', 'calendar.read', 'calendar.write', 'sporting_activities.view', 'sporting_activities.create', 'sporting_activities.update', 'sporting_activities.delete', 'sporting_activities.manage_fixtures', 'sporting_activities.record_results', 'sporting_activities.manage_participants', 'sporting_activities.generate_reports', 'subject_register.view', 'subject_register.manage', 'subject_register.assign_teacher', 'subject_register.activate', 'subject_register.deactivate', 'subject_register.copy_register', 'staff.attendance.read', 'staff.attendance.write'], ACCOUNTANT_BURSAR: ['students.read', 'fees.read', 'fees.write', 'finance.read', 'fees.configure', 'fees.collect'], TEACHER: ['students.read', 'academics.read', 'attendance.read', 'attendance.write', 'examinations.read', 'marks.write', 'results.read', 'results.generate', 'results.print', 'mock.scores.read', 'mock.scores.write', 'mock.results.read', 'mock.results.generate', 'leave.read', 'leave.write', 'staff.professional-development.view', 'communication.read', 'calendar.read', 'messages.read', 'messages.write', 'sporting_activities.view', 'sporting_activities.create', 'sporting_activities.update', 'sporting_activities.manage_fixtures', 'sporting_activities.record_results', 'sporting_activities.manage_participants', 'sporting_activities.generate_reports', 'subject_register.view', 'shep_activities.view', 'shep_activities.create', 'shep_activities.update', 'shep_activities.manage_participants', 'shep_activities.record_screening', 'shep_activities.create_referral', 'shep_activities.manage_followup', 'shep_activities.generate_reports'] });
 for (const roleKey of ['HEADTEACHER', 'ASSISTANT_HEADTEACHER']) ROLE_PERMISSIONS[roleKey].push('admissions.write');
@@ -111,7 +112,6 @@ export const DEMO_USERS = [
   { id: 'user-teacher-1', username: 'teacher@osaah.edu.gh', passwordHash: passwordHash('Teacher123!', 'teacher-salt'), portal: 'school', roleKey: 'TEACHER', schoolId: 'school-osaah-daylight', permissions: new Set(['students.read', 'academics.read', 'attendance.read', 'attendance.write', 'examinations.read', 'marks.write', 'results.read', 'results.generate', 'results.print', 'mock.scores.read', 'mock.scores.write', 'mock.results.read', 'mock.results.generate', 'leave.read', 'leave.write', 'staff.professional-development.view', 'communication.read', 'messages.read', 'messages.write', 'discipline.read', 'discipline.write', 'property.request', 'shep_activities.view', 'shep_activities.create', 'shep_activities.update', 'shep_activities.manage_participants', 'shep_activities.record_screening', 'shep_activities.create_referral', 'shep_activities.manage_followup', 'shep_activities.generate_reports']), assignedStudentIds: ['student-1'], assignedParentIds: ['user-parent-1'] },
   { id: 'user-hr-1', username: 'hr@osaah.edu.gh', passwordHash: passwordHash('HumanResources123!', 'hr-salt'), portal: 'school', roleKey: 'HR_OFFICER', schoolId: 'school-osaah-daylight', permissions: new Set(['staff.read', 'staff.write', 'hr.read', 'hr.write', 'hr.confidential.read', 'leave.read', 'leave.write', 'staff.attendance.read', 'staff.attendance.write']) },
   { id: 'user-examination-1', username: 'exams@osaah.edu.gh', passwordHash: passwordHash('Examination123!', 'examination-salt'), portal: 'school', roleKey: 'EXAMINATION_OFFICER', schoolId: 'school-osaah-daylight', permissions: new Set(['examinations.read', 'examinations.write', 'marks.write', 'results.read', 'results.generate', 'results.print', 'mock.scores.read', 'mock.scores.write', 'mock.results.read', 'mock.results.generate', 'results.approve', 'promotion.write']) },
-  { id: 'user-admissions-1', username: 'admissions@osaah.edu.gh', passwordHash: passwordHash('Admissions123!', 'admissions-salt'), portal: 'school', roleKey: 'ADMISSIONS_OFFICER', schoolId: 'school-osaah-daylight', permissions: new Set(['students.read', 'admissions.read', 'admissions.write', 'admission.prospectus.manage']) },
   { id: 'user-bursar-1', username: 'bursar@osaah.edu.gh', passwordHash: passwordHash('Bursar123!', 'bursar-salt'), portal: 'school', roleKey: 'ACCOUNTANT_BURSAR', schoolId: 'school-osaah-daylight', permissions: new Set(['students.read', 'fees.read', 'fees.write', 'fees.configure', 'fees.collect', 'fee.scholarships.view', 'finance.read', 'hr.confidential.read']) },
   { id: 'user-librarian-1', username: 'librarian@osaah.edu.gh', passwordHash: passwordHash('Librarian123!', 'librarian-salt'), portal: 'school', roleKey: 'LIBRARIAN', schoolId: 'school-osaah-daylight', permissions: new Set(['library.read', 'library.write']) },
   { id: 'user-transport-1', username: 'transport@osaah.edu.gh', passwordHash: passwordHash('Transport123!', 'transport-salt'), portal: 'school', roleKey: 'TRANSPORT_MANAGER', schoolId: 'school-osaah-daylight', permissions: new Set(['transport.read', 'transport.write', 'transport.gps.view']) },
@@ -220,7 +220,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     const grouped = new Map();
     for (const row of rows ?? []) {
       const roleKey = canonicalRoleKey(row.roleKey);
-      if (!roleKey) continue;
+      if (!ROLE_KEYS.has(roleKey)) continue;
       if (!grouped.has(roleKey)) grouped.set(roleKey, []);
       grouped.get(roleKey).push(row);
     }
@@ -264,6 +264,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     if (portal === 'parent') return { ok: false, status: 401, error: PARENT_GENERIC_LOGIN_ERROR };
     const key = String(username ?? '').trim().toLowerCase(); const throttle = attempts.get(key); if (throttle?.lockedUntil > now()) return { ok: false, status: 429, error: 'Too many failed attempts. Try again later.' };
     const user = users.find((candidate) => (candidate.username.toLowerCase() === key || String(candidate.email ?? '').toLowerCase() === key) && candidate.portal === portal);
+    if (user && portal === 'school' && !ROLE_KEYS.has(canonicalRoleKey(user.roleKey))) return { ok: false, status: 401, error: GENERIC_LOGIN_ERROR };
     if (user && portal === 'school' && role && canonicalRoleKey(role) !== canonicalRoleKey(user.roleKey)) return { ok: false, status: 401, error: 'The selected role does not match this account.' };
     if (!user || typeof password !== 'string' || !passwordMatches(password, user.passwordHash) || !isActive(user)) { const next = throttle ?? { count: 0 }; next.count += 1; if (next.count >= MAX_ATTEMPTS) next.lockedUntil = now() + LOCKOUT_MS; attempts.set(key, next); securityEvent('LOGIN_FAILED', user); return { ok: false, status: 401, error: GENERIC_LOGIN_ERROR }; }
     attempts.delete(key); return createSessionResult(user);
@@ -493,9 +494,11 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
   function authenticate(token) {
     const session = verifiedSession(token);
     if (!session || session.expiresAt <= now()) { if (token) sessions.delete(token); return null; }
+    if (session.roleKey && !ROLE_KEYS.has(canonicalRoleKey(session.roleKey))) { revokeLocalSession(token, session); return null; }
     const user = users.find((candidate) => candidate.id === session.userId && (!session.roleKey || canonicalRoleKey(candidate.roleKey) === canonicalRoleKey(session.roleKey)))
       ?? users.find((candidate) => candidate.id === session.userId);
     if (!user) { if (token) sessions.delete(token); return null; }
+    if (!ROLE_KEYS.has(canonicalRoleKey(user.roleKey))) { revokeLocalSession(token, session); return null; }
     if (!isActive(user)) { revokeLocalSession(token, session); securityEvent('SESSION_REVOKED', user, session.sessionId); return null; }
     return { ...sanitize(user, session.sessionId), permissions: user.permissions };
   }
@@ -529,9 +532,11 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
       }
       if (session) revokeLocalSession(token, session); else sessions.delete(token); return null;
     }
-    const userRows = rows.filter((candidate) => candidate.userId === row.userId);
+    const userRows = rows.filter((candidate) => candidate.userId === row.userId && ROLE_KEYS.has(canonicalRoleKey(candidate.roleKey)));
     const selectedRoleKey = canonicalRoleKey(session?.roleKey ?? row.roleKey);
-    const roleKey = userRows.some((candidate) => canonicalRoleKey(candidate.roleKey) === selectedRoleKey) ? selectedRoleKey : canonicalRoleKey(row.roleKey);
+    if (session?.roleKey && !ROLE_KEYS.has(selectedRoleKey)) return null;
+    const roleKey = userRows.some((candidate) => canonicalRoleKey(candidate.roleKey) === selectedRoleKey) ? selectedRoleKey : canonicalRoleKey(userRows[0]?.roleKey);
+    if (!roleKey) return null;
     const scopedRows = userRows.filter((candidate) => canonicalRoleKey(candidate.roleKey) === roleKey);
     const user = addStaffAttendanceRoleGrants({ id: row.userId, username: row.username, email: row.email, portal: roleKey === 'PARENT' ? 'parent' : 'school', roleKey, schoolId: row.schoolId, accountStatus: 'ACTIVE', is_active: true, permissions: new Set(scopedRows.map((candidate) => candidate.permissionKey).filter(Boolean)) });
     if (user.roleKey === 'PARENT') for (const permission of PARENT_PERMISSIONS) user.permissions.add(permission);

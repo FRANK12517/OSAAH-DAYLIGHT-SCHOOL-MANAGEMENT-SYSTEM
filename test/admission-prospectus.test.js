@@ -32,7 +32,7 @@ test('prospectus service enforces combination uniqueness, sanitizes content, and
   assert.match(visible[0].content, /Be punctual/);
   assert.doesNotMatch(visible[0].content, /script|alert/);
   assert.throws(() => service.validateProspectusDocument({ documentName: 'unsafe.exe', documentType: 'application/octet-stream', documentSize: 10 }), /supported/);
-  for (const [roleKey, classId] of [['ASSISTANT_HEADTEACHER', 'Basic 2'], ['ADMISSIONS_OFFICER', 'Basic 3']]) {
+  for (const [roleKey, classId] of [['PROPRIETOR', 'Basic 2'], ['HEADTEACHER', 'Basic 3'], ['ASSISTANT_HEADTEACHER', 'Basic 4']]) {
     const actor = { id: `${roleKey}-1`, roleKey, portal: 'school', schoolId: 'school-osaah-daylight', permissions: new Set(['admission.prospectus.manage']) };
     assert.equal(service.create({ classId, academicYearId: '2026', content: '<p>Authorized</p>' }, actor).status, 'DRAFT');
   }
@@ -41,7 +41,9 @@ test('prospectus service enforces combination uniqueness, sanitizes content, and
 
 test('prospectus HTTP routes enforce role, publication, and school boundaries', async () => {
   const actors = {
-    proprietor: { id: 'test-proprietor', roleKey: 'PROPRIETOR', portal: 'school', schoolId: 'school-osaah-daylight', permissions: new Set(['admission.prospectus.manage']) },
+    proprietor: { id: 'test-proprietor', roleKey: 'PROPRIETOR', portal: 'school', schoolId: 'school-osaah-daylight', permissions: new Set(['*']) },
+    headteacher: { id: 'test-headteacher', roleKey: 'HEADTEACHER', portal: 'school', schoolId: 'school-osaah-daylight', permissions: new Set(['admissions.read', 'admissions.review', 'admissions.accept', 'admissions.reject', 'admissions.analytics.read', 'admission.prospectus.manage']) },
+    assistant: { id: 'test-assistant', roleKey: 'ASSISTANT_HEADTEACHER', portal: 'school', schoolId: 'school-osaah-daylight', permissions: new Set(['admissions.read', 'admissions.review', 'admissions.accept', 'admissions.reject', 'admissions.analytics.read', 'admission.prospectus.manage']) },
     teacher: { id: 'test-teacher', roleKey: 'TEACHER', portal: 'school', schoolId: 'school-osaah-daylight', permissions: new Set(['students.read']) },
     parent: { id: 'test-parent', roleKey: 'PARENT', portal: 'parent', schoolId: 'school-osaah-daylight', permissions: new Set() }
   };
@@ -52,6 +54,10 @@ test('prospectus HTTP routes enforce role, publication, and school boundaries', 
   const port = server.address().port;
   const created = await request(port, '/api/admission-prospectus', { method: 'POST', token: 'proprietor', body: { classId: 'Basic 2', academicYearId: '2026', content: '<p>Published safely</p>' } });
   assert.equal(created.status, 201);
+  for (const token of ['headteacher', 'assistant']) {
+    const response = await request(port, '/api/admission-prospectus', { method: 'POST', token, body: { classId: token === 'headteacher' ? 'Basic 3' : 'Basic 4', academicYearId: '2026', content: '<p>Leadership access</p>' } });
+    assert.equal(response.status, 201, `${token} retains prospectus management through its explicit permission`);
+  }
   assert.equal((await request(port, '/api/admission-prospectus', { token: 'parent' })).body.prospectuses.length, 0);
   const teacherPublish = await request(port, '/api/admission-prospectus/' + created.body.id + '/publish', { method: 'POST', token: 'teacher' });
   const proprietorPublish = await request(port, '/api/admission-prospectus/' + created.body.id + '/publish', { method: 'POST', token: 'proprietor' });

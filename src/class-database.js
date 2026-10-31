@@ -2,7 +2,7 @@ import { CORE_LEVELS } from './students.js';
 import { displayStudentGender } from './student-gender.js';
 import { canonicalClassId, displayClassName } from './student-classes.js';
 
-const STAFF_ROLES = new Set(['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'ASSISTANT_HEADTEACHER', 'ACCOUNTANT_BURSAR', 'ADMISSIONS_OFFICER', 'ACADEMIC_COORDINATOR', 'TEACHER']);
+const STAFF_ROLES = new Set(['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'ASSISTANT_HEADTEACHER', 'ACCOUNTANT_BURSAR', 'ACADEMIC_COORDINATOR', 'TEACHER']);
 const DEFAULT_ACADEMIC_YEARS = Object.freeze(['2024/2025', '2025/2026', '2026/2027', '2027/2028', '2028/2029']);
 
 function fail(message, status = 400) { throw Object.assign(new Error(message), { status }); }
