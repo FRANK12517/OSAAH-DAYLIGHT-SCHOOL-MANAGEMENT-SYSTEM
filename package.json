@@ -16,6 +16,7 @@
     "supabase:migration:status": "node scripts/supabase-migrate.mjs status",
     "supabase:migration:apply": "node scripts/supabase-migrate.mjs apply",
     "database:mysql-inventory": "node scripts/inventory-mysql-dependencies.mjs",
+    "database:tidb:requirements": "node scripts/reconcile-tidb-schema-requirements.mjs",
     "database:reconcile-snapshots": "node scripts/reconcile-postgres-snapshots.mjs",
     "test:supabase": "node --test test/postgres-database-adapter.test.js test/postgres-pglite-application.test.js test/supabase-migrate-cli.test.js test/supabase-existing-reconcile-pglite.test.js",
     "test:postgres:integration": "node scripts/run-postgres-integration.mjs",
@@ -28,7 +29,9 @@
     "test:admission-protection": "node scripts/admission-protection.mjs --run-tests --validate-migrations",
     "migration:baseline": "node scripts/record-production-baseline.mjs",
     "migration:forward-reconciliation": "node scripts/production-forward-reconciliation.mjs",
-    "protection:verify": "node scripts/verify-protected-components.mjs"
+    "protection:verify": "node scripts/verify-protected-components.mjs",
+    "database:tidb:evidence": "node scripts/publish-tidb-schema-evidence.mjs",
+    "database:tidb:reconciliation": "node scripts/publish-tidb-schema-reconciliation.mjs"
   },
   "engines": {
     "node": ">=20"

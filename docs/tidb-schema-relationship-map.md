@@ -1,0 +1,603 @@
+# TiDB schema relationship map
+
+> **Status: EVIDENCE ONLY.** Historical foreign-key candidates are not verified relationships. Runtime JOIN evidence proves tables participate in a query, not that a database constraint or delete action is required.
+
+- Historical FK candidate entries: 400.
+- Confirmed canonical application relationships: 0.
+- Confirmed canonical application indexes: 0.
+- Runtime JOIN query observations: 127.
+- Domain groups reviewed: 9.
+- No relationship is promoted to canonical until local and referenced column types, nullability, index coverage, lifecycle, referential actions, and TiDB version compatibility are verified.
+
+## Historical foreign-key candidates
+
+- `academic_calendar_events`: school_id → schools(id) (historical evidence: 058_academic_calendar.sql)
+- `academic_calendar_events`: created_by → users(id) (historical evidence: 058_academic_calendar.sql)
+- `academic_calendar_events`: updated_by → users(id) (historical evidence: 058_academic_calendar.sql)
+- `academic_calendar_events`: published_by → users(id) (historical evidence: 058_academic_calendar.sql)
+- `academic_calendar_term_configs`: school_id → schools(id) (historical evidence: 058_academic_calendar.sql)
+- `academic_calendar_term_configs`: created_by → users(id) (historical evidence: 058_academic_calendar.sql)
+- `academic_calendar_term_configs`: updated_by → users(id) (historical evidence: 058_academic_calendar.sql)
+- `academic_result_records`: fk_academic_result_record_school: school_id → schools(id) (historical evidence: 067_academic_result_lifecycle.sql)
+- `academic_result_records`: fk_academic_result_record_student: student_id → students(id) (historical evidence: 067_academic_result_lifecycle.sql)
+- `academic_result_records`: fk_academic_result_record_class: class_id → classes(id) (historical evidence: 067_academic_result_lifecycle.sql)
+- `academic_result_records`: fk_academic_result_record_year: academic_year_id → academic_years(id) (historical evidence: 067_academic_result_lifecycle.sql)
+- `academic_result_records`: fk_academic_result_record_term: term_id → terms(id) (historical evidence: 067_academic_result_lifecycle.sql)
+- `academic_result_records`: fk_academic_result_record_saved_by: saved_by → users(id) (historical evidence: 067_academic_result_lifecycle.sql)
+- `academic_result_records`: fk_academic_result_record_published_by: published_by → users(id) (historical evidence: 067_academic_result_lifecycle.sql)
+- `academic_score_records`: school_id → schools(id) (historical evidence: 017_academic_results_migration.sql, 068_academic_score_records_foundation.sql)
+- `academic_score_records`: academic_year_id → academic_years(id) (historical evidence: 017_academic_results_migration.sql, 068_academic_score_records_foundation.sql)
+- `academic_score_records`: term_id → terms(id) (historical evidence: 017_academic_results_migration.sql, 068_academic_score_records_foundation.sql)
+- `academic_score_records`: class_id → classes(id) (historical evidence: 017_academic_results_migration.sql, 068_academic_score_records_foundation.sql)
+- `academic_score_records`: student_id → student_profiles(id) (historical evidence: 017_academic_results_migration.sql, 068_academic_score_records_foundation.sql)
+- `academic_score_records`: subject_id → subjects(id) (historical evidence: 017_academic_results_migration.sql, 068_academic_score_records_foundation.sql)
+- `academic_score_records`: entered_by → users(id) (historical evidence: 017_academic_results_migration.sql, 068_academic_score_records_foundation.sql)
+- `academic_score_records`: fk_academic_score_records_school: school_id → schools(id) (historical evidence: 017_academic_results_migration.sql, 068_academic_score_records_foundation.sql)
+- `academic_score_records`: fk_academic_score_records_student: student_id → student_profiles(id) (historical evidence: 017_academic_results_migration.sql, 068_academic_score_records_foundation.sql)
+- `academic_score_records`: fk_academic_score_records_class: class_id → classes(id) (historical evidence: 017_academic_results_migration.sql, 068_academic_score_records_foundation.sql)
+- `academic_score_records`: fk_academic_score_records_year: academic_year_id → academic_years(id) (historical evidence: 017_academic_results_migration.sql, 068_academic_score_records_foundation.sql)
+- `academic_score_records`: fk_academic_score_records_term: term_id → terms(id) (historical evidence: 017_academic_results_migration.sql, 068_academic_score_records_foundation.sql)
+- `academic_score_records`: fk_academic_score_records_subject: subject_id → subjects(id) (historical evidence: 017_academic_results_migration.sql, 068_academic_score_records_foundation.sql)
+- `academic_score_records`: fk_academic_score_records_entered_by: entered_by → users(id) (historical evidence: 017_academic_results_migration.sql, 068_academic_score_records_foundation.sql)
+- `academic_years`: school_id → schools(id) (historical evidence: 001_foundation.sql)
+- `admission_applications`: school_id → schools(id) (historical evidence: 003_students_admissions.sql, 028_admission_student_master_fk.sql, 078_admissions_leadership_access.sql)
+- `admission_applications`: student_id → student_profiles(id) (historical evidence: 003_students_admissions.sql, 028_admission_student_master_fk.sql, 078_admissions_leadership_access.sql)
+- `admission_documents`: application_id → admission_form_applications(id) (historical evidence: 015_admission_form_fee_engine.sql)
+- `admission_documents`: school_id → schools(id) (historical evidence: 015_admission_form_fee_engine.sql)
+- `admission_documents`: verified_by → users(id) (historical evidence: 015_admission_form_fee_engine.sql)
+- `admission_fee_structures`: school_id → schools(id) (historical evidence: 015_admission_form_fee_engine.sql)
+- `admission_fee_structures`: academic_year_id → academic_years(id) (historical evidence: 015_admission_form_fee_engine.sql)
+- `admission_fee_structures`: term_id → terms(id) (historical evidence: 015_admission_form_fee_engine.sql)
+- `admission_fee_structures`: published_by → users(id) (historical evidence: 015_admission_form_fee_engine.sql)
+- `admission_fee_structures`: updated_by → users(id) (historical evidence: 015_admission_form_fee_engine.sql)
+- `admission_form_applications`: school_id → schools(id) (historical evidence: 015_admission_form_fee_engine.sql)
+- `admission_form_applications`: academic_year_id → academic_years(id) (historical evidence: 015_admission_form_fee_engine.sql)
+- `admission_form_applications`: term_id → terms(id) (historical evidence: 015_admission_form_fee_engine.sql)
+- `admission_form_applications`: parent_user_id → users(id) (historical evidence: 015_admission_form_fee_engine.sql)
+- `admission_prospectuses`: school_id → schools(id) (historical evidence: 016_admission_prospectus.sql)
+- `admission_prospectuses`: class_id → classes(id) (historical evidence: 016_admission_prospectus.sql)
+- `admission_prospectuses`: academic_year_id → academic_years(id) (historical evidence: 016_admission_prospectus.sql)
+- `admission_prospectuses`: published_by → users(id) (historical evidence: 016_admission_prospectus.sql)
+- `admission_prospectuses`: created_by → users(id) (historical evidence: 016_admission_prospectus.sql)
+- `admission_prospectuses`: updated_by → users(id) (historical evidence: 016_admission_prospectus.sql)
+- `ai_audit_logs`: school_id → schools(id) (historical evidence: 018_ai_audit_logs.sql)
+- `ai_audit_logs`: user_id → users(id) (historical evidence: 018_ai_audit_logs.sql)
+- `ai_audit_logs`: approval_user_id → users(id) (historical evidence: 018_ai_audit_logs.sql)
+- `ai_audit_logs`: rejection_user_id → users(id) (historical evidence: 018_ai_audit_logs.sql)
+- `ai_human_controlled_actions`: school_id → schools(id) (historical evidence: 022_ai_human_controlled_actions.sql)
+- `ai_human_controlled_actions`: creator_user_id → users(id) (historical evidence: 022_ai_human_controlled_actions.sql)
+- `ai_human_controlled_actions`: decided_by → users(id) (historical evidence: 022_ai_human_controlled_actions.sql)
+- `announcement_reads`: school_id → schools(id) (historical evidence: 076_durable_announcements.sql)
+- `announcement_reads`: announcement_id → announcement_records(id) (historical evidence: 076_durable_announcements.sql)
+- `announcement_reads`: recipient_id → users(id) (historical evidence: 076_durable_announcements.sql)
+- `announcement_recipients`: school_id → schools(id) (historical evidence: 076_durable_announcements.sql)
+- `announcement_recipients`: announcement_id → announcement_records(id) (historical evidence: 076_durable_announcements.sql)
+- `announcement_recipients`: recipient_id → users(id) (historical evidence: 076_durable_announcements.sql)
+- `announcement_records`: school_id → schools(id) (historical evidence: 076_durable_announcements.sql)
+- `announcement_records`: sender_id → users(id) (historical evidence: 076_durable_announcements.sql)
+- `announcements`: school_id → schools(id) (historical evidence: 010_communication.sql)
+- `announcements`: class_id → classes(id) (historical evidence: 010_communication.sql)
+- `announcements`: sender_id → users(id) (historical evidence: 010_communication.sql)
+- `assets`: school_id → schools(id) (historical evidence: 012_resources.sql)
+- `assignment_files`: fk_assignment_files_assignment: assignment_id → assignments(id) (historical evidence: 062_assignments.sql)
+- `assignment_files`: fk_assignment_files_school: school_id → schools(id) (historical evidence: 062_assignments.sql)
+- `assignments`: fk_assignments_school: school_id → schools(id) (historical evidence: 062_assignments.sql)
+- `attendance_audit_history`: school_id → schools(id) (historical evidence: 036_attendance_provenance_audit.sql, 049_production_schema_reconciliation.sql)
+- `attendance_audit_history`: changed_by → users(id) (historical evidence: 036_attendance_provenance_audit.sql, 049_production_schema_reconciliation.sql)
+- `attendance_notification_settings`: school_id → schools(id) (historical evidence: 006_attendance.sql)
+- `attendance_notification_settings`: parent_user_id → users(id) (historical evidence: 006_attendance.sql)
+- `attendance_sync_conflicts`: school_id → schools(id) (historical evidence: 006_attendance.sql)
+- `attendance_sync_conflicts`: attendance_id → student_attendance(id) (historical evidence: 006_attendance.sql)
+- `audit_logs`: school_id → schools(id) (historical evidence: 001_foundation.sql)
+- `audit_logs`: user_id → users(id) (historical evidence: 001_foundation.sql)
+- `audit_logs`: role_id → roles(id) (historical evidence: 001_foundation.sql)
+- `auth_sessions`: user_id → users(id) (historical evidence: 052_durable_auth_sessions.sql, 053_forward_production_reconciliation.sql)
+- `auth_sessions`: school_id → schools(id) (historical evidence: 052_durable_auth_sessions.sql, 053_forward_production_reconciliation.sql)
+- `calendar_events`: school_id → schools(id) (historical evidence: 010_communication.sql)
+- `calendar_events`: created_by → users(id) (historical evidence: 010_communication.sql)
+- `canonical_academic_scores`: fk_academic_score_school: school_id → schools(id) (historical evidence: 055_canonical_academic_scores.sql)
+- `canonical_academic_scores`: fk_academic_score_student: student_id → students(id) (historical evidence: 055_canonical_academic_scores.sql)
+- `canonical_academic_scores`: fk_academic_score_class: class_id → classes(id) (historical evidence: 055_canonical_academic_scores.sql)
+- `canonical_academic_scores`: fk_academic_score_year: academic_year_id → academic_years(id) (historical evidence: 055_canonical_academic_scores.sql)
+- `canonical_academic_scores`: fk_academic_score_term: term_id → terms(id) (historical evidence: 055_canonical_academic_scores.sql)
+- `canonical_academic_scores`: fk_academic_score_subject: subject_id → subjects(id) (historical evidence: 055_canonical_academic_scores.sql)
+- `canonical_ges_assessments`: fk_canonical_ges_school: school_id → schools(id) (historical evidence: 056_canonical_ges_assessments.sql)
+- `canonical_ges_assessments`: fk_canonical_ges_student: student_id → students(id) (historical evidence: 056_canonical_ges_assessments.sql)
+- `canonical_ges_assessments`: fk_canonical_ges_class: class_id → classes(id) (historical evidence: 056_canonical_ges_assessments.sql)
+- `canonical_ges_assessments`: fk_canonical_ges_year: academic_year_id → academic_years(id) (historical evidence: 056_canonical_ges_assessments.sql)
+- `canonical_ges_assessments`: fk_canonical_ges_term: term_id → terms(id) (historical evidence: 056_canonical_ges_assessments.sql)
+- `classes`: level_id → levels(id) (historical evidence: 001_foundation.sql, 031_controlled_schema_upgrade.sql, 038_canonical_class_database_fee_hub.sql)
+- `communication_delivery_log`: school_id → schools(id) (historical evidence: 010_communication.sql)
+- `communication_delivery_logs`: school_id → schools(id) (historical evidence: 025_communication_engine.sql)
+- `communication_delivery_logs`: message_id → communication_messages(id) (historical evidence: 025_communication_engine.sql)
+- `communication_messages`: school_id → schools(id) (historical evidence: 025_communication_engine.sql)
+- `communication_messages`: outbox_id → communication_outbox(id) (historical evidence: 025_communication_engine.sql)
+- `communication_outbox`: school_id → schools(id) (historical evidence: 025_communication_engine.sql)
+- `communication_outbox`: created_by → users(id) (historical evidence: 025_communication_engine.sql)
+- `communication_providers`: school_id → schools(id) (historical evidence: 025_communication_engine.sql)
+- `communication_providers`: fallback_provider_id → communication_providers(id) (historical evidence: 025_communication_engine.sql)
+- `communication_providers`: created_by → users(id) (historical evidence: 025_communication_engine.sql)
+- `communication_templates`: school_id → schools(id) (historical evidence: 025_communication_engine.sql)
+- `communication_templates`: created_by → users(id) (historical evidence: 025_communication_engine.sql)
+- `communication_trigger_settings`: school_id → schools(id) (historical evidence: 025_communication_engine.sql)
+- `communication_trigger_settings`: template_id → communication_templates(id) (historical evidence: 025_communication_engine.sql)
+- `communication_trigger_settings`: provider_id → communication_providers(id) (historical evidence: 025_communication_engine.sql)
+- `communication_trigger_settings`: updated_by → users(id) (historical evidence: 025_communication_engine.sql)
+- `compliance_inspections`: school_id → schools(id) (historical evidence: 013_compliance_privacy.sql)
+- `compliance_inspections`: compliance_id → compliance_records(id) (historical evidence: 013_compliance_privacy.sql)
+- `compliance_records`: school_id → schools(id) (historical evidence: 013_compliance_privacy.sql)
+- `compliance_records`: created_by → users(id) (historical evidence: 013_compliance_privacy.sql)
+- `counselling_records`: school_id → schools(id) (historical evidence: 011_operations.sql)
+- `counselling_records`: student_id → student_profiles(id) (historical evidence: 011_operations.sql)
+- `counselling_records`: recorded_by → users(id) (historical evidence: 011_operations.sql)
+- `data_breaches`: school_id → schools(id) (historical evidence: 013_compliance_privacy.sql)
+- `data_breaches`: reported_by → users(id) (historical evidence: 013_compliance_privacy.sql)
+- `data_protection_officers`: school_id → schools(id) (historical evidence: 013_compliance_privacy.sql)
+- `data_protection_officers`: user_id → users(id) (historical evidence: 013_compliance_privacy.sql)
+- `data_protection_officers`: appointed_by → users(id) (historical evidence: 013_compliance_privacy.sql)
+- `departments`: school_id → schools(id) (historical evidence: 001_foundation.sql)
+- `document_versions`: school_id → schools(id) (historical evidence: 013_compliance_privacy.sql)
+- `document_versions`: document_id → managed_documents(id) (historical evidence: 013_compliance_privacy.sql)
+- `document_versions`: updated_by → users(id) (historical evidence: 013_compliance_privacy.sql)
+- `examination_candidates`: examination_id → examinations(id) (historical evidence: 007_examinations_results.sql)
+- `examination_candidates`: student_id → student_profiles(id) (historical evidence: 007_examinations_results.sql)
+- `examination_marks`: school_id → schools(id) (historical evidence: 007_examinations_results.sql)
+- `examination_marks`: examination_id → examinations(id) (historical evidence: 007_examinations_results.sql)
+- `examination_marks`: student_id → student_profiles(id) (historical evidence: 007_examinations_results.sql)
+- `examination_marks`: subject_id → subjects(id) (historical evidence: 007_examinations_results.sql)
+- `examination_marks`: entered_by → users(id) (historical evidence: 007_examinations_results.sql)
+- `examination_subjects`: examination_id → examinations(id) (historical evidence: 007_examinations_results.sql)
+- `examination_subjects`: subject_id → subjects(id) (historical evidence: 007_examinations_results.sql)
+- `examination_timetable`: examination_id → examinations(id) (historical evidence: 007_examinations_results.sql)
+- `examination_timetable`: subject_id → subjects(id) (historical evidence: 007_examinations_results.sql)
+- `examination_timetable`: invigilator_id → staff(id) (historical evidence: 007_examinations_results.sql)
+- `examinations`: school_id → schools(id) (historical evidence: 007_examinations_results.sql)
+- `examinations`: academic_year_id → academic_years(id) (historical evidence: 007_examinations_results.sql)
+- `examinations`: term_id → terms(id) (historical evidence: 007_examinations_results.sql)
+- `external_exam_records`: school_id → schools(id) (historical evidence: 007_examinations_results.sql)
+- `external_exam_records`: student_id → student_profiles(id) (historical evidence: 007_examinations_results.sql)
+- `fee_collection_corrections`: fk_fee_correction_collection: collection_id → fee_collection_records(id) (historical evidence: 030_fee_collection_corrections.sql, 049_production_schema_reconciliation.sql)
+- `fee_invoice_items`: school_id → schools(id) (historical evidence: 038_canonical_class_database_fee_hub.sql, 043_fee_invoices.sql, 049_production_schema_reconciliation.sql)
+- `fee_invoice_items`: invoice_id → fee_invoices(id) (historical evidence: 038_canonical_class_database_fee_hub.sql, 043_fee_invoices.sql, 049_production_schema_reconciliation.sql)
+- `fee_invoices`: school_id → schools(id) (historical evidence: 038_canonical_class_database_fee_hub.sql, 043_fee_invoices.sql, 049_production_schema_reconciliation.sql)
+- `fee_invoices`: account_id → student_fee_accounts(id) (historical evidence: 038_canonical_class_database_fee_hub.sql, 043_fee_invoices.sql, 049_production_schema_reconciliation.sql)
+- `fee_invoices`: issued_by → users(id) (historical evidence: 038_canonical_class_database_fee_hub.sql, 043_fee_invoices.sql, 049_production_schema_reconciliation.sql)
+- `fee_invoices`: created_by → users(id) (historical evidence: 038_canonical_class_database_fee_hub.sql, 043_fee_invoices.sql, 049_production_schema_reconciliation.sql)
+- `fee_invoices`: updated_by → users(id) (historical evidence: 038_canonical_class_database_fee_hub.sql, 043_fee_invoices.sql, 049_production_schema_reconciliation.sql)
+- `fee_structures`: school_id → schools(id) (historical evidence: 008_fees_finance.sql, 047_fee_types_registry.sql, 049_production_schema_reconciliation.sql)
+- `fee_structures`: academic_year_id → academic_years(id) (historical evidence: 008_fees_finance.sql, 047_fee_types_registry.sql, 049_production_schema_reconciliation.sql)
+- `fee_structures`: term_id → terms(id) (historical evidence: 008_fees_finance.sql, 047_fee_types_registry.sql, 049_production_schema_reconciliation.sql)
+- `fee_structures`: class_id → classes(id) (historical evidence: 008_fees_finance.sql, 047_fee_types_registry.sql, 049_production_schema_reconciliation.sql)
+- `fee_structures`: student_id → student_profiles(id) (historical evidence: 008_fees_finance.sql, 047_fee_types_registry.sql, 049_production_schema_reconciliation.sql)
+- `fee_structures_v2`: school_id → schools(id) (historical evidence: 040_fee_structures_v2.sql)
+- `fee_structures_v2`: published_by → users(id) (historical evidence: 040_fee_structures_v2.sql)
+- `fee_structures_v2`: created_by → users(id) (historical evidence: 040_fee_structures_v2.sql)
+- `fee_structures_v2`: updated_by → users(id) (historical evidence: 040_fee_structures_v2.sql)
+- `fee_types`: school_id → schools(id) (historical evidence: 047_fee_types_registry.sql, 049_production_schema_reconciliation.sql)
+- `financial_adjustments`: school_id → schools(id) (historical evidence: 008_fees_finance.sql)
+- `financial_adjustments`: student_id → student_profiles(id) (historical evidence: 008_fees_finance.sql)
+- `financial_adjustments`: authorized_by → users(id) (historical evidence: 008_fees_finance.sql)
+- `financial_audit_history`: school_id → schools(id) (historical evidence: 045_financial_audit_history.sql, 048_financial_rbac_audit_hardening.sql, 049_production_schema_reconciliation.sql, 053_forward_production_reconciliation.sql)
+- `financial_audit_history`: changed_by → users(id) (historical evidence: 045_financial_audit_history.sql, 048_financial_rbac_audit_hardening.sql, 049_production_schema_reconciliation.sql, 053_forward_production_reconciliation.sql)
+- `general_expenses`: school_id → schools(id) (historical evidence: 051_income_expense_management.sql)
+- `general_expenses`: budget_id → budgets(id) (historical evidence: 051_income_expense_management.sql)
+- `general_expenses`: budget_item_id → budget_items(id) (historical evidence: 051_income_expense_management.sql)
+- `general_expenses`: created_by → users(id) (historical evidence: 051_income_expense_management.sql)
+- `general_expenses`: updated_by → users(id) (historical evidence: 051_income_expense_management.sql)
+- `general_expenses`: voided_by → users(id) (historical evidence: 051_income_expense_management.sql)
+- `general_income`: school_id → schools(id) (historical evidence: 051_income_expense_management.sql)
+- `general_income`: created_by → users(id) (historical evidence: 051_income_expense_management.sql)
+- `general_income`: updated_by → users(id) (historical evidence: 051_income_expense_management.sql)
+- `general_income`: voided_by → users(id) (historical evidence: 051_income_expense_management.sql)
+- `grading_systems`: school_id → schools(id) (historical evidence: 007_examinations_results.sql)
+- `health_records`: school_id → schools(id) (historical evidence: 011_operations.sql)
+- `health_records`: student_id → student_profiles(id) (historical evidence: 011_operations.sql)
+- `health_records`: recorded_by → users(id) (historical evidence: 011_operations.sql)
+- `health_visits`: school_id → schools(id) (historical evidence: 011_operations.sql)
+- `health_visits`: student_id → student_profiles(id) (historical evidence: 011_operations.sql)
+- `health_visits`: recorded_by → users(id) (historical evidence: 011_operations.sql)
+- `hostel_allocations`: school_id → schools(id) (historical evidence: 011_operations.sql)
+- `hostel_allocations`: student_id → student_profiles(id) (historical evidence: 011_operations.sql)
+- `hostel_allocations`: space_id → hostel_spaces(id) (historical evidence: 011_operations.sql)
+- `hostel_spaces`: school_id → schools(id) (historical evidence: 011_operations.sql)
+- `houses`: school_id → schools(id) (historical evidence: 001_foundation.sql)
+- `inventory_items`: school_id → schools(id) (historical evidence: 012_resources.sql)
+- `inventory_items`: created_by → users(id) (historical evidence: 012_resources.sql)
+- `inventory_movements`: school_id → schools(id) (historical evidence: 012_resources.sql)
+- `inventory_movements`: inventory_id → inventory_items(id) (historical evidence: 012_resources.sql)
+- `inventory_movements`: performed_by → users(id) (historical evidence: 012_resources.sql)
+- `invoices`: school_id → schools(id) (historical evidence: 008_fees_finance.sql)
+- `invoices`: student_id → student_profiles(id) (historical evidence: 008_fees_finance.sql)
+- `invoices`: parent_user_id → users(id) (historical evidence: 008_fees_finance.sql)
+- `levels`: school_id → schools(id) (historical evidence: 001_foundation.sql)
+- `library_books`: school_id → schools(id) (historical evidence: 011_operations.sql)
+- `library_books`: created_by → users(id) (historical evidence: 011_operations.sql)
+- `library_loans`: school_id → schools(id) (historical evidence: 011_operations.sql)
+- `library_loans`: book_id → library_books(id) (historical evidence: 011_operations.sql)
+- `library_loans`: borrowed_by → users(id) (historical evidence: 011_operations.sql)
+- `managed_documents`: school_id → schools(id) (historical evidence: 013_compliance_privacy.sql)
+- `managed_documents`: created_by → users(id) (historical evidence: 013_compliance_privacy.sql)
+- `messages`: school_id → schools(id) (historical evidence: 010_communication.sql)
+- `messages`: sender_id → users(id) (historical evidence: 010_communication.sql)
+- `messages`: recipient_id → users(id) (historical evidence: 010_communication.sql)
+- `messages`: student_id → student_profiles(id) (historical evidence: 010_communication.sql)
+- `notification_preferences`: school_id → schools(id) (historical evidence: 010_communication.sql)
+- `notification_preferences`: user_id → users(id) (historical evidence: 010_communication.sql)
+- `notifications`: school_id → schools(id) (historical evidence: 010_communication.sql, 026_parent_notifications.sql)
+- `notifications`: recipient_id → users(id) (historical evidence: 010_communication.sql, 026_parent_notifications.sql)
+- `notifications`: student_id → student_profiles(id) (historical evidence: 010_communication.sql, 026_parent_notifications.sql)
+- `notifications`: created_by → users(id) (historical evidence: 010_communication.sql, 026_parent_notifications.sql)
+- `official_documents`: school_id → schools(id) (historical evidence: 014_reporting_documents.sql)
+- `official_documents`: created_by → users(id) (historical evidence: 014_reporting_documents.sql)
+- `parent_auth_challenges`: school_id → schools(id) (historical evidence: 082_parent_sms_auth.sql)
+- `parent_auth_challenges`: user_id → users(id) (historical evidence: 082_parent_sms_auth.sql)
+- `parent_student_links`: parent_user_id → users(id) (historical evidence: 003_students_admissions.sql, 026_parent_notifications.sql, 054_durable_score_entry_academic_contract.sql)
+- `parent_student_links`: student_id → student_profiles(id) (historical evidence: 003_students_admissions.sql, 026_parent_notifications.sql, 054_durable_score_entry_academic_contract.sql)
+- `payment_gateway_configs`: school_id → schools(id) (historical evidence: 008_fees_finance.sql)
+- `payments`: school_id → schools(id) (historical evidence: 008_fees_finance.sql)
+- `payments`: invoice_id → invoices(id) (historical evidence: 008_fees_finance.sql)
+- `payments`: student_id → student_profiles(id) (historical evidence: 008_fees_finance.sql)
+- `payments`: entered_by → users(id) (historical evidence: 008_fees_finance.sql)
+- `payments`: changed_by → users(id) (historical evidence: 008_fees_finance.sql)
+- `privacy_consents`: school_id → schools(id) (historical evidence: 013_compliance_privacy.sql)
+- `privacy_consents`: recorded_by → users(id) (historical evidence: 013_compliance_privacy.sql)
+- `privacy_requests`: school_id → schools(id) (historical evidence: 013_compliance_privacy.sql)
+- `privacy_requests`: created_by → users(id) (historical evidence: 013_compliance_privacy.sql)
+- `procurement_requests`: school_id → schools(id) (historical evidence: 012_resources.sql)
+- `procurement_requests`: requested_by → users(id) (historical evidence: 012_resources.sql)
+- `promotion_decisions`: school_id → schools(id) (historical evidence: 007_examinations_results.sql, 074_durable_promotion_rollover.sql)
+- `promotion_decisions`: student_id → student_profiles(id) (historical evidence: 007_examinations_results.sql, 074_durable_promotion_rollover.sql)
+- `promotion_decisions`: academic_year_id → academic_years(id) (historical evidence: 007_examinations_results.sql, 074_durable_promotion_rollover.sql)
+- `promotion_decisions`: decided_by → users(id) (historical evidence: 007_examinations_results.sql, 074_durable_promotion_rollover.sql)
+- `property_maintenance`: school_id → schools(id) (historical evidence: 012_resources.sql)
+- `property_maintenance`: property_id → school_property(id) (historical evidence: 012_resources.sql)
+- `property_maintenance`: requested_by → users(id) (historical evidence: 012_resources.sql)
+- `report_exports`: school_id → schools(id) (historical evidence: 014_reporting_documents.sql)
+- `report_exports`: generated_by → users(id) (historical evidence: 014_reporting_documents.sql)
+- `result_signatures`: school_id → schools(id) (historical evidence: 017_academic_results_migration.sql)
+- `result_signatures`: uploaded_by → users(id) (historical evidence: 017_academic_results_migration.sql)
+- `retention_policies`: school_id → schools(id) (historical evidence: 013_compliance_privacy.sql)
+- `retention_policies`: created_by → users(id) (historical evidence: 013_compliance_privacy.sql)
+- `role_permissions`: role_id → roles(id) (historical evidence: 001_foundation.sql, 032_production_rbac_reconciliation.sql)
+- `role_permissions`: permission_id → permissions(id) (historical evidence: 001_foundation.sql, 032_production_rbac_reconciliation.sql)
+- `roles`: school_id → schools(id) (historical evidence: 001_foundation.sql, 031_controlled_schema_upgrade.sql, 032_production_rbac_reconciliation.sql)
+- `school_property`: school_id → schools(id) (historical evidence: 012_resources.sql)
+- `shep_activities`: school_id → schools(id) (historical evidence: 021_shep_activities.sql)
+- `shep_activities`: created_by → users(id) (historical evidence: 021_shep_activities.sql)
+- `shep_activity_attachments`: school_id → schools(id) (historical evidence: 021_shep_activities.sql)
+- `shep_activity_attachments`: activity_id → shep_activities(id) (historical evidence: 021_shep_activities.sql)
+- `shep_activity_attachments`: created_by → users(id) (historical evidence: 021_shep_activities.sql)
+- `shep_activity_participants`: school_id → schools(id) (historical evidence: 021_shep_activities.sql)
+- `shep_activity_participants`: activity_id → shep_activities(id) (historical evidence: 021_shep_activities.sql)
+- `shep_activity_participants`: created_by → users(id) (historical evidence: 021_shep_activities.sql)
+- `shep_audit_history`: school_id → schools(id) (historical evidence: 021_shep_activities.sql)
+- `shep_audit_history`: actor_id → users(id) (historical evidence: 021_shep_activities.sql)
+- `shep_referrals`: school_id → schools(id) (historical evidence: 021_shep_activities.sql)
+- `shep_referrals`: activity_id → shep_activities(id) (historical evidence: 021_shep_activities.sql)
+- `shep_referrals`: created_by → users(id) (historical evidence: 021_shep_activities.sql)
+- `sidebar_modules`: category_id → sidebar_categories(id) (historical evidence: 001_foundation.sql)
+- `sidebar_modules`: required_permission → permissions(permission_key) (historical evidence: 001_foundation.sql)
+- `sidebar_modules`: parent_module_id → sidebar_modules(id) (historical evidence: 001_foundation.sql)
+- `sms_campaign_recipients`: school_id → schools(id) (historical evidence: 077_durable_sms_messages.sql)
+- `sms_campaign_recipients`: campaign_id → sms_campaigns(id) (historical evidence: 077_durable_sms_messages.sql)
+- `sms_campaign_recipients`: parent_user_id → users(id) (historical evidence: 077_durable_sms_messages.sql)
+- `sms_campaign_recipients`: student_id → students(id) (historical evidence: 077_durable_sms_messages.sql)
+- `sms_campaigns`: school_id → schools(id) (historical evidence: 077_durable_sms_messages.sql)
+- `sms_campaigns`: created_by → users(id) (historical evidence: 077_durable_sms_messages.sql)
+- `sporting_activities`: school_id → schools(id) (historical evidence: 019_sporting_activities.sql)
+- `sporting_activities`: sport_id → sporting_sports(id) (historical evidence: 019_sporting_activities.sql)
+- `sporting_activities`: created_by → users(id) (historical evidence: 019_sporting_activities.sql)
+- `sporting_activities`: updated_by → users(id) (historical evidence: 019_sporting_activities.sql)
+- `sporting_fixtures`: school_id → schools(id) (historical evidence: 019_sporting_activities.sql)
+- `sporting_fixtures`: activity_id → sporting_activities(id) (historical evidence: 019_sporting_activities.sql)
+- `sporting_fixtures`: sport_id → sporting_sports(id) (historical evidence: 019_sporting_activities.sql)
+- `sporting_fixtures`: team_a_id → sporting_teams(id) (historical evidence: 019_sporting_activities.sql)
+- `sporting_fixtures`: team_b_id → sporting_teams(id) (historical evidence: 019_sporting_activities.sql)
+- `sporting_participants`: school_id → schools(id) (historical evidence: 019_sporting_activities.sql)
+- `sporting_participants`: activity_id → sporting_activities(id) (historical evidence: 019_sporting_activities.sql)
+- `sporting_participants`: team_id → sporting_teams(id) (historical evidence: 019_sporting_activities.sql)
+- `sporting_participants`: sport_id → sporting_sports(id) (historical evidence: 019_sporting_activities.sql)
+- `sporting_participants`: created_by → users(id) (historical evidence: 019_sporting_activities.sql)
+- `sporting_results`: school_id → schools(id) (historical evidence: 019_sporting_activities.sql)
+- `sporting_results`: activity_id → sporting_activities(id) (historical evidence: 019_sporting_activities.sql)
+- `sporting_results`: fixture_id → sporting_fixtures(id) (historical evidence: 019_sporting_activities.sql)
+- `sporting_results`: participant_id → sporting_participants(id) (historical evidence: 019_sporting_activities.sql)
+- `sporting_results`: team_id → sporting_teams(id) (historical evidence: 019_sporting_activities.sql)
+- `sporting_results`: created_by → users(id) (historical evidence: 019_sporting_activities.sql)
+- `sporting_sports`: school_id → schools(id) (historical evidence: 019_sporting_activities.sql)
+- `sporting_teams`: school_id → schools(id) (historical evidence: 019_sporting_activities.sql)
+- `staff`: school_id → schools(id) (historical evidence: 001_foundation.sql)
+- `staff`: user_id → users(id) (historical evidence: 001_foundation.sql)
+- `staff`: department_id → departments(id) (historical evidence: 001_foundation.sql)
+- `staff_assignments`: staff_id → staff_profiles(id) (historical evidence: 009_staff_hr.sql)
+- `staff_assignments`: subject_id → subjects(id) (historical evidence: 009_staff_hr.sql)
+- `staff_assignments`: class_id → classes(id) (historical evidence: 009_staff_hr.sql)
+- `staff_assignments`: stream_id → streams(id) (historical evidence: 009_staff_hr.sql)
+- `staff_assignments`: department_id → departments(id) (historical evidence: 009_staff_hr.sql)
+- `staff_assignments`: academic_year_id → academic_years(id) (historical evidence: 009_staff_hr.sql)
+- `staff_assignments`: term_id → terms(id) (historical evidence: 009_staff_hr.sql)
+- `staff_attendance`: school_id → schools(id) (historical evidence: 006_attendance.sql, 034_attendance_academic_scope.sql, 035_staff_leave_attendance_reconciliation.sql, 036_attendance_provenance_audit.sql, 049_production_schema_reconciliation.sql)
+- `staff_attendance`: staff_id → staff(id) (historical evidence: 006_attendance.sql, 034_attendance_academic_scope.sql, 035_staff_leave_attendance_reconciliation.sql, 036_attendance_provenance_audit.sql, 049_production_schema_reconciliation.sql)
+- `staff_attendance`: entered_by → users(id) (historical evidence: 006_attendance.sql, 034_attendance_academic_scope.sql, 035_staff_leave_attendance_reconciliation.sql, 036_attendance_provenance_audit.sql, 049_production_schema_reconciliation.sql)
+- `staff_attendance_reconciliation_audit`: school_id → schools(id) (historical evidence: 035_staff_leave_attendance_reconciliation.sql, 049_production_schema_reconciliation.sql)
+- `staff_attendance_reconciliation_audit`: leave_request_id → staff_leave(id) (historical evidence: 035_staff_leave_attendance_reconciliation.sql, 049_production_schema_reconciliation.sql)
+- `staff_attendance_reconciliation_audit`: staff_attendance_id → staff_attendance(id) (historical evidence: 035_staff_leave_attendance_reconciliation.sql, 049_production_schema_reconciliation.sql)
+- `staff_attendance_reconciliation_audit`: actor_id → users(id) (historical evidence: 035_staff_leave_attendance_reconciliation.sql, 049_production_schema_reconciliation.sql)
+- `staff_documents`: staff_id → staff_profiles(id) (historical evidence: 009_staff_hr.sql)
+- `staff_documents`: uploaded_by → users(id) (historical evidence: 009_staff_hr.sql)
+- `staff_leave`: school_id → schools(id) (historical evidence: 009_staff_hr.sql, 035_staff_leave_attendance_reconciliation.sql, 049_production_schema_reconciliation.sql)
+- `staff_leave`: staff_id → staff_profiles(id) (historical evidence: 009_staff_hr.sql, 035_staff_leave_attendance_reconciliation.sql, 049_production_schema_reconciliation.sql)
+- `staff_leave`: decided_by → users(id) (historical evidence: 009_staff_hr.sql, 035_staff_leave_attendance_reconciliation.sql, 049_production_schema_reconciliation.sql)
+- `staff_leave_balances`: school_id → schools(id) (historical evidence: 009_staff_hr.sql)
+- `staff_leave_balances`: staff_id → staff_profiles(id) (historical evidence: 009_staff_hr.sql)
+- `staff_profiles`: school_id → schools(id) (historical evidence: 009_staff_hr.sql)
+- `staff_profiles`: department_id → departments(id) (historical evidence: 009_staff_hr.sql)
+- `streams`: class_id → classes(id) (historical evidence: 001_foundation.sql)
+- `student_attendance`: school_id → schools(id) (historical evidence: 006_attendance.sql, 034_attendance_academic_scope.sql, 036_attendance_provenance_audit.sql, 049_production_schema_reconciliation.sql, 079_attendance_legacy_schema_compatibility.sql)
+- `student_attendance`: class_id → classes(id) (historical evidence: 006_attendance.sql, 034_attendance_academic_scope.sql, 036_attendance_provenance_audit.sql, 049_production_schema_reconciliation.sql, 079_attendance_legacy_schema_compatibility.sql)
+- `student_attendance`: student_id → student_profiles(id) (historical evidence: 006_attendance.sql, 034_attendance_academic_scope.sql, 036_attendance_provenance_audit.sql, 049_production_schema_reconciliation.sql, 079_attendance_legacy_schema_compatibility.sql)
+- `student_attendance`: subject_id → subjects(id) (historical evidence: 006_attendance.sql, 034_attendance_academic_scope.sql, 036_attendance_provenance_audit.sql, 049_production_schema_reconciliation.sql, 079_attendance_legacy_schema_compatibility.sql)
+- `student_attendance`: entered_by → users(id) (historical evidence: 006_attendance.sql, 034_attendance_academic_scope.sql, 036_attendance_provenance_audit.sql, 049_production_schema_reconciliation.sql, 079_attendance_legacy_schema_compatibility.sql)
+- `student_class_history`: student_id → student_profiles(id) (historical evidence: 003_students_admissions.sql)
+- `student_class_history`: class_id → classes(id) (historical evidence: 003_students_admissions.sql)
+- `student_class_history`: stream_id → streams(id) (historical evidence: 003_students_admissions.sql)
+- `student_class_history`: academic_year_id → academic_years(id) (historical evidence: 003_students_admissions.sql)
+- `student_documents`: student_id → student_profiles(id) (historical evidence: 003_students_admissions.sql)
+- `student_documents`: uploaded_by → users(id) (historical evidence: 003_students_admissions.sql)
+- `student_enrollments`: student_id → students(id) (historical evidence: 031_controlled_schema_upgrade.sql, 038_canonical_class_database_fee_hub.sql, 054_durable_score_entry_academic_contract.sql, 059_backward_compatible_enrollment_contract.sql, 078_admissions_leadership_access.sql, 080_restore_student_enrollment_is_current.sql)
+- `student_enrollments`: class_id → classes(id) (historical evidence: 031_controlled_schema_upgrade.sql, 038_canonical_class_database_fee_hub.sql, 054_durable_score_entry_academic_contract.sql, 059_backward_compatible_enrollment_contract.sql, 078_admissions_leadership_access.sql, 080_restore_student_enrollment_is_current.sql)
+- `student_enrollments`: academic_year_id → academic_years(id) (historical evidence: 031_controlled_schema_upgrade.sql, 038_canonical_class_database_fee_hub.sql, 054_durable_score_entry_academic_contract.sql, 059_backward_compatible_enrollment_contract.sql, 078_admissions_leadership_access.sql, 080_restore_student_enrollment_is_current.sql)
+- `student_enrollments`: term_id → terms(id) (historical evidence: 031_controlled_schema_upgrade.sql, 038_canonical_class_database_fee_hub.sql, 054_durable_score_entry_academic_contract.sql, 059_backward_compatible_enrollment_contract.sql, 078_admissions_leadership_access.sql, 080_restore_student_enrollment_is_current.sql)
+- `student_family_contacts`: student_id → student_profiles(id) (historical evidence: 003_students_admissions.sql)
+- `student_fee_accounts`: school_id → schools(id) (historical evidence: 038_canonical_class_database_fee_hub.sql, 041_student_fee_accounts.sql, 049_production_schema_reconciliation.sql)
+- `student_fee_accounts`: created_by → users(id) (historical evidence: 038_canonical_class_database_fee_hub.sql, 041_student_fee_accounts.sql, 049_production_schema_reconciliation.sql)
+- `student_fee_accounts`: updated_by → users(id) (historical evidence: 038_canonical_class_database_fee_hub.sql, 041_student_fee_accounts.sql, 049_production_schema_reconciliation.sql)
+- `student_fee_ledger`: school_id → schools(id) (historical evidence: 042_student_fee_ledger.sql, 049_production_schema_reconciliation.sql)
+- `student_fee_ledger`: account_id → student_fee_accounts(id) (historical evidence: 042_student_fee_ledger.sql, 049_production_schema_reconciliation.sql)
+- `student_fee_ledger`: recorded_by → users(id) (historical evidence: 042_student_fee_ledger.sql, 049_production_schema_reconciliation.sql)
+- `student_fee_ledger`: reversed_by → users(id) (historical evidence: 042_student_fee_ledger.sql, 049_production_schema_reconciliation.sql)
+- `student_fee_payments`: school_id → schools(id) (historical evidence: 044_fee_payments_receipts.sql, 049_production_schema_reconciliation.sql)
+- `student_fee_payments`: account_id → student_fee_accounts(id) (historical evidence: 044_fee_payments_receipts.sql, 049_production_schema_reconciliation.sql)
+- `student_fee_payments`: invoice_id → fee_invoices(id) (historical evidence: 044_fee_payments_receipts.sql, 049_production_schema_reconciliation.sql)
+- `student_fee_payments`: received_by → users(id) (historical evidence: 044_fee_payments_receipts.sql, 049_production_schema_reconciliation.sql)
+- `student_fee_payments`: reversed_by → users(id) (historical evidence: 044_fee_payments_receipts.sql, 049_production_schema_reconciliation.sql)
+- `student_fee_receipts`: school_id → schools(id) (historical evidence: 044_fee_payments_receipts.sql, 049_production_schema_reconciliation.sql, 053_forward_production_reconciliation.sql)
+- `student_fee_receipts`: payment_id → student_fee_payments(id) (historical evidence: 044_fee_payments_receipts.sql, 049_production_schema_reconciliation.sql, 053_forward_production_reconciliation.sql)
+- `student_fee_receipts`: account_id → student_fee_accounts(id) (historical evidence: 044_fee_payments_receipts.sql, 049_production_schema_reconciliation.sql, 053_forward_production_reconciliation.sql)
+- `student_fee_receipts`: issued_by → users(id) (historical evidence: 044_fee_payments_receipts.sql, 049_production_schema_reconciliation.sql, 053_forward_production_reconciliation.sql)
+- `student_fee_receipts`: voided_by → users(id) (historical evidence: 044_fee_payments_receipts.sql, 049_production_schema_reconciliation.sql, 053_forward_production_reconciliation.sql)
+- `student_health_records`: student_id → student_profiles(id) (historical evidence: 003_students_admissions.sql)
+- `student_profiles`: school_id → schools(id) (historical evidence: 003_students_admissions.sql, 023_permanent_student_ids.sql, 054_durable_score_entry_academic_contract.sql)
+- `student_profiles`: class_id → classes(id) (historical evidence: 003_students_admissions.sql, 023_permanent_student_ids.sql, 054_durable_score_entry_academic_contract.sql)
+- `student_profiles`: stream_id → streams(id) (historical evidence: 003_students_admissions.sql, 023_permanent_student_ids.sql, 054_durable_score_entry_academic_contract.sql)
+- `student_profiles`: house_id → houses(id) (historical evidence: 003_students_admissions.sql, 023_permanent_student_ids.sql, 054_durable_score_entry_academic_contract.sql)
+- `student_transcript_versions`: transcript_id → student_transcripts(id) (historical evidence: 024_student_transcripts.sql)
+- `student_transcript_versions`: generated_by → users(id) (historical evidence: 024_student_transcripts.sql)
+- `student_transcript_versions`: published_by → users(id) (historical evidence: 024_student_transcripts.sql)
+- `student_transcript_versions`: revoked_by → users(id) (historical evidence: 024_student_transcripts.sql)
+- `student_transcripts`: school_id → schools(id) (historical evidence: 024_student_transcripts.sql)
+- `student_transcripts`: student_id → student_profiles(id) (historical evidence: 024_student_transcripts.sql)
+- `student_transcripts`: generated_by → users(id) (historical evidence: 024_student_transcripts.sql)
+- `student_transcripts`: published_by → users(id) (historical evidence: 024_student_transcripts.sql)
+- `student_transcripts`: revoked_by → users(id) (historical evidence: 024_student_transcripts.sql)
+- `students`: school_id → schools(id) (historical evidence: 001_foundation.sql, 038_canonical_class_database_fee_hub.sql, 039_class_database_financial_identity.sql, 054_durable_score_entry_academic_contract.sql, 081_student_health_insurance_number.sql)
+- `students`: user_id → users(id) (historical evidence: 001_foundation.sql, 038_canonical_class_database_fee_hub.sql, 039_class_database_financial_identity.sql, 054_durable_score_entry_academic_contract.sql, 081_student_health_insurance_number.sql)
+- `subject_class_assignments`: school_id → schools(id) (historical evidence: 017_academic_results_migration.sql, 065_subject_assessment_components.sql, 066_subject_class_assignments_reconciliation.sql)
+- `subject_class_assignments`: subject_id → subjects(id) (historical evidence: 017_academic_results_migration.sql, 065_subject_assessment_components.sql, 066_subject_class_assignments_reconciliation.sql)
+- `subject_class_assignments`: class_id → classes(id) (historical evidence: 017_academic_results_migration.sql, 065_subject_assessment_components.sql, 066_subject_class_assignments_reconciliation.sql)
+- `subject_class_assignments`: academic_year_id → academic_years(id) (historical evidence: 017_academic_results_migration.sql, 065_subject_assessment_components.sql, 066_subject_class_assignments_reconciliation.sql)
+- `subject_class_assignments`: fk_subject_class_assignments_school: school_id → schools(id) (historical evidence: 017_academic_results_migration.sql, 065_subject_assessment_components.sql, 066_subject_class_assignments_reconciliation.sql)
+- `subject_class_assignments`: fk_subject_class_assignments_subject: subject_id → subjects(id) (historical evidence: 017_academic_results_migration.sql, 065_subject_assessment_components.sql, 066_subject_class_assignments_reconciliation.sql)
+- `subject_class_assignments`: fk_subject_class_assignments_class: class_id → classes(id) (historical evidence: 017_academic_results_migration.sql, 065_subject_assessment_components.sql, 066_subject_class_assignments_reconciliation.sql)
+- `subject_class_assignments`: fk_subject_class_assignments_year: academic_year_id → academic_years(id) (historical evidence: 017_academic_results_migration.sql, 065_subject_assessment_components.sql, 066_subject_class_assignments_reconciliation.sql)
+- `subject_register_history`: school_id → schools(id) (historical evidence: 020_subject_register.sql)
+- `subject_register_history`: subject_register_id → subject_registers(id) (historical evidence: 020_subject_register.sql)
+- `subject_register_history`: actor_id → users(id) (historical evidence: 020_subject_register.sql)
+- `subject_register_teachers`: school_id → schools(id) (historical evidence: 020_subject_register.sql)
+- `subject_register_teachers`: subject_register_id → subject_registers(id) (historical evidence: 020_subject_register.sql)
+- `subject_registers`: school_id → schools(id) (historical evidence: 020_subject_register.sql)
+- `subject_registers`: created_by → users(id) (historical evidence: 020_subject_register.sql)
+- `subject_registers`: updated_by → users(id) (historical evidence: 020_subject_register.sql)
+- `subjects`: school_id → schools(id) (historical evidence: 001_foundation.sql, 063_subject_classification.sql, 065_subject_assessment_components.sql, 073_subject_updated_at.sql)
+- `subjects`: department_id → departments(id) (historical evidence: 001_foundation.sql, 063_subject_classification.sql, 065_subject_assessment_components.sql, 073_subject_updated_at.sql)
+- `system_settings`: school_id → schools(id) (historical evidence: 001_foundation.sql)
+- `terms`: academic_year_id → academic_years(id) (historical evidence: 001_foundation.sql, 060_terms_academic_year_name_unique.sql)
+- `transport_routes`: school_id → schools(id) (historical evidence: 011_operations.sql)
+- `transport_routes`: vehicle_id → transport_vehicles(id) (historical evidence: 011_operations.sql)
+- `transport_vehicles`: school_id → schools(id) (historical evidence: 011_operations.sql)
+- `user_roles`: user_id → users(id) (historical evidence: 001_foundation.sql, 031_controlled_schema_upgrade.sql)
+- `user_roles`: role_id → roles(id) (historical evidence: 001_foundation.sql, 031_controlled_schema_upgrade.sql)
+- `users`: school_id → schools(id) (historical evidence: 001_foundation.sql, 031_controlled_schema_upgrade.sql, 069_production_user_login_identifiers.sql)
+- `welfare_incidents`: school_id → schools(id) (historical evidence: 011_operations.sql)
+- `welfare_incidents`: student_id → student_profiles(id) (historical evidence: 011_operations.sql)
+- `welfare_incidents`: recorded_by → users(id) (historical evidence: 011_operations.sql)
+
+## Runtime table joins
+
+- `academic_years` participates in a runtime join at [src/academic-calendar.js](src/academic-calendar.js:37); projection evidence: `t.id,t.academic_year_id AS academicYearId,t.name,t.starts_on AS startsOn,t.ends_on AS endsOn,t.is_current AS isCurrent`.
+- `academic_years` participates in a runtime join at [src/budgets.js](src/budgets.js:33); projection evidence: `t.id`.
+- `academic_years` participates in a runtime join at [src/durable-fee-payments.js](src/durable-fee-payments.js:15); projection evidence: `t.id,t.name`.
+- `academic_years` participates in a runtime join at [src/durable-promotion.js](src/durable-promotion.js:34); projection evidence: `t.id,t.name,t.academic_year_id AS academicYearId,t.starts_on AS startsOn,t.ends_on AS endsOn`.
+- `academic_years` participates in a runtime join at [src/fee-collections-repository.js](src/fee-collections-repository.js:34); projection evidence: `t.id`.
+- `academic_years` participates in a runtime join at [src/general-finance.js](src/general-finance.js:26); projection evidence: `t.id`.
+- `academic_years` participates in a runtime join at [src/parent-historical-records.js](src/parent-historical-records.js:58); projection evidence: `DISTINCT y.id AS academicYearId, y.name AS academicYearName, t.id AS termId, t.name AS termName, c.id AS classId, c.name AS className`.
+- `academic_years` participates in a runtime join at [src/parent-historical-records.js](src/parent-historical-records.js:94); projection evidence: `pd.id, pd.academic_year_id AS academicYearId, y.name AS academicYearName, pd.decision, pd.decided_at AS decisionDate`.
+- `academic_years` participates in a runtime join at [src/parent-historical-records.js](src/parent-historical-records.js:125); projection evidence: `s.student_status AS studentStatus, e.academic_year_id AS academicYearId, y.name AS academicYearName, e.term_id AS termId, t.name AS termName, e.class_id AS classId, c.name AS className, e.enrollment_status AS enrollmentStatus`.
+- `academic_years` participates in a runtime join at [src/school-settings.js](src/school-settings.js:67); projection evidence: `t.id,t.academic_year_id AS academicYearId,t.name,t.starts_on AS startsOn,t.ends_on AS endsOn,t.is_current AS isCurrent`.
+- `academic_years` participates in a runtime join at [src/school-settings.js](src/school-settings.js:67); projection evidence: `t.id,t.academic_year_id AS academicYearId,t.name,t.starts_on AS startsOn,t.ends_on AS endsOn`.
+- `academic_years` participates in a runtime join at [src/server.mjs](src/server.mjs:992); projection evidence: `t.id`.
+- `announcement_reads` participates in a runtime join at [src/durable-announcements.js](src/durable-announcements.js:59); projection evidence: `a.id,a.school_id AS schoolId,a.title,a.message,a.priority,a.recipient_category AS recipientCategory,a.status,a.scheduled_for AS scheduledFor,a.published_at AS publishedAt,a.sender_id AS senderId,a.created_at AS createdAt,u.username AS senderName,r.role_key AS senderRole,ar.read_at AS readAt`.
+- `announcement_recipients` participates in a runtime join at [src/durable-announcements.js](src/durable-announcements.js:59); projection evidence: `a.id,a.school_id AS schoolId,a.title,a.message,a.priority,a.recipient_category AS recipientCategory,a.status,a.scheduled_for AS scheduledFor,a.published_at AS publishedAt,a.sender_id AS senderId,a.created_at AS createdAt,u.username AS senderName,r.role_key AS senderRole,ar.read_at AS readAt`.
+- `classes` participates in a runtime join at [src/admission-enrollment.js](src/admission-enrollment.js:153); projection evidence: `s.id AS id,s.id AS studentId,s.id AS student_id, s.permanent_student_id AS permanentStudentId,s.permanent_student_id, sp.id AS studentProfileId,sp.id AS student_profile_id,sp.class_id AS classId,sp.class_id, s.first_name AS firstName,s.last_name AS lastName,s.gender,s.student_status AS studentStatus, sp.enrollment_status AS profileEnrollmentStatus, (SELECT e.enrollment_status`.
+- `classes` participates in a runtime join at [src/durable-academic.js](src/durable-academic.js:230); projection evidence: `a.subject_id AS subjectId,a.class_id AS classId,a.active,c.name AS className`.
+- `classes` participates in a runtime join at [src/durable-academic.js](src/durable-academic.js:234); projection evidence: `cs.subject_id AS subjectId,cs.class_id AS classId,c.name AS className,1 AS active`.
+- `classes` participates in a runtime join at [src/durable-academic.js](src/durable-academic.js:283); projection evidence: `a.active,c.name AS className`.
+- `classes` participates in a runtime join at [src/durable-academic.js](src/durable-academic.js:301); projection evidence: `a.id,a.class_id AS classId,c.name AS className`.
+- `classes` participates in a runtime join at [src/durable-academic.js](src/durable-academic.js:327); projection evidence: `s.id,s.code,s.name,s.department_id AS departmentId,s.subject_type AS subjectType,s.is_scoring AS isScoring,s.is_active AS subjectActive,a.class_id AS classId,c.name AS className,a.academic_year_id AS academicYearId,a.active AS assignmentActive,a.configuration_version AS configurationVersion`.
+- `classes` participates in a runtime join at [src/parent-historical-records.js](src/parent-historical-records.js:60); projection evidence: `DISTINCT y.id AS academicYearId, y.name AS academicYearName, t.id AS termId, t.name AS termName, c.id AS classId, c.name AS className`.
+- `classes` participates in a runtime join at [src/parent-historical-records.js](src/parent-historical-records.js:127); projection evidence: `s.student_status AS studentStatus, e.academic_year_id AS academicYearId, y.name AS academicYearName, e.term_id AS termId, t.name AS termName, e.class_id AS classId, c.name AS className, e.enrollment_status AS enrollmentStatus`.
+- `fee_invoices` participates in a runtime join at [src/durable-fee-reader.js](src/durable-fee-reader.js:101); projection evidence: `p.id, p.payment_reference AS paymentReference, r.receipt_number AS receiptNumber, i.invoice_number AS invoiceNumber, NULL AS studentName, NULL AS className, p.academic_year_id AS academicYear, p.term_id AS term, (SELECT string_agg(DISTINCT ii.fee_type, ', ' ORDER BY ii.fee_type)`.
+- `fee_invoices` participates in a runtime join at [src/durable-fee-reader.js](src/durable-fee-reader.js:169); projection evidence: `p.id, p.payment_reference AS paymentReference, r.receipt_number AS receiptNumber, i.invoice_number AS invoiceNumber, CONCAT_WS(' ', s.first_name, s.middle_name, s.last_name) AS studentName, sp.class_id AS className, p.academic_year_id AS academicYear, p.term_id AS term, (SELECT string_agg(DISTINCT ii.fee_type, ', ' ORDER BY ii.fee_type)`.
+- `fee_obligations` participates in a runtime join at [src/parent-fee-obligations-repository.js](src/parent-fee-obligations-repository.js:14); projection evidence: `psl.student_id AS studentId,s.permanent_student_id AS permanentStudentId,s.first_name AS firstName,s.middle_name AS middleName,s.last_name AS surname,sp.class_id AS classId,s.school_id AS schoolId,fo.id AS obligationId,fo.fee_structure_id AS feeStructureId,fo.academic_year_id AS academicYearId,fo.term_id AS termId,fo.due_date AS dueDate,fo.amount_minor AS amountMinor,fo.custom_fee_type_name AS customFeeTypeName,fo.status`.
+- `fee_types` participates in a runtime join at [src/fee-collections-repository.js](src/fee-collections-repository.js:74); projection evidence: `fo.fee_structure_id AS id,MAX(COALESCE(fo.custom_fee_type_name,ft.name,fo.fee_structure_id)) AS feeType,MAX(fo.custom_fee_type_name) AS customFeeTypeName,fo.academic_year_id AS academicYearId,fo.term_id AS termId,fo.applicability_type AS scope,fo.class_id AS classId,fo.amount_minor AS amountMinor,fo.status,MAX(fo.published_at) AS publishedAt,COUNT(*) AS obligationCount`.
+- `levels` participates in a runtime join at [src/durable-academic.js](src/durable-academic.js:102); projection evidence: `c.id,c.name,c.display_order AS displayOrder,l.name AS levelName`.
+- `levels` participates in a runtime join at [src/fee-collections-repository.js](src/fee-collections-repository.js:35); projection evidence: `c.id`.
+- `parent_student_links` participates in a runtime join at [src/admission-enrollment.js](src/admission-enrollment.js:135); projection evidence: `s.id AS id,s.id AS studentId,s.id AS student_id,s.permanent_student_id AS permanentStudentId,s.permanent_student_id,s.gender,s.student_status AS studentStatus,sp.id AS studentProfileId,sp.id AS student_profile_id,sp.class_id AS classId,sp.class_id,sp.enrollment_status AS profileEnrollmentStatus,(SELECT e.enrollment_status`.
+- `parent_student_links` participates in a runtime join at [src/durable-announcements.js](src/durable-announcements.js:19); projection evidence: `DISTINCT u.id AS id,COALESCE(NULLIF(u.username,''),u.email,u.id) AS name`.
+- `parent_student_links` participates in a runtime join at [src/durable-fee-reader.js](src/durable-fee-reader.js:172); projection evidence: `p.id, p.payment_reference AS paymentReference, r.receipt_number AS receiptNumber, i.invoice_number AS invoiceNumber, CONCAT_WS(' ', s.first_name, s.middle_name, s.last_name) AS studentName, sp.class_id AS className, p.academic_year_id AS academicYear, p.term_id AS term, (SELECT string_agg(DISTINCT ii.fee_type, ', ' ORDER BY ii.fee_type)`.
+- `parent_student_links` participates in a runtime join at [src/parent-sms-auth.js](src/parent-sms-auth.js:61); projection evidence: `DISTINCT u.id AS userId,u.school_id AS schoolId,u.phone AS phone, (SELECT COUNT(DISTINCT p.id)`.
+- `parent_student_links` participates in a runtime join at [src/parent-sms-auth.js](src/parent-sms-auth.js:141); projection evidence: `u.id AS userId,u.school_id AS schoolId`.
+- `promotion_decisions` participates in a runtime join at [src/parent-historical-records.js](src/parent-historical-records.js:93); projection evidence: `pd.id, pd.academic_year_id AS academicYearId, y.name AS academicYearName, pd.decision, pd.decided_at AS decisionDate`.
+- `roles` participates in a runtime join at [src/admission-enrollment.js](src/admission-enrollment.js:59); projection evidence: `u.id,u.email,u.phone,u.username`.
+- `roles` participates in a runtime join at [src/durable-administrator-credential-reset.js](src/durable-administrator-credential-reset.js:55); projection evidence: `ur.role_id AS roleId`.
+- `roles` participates in a runtime join at [src/durable-announcements.js](src/durable-announcements.js:17); projection evidence: `u.id AS id,TRIM(CONCAT_WS(' ',s.first_name,s.last_name)) AS name`.
+- `roles` participates in a runtime join at [src/durable-announcements.js](src/durable-announcements.js:18); projection evidence: `u.id AS id,COALESCE(NULLIF(TRIM(CONCAT_WS(' ',s.first_name,s.last_name)),''),u.username) AS name,r.role_key AS roleKey`.
+- `roles` participates in a runtime join at [src/durable-announcements.js](src/durable-announcements.js:29); projection evidence: `DISTINCT u.id AS userId,CASE WHEN r.role_key='PARENT' THEN 'PARENT' WHEN r.role_key='TEACHER' THEN 'TEACHER' ELSE 'STAFF' END AS recipientType`.
+- `roles` participates in a runtime join at [src/durable-announcements.js](src/durable-announcements.js:59); projection evidence: `a.id,a.school_id AS schoolId,a.title,a.message,a.priority,a.recipient_category AS recipientCategory,a.status,a.scheduled_for AS scheduledFor,a.published_at AS publishedAt,a.sender_id AS senderId,a.created_at AS createdAt,u.username AS senderName,r.role_key AS senderRole,ar.read_at AS readAt`.
+- `roles` participates in a runtime join at [src/durable-credential-management.js](src/durable-credential-management.js:43); projection evidence: `u.id AS id, u.username AS username, u.email AS email, u.status AS status, s.id AS staffId, r.role_key AS roleKey`.
+- `roles` participates in a runtime join at [src/durable-staff-provisioning.js](src/durable-staff-provisioning.js:148); projection evidence: `u.id`.
+- `roles` participates in a runtime join at [src/durable-staff-provisioning.js](src/durable-staff-provisioning.js:171); projection evidence: `s.id AS id, s.staff_number AS staffId, s.first_name AS firstName, s.last_name AS lastName, u.username AS username, u.email AS email, u.status AS accountStatus, u.created_at AS createdAt, u.full_name AS fullName, u.phone AS phone, r.role_key AS roleKey, sa.class_id AS assignedClassId, sa.subject_id AS assignedSubjectId`.
+- `roles` participates in a runtime join at [src/durable-staff-provisioning.js](src/durable-staff-provisioning.js:234); projection evidence: `r.role_key AS roleKey`.
+- `roles` participates in a runtime join at [src/durable-staff-provisioning.js](src/durable-staff-provisioning.js:236); projection evidence: ``.
+- `roles` participates in a runtime join at [src/parent-sms-auth.js](src/parent-sms-auth.js:60); projection evidence: `DISTINCT u.id AS userId,u.school_id AS schoolId,u.phone AS phone, (SELECT COUNT(DISTINCT p.id)`.
+- `roles` participates in a runtime join at [src/parent-sms-auth.js](src/parent-sms-auth.js:140); projection evidence: `u.id AS userId,u.school_id AS schoolId`.
+- `roles` participates in a runtime join at [src/school-profile.js](src/school-profile.js:15); projection evidence: `u.id AS id,COALESCE(NULLIF(TRIM(CONCAT(COALESCE(s.first_name,''),' ',COALESCE(s.last_name,''))),''),u.email) AS fullName,u.email AS contact,r.role_key AS roleKey`.
+- `roles` participates in a runtime join at [src/server.mjs](src/server.mjs:144); projection evidence: `s.id AS id,s.staff_number AS employeeId,TRIM(CONCAT_WS(' ',s.first_name,s.last_name)) AS fullName,COALESCE((SELECT r.role_name`.
+- `roles` participates in a runtime join at [src/staff-attendance-overview.js](src/staff-attendance-overview.js:97); projection evidence: `s.id,s.staff_number AS employeeId,TRIM(CONCAT_WS(' ',s.first_name,s.last_name)) AS fullName,u.phone,r.role_key AS roleKey,s.school_id AS schoolId`.
+- `roles` participates in a runtime join at [src/user-directory.js](src/user-directory.js:16); projection evidence: `u.id AS id, u.email AS username, u.email AS email, u.status AS status, s.first_name AS firstName, s.last_name AS lastName, r.role_key AS roleKey, r.role_name AS roleName`.
+- `staff` participates in a runtime join at [src/durable-announcements.js](src/durable-announcements.js:17); projection evidence: `u.id AS id,TRIM(CONCAT_WS(' ',s.first_name,s.last_name)) AS name`.
+- `staff` participates in a runtime join at [src/durable-announcements.js](src/durable-announcements.js:18); projection evidence: `u.id AS id,COALESCE(NULLIF(TRIM(CONCAT_WS(' ',s.first_name,s.last_name)),''),u.username) AS name,r.role_key AS roleKey`.
+- `staff` participates in a runtime join at [src/durable-credential-management.js](src/durable-credential-management.js:41); projection evidence: `u.id AS id, u.username AS username, u.email AS email, u.status AS status, s.id AS staffId, r.role_key AS roleKey`.
+- `staff` participates in a runtime join at [src/durable-staff-provisioning.js](src/durable-staff-provisioning.js:145); projection evidence: `u.id`.
+- `staff` participates in a runtime join at [src/school-profile.js](src/school-profile.js:14); projection evidence: `u.id AS id,COALESCE(NULLIF(TRIM(CONCAT(COALESCE(s.first_name,''),' ',COALESCE(s.last_name,''))),''),u.email) AS fullName,u.email AS contact,r.role_key AS roleKey`.
+- `staff` participates in a runtime join at [src/user-directory.js](src/user-directory.js:14); projection evidence: `u.id AS id, u.email AS username, u.email AS email, u.status AS status, s.first_name AS firstName, s.last_name AS lastName, r.role_key AS roleKey, r.role_name AS roleName`.
+- `staff_assignments` participates in a runtime join at [src/durable-staff-provisioning.js](src/durable-staff-provisioning.js:173); projection evidence: `s.id AS id, s.staff_number AS staffId, s.first_name AS firstName, s.last_name AS lastName, u.username AS username, u.email AS email, u.status AS accountStatus, u.created_at AS createdAt, u.full_name AS fullName, u.phone AS phone, r.role_key AS roleKey, sa.class_id AS assignedClassId, sa.subject_id AS assignedSubjectId`.
+- `staff_profiles` participates in a runtime join at [src/durable-staff-provisioning.js](src/durable-staff-provisioning.js:146); projection evidence: `u.id`.
+- `staff_profiles` participates in a runtime join at [src/durable-staff-provisioning.js](src/durable-staff-provisioning.js:172); projection evidence: `s.id AS id, s.staff_number AS staffId, s.first_name AS firstName, s.last_name AS lastName, u.username AS username, u.email AS email, u.status AS accountStatus, u.created_at AS createdAt, u.full_name AS fullName, u.phone AS phone, r.role_key AS roleKey, sa.class_id AS assignedClassId, sa.subject_id AS assignedSubjectId`.
+- `student_enrollments` participates in a runtime join at [src/admission-enrollment.js](src/admission-enrollment.js:166); projection evidence: `e.class_id AS classId ,e.term_id AS termId`.
+- `student_enrollments` participates in a runtime join at [src/durable-promotion.js](src/durable-promotion.js:92); projection evidence: `s.id AS id,s.permanent_student_id AS permanentStudentId,s.is_test_record AS isTestRecord,s.student_status AS studentStatus, sp.id AS profileId,e.id AS enrollmentId,e.class_id AS classId,e.academic_year_id AS academicYearId,e.term_id AS termId,e.enrollment_status AS enrollmentStatus,e.is_current AS isCurrent`.
+- `student_enrollments` participates in a runtime join at [src/parent-historical-records.js](src/parent-historical-records.js:57); projection evidence: `DISTINCT y.id AS academicYearId, y.name AS academicYearName, t.id AS termId, t.name AS termName, c.id AS classId, c.name AS className`.
+- `student_enrollments` participates in a runtime join at [src/parent-historical-records.js](src/parent-historical-records.js:123); projection evidence: `s.student_status AS studentStatus, e.academic_year_id AS academicYearId, y.name AS academicYearName, e.term_id AS termId, t.name AS termName, e.class_id AS classId, c.name AS className, e.enrollment_status AS enrollmentStatus`.
+- `student_fee_accounts` participates in a runtime join at [src/durable-fee-reader.js](src/durable-fee-reader.js:100); projection evidence: `p.id, p.payment_reference AS paymentReference, r.receipt_number AS receiptNumber, i.invoice_number AS invoiceNumber, NULL AS studentName, NULL AS className, p.academic_year_id AS academicYear, p.term_id AS term, (SELECT string_agg(DISTINCT ii.fee_type, ', ' ORDER BY ii.fee_type)`.
+- `student_fee_accounts` participates in a runtime join at [src/durable-fee-reader.js](src/durable-fee-reader.js:168); projection evidence: `p.id, p.payment_reference AS paymentReference, r.receipt_number AS receiptNumber, i.invoice_number AS invoiceNumber, CONCAT_WS(' ', s.first_name, s.middle_name, s.last_name) AS studentName, sp.class_id AS className, p.academic_year_id AS academicYear, p.term_id AS term, (SELECT string_agg(DISTINCT ii.fee_type, ', ' ORDER BY ii.fee_type)`.
+- `student_fee_receipts` participates in a runtime join at [src/durable-fee-reader.js](src/durable-fee-reader.js:102); projection evidence: `p.id, p.payment_reference AS paymentReference, r.receipt_number AS receiptNumber, i.invoice_number AS invoiceNumber, NULL AS studentName, NULL AS className, p.academic_year_id AS academicYear, p.term_id AS term, (SELECT string_agg(DISTINCT ii.fee_type, ', ' ORDER BY ii.fee_type)`.
+- `student_fee_receipts` participates in a runtime join at [src/durable-fee-reader.js](src/durable-fee-reader.js:170); projection evidence: `p.id, p.payment_reference AS paymentReference, r.receipt_number AS receiptNumber, i.invoice_number AS invoiceNumber, CONCAT_WS(' ', s.first_name, s.middle_name, s.last_name) AS studentName, sp.class_id AS className, p.academic_year_id AS academicYear, p.term_id AS term, (SELECT string_agg(DISTINCT ii.fee_type, ', ' ORDER BY ii.fee_type)`.
+- `student_profiles` participates in a runtime join at [src/admission-enrollment.js](src/admission-enrollment.js:135); projection evidence: `s.id AS id,s.id AS studentId,s.id AS student_id,s.permanent_student_id AS permanentStudentId,s.permanent_student_id,s.gender,s.student_status AS studentStatus,sp.id AS studentProfileId,sp.id AS student_profile_id,sp.class_id AS classId,sp.class_id,sp.enrollment_status AS profileEnrollmentStatus,(SELECT e.enrollment_status`.
+- `student_profiles` participates in a runtime join at [src/admission-enrollment.js](src/admission-enrollment.js:151); projection evidence: `s.id AS id,s.id AS studentId,s.id AS student_id, s.permanent_student_id AS permanentStudentId,s.permanent_student_id, sp.id AS studentProfileId,sp.id AS student_profile_id,sp.class_id AS classId,sp.class_id, s.first_name AS firstName,s.last_name AS lastName,s.gender,s.student_status AS studentStatus, sp.enrollment_status AS profileEnrollmentStatus, (SELECT e.enrollment_status`.
+- `student_profiles` participates in a runtime join at [src/admission-enrollment.js](src/admission-enrollment.js:164); projection evidence: `e.class_id AS classId ,e.term_id AS termId`.
+- `student_profiles` participates in a runtime join at [src/attendance-register-service.js](src/attendance-register-service.js:69); projection evidence: `DISTINCT sp.id AS studentId,s.permanent_student_id AS permanentStudentId, COALESCE(NULLIF(sp.first_name,''),s.first_name) AS firstName,sp.middle_name AS middleName, COALESCE(NULLIF(sp.surname,''),s.last_name) AS surname,COALESCE(sp.gender,s.gender) AS gender`.
+- `student_profiles` participates in a runtime join at [src/attendance-register-service.js](src/attendance-register-service.js:123); projection evidence: `sp.id AS studentId`.
+- `student_profiles` participates in a runtime join at [src/durable-fee-reader.js](src/durable-fee-reader.js:171); projection evidence: `p.id, p.payment_reference AS paymentReference, r.receipt_number AS receiptNumber, i.invoice_number AS invoiceNumber, CONCAT_WS(' ', s.first_name, s.middle_name, s.last_name) AS studentName, sp.class_id AS className, p.academic_year_id AS academicYear, p.term_id AS term, (SELECT string_agg(DISTINCT ii.fee_type, ', ' ORDER BY ii.fee_type)`.
+- `student_profiles` participates in a runtime join at [src/durable-promotion.js](src/durable-promotion.js:91); projection evidence: `s.id AS id,s.permanent_student_id AS permanentStudentId,s.is_test_record AS isTestRecord,s.student_status AS studentStatus, sp.id AS profileId,e.id AS enrollmentId,e.class_id AS classId,e.academic_year_id AS academicYearId,e.term_id AS termId,e.enrollment_status AS enrollmentStatus,e.is_current AS isCurrent`.
+- `student_profiles` participates in a runtime join at [src/durable-student-profile.js](src/durable-student-profile.js:57); projection evidence: `s.*,sp.id AS profile_id,sp.first_name AS profile_first_name,sp.last_name AS profile_last_name,sp.class_id AS profile_class_id`.
+- `student_profiles` participates in a runtime join at [src/existing-student-linking.js](src/existing-student-linking.js:60); projection evidence: `s.*,sp.id AS profile_id,sp.student_id AS profile_permanent_student_id,sp.first_name AS profile_first_name,sp.last_name AS profile_last_name,sp.date_of_birth AS profile_date_of_birth`.
+- `student_profiles` participates in a runtime join at [src/parent-fee-obligations-repository.js](src/parent-fee-obligations-repository.js:14); projection evidence: `psl.student_id AS studentId,s.permanent_student_id AS permanentStudentId,s.first_name AS firstName,s.middle_name AS middleName,s.last_name AS surname,sp.class_id AS classId,s.school_id AS schoolId,fo.id AS obligationId,fo.fee_structure_id AS feeStructureId,fo.academic_year_id AS academicYearId,fo.term_id AS termId,fo.due_date AS dueDate,fo.amount_minor AS amountMinor,fo.custom_fee_type_name AS customFeeTypeName,fo.status`.
+- `student_profiles` participates in a runtime join at [src/parent-historical-records.js](src/parent-historical-records.js:55); projection evidence: `DISTINCT y.id AS academicYearId, y.name AS academicYearName, t.id AS termId, t.name AS termName, c.id AS classId, c.name AS className`.
+- `student_profiles` participates in a runtime join at [src/parent-historical-records.js](src/parent-historical-records.js:91); projection evidence: `pd.id, pd.academic_year_id AS academicYearId, y.name AS academicYearName, pd.decision, pd.decided_at AS decisionDate`.
+- `student_profiles` participates in a runtime join at [src/parent-historical-records.js](src/parent-historical-records.js:121); projection evidence: `s.student_status AS studentStatus, e.academic_year_id AS academicYearId, y.name AS academicYearName, e.term_id AS termId, t.name AS termName, e.class_id AS classId, c.name AS className, e.enrollment_status AS enrollmentStatus`.
+- `student_profiles` participates in a runtime join at [src/parent-sms-auth.js](src/parent-sms-auth.js:62); projection evidence: `DISTINCT u.id AS userId,u.school_id AS schoolId,u.phone AS phone, (SELECT COUNT(DISTINCT p.id)`.
+- `student_profiles` participates in a runtime join at [src/parent-sms-auth.js](src/parent-sms-auth.js:142); projection evidence: `u.id AS userId,u.school_id AS schoolId`.
+- `student_profiles` participates in a runtime join at [src/single-school-overview.js](src/single-school-overview.js:40); projection evidence: `em.state,em.examination_id AS examinationId,em.student_id AS studentId,sp.class_id AS classId`.
+- `students` participates in a runtime join at [src/admission-enrollment.js](src/admission-enrollment.js:152); projection evidence: `s.id AS id,s.id AS studentId,s.id AS student_id, s.permanent_student_id AS permanentStudentId,s.permanent_student_id, sp.id AS studentProfileId,sp.id AS student_profile_id,sp.class_id AS classId,sp.class_id, s.first_name AS firstName,s.last_name AS lastName,s.gender,s.student_status AS studentStatus, sp.enrollment_status AS profileEnrollmentStatus, (SELECT e.enrollment_status`.
+- `students` participates in a runtime join at [src/admission-enrollment.js](src/admission-enrollment.js:165); projection evidence: `e.class_id AS classId ,e.term_id AS termId`.
+- `students` participates in a runtime join at [src/attendance-register-service.js](src/attendance-register-service.js:68); projection evidence: `DISTINCT sp.id AS studentId,s.permanent_student_id AS permanentStudentId, COALESCE(NULLIF(sp.first_name,''),s.first_name) AS firstName,sp.middle_name AS middleName, COALESCE(NULLIF(sp.surname,''),s.last_name) AS surname,COALESCE(sp.gender,s.gender) AS gender`.
+- `students` participates in a runtime join at [src/attendance-register-service.js](src/attendance-register-service.js:122); projection evidence: `sp.id AS studentId`.
+- `students` participates in a runtime join at [src/durable-fee-reader.js](src/durable-fee-reader.js:174); projection evidence: `p.id, p.payment_reference AS paymentReference, r.receipt_number AS receiptNumber, i.invoice_number AS invoiceNumber, CONCAT_WS(' ', s.first_name, s.middle_name, s.last_name) AS studentName, sp.class_id AS className, p.academic_year_id AS academicYear, p.term_id AS term, (SELECT string_agg(DISTINCT ii.fee_type, ', ' ORDER BY ii.fee_type)`.
+- `students` participates in a runtime join at [src/durable-promotion.js](src/durable-promotion.js:50); projection evidence: `s.id AS id,s.permanent_student_id AS permanentStudentId,s.first_name AS firstName,s.middle_name AS middleName,s.last_name AS lastName,e.class_id AS classId`.
+- `students` participates in a runtime join at [src/parent-fee-obligations-repository.js](src/parent-fee-obligations-repository.js:14); projection evidence: `psl.student_id AS studentId,s.permanent_student_id AS permanentStudentId,s.first_name AS firstName,s.middle_name AS middleName,s.last_name AS surname,sp.class_id AS classId,s.school_id AS schoolId,fo.id AS obligationId,fo.fee_structure_id AS feeStructureId,fo.academic_year_id AS academicYearId,fo.term_id AS termId,fo.due_date AS dueDate,fo.amount_minor AS amountMinor,fo.custom_fee_type_name AS customFeeTypeName,fo.status`.
+- `students` participates in a runtime join at [src/parent-historical-records.js](src/parent-historical-records.js:56); projection evidence: `DISTINCT y.id AS academicYearId, y.name AS academicYearName, t.id AS termId, t.name AS termName, c.id AS classId, c.name AS className`.
+- `students` participates in a runtime join at [src/parent-historical-records.js](src/parent-historical-records.js:92); projection evidence: `pd.id, pd.academic_year_id AS academicYearId, y.name AS academicYearName, pd.decision, pd.decided_at AS decisionDate`.
+- `students` participates in a runtime join at [src/parent-historical-records.js](src/parent-historical-records.js:122); projection evidence: `s.student_status AS studentStatus, e.academic_year_id AS academicYearId, y.name AS academicYearName, e.term_id AS termId, t.name AS termName, e.class_id AS classId, c.name AS className, e.enrollment_status AS enrollmentStatus`.
+- `students` participates in a runtime join at [src/parent-sms-auth.js](src/parent-sms-auth.js:63); projection evidence: `DISTINCT u.id AS userId,u.school_id AS schoolId,u.phone AS phone, (SELECT COUNT(DISTINCT p.id)`.
+- `students` participates in a runtime join at [src/parent-sms-auth.js](src/parent-sms-auth.js:143); projection evidence: `u.id AS userId,u.school_id AS schoolId`.
+- `subject_class_assignments` participates in a runtime join at [src/assignments.js](src/assignments.js:31); projection evidence: `s.id`.
+- `subjects` participates in a runtime join at [src/durable-academic.js](src/durable-academic.js:326); projection evidence: `s.id,s.code,s.name,s.department_id AS departmentId,s.subject_type AS subjectType,s.is_scoring AS isScoring,s.is_active AS subjectActive,a.class_id AS classId,c.name AS className,a.academic_year_id AS academicYearId,a.active AS assignmentActive,a.configuration_version AS configurationVersion`.
+- `terms` participates in a runtime join at [src/attendance-register-service.js](src/attendance-register-service.js:46); projection evidence: `y.id AS yearId,y.name AS yearName,y.starts_on AS yearStartsOn,y.ends_on AS yearEndsOn, t.id AS termId,t.name AS termName,t.starts_on AS termStartsOn,t.ends_on AS termEndsOn`.
+- `terms` participates in a runtime join at [src/parent-historical-records.js](src/parent-historical-records.js:59); projection evidence: `DISTINCT y.id AS academicYearId, y.name AS academicYearName, t.id AS termId, t.name AS termName, c.id AS classId, c.name AS className`.
+- `terms` participates in a runtime join at [src/parent-historical-records.js](src/parent-historical-records.js:126); projection evidence: `s.student_status AS studentStatus, e.academic_year_id AS academicYearId, y.name AS academicYearName, e.term_id AS termId, t.name AS termName, e.class_id AS classId, c.name AS className, e.enrollment_status AS enrollmentStatus`.
+- `terms` participates in a runtime join at [src/server.mjs](src/server.mjs:164); projection evidence: `t.id`.
+- `user_roles` participates in a runtime join at [src/admission-enrollment.js](src/admission-enrollment.js:58); projection evidence: `u.id,u.email,u.phone,u.username`.
+- `user_roles` participates in a runtime join at [src/durable-announcements.js](src/durable-announcements.js:17); projection evidence: `u.id AS id,TRIM(CONCAT_WS(' ',s.first_name,s.last_name)) AS name`.
+- `user_roles` participates in a runtime join at [src/durable-announcements.js](src/durable-announcements.js:18); projection evidence: `u.id AS id,COALESCE(NULLIF(TRIM(CONCAT_WS(' ',s.first_name,s.last_name)),''),u.username) AS name,r.role_key AS roleKey`.
+- `user_roles` participates in a runtime join at [src/durable-announcements.js](src/durable-announcements.js:29); projection evidence: `DISTINCT u.id AS userId,CASE WHEN r.role_key='PARENT' THEN 'PARENT' WHEN r.role_key='TEACHER' THEN 'TEACHER' ELSE 'STAFF' END AS recipientType`.
+- `user_roles` participates in a runtime join at [src/durable-announcements.js](src/durable-announcements.js:59); projection evidence: `a.id,a.school_id AS schoolId,a.title,a.message,a.priority,a.recipient_category AS recipientCategory,a.status,a.scheduled_for AS scheduledFor,a.published_at AS publishedAt,a.sender_id AS senderId,a.created_at AS createdAt,u.username AS senderName,r.role_key AS senderRole,ar.read_at AS readAt`.
+- `user_roles` participates in a runtime join at [src/durable-credential-management.js](src/durable-credential-management.js:42); projection evidence: `u.id AS id, u.username AS username, u.email AS email, u.status AS status, s.id AS staffId, r.role_key AS roleKey`.
+- `user_roles` participates in a runtime join at [src/durable-staff-provisioning.js](src/durable-staff-provisioning.js:147); projection evidence: `u.id`.
+- `user_roles` participates in a runtime join at [src/durable-staff-provisioning.js](src/durable-staff-provisioning.js:170); projection evidence: `s.id AS id, s.staff_number AS staffId, s.first_name AS firstName, s.last_name AS lastName, u.username AS username, u.email AS email, u.status AS accountStatus, u.created_at AS createdAt, u.full_name AS fullName, u.phone AS phone, r.role_key AS roleKey, sa.class_id AS assignedClassId, sa.subject_id AS assignedSubjectId`.
+- `user_roles` participates in a runtime join at [src/parent-sms-auth.js](src/parent-sms-auth.js:60); projection evidence: `DISTINCT u.id AS userId,u.school_id AS schoolId,u.phone AS phone, (SELECT COUNT(DISTINCT p.id)`.
+- `user_roles` participates in a runtime join at [src/parent-sms-auth.js](src/parent-sms-auth.js:140); projection evidence: `u.id AS userId,u.school_id AS schoolId`.
+- `user_roles` participates in a runtime join at [src/school-profile.js](src/school-profile.js:15); projection evidence: `u.id AS id,COALESCE(NULLIF(TRIM(CONCAT(COALESCE(s.first_name,''),' ',COALESCE(s.last_name,''))),''),u.email) AS fullName,u.email AS contact,r.role_key AS roleKey`.
+- `user_roles` participates in a runtime join at [src/staff-attendance-overview.js](src/staff-attendance-overview.js:97); projection evidence: `s.id,s.staff_number AS employeeId,TRIM(CONCAT_WS(' ',s.first_name,s.last_name)) AS fullName,u.phone,r.role_key AS roleKey,s.school_id AS schoolId`.
+- `user_roles` participates in a runtime join at [src/user-directory.js](src/user-directory.js:15); projection evidence: `u.id AS id, u.email AS username, u.email AS email, u.status AS status, s.first_name AS firstName, s.last_name AS lastName, r.role_key AS roleKey, r.role_name AS roleName`.
+- `users` participates in a runtime join at [src/admission-enrollment.js](src/admission-enrollment.js:150); projection evidence: `s.id AS id,s.id AS studentId,s.id AS student_id, s.permanent_student_id AS permanentStudentId,s.permanent_student_id, sp.id AS studentProfileId,sp.id AS student_profile_id,sp.class_id AS classId,sp.class_id, s.first_name AS firstName,s.last_name AS lastName,s.gender,s.student_status AS studentStatus, sp.enrollment_status AS profileEnrollmentStatus, (SELECT e.enrollment_status`.
+- `users` participates in a runtime join at [src/admission-enrollment.js](src/admission-enrollment.js:163); projection evidence: `e.class_id AS classId ,e.term_id AS termId`.
+- `users` participates in a runtime join at [src/durable-announcements.js](src/durable-announcements.js:59); projection evidence: `a.id,a.school_id AS schoolId,a.title,a.message,a.priority,a.recipient_category AS recipientCategory,a.status,a.scheduled_for AS scheduledFor,a.published_at AS publishedAt,a.sender_id AS senderId,a.created_at AS createdAt,u.username AS senderName,r.role_key AS senderRole,ar.read_at AS readAt`.
+- `users` participates in a runtime join at [src/durable-fee-reader.js](src/durable-fee-reader.js:173); projection evidence: `p.id, p.payment_reference AS paymentReference, r.receipt_number AS receiptNumber, i.invoice_number AS invoiceNumber, CONCAT_WS(' ', s.first_name, s.middle_name, s.last_name) AS studentName, sp.class_id AS className, p.academic_year_id AS academicYear, p.term_id AS term, (SELECT string_agg(DISTINCT ii.fee_type, ', ' ORDER BY ii.fee_type)`.
+- `users` participates in a runtime join at [src/durable-staff-provisioning.js](src/durable-staff-provisioning.js:169); projection evidence: `s.id AS id, s.staff_number AS staffId, s.first_name AS firstName, s.last_name AS lastName, u.username AS username, u.email AS email, u.status AS accountStatus, u.created_at AS createdAt, u.full_name AS fullName, u.phone AS phone, r.role_key AS roleKey, sa.class_id AS assignedClassId, sa.subject_id AS assignedSubjectId`.
+- `users` participates in a runtime join at [src/durable-staff-provisioning.js](src/durable-staff-provisioning.js:188); projection evidence: `s.id`.
+- `users` participates in a runtime join at [src/durable-staff-provisioning.js](src/durable-staff-provisioning.js:230); projection evidence: `s.id`.
+- `users` participates in a runtime join at [src/durable-staff-provisioning.js](src/durable-staff-provisioning.js:263); projection evidence: `u.username AS username`.
+- `users` participates in a runtime join at [src/parent-historical-records.js](src/parent-historical-records.js:54); projection evidence: `DISTINCT y.id AS academicYearId, y.name AS academicYearName, t.id AS termId, t.name AS termName, c.id AS classId, c.name AS className`.
+- `users` participates in a runtime join at [src/parent-historical-records.js](src/parent-historical-records.js:90); projection evidence: `pd.id, pd.academic_year_id AS academicYearId, y.name AS academicYearName, pd.decision, pd.decided_at AS decisionDate`.
+- `users` participates in a runtime join at [src/parent-historical-records.js](src/parent-historical-records.js:120); projection evidence: `s.student_status AS studentStatus, e.academic_year_id AS academicYearId, y.name AS academicYearName, e.term_id AS termId, t.name AS termName, e.class_id AS classId, c.name AS className, e.enrollment_status AS enrollmentStatus`.
+- `users` participates in a runtime join at [src/staff-attendance-overview.js](src/staff-attendance-overview.js:97); projection evidence: `s.id,s.staff_number AS employeeId,TRIM(CONCAT_WS(' ',s.first_name,s.last_name)) AS fullName,u.phone,r.role_key AS roleKey,s.school_id AS schoolId`.
+
+## Domain relationship decisions
+
+### Authentication and RBAC
+
+- State: **PARTIAL**.
+- Tables: `users`, `user_roles`, `roles`, `role_permissions`, `permissions`, `auth_sessions`.
+- Outstanding relationship/design decisions: users uniqueness/nullability/defaults and cross-school identifier policy unresolved; user_roles primary-key/type choice and FK contract unresolved although id writes and pair uniqueness behavior are established; RBAC seeding/scope and empty-permission fallback authorization policy unresolved; TiDB FK/type/action contract unresolved.
+
+### Proprietor and Administrator
+
+- State: **PARTIAL**.
+- Tables: `portal_users`, `users`, `roles`, `user_roles`, `auth_sessions`.
+- Outstanding relationship/design decisions: portal_users lacks TiDB DDL/provisioner; separate proprietor login does not establish standard durable session; secure bootstrap policy must be implemented as an explicit operational workflow.
+
+### Staff and Teachers
+
+- State: **PARTIAL**.
+- Tables: `staff`, `staff_profiles`, `users`, `user_roles`, `roles`, `subject_register_teachers`.
+- Outstanding relationship/design decisions: staff_profiles writer/history shape conflict; staff_number is externally supplied and school-scoped in application checks; physical uniqueness/FK not established; teacher assignment contracts remain table-specific.
+
+### Students and Parents
+
+- State: **PARTIAL**.
+- Tables: `students`, `student_profiles`, `parent_student_links`, `student_enrollments`, `admission_applications`, `users`.
+- Outstanding relationship/design decisions: link archival/guardian policy unresolved; legacy student identity bridges remain; physical types, FKs and delete actions unresolved.
+
+### School Configuration and Academics
+
+- State: **PARTIAL**.
+- Tables: `schools`, `system_settings`, `academic_years`, `terms`, `classes`, `streams`, `subjects`, `class_subjects`, `subject_class_assignments`, `student_enrollments`.
+- Outstanding relationship/design decisions: historical schema drift across academic modules; scoped key and FK contracts need full per-table reconciliation; class_subjects is optional compatibility only.
+
+### Attendance and Assessments
+
+- State: **PARTIAL**.
+- Tables: `student_attendance`, `staff_attendance`, `examinations`, `examination_marks`, `academic_score_records`, `grading_systems`.
+- Outstanding relationship/design decisions: assessment/result stores have parallel historical shapes; score precision, uniqueness, version, and FK contracts require field-level reconciliation.
+
+### Results and Report Cards
+
+- State: **PARTIAL**.
+- Tables: `examinations`, `examination_marks`, `academic_result_blocks`, `academic_result_records`, `academic_score_records`, `student_transcript_versions`.
+- Outstanding relationship/design decisions: legacy/current result sources coexist; view/result reconciliation inputs need canonical selection; generated uniqueness migration needs target-version validation.
+
+### Financial Management
+
+- State: **PARTIAL**.
+- Tables: `fee_types`, `fee_structures`, `student_fee_accounts`, `student_fee_ledger`, `student_fee_payments`, `fee_invoices`, `student_fee_receipts`, `fee_obligations`, `fee_collection_records`.
+- Outstanding relationship/design decisions: conflicting historical fee view definitions; amount precision/minor-unit contracts and payment allocation constraints not fully reconciled; view dependencies need canonical base-table definitions.
+
+### Reports, Notifications and Auditing
+
+- State: **PARTIAL**.
+- Tables: `audit_logs`, `announcements`, `announcement_records`, `notifications`.
+- Outstanding relationship/design decisions: dynamic/reporting dependencies incompletely traced; historical class views lack current direct consumers; 92 historical tables lack sufficiently evidenced dispositions.
+
+## Promotion rule
+
+A candidate in this map is not a schema declaration. The application must not initialize or report readiness from this map. Each approved relation must be encoded in the canonical TiDB contract and validated against TiDB metadata.
