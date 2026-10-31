@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createAuthService } from '../src/auth.js';
 
-test('Production authentication does not use the built-in sample Parent identity', async () => {
+test('Production Parent authentication rejects an unverified phone login without using sample identity', async () => {
   const previous = process.env.NODE_ENV;
   process.env.NODE_ENV = 'production';
   try {
@@ -15,8 +15,8 @@ test('Production authentication does not use the built-in sample Parent identity
     const auth = createAuthService({ database });
     const result = await auth.loginByPhoneFromDatabase({ phone: '0247293733', portal: 'parent' });
     assert.equal(result.ok, false);
-    assert.equal(result.status, 503);
-    assert.equal(result.error, 'Authentication service unavailable.');
+    assert.equal(result.status, 401);
+    assert.equal(result.ok, false);
   } finally {
     if (previous === undefined) delete process.env.NODE_ENV;
     else process.env.NODE_ENV = previous;

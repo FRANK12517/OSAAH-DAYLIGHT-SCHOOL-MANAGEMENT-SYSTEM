@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { admissionYearFor, isPermanentStudentId } from './permanent-student-id.js';
+import { tidbInsertIfAbsent } from './tidb-conflict.js';
 
 const STAFF_ROLES = new Set(['PROPRIETOR', 'HEADTEACHER', 'ASSISTANT_HEADTEACHER']);
 const rows = (value) => Array.isArray(value) ? value : [];
@@ -74,7 +75,7 @@ export function createExistingStudentLinkingService({ database, schoolId, clock 
 
   async function nextPermanentStudentId(tx, yearInput, timestamp) {
     const year = admissionYearFor(yearInput);
-    await tx.execute('INSERT INTO student_id_sequences (admission_year,next_sequence,updated_at) VALUES (?,?,?) ON CONFLICT (admission_year) DO UPDATE SET updated_at=EXCLUDED.updated_at', [year, 1, timestamp]);
+    await tidbInsertIfAbsent(tx, { insertSql: 'INSERT INTO student_id_sequences (admission_year,next_sequence,updated_at) VALUES (?,?,?)', insertParameters: [year, 1, timestamp], conflictSql: 'SELECT admission_year FROM student_id_sequences WHERE admission_year=?', conflictParameters: [year] });
     const sequenceRow = rows(await tx.query('SELECT next_sequence FROM student_id_sequences WHERE admission_year=? FOR UPDATE', [year]))[0];
     let sequence = Number(sequenceRow?.next_sequence);
     if (!Number.isInteger(sequence) || sequence < 1) fail('STUDENT_ID_SEQUENCE_INVALID', 'Annual permanent Student ID sequence is invalid.', 409);

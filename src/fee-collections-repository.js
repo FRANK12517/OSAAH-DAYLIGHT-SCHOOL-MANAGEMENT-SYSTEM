@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { tidbInsertIfAbsent } from './tidb-conflict.js';
 import { validateCollectionPeriod } from './fee-collections.js';
 import { authorizeFinancial, financialAudit } from './financial-authorization.js';
 import { CANONICAL_FEE_TYPES, normalizeFeeType } from './fee-types.js';
@@ -21,7 +22,9 @@ async function publishFeeObligations(i,a){
         fee=await tx.query('SELECT id FROM fee_types WHERE school_id=? AND code=? AND is_active=TRUE',[a.schoolId,canonical.code]);
         if(!fee.length){
           const timestamp=now();
-          await tx.execute('INSERT INTO fee_types (id,school_id,code,name,category,description,is_active,is_system,created_at,updated_at) VALUES (?,?,?,?,?,?,TRUE,TRUE,?,?) ON CONFLICT DO NOTHING',[canonical.code,a.schoolId,canonical.code,canonical.name,canonical.category,null,timestamp,timestamp]);
+          const feeTypeValues=[canonical.code,a.schoolId,canonical.code,canonical.name,canonical.category,null,timestamp,timestamp];
+          if (adapter.dialect === 'tidb') await tidbInsertIfAbsent(tx, { insertSql:'INSERT INTO fee_types (id,school_id,code,name,category,description,is_active,is_system,created_at,updated_at) VALUES (?,?,?,?,?,?,TRUE,TRUE,?,?)', insertParameters:feeTypeValues, conflictSql:'SELECT id FROM fee_types WHERE school_id=? AND code=?', conflictParameters:[a.schoolId,canonical.code] });
+          else await tx.execute('INSERT INTO fee_types (id,school_id,code,name,category,description,is_active,is_system,created_at,updated_at) VALUES (?,?,?,?,?,?,TRUE,TRUE,?,?)',feeTypeValues);
           fee=await tx.query('SELECT id FROM fee_types WHERE school_id=? AND code=? AND is_active=TRUE',[a.schoolId,canonical.code]);
         }
       }

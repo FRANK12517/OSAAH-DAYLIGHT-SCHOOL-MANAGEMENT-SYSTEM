@@ -19,7 +19,7 @@ function request(port, path, options = {}) {
 
 test('Part 4 role dashboards and server-side authority matrix', async () => {
   const auth = createAuthService();
-  const proprietor = auth.login({ username: 'proprietor@osaah.edu.gh', password: 'Proprietor123!', portal: 'school' });
+  const proprietor = auth.login({ username: 'proprietor@osaah.edu.gh', password: 'Synthetic-Proprietor-Test-Only-2026!', portal: 'school' });
   const expected = [['HEADTEACHER', '/academics'], ['ASSISTANT_HEADTEACHER', '/academics'], ['ACCOUNTANT', '/fees'], ['CLASSROOM_TEACHER', '/academics']];
   const logins = {};
   for (const [primaryRole, dashboard] of expected) {

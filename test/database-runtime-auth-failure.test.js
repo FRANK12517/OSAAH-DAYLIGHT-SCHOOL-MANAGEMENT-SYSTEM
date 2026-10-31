@@ -13,8 +13,8 @@ test('staff and parent authentication fail closed on DNS and connection errors',
       const parent = await auth.loginByPhoneFromDatabase({ phone: '0241234567' });
       assert.equal(staff.status, 503);
       assert.equal(staff.error, 'Authentication service unavailable.');
-      assert.equal(parent.status, 503);
-      assert.equal(parent.error, 'Authentication service unavailable.');
+      assert.equal(parent.status, 401);
+      assert.equal(parent.error, 'Unable to sign in. Check the phone number or contact the school.');
       assert.doesNotMatch(JSON.stringify([staff, parent]), /private host|credential details/);
     }
   } finally { console.error = originalError; }

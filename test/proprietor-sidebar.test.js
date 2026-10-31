@@ -89,7 +89,7 @@ test('embedded proprietor children never return the authenticated dashboard shel
   const auth = createAuthService();
   const server = createServer(createApp({ auth }));
   await new Promise((resolve) => server.listen(0, resolve));
-  const token = auth.login({ username: 'proprietor@osaah.edu.gh', password: 'Proprietor123!', portal: 'school' }).token;
+  const token = auth.login({ username: 'proprietor@osaah.edu.gh', password: 'Synthetic-Proprietor-Test-Only-2026!', portal: 'school' }).token;
   const request = (path) => new Promise((resolve, reject) => {
     const req = httpRequest({ port: server.address().port, path: `${path}?embedded=1`, headers: { Authorization: `Bearer ${token}` } }, (response) => {
       let body = ''; response.setEncoding('utf8'); response.on('data', (chunk) => { body += chunk; });
@@ -110,7 +110,7 @@ test('every registered proprietor route is directly renderable and remains serve
   const auth = createAuthService();
   const server = createServer(createApp({ auth }));
   await new Promise((resolve) => server.listen(0, resolve));
-  const token = auth.login({ username: 'proprietor@osaah.edu.gh', password: 'Proprietor123!', portal: 'school' }).token;
+  const token = auth.login({ username: 'proprietor@osaah.edu.gh', password: 'Synthetic-Proprietor-Test-Only-2026!', portal: 'school' }).token;
   const request = (path, authorization = token) => new Promise((resolve, reject) => {
     const req = httpRequest({ port: server.address().port, path, headers: authorization ? { Authorization: `Bearer ${authorization}` } : {} }, (response) => { response.resume(); response.on('end', () => resolve(response.statusCode)); });
     req.on('error', reject); req.end();
@@ -126,7 +126,7 @@ test('every requested proprietor component opens its mapped implementation', asy
   const auth = createAuthService();
   const server = createServer(createApp({ auth }));
   await new Promise((resolve) => server.listen(0, resolve));
-  const token = auth.login({ username: 'proprietor@osaah.edu.gh', password: 'Proprietor123!', portal: 'school' }).token;
+  const token = auth.login({ username: 'proprietor@osaah.edu.gh', password: 'Synthetic-Proprietor-Test-Only-2026!', portal: 'school' }).token;
   const request = (path) => new Promise((resolve, reject) => {
     const req = httpRequest({ port: server.address().port, path, headers: { Authorization: `Bearer ${token}` } }, (response) => {
       let body = ''; response.setEncoding('utf8'); response.on('data', (chunk) => { body += chunk; });

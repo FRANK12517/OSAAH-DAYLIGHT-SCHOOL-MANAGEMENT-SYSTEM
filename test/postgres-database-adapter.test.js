@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { bindPostgresParameters, createDatabaseAdapter } from '../src/ai/postgres-database-adapter.js';
-import { loadConfiguredDatabaseAdapter } from '../src/ai/durable-stores.js';
+import { loadConfiguredDatabaseAdapter, inspectDatabaseConfiguration } from '../src/ai/durable-stores.js';
 
 const environment = { OSAAH_POSTGRES_URL: 'postgresql://osaah:test@localhost:5432/osaah' };
 
@@ -176,73 +176,48 @@ test('PostgreSQL adapter refuses non-PostgreSQL URLs', () => {
   );
 });
 
-test('configured app adapter selects PostgreSQL only when the separate PostgreSQL URL is set', async () => {
-  const adapter = await loadConfiguredDatabaseAdapter({ environment: { OSAAH_POSTGRES_URL: environment.OSAAH_POSTGRES_URL } });
-  assert.equal(typeof adapter?.transaction, 'function');
-  assert.equal(typeof adapter?.healthCheck, 'function');
-  await adapter.close();
+test('configured app adapter rejects PostgreSQL URLs in the TiDB-only runtime', async () => {
+  await assert.rejects(() => loadConfiguredDatabaseAdapter({ environment: { OSAAH_POSTGRES_URL: environment.OSAAH_POSTGRES_URL } }), { code: 'DATABASE_CONFIGURATION_CONFLICT' });
 });
 
-test('Vercel PostgreSQL integration URL configures the runtime when the app-specific URL is absent', async () => {
-  const adapter = await loadConfiguredDatabaseAdapter({ environment: { POSTGRES_URL: environment.OSAAH_POSTGRES_URL } });
-  assert.equal(typeof adapter?.transaction, 'function');
-  assert.equal(typeof adapter?.healthCheck, 'function');
-  await adapter.close();
+test('Vercel PostgreSQL integration URL is rejected by the TiDB-only runtime', async () => {
+  await assert.rejects(() => loadConfiguredDatabaseAdapter({ environment: { POSTGRES_URL: environment.OSAAH_POSTGRES_URL } }), { code: 'DATABASE_CONFIGURATION_CONFLICT' });
 });
 
 test('application adapter loads TiDB when the runtime explicitly selects it', async () => {
-  const adapter = await loadConfiguredDatabaseAdapter({ environment: { OSAAH_DATABASE_ADAPTER: 'tidb', DATABASE_URL: 'mysql://user:password@localhost:4000/osaah' } });
+  const adapter = await loadConfiguredDatabaseAdapter({ environment: { OSAAH_DATABASE_ADAPTER: 'tidb', DATABASE_URL: 'mysql://user:password@localhost:4000/osaahdaylightschool' } });
   assert.equal(adapter.supportsDurableAuthSessions, true);
   assert.equal(typeof adapter.healthCheck, 'function');
   await adapter.close();
 });
 
-test('application adapter rejects legacy DATABASE_URL and requires an explicit PostgreSQL runtime URL', async () => {
+test('application adapter requires a valid TiDB URL and rejects PostgreSQL URLs', async () => {
   await assert.rejects(
     () => loadConfiguredDatabaseAdapter({ environment: { DATABASE_URL: 'postgresql://private:secret@localhost:5432/osaah' } }),
-    (error) => error.code === 'POSTGRES_URL_REQUIRED' && !error.message.includes('secret')
+    (error) => ['DATABASE_CONFIGURATION_CONFLICT', 'DATABASE_URL_INVALID'].includes(error.code) && !error.message.includes('secret')
   );
   await assert.rejects(
     () => loadConfiguredDatabaseAdapter({ environment: {}, required: true }),
-    (error) => error.code === 'POSTGRES_URL_REQUIRED'
+    (error) => error.code === 'TIDB_DATABASE_URL_REQUIRED'
   );
 });
 
-test('production/serverless startup fails closed when OSAAH_POSTGRES_URL is missing', async () => {
+test('production/serverless startup fails closed when TiDB configuration is missing', async () => {
   await assert.rejects(
     () => loadConfiguredDatabaseAdapter({ environment: { NODE_ENV: 'production' }, required: true }),
-    { code: 'POSTGRES_URL_REQUIRED' }
+    { code: 'TIDB_DATABASE_URL_REQUIRED' }
   );
 });
 
-test('explicit OSAAH PostgreSQL URL takes precedence over stale DATABASE_URL without exposing either value', async () => {
-  const previousWarn = console.warn;
-  const warnings = [];
-  console.warn = (message) => warnings.push(String(message));
-  try {
-    for (const legacyUrl of [
-      'mysql://user:password@legacy.example.test:4000/osaah',
-      'postgresql://other:secret@different.example.test:5432/osaah'
-    ]) {
-      const adapter = await loadConfiguredDatabaseAdapter({ environment: { OSAAH_POSTGRES_URL: environment.OSAAH_POSTGRES_URL, DATABASE_URL: legacyUrl } });
-      assert.equal(typeof adapter?.transaction, 'function');
-      await adapter.close();
-    }
-    assert.equal(warnings.length, 2);
-    for (const warning of warnings) {
-      assert.match(warning, /DATABASE_URL is set but ignored/);
-      assert.doesNotMatch(warning, /password|secret|legacy\.example|different\.example|postgresql:/i);
-    }
-  } finally {
-    console.warn = previousWarn;
-  }
+test('PostgreSQL and conflicting legacy configuration are rejected without exposing credentials', async () => {
+  await assert.rejects(() => loadConfiguredDatabaseAdapter({ environment: { OSAAH_POSTGRES_URL: environment.OSAAH_POSTGRES_URL, DATABASE_URL: 'mysql://user:secret@db.example.test:4000/osaahdaylightschool' } }), (error) => error.code === 'DATABASE_CONFIGURATION_CONFLICT' && !error.message.includes('secret'));
+  const invalid = inspectDatabaseConfiguration({ environment: { DATABASE_URL: 'mysql://user:secret@db.example.test:4000/osaah' } });
+  assert.deepEqual(invalid.conflicts, ['DATABASE_NAME_MISMATCH']);
 });
 
-test('MySQL DATABASE_URL selects TiDB when no separate PostgreSQL runtime URL is configured', async () => {
-  const adapter = await loadConfiguredDatabaseAdapter({ environment: { DATABASE_URL: 'mysql://user:password@legacy.example.test:4000/osaah' } });
+test('MySQL DATABASE_URL selects TiDB and PostgreSQL remains rejected', async () => {
+  const adapter = await loadConfiguredDatabaseAdapter({ environment: { DATABASE_URL: 'mysql://user:password@legacy.example.test:4000/osaahdaylightschool' } });
   assert.equal(adapter.supportsDurableAuthSessions, true);
   await adapter.close();
-  const postgresAdapter = await loadConfiguredDatabaseAdapter({ environment: { OSAAH_POSTGRES_URL: environment.OSAAH_POSTGRES_URL, DATABASE_URL: environment.OSAAH_POSTGRES_URL } });
-  assert.equal(typeof postgresAdapter?.transaction, 'function');
-  await postgresAdapter.close();
+  await assert.rejects(() => loadConfiguredDatabaseAdapter({ environment: { DATABASE_URL: environment.OSAAH_POSTGRES_URL } }), (error) => ['DATABASE_CONFIGURATION_CONFLICT', 'DATABASE_URL_INVALID'].includes(error.code));
 });

@@ -69,8 +69,8 @@ test('Migration 078 apply verifies the exact schema and records only version 078
   assert.equal(report.applied, 1);
   assert.equal(report.verifiedSchema.uniqueIndexesVerified, 4);
   assert.deepEqual(storage.applied.filter((item) => item.version === 78).map((item) => item.name), ['078_admissions_leadership_access.sql']);
-  assert.equal(storage.statements.length, 1);
-  assert.match(storage.statements[0], /uq_student_enrollment_context/);
+  assert.equal(storage.statements.length, 7);
+  assert.ok(storage.statements.some((statement) => /uq_student_enrollment_context/.test(statement)));
 });
 
 test('Migration 078 refuses an unexpected database target before any migration write', async () => {

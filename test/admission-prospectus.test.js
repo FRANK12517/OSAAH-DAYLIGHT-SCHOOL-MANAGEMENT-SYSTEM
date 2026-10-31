@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { createAdmissionProspectusService } from '../src/admission-prospectus.js';
-import { createAuthService } from '../src/auth.js';
 import { createApp } from '../src/server.js';
 import { createAdmissionProspectusPdfService } from '../src/admission-prospectus-pdf.js';
 import { readFile } from 'node:fs/promises';
@@ -41,22 +40,24 @@ test('prospectus service enforces combination uniqueness, sanitizes content, and
 });
 
 test('prospectus HTTP routes enforce role, publication, and school boundaries', async () => {
-  const auth = createAuthService();
+  const actors = {
+    proprietor: { id: 'test-proprietor', roleKey: 'PROPRIETOR', portal: 'school', schoolId: 'school-osaah-daylight', permissions: new Set(['admission.prospectus.manage']) },
+    teacher: { id: 'test-teacher', roleKey: 'TEACHER', portal: 'school', schoolId: 'school-osaah-daylight', permissions: new Set(['students.read']) },
+    parent: { id: 'test-parent', roleKey: 'PARENT', portal: 'parent', schoolId: 'school-osaah-daylight', permissions: new Set() }
+  };
+  const auth = { authenticateAsync: async (token) => actors[token] ?? null };
   const admissionProspectus = createAdmissionProspectusService({ academicYears: [{ id: '2026', name: '2026/2027' }] });
   const server = http.createServer(createApp({ auth, admissionProspectus }));
   await new Promise((resolve) => server.listen(0, resolve));
   const port = server.address().port;
-  const proprietor = auth.login({ username: 'proprietor@osaah.edu.gh', password: 'Proprietor123!', portal: 'school' });
-  const teacher = auth.login({ username: 'teacher@osaah.edu.gh', password: 'Teacher123!', portal: 'school' });
-  const parent = auth.login({ username: 'parent@example.com', password: 'Parent123!', portal: 'parent' });
-  const created = await request(port, '/api/admission-prospectus', { method: 'POST', token: proprietor.token, body: { classId: 'Basic 2', academicYearId: '2026', content: '<p>Published safely</p>' } });
+  const created = await request(port, '/api/admission-prospectus', { method: 'POST', token: 'proprietor', body: { classId: 'Basic 2', academicYearId: '2026', content: '<p>Published safely</p>' } });
   assert.equal(created.status, 201);
-  assert.equal((await request(port, '/api/admission-prospectus', { token: parent.token })).body.prospectuses.length, 0);
-  const teacherPublish = await request(port, '/api/admission-prospectus/' + created.body.id + '/publish', { method: 'POST', token: teacher.token });
-  const proprietorPublish = await request(port, '/api/admission-prospectus/' + created.body.id + '/publish', { method: 'POST', token: proprietor.token });
+  assert.equal((await request(port, '/api/admission-prospectus', { token: 'parent' })).body.prospectuses.length, 0);
+  const teacherPublish = await request(port, '/api/admission-prospectus/' + created.body.id + '/publish', { method: 'POST', token: 'teacher' });
+  const proprietorPublish = await request(port, '/api/admission-prospectus/' + created.body.id + '/publish', { method: 'POST', token: 'proprietor' });
   assert.equal(teacherPublish.status, 403);
   assert.equal(proprietorPublish.status, 200);
-  const visible = await request(port, '/api/admission-prospectus?classId=Basic%202&academicYearId=2026', { token: parent.token });
+  const visible = await request(port, '/api/admission-prospectus?classId=Basic%202&academicYearId=2026', { token: 'parent' });
   assert.equal(visible.status, 200);
   assert.equal(visible.body.prospectuses[0].content, '<p>Published safely</p>');
   const publicVisible = await request(port, '/api/public/admission-prospectus?classId=Basic%202&academicYearId=2026');
@@ -66,9 +67,9 @@ test('prospectus HTTP routes enforce role, publication, and school boundaries', 
   assert.equal(publicPdf.status, 200);
   assert.match(publicPdf.headers['content-type'], /application\/pdf/);
   assert.match(publicPdf.headers['content-disposition'], /OSAAH-Admission-Prospectus-Basic_2-2026_2027\.pdf/);
-  assert.equal((await request(port, '/api/admission-prospectus', { method: 'POST', token: teacher.token, body: { classId: 'Basic 2', academicYearId: '2026', content: '<p>Denied</p>' } })).status, 403);
-  const teacherPage = await request(port, '/admissions/prospectus', { token: teacher.token });
-  const parentPage = await request(port, '/parent/admission-prospectus', { token: parent.token });
+  assert.equal((await request(port, '/api/admission-prospectus', { method: 'POST', token: 'teacher', body: { classId: 'Basic 2', academicYearId: '2026', content: '<p>Denied</p>' } })).status, 403);
+  const teacherPage = await request(port, '/admissions/prospectus', { token: 'teacher' });
+  const parentPage = await request(port, '/parent/admission-prospectus', { token: 'parent' });
   assert.equal(teacherPage.status, 403);
   assert.equal(parentPage.status, 200);
   await new Promise((resolve) => server.close(resolve));

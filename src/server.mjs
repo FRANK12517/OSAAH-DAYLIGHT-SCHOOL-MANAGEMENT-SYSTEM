@@ -38,6 +38,7 @@ import { createReportingService } from './reporting.js';
 import { createAdmissionFormService } from './admission-form.js';
 import { createCommunicationEngine } from './communication-engine.js';
 import { createArkeselGateway, createDurableSmsService, SMS_AUTHORIZED_ROLES } from './durable-sms.js';
+import { createParentSmsAuthService } from './parent-sms-auth.js';
 import { createTranscriptService } from './transcripts.js';
 import { createAdmissionProspectusService, DEFAULT_PROSPECTUS_TEMPLATE, PROSPECTUS_PERMISSION } from './admission-prospectus.js';
 import { createAcademicResultsService, RESULT_HEADER_ASSET } from './academic-results.js';
@@ -129,7 +130,7 @@ const root = join(fileURLToPath(new URL('.', import.meta.url)), '..', 'public');
 const mime = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.svg': 'image/svg+xml' };
 const branding = { schoolName: 'OSAAH DAYLIGHT SCH. COM.', location: 'BOGOSO', motto: 'AIM HIGH, ACADEMIC IS OUR CORE VALUE', logoPath: '/assets/osaah-daylight-logo.png', colours: { navy: '#102a43', royalBlue: '#1769aa', gold: '#d4a72c', white: '#ffffff' } };
 
-export function createApp({ auth = null, students = null, attendance = null, attendanceRepository = null, staffAttendanceOverview = null, studentAttendanceOverview = null, attendanceAnalytics = null, attendanceReports = null, examinations = null, fees = null, feeTypes = null, staff = null, communication = null, communicationEngine = null, durableAnnouncements = null, operations = null, resources = null, compliance = null, reporting = null, generalFinance = null, cashbook = null, admissionForms = null, admissionDocumentStorage = null, admissionProspectus = null, subjects = null, signatures = null, classDatabase = null, database = null, academicResults = null, transcripts = null, receiptBranding = null, prospectusPdf = createAdmissionProspectusPdfService(), resultPdf = createResultSlipPdfService(), sportingActivities = null, subjectRegister = null, shepActivities = null, assignments = null, aiGateway = null, aiConversation = null, capabilityRegistry = null, toolRegistry = null, providerRegistry = null, providerId = process.env.OSAAH_AI_PROVIDER_ID ?? 'openai', modelId = process.env.OSAAH_AI_MODEL_ID ?? 'unconfigured', financialIntelligence = null, academicAttendanceIntelligence = null, admissionsWorkforceIntelligence = null, schoolSettings = null, operationalIntelligence = null, schoolKnowledgeIntelligence = null, academicCalendar = null, executiveIntelligence = null, humanControlledActions = null, aiPersistence = null, aiEnabled = null, audit = () => {}, singleSchoolOverview = null, schoolProfile = null, sampleFixtureRepository = null, resultBlocking = null, allowSmsNonProduction = false } = {}) {
+export function createApp({ auth = null, parentSmsAuth = null, students = null, attendance = null, attendanceRepository = null, staffAttendanceOverview = null, studentAttendanceOverview = null, attendanceAnalytics = null, attendanceReports = null, examinations = null, fees = null, feeTypes = null, staff = null, communication = null, communicationEngine = null, durableAnnouncements = null, operations = null, resources = null, compliance = null, reporting = null, generalFinance = null, cashbook = null, admissionForms = null, admissionDocumentStorage = null, admissionProspectus = null, subjects = null, signatures = null, classDatabase = null, database = null, academicResults = null, transcripts = null, receiptBranding = null, prospectusPdf = createAdmissionProspectusPdfService(), resultPdf = createResultSlipPdfService(), sportingActivities = null, subjectRegister = null, shepActivities = null, assignments = null, aiGateway = null, aiConversation = null, capabilityRegistry = null, toolRegistry = null, providerRegistry = null, providerId = process.env.OSAAH_AI_PROVIDER_ID ?? 'openai', modelId = process.env.OSAAH_AI_MODEL_ID ?? 'unconfigured', financialIntelligence = null, academicAttendanceIntelligence = null, admissionsWorkforceIntelligence = null, schoolSettings = null, operationalIntelligence = null, schoolKnowledgeIntelligence = null, academicCalendar = null, executiveIntelligence = null, humanControlledActions = null, aiPersistence = null, aiEnabled = null, audit = () => {}, singleSchoolOverview = null, schoolProfile = null, sampleFixtureRepository = null, resultBlocking = null, allowSmsNonProduction = false } = {}) {
   const serviceSchoolId = process.env.OSAAH_SCHOOL_ID ?? (database ? DEFAULT_PRODUCTION_SCHOOL_ID : DEMO_SCHOOL_ID);
   auth ??= createAuthService({ database, testParentSchoolId: serviceSchoolId });
   schoolSettings ??= createSchoolSettingsService({ database, schoolProfile: branding });
@@ -169,6 +170,9 @@ export function createApp({ auth = null, students = null, attendance = null, att
   durableAnnouncements ??= database?.query && database?.execute ? createDurableAnnouncementsService({ database, schoolId: serviceSchoolId, audit }) : null;
   const smsGateway = createArkeselGateway();
   const smsRuntimeEnabled = (process.env.VERCEL === '1' && String(process.env.VERCEL_ENV ?? '').toLowerCase() === 'production' && String(process.env.NODE_ENV ?? '').toLowerCase() === 'production') || allowSmsNonProduction;
+  parentSmsAuth ??= smsRuntimeEnabled && database?.dialect === 'tidb' && database?.supportsDurableAuthSessions
+    ? createParentSmsAuthService({ database, gateway: smsGateway, schoolId: serviceSchoolId })
+    : null;
   const smsService = smsRuntimeEnabled && database?.query && database?.execute && database?.transaction ? createDurableSmsService({ database, schoolId: serviceSchoolId, gateway: smsGateway, audit }) : null;
   const smsAuthorized = (actor) => Boolean(actor && SMS_AUTHORIZED_ROLES.includes(canonicalRoleKey(actor.roleKey)) && canAccess(actor, 'messages.sms.send'));
   operations ??= createOperationsService({ schoolId: serviceSchoolId });
@@ -363,6 +367,32 @@ export function createApp({ auth = null, students = null, attendance = null, att
     if (pathname.startsWith('/api/public/admission-prospectus/') && pathname.endsWith('/pdf') && request.method === 'GET') { const id = pathname.split('/').filter(Boolean)[3]; const prospectus = admissionProspectus.get(id, publicProspectusActor); if (!prospectus) return json(response, { error: 'Published prospectus not found.' }, 404); try { const body = await prospectusPdf.pdf(prospectus); response.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="${safeProspectusFilename(prospectus)}"`, 'Cache-Control': 'public, max-age=300' }); return response.end(body); } catch { return json(response, { error: 'Prospectus PDF is temporarily unavailable.' }, 500); } }
     if (pathname === '/api/auth/login' && request.method === 'POST') return login(request, response, auth, audit);
     if (pathname === '/api/auth/logout' && request.method === 'POST') { await auth.logoutSession(readCookie(request, 'osaah_session')); return json(response, { ok: true }, 204, `osaah_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${secureCookieSuffix(request)}`); }
+    if (pathname === '/api/auth/parent/request-code' && request.method === 'POST') {
+      const body = await readJson(request);
+      const result = parentSmsAuth?.requestCode
+        ? await parentSmsAuth.requestCode({ phone: body.phone, ipAddress: request.socket?.remoteAddress ?? 'unknown' })
+        : { status: 503, body: { error: 'Parent sign-in is temporarily unavailable.' } };
+      return json(response, result.body, result.status);
+    }
+    if (pathname === '/api/auth/parent/verify-code' && request.method === 'POST') {
+      const body = await readJson(request);
+      const verification = parentSmsAuth?.verifyCode
+        ? await parentSmsAuth.verifyCode({ phone: body.phone, code: body.code, challengeId: body.challengeId, ipAddress: request.socket?.remoteAddress ?? 'unknown' })
+        : { ok: false, status: 503, body: { error: 'Parent sign-in is temporarily unavailable.' } };
+      if (!verification.ok) return json(response, verification.body, verification.status);
+      const diagnosticContext = { requestPath: '/api/auth/parent/verify-code' };
+      const loginResult = typeof auth.loginByPhoneFromDatabase === 'function'
+        ? await auth.loginByPhoneFromDatabase({ phone: verification.identity.phone, portal: 'parent', diagnosticContext, verifiedOtp: true })
+        : await auth.loginParentByPhone({ phone: verification.identity.phone, portal: 'parent', diagnosticContext, verifiedOtp: true });
+      if (!loginResult.ok && loginResult.status === 503) return json(response, { error: loginResult.error }, 503);
+      if (!loginResult.ok || loginResult.user?.id !== verification.identity.parentUserId) {
+        if (loginResult.token) await auth.logoutSession(loginResult.token);
+        return json(response, { error: 'The verification code is invalid or expired.' }, 401);
+      }
+      audit(createAuditLog({ userId: loginResult.user.id, roleId: loginResult.user.roleKey, sessionId: loginResult.user.sessionId, action: 'LOGIN_SUCCESS', entity: 'Authentication' }));
+      const cookie = `osaah_session=${loginResult.token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${Math.floor(auth.sessionTtlMs / 1000)}${secureCookieSuffix(request)}`;
+      return json(response, { user: loginResult.user, redirectTo: loginResult.redirectTo, expiresAt: loginResult.expiresAt }, 200, cookie);
+    }
     if (pathname === '/api/auth/proprietor/login' && request.method === 'POST') {
       if (!proprietorAuthentication) return json(response, { error: 'Authentication service unavailable.' }, 500);
       try {
@@ -1390,6 +1420,7 @@ const aiGateway = aiEnabled ? createAIGateway({ capabilityRegistry, toolRegistry
 const aiConversation = aiEnabled ? createAIConversationService({ gateway: aiGateway, capabilityRegistry, toolRegistry }) : null;
 const isDirectExecution = process.argv[1] === fileURLToPath(import.meta.url);
 const configuredDatabase = await loadConfiguredDatabaseAdapter({ required: isDirectExecution || process.env.NODE_ENV === 'production' });
+if (configuredDatabase && (isDirectExecution || process.env.NODE_ENV === 'production')) await configuredDatabase.verifyReadiness();
 const app = createApp({ aiEnabled, aiPersistence, capabilityRegistry, toolRegistry, providerRegistry, providerId, aiGateway, aiConversation, database: configuredDatabase });
 const server = createServer(app);
 server.on('close', () => {
@@ -1416,9 +1447,9 @@ async function login(request, response, auth, audit) {
     const schoolId = typeof requestedSchoolId === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(requestedSchoolId) ? requestedSchoolId : null;
     console.info('Authentication login checkpoint', { stage: 'request_received', requestId, requestPath: '/api/auth/login', email: maskedEmail, schoolId, portal: body.portal === 'parent' ? 'parent' : 'school' });
     const isParentPhoneLogin = body.portal === 'parent' && Object.prototype.hasOwnProperty.call(body, 'phone');
-    const credentials = { ...body, diagnosticContext };
+    const credentials = isParentPhoneLogin ? { phone: body.phone, diagnosticContext } : { ...body, diagnosticContext };
     const result = isParentPhoneLogin
-      ? (typeof auth.loginByPhoneFromDatabase === 'function' ? await auth.loginByPhoneFromDatabase(credentials) : auth.loginByPhone(body))
+      ? { ok: false, status: 401, error: 'Unable to sign in. Check the phone number or contact the school.' }
       : (typeof auth.loginFromDatabase === 'function' ? await auth.loginFromDatabase(credentials) : auth.login(body));
     console.info('Authentication login checkpoint', { stage: result.ok ? 'session_created' : 'authentication_rejected', requestId, status: result.status ?? 200, authenticated: Boolean(result.ok) });
     if (!result.ok) return json(response, { error: result.error }, result.status);
