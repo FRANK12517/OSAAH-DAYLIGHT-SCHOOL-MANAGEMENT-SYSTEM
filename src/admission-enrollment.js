@@ -4,6 +4,7 @@ import { admissionYearFor } from './permanent-student-id.js';
 import { requireStudentGender } from './student-gender.js';
 import { canonicalClassId } from './student-classes.js';
 import { normalizeGhanaPhone } from './ghana-phone.js';
+import { tidbInsertIfAbsent } from './tidb-conflict.js';
 
 function fail(code, message, status = 400) { throw Object.assign(new Error(message), { code, status }); }
 function value(...items) { return items.find((item) => item !== undefined && item !== null && item !== '') ?? null; }
@@ -26,7 +27,7 @@ export function createAdmissionEnrollmentService({ database, clock = () => new D
 
   async function nextPermanentStudentId(tx, yearInput, timestamp) {
     const year = admissionYearFor(yearInput);
-    await tx.execute('INSERT INTO student_id_sequences (admission_year,next_sequence,updated_at) VALUES (?,?,?) ON CONFLICT (admission_year) DO UPDATE SET updated_at=EXCLUDED.updated_at', [year, 1, timestamp]);
+    await tidbInsertIfAbsent(tx, { insertSql: 'INSERT INTO student_id_sequences (admission_year,next_sequence,updated_at) VALUES (?,?,?)', insertParameters: [year, 1, timestamp], conflictSql: 'SELECT admission_year FROM student_id_sequences WHERE admission_year=?', conflictParameters: [year] });
     const sequenceRow = rows(await tx.query('SELECT next_sequence FROM student_id_sequences WHERE admission_year=? FOR UPDATE', [year]))[0];
     let sequence = Number(sequenceRow?.next_sequence);
     if (!Number.isInteger(sequence) || sequence < 1) fail('STUDENT_ID_SEQUENCE_INVALID', 'Annual permanent Student ID sequence is invalid.', 409);
@@ -67,7 +68,8 @@ export function createAdmissionEnrollmentService({ database, clock = () => new D
     await tx.execute('INSERT INTO users (id,school_id,username,email,password_hash,full_name,phone,role,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)', [parentId, application.school_id, phone, email || null, passwordHash, value(application.parent_name, applicant.primaryGuardianFullName, 'Parent'), phone, 'PARENT', 'ACTIVE', timestamp]);
     const parentRole = rows(await tx.query("SELECT id FROM roles WHERE school_id=? AND role_key='PARENT' LIMIT 1", [application.school_id]))[0];
     if (!parentRole) fail('PARENT_ROLE_UNAVAILABLE', 'Parent role configuration is unavailable.', 503);
-    await tx.execute('INSERT INTO user_roles (id,user_id,role_id,created_at) VALUES (?,?,?,?) ON CONFLICT (user_id,role_id) DO NOTHING', [idFactory(), parentId, parentRole.id, timestamp]);
+    const roleValues = [idFactory(), parentId, parentRole.id, timestamp];
+    await tidbInsertIfAbsent(tx, { insertSql: 'INSERT INTO user_roles (id,user_id,role_id,created_at) VALUES (?,?,?,?)', insertParameters: roleValues, conflictSql: 'SELECT user_id FROM user_roles WHERE user_id=? AND role_id=?', conflictParameters: [parentId, parentRole.id] });
     return parentId;
   }
 
@@ -116,7 +118,8 @@ export function createAdmissionEnrollmentService({ database, clock = () => new D
         const termId = value(application.term_id, applicant.termId, applicant.term);
         await tx.execute('INSERT INTO student_enrollments (id,student_id,school_id,class_id,academic_year_id,term_id,enrollment_status,is_current,enrolled_at) VALUES (?,?,?,?,?,?,?,?,?)', [enrollmentId, studentId, application.school_id, classId, academicYearId, termId, 'ACTIVE', true, timestamp]);
         const parentUserId = await resolveParent(tx, application, applicant, timestamp);
-        await tx.execute('INSERT INTO parent_student_links (parent_user_id,student_id,permanent_student_id,telephone,relationship,relationship_type,link_status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT (parent_user_id,student_id) DO NOTHING', [parentUserId, profileId, permanentStudentId, value(applicant.primaryGuardianPrimaryPhone, applicant.guardianPhone, applicant.telephone), value(applicant.primaryGuardianRelationship, 'Guardian'), value(applicant.primaryGuardianRelationship, 'GUARDIAN'), 'ACTIVE', timestamp, timestamp]);
+        const parentLinkValues = [parentUserId, profileId, permanentStudentId, value(applicant.primaryGuardianPrimaryPhone, applicant.guardianPhone, applicant.telephone), value(applicant.primaryGuardianRelationship, 'Guardian'), value(applicant.primaryGuardianRelationship, 'GUARDIAN'), 'ACTIVE', timestamp, timestamp];
+        await tidbInsertIfAbsent(tx, { insertSql: 'INSERT INTO parent_student_links (parent_user_id,student_id,permanent_student_id,telephone,relationship,relationship_type,link_status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)', insertParameters: parentLinkValues, conflictSql: 'SELECT parent_user_id FROM parent_student_links WHERE parent_user_id=? AND student_id=?', conflictParameters: [parentUserId, profileId] });
         await tx.execute('UPDATE admission_applications SET student_id=?,permanent_student_id=?,stage=?,updated_at=? WHERE id=? AND student_id IS NULL AND permanent_student_id IS NULL', [studentId, permanentStudentId, 'ENROLLMENT', timestamp, application.id]);
         await tx.execute('INSERT INTO audit_logs (id,school_id,user_id,action,entity,entity_id,new_value,occurred_at) VALUES (?,?,?,?,?,?,?,?)', [idFactory(), application.school_id, actorId ?? null, 'ADMISSION_ENROLLMENT_CREATED', 'Student', studentId, json({ applicationId: application.id, studentId, permanentStudentId, profileId, enrollmentId, parentUserId }), timestamp]);
         return { student: { id: studentId, permanentStudentId, schoolId: application.school_id, admissionNumber, classId, firstName, middleName, lastName }, profileId, enrollmentId, parentUserId, created: true };

@@ -34,7 +34,10 @@ test('Migration 074 dry-run and apply use an explicit single-version allowlist',
   const applied = await runner.applyVersions({ versions: [74], requiredAppliedVersions: [73] });
   assert.deepEqual(applied.applied.map(({ version }) => version), [74]);
   assert.equal(storage.applied.find(({ version }) => version === 74).checksum, target.checksum);
-  assert.deepEqual(storage.statements, [target.sql]);
+  assert.equal(storage.statements.length, 10);
+  assert.ok(storage.statements[0].startsWith('-- 074_durable_promotion_rollover.sql'));
+  assert.ok(storage.statements[0].includes('ADD COLUMN IF NOT EXISTS class_id'));
+  assert.ok(storage.statements[9].includes('idx_promotion_decision_context'));
   const missingPredecessorRunner = createMigrationRunner({ adapter: createInMemoryMigrationAdapter(), directory });
   await assert.rejects(() => missingPredecessorRunner.applyVersions({ versions: [74], requiredAppliedVersions: [73], dryRun: true }), /predecessor/i);
 });

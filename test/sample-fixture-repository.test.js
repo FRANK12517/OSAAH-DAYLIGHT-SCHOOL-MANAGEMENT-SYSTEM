@@ -11,6 +11,7 @@ function database() {
   const rows = new Map();
   const key = (params) => params.join('|');
   return {
+    dialect: 'tidb',
     rows,
     async execute(sql, params) {
       const id = params[0];

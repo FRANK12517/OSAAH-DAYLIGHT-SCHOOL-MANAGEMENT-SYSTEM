@@ -252,6 +252,7 @@ export function createDatabaseAdapter({
   const rootClient = scopedClient(pool);
   const tableNames = ['schema_migrations', 'schema_migration_lock', 'schema_baselines'];
   const adapter = {
+    dialect: 'postgres',
     supportsDurableAuthSessions: true,
     query: rootClient.query,
     execute: rootClient.execute,

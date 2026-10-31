@@ -2,8 +2,10 @@ import bcrypt from 'bcrypt';
 import { createHash, createHmac, randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 import { normalizeGhanaPhone } from './ghana-phone.js';
 import { createDurableStaffProvisioning } from './durable-staff-provisioning.js';
+import { ROLE_KEYS } from './roles.js';
 import { createDurableAdministratorCredentialReset } from './durable-administrator-credential-reset.js';
 import { createDurableCredentialManagement, generatedPassword, passwordMeetsPolicy } from './durable-credential-management.js';
+import { tidbInsertIfAbsent } from './tidb-conflict.js';
 
 const SESSION_TTL_MS = 30 * 60 * 1000;
 const RESET_TTL_MS = 15 * 60 * 1000;
@@ -79,7 +81,7 @@ function schoolLoginDiagnostics(error, { requestId, requestPath } = {}) {
     component: 'school_authentication', operation: 'login_lookup', stage: 'user_query_failed',
     category,
     requestId: safeRequestId(requestId) ?? randomUUID(),
-    requestPath: requestPath === '/api/auth/login' ? requestPath : null,
+    requestPath: ['/api/auth/login', '/api/auth/parent/verify-code'].includes(requestPath) ? requestPath : null,
     name: safeDiagnosticIdentifier(error?.name), code: safeDiagnosticCode(error?.code),
     sqlState, severity: safeDiagnosticIdentifier(error?.severity),
     errno: Number.isSafeInteger(error?.errno) ? error.errno : null,
@@ -110,7 +112,6 @@ export const DEMO_USERS = [
   { id: 'user-teacher-1', username: 'teacher@osaah.edu.gh', passwordHash: passwordHash('Teacher123!', 'teacher-salt'), portal: 'school', roleKey: 'TEACHER', schoolId: 'school-osaah-daylight', permissions: new Set(['students.read', 'academics.read', 'attendance.read', 'attendance.write', 'examinations.read', 'marks.write', 'results.read', 'results.generate', 'results.print', 'mock.scores.read', 'mock.scores.write', 'mock.results.read', 'mock.results.generate', 'leave.read', 'leave.write', 'staff.professional-development.view', 'communication.read', 'messages.read', 'messages.write', 'discipline.read', 'discipline.write', 'property.request', 'shep_activities.view', 'shep_activities.create', 'shep_activities.update', 'shep_activities.manage_participants', 'shep_activities.record_screening', 'shep_activities.create_referral', 'shep_activities.manage_followup', 'shep_activities.generate_reports']), assignedStudentIds: ['student-1'], assignedParentIds: ['user-parent-1'] },
   { id: 'user-hr-1', username: 'hr@osaah.edu.gh', passwordHash: passwordHash('HumanResources123!', 'hr-salt'), portal: 'school', roleKey: 'HR_OFFICER', schoolId: 'school-osaah-daylight', permissions: new Set(['staff.read', 'staff.write', 'hr.read', 'hr.write', 'hr.confidential.read', 'leave.read', 'leave.write', 'staff.attendance.read', 'staff.attendance.write']) },
   { id: 'user-examination-1', username: 'exams@osaah.edu.gh', passwordHash: passwordHash('Examination123!', 'examination-salt'), portal: 'school', roleKey: 'EXAMINATION_OFFICER', schoolId: 'school-osaah-daylight', permissions: new Set(['examinations.read', 'examinations.write', 'marks.write', 'results.read', 'results.generate', 'results.print', 'mock.scores.read', 'mock.scores.write', 'mock.results.read', 'mock.results.generate', 'results.approve', 'promotion.write']) },
-  { id: 'user-admissions-1', username: 'admissions@osaah.edu.gh', passwordHash: passwordHash('Admissions123!', 'admissions-salt'), portal: 'school', roleKey: 'ADMISSIONS_OFFICER', schoolId: 'school-osaah-daylight', permissions: new Set(['students.read', 'admissions.read', 'admissions.write', 'admission.prospectus.manage']) },
   { id: 'user-bursar-1', username: 'bursar@osaah.edu.gh', passwordHash: passwordHash('Bursar123!', 'bursar-salt'), portal: 'school', roleKey: 'ACCOUNTANT_BURSAR', schoolId: 'school-osaah-daylight', permissions: new Set(['students.read', 'fees.read', 'fees.write', 'fees.configure', 'fees.collect', 'fee.scholarships.view', 'finance.read', 'hr.confidential.read']) },
   { id: 'user-librarian-1', username: 'librarian@osaah.edu.gh', passwordHash: passwordHash('Librarian123!', 'librarian-salt'), portal: 'school', roleKey: 'LIBRARIAN', schoolId: 'school-osaah-daylight', permissions: new Set(['library.read', 'library.write']) },
   { id: 'user-transport-1', username: 'transport@osaah.edu.gh', passwordHash: passwordHash('Transport123!', 'transport-salt'), portal: 'school', roleKey: 'TRANSPORT_MANAGER', schoolId: 'school-osaah-daylight', permissions: new Set(['transport.read', 'transport.write', 'transport.gps.view']) },
@@ -219,7 +220,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     const grouped = new Map();
     for (const row of rows ?? []) {
       const roleKey = canonicalRoleKey(row.roleKey);
-      if (!roleKey) continue;
+      if (!ROLE_KEYS.has(roleKey)) continue;
       if (!grouped.has(roleKey)) grouped.set(roleKey, []);
       grouped.get(roleKey).push(row);
     }
@@ -263,6 +264,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     if (portal === 'parent') return { ok: false, status: 401, error: PARENT_GENERIC_LOGIN_ERROR };
     const key = String(username ?? '').trim().toLowerCase(); const throttle = attempts.get(key); if (throttle?.lockedUntil > now()) return { ok: false, status: 429, error: 'Too many failed attempts. Try again later.' };
     const user = users.find((candidate) => (candidate.username.toLowerCase() === key || String(candidate.email ?? '').toLowerCase() === key) && candidate.portal === portal);
+    if (user && portal === 'school' && !ROLE_KEYS.has(canonicalRoleKey(user.roleKey))) return { ok: false, status: 401, error: GENERIC_LOGIN_ERROR };
     if (user && portal === 'school' && role && canonicalRoleKey(role) !== canonicalRoleKey(user.roleKey)) return { ok: false, status: 401, error: 'The selected role does not match this account.' };
     if (!user || typeof password !== 'string' || !passwordMatches(password, user.passwordHash) || !isActive(user)) { const next = throttle ?? { count: 0 }; next.count += 1; if (next.count >= MAX_ATTEMPTS) next.lockedUntil = now() + LOCKOUT_MS; attempts.set(key, next); securityEvent('LOGIN_FAILED', user); return { ok: false, status: 401, error: GENERIC_LOGIN_ERROR }; }
     attempts.delete(key); return createSessionResult(user);
@@ -283,19 +285,34 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     }
     return user;
   }
-  async function loginParentByPhone({ phone, portal = 'parent', diagnosticContext }) {
+  async function loginParentByPhone({ phone, portal = 'parent', diagnosticContext, verifiedOtp = false }) {
     const normalized = normalizeGhanaPhone(phone);
     if (portal !== 'parent') return { ok: false, status: 401, error: PARENT_GENERIC_LOGIN_ERROR };
+    if (verifiedOtp !== true) return { ok: false, status: 401, error: PARENT_GENERIC_LOGIN_ERROR };
     if (!normalized) return { ok: false, status: 400, error: 'Enter a valid Ghanaian phone number.' };
-    if (!database?.query || !database?.transaction || !database?.supportsDurableAuthSessions || !durableSessionStore || !signingKey) return { ok: false, status: 503, error: 'Authentication service unavailable.' };
+    const parentAuthRequirements = {
+      queryAvailable: typeof database?.query === 'function',
+      transactionAvailable: typeof database?.transaction === 'function',
+      durableSessionCapability: Boolean(database?.supportsDurableAuthSessions),
+      durableSessionStoreAvailable: durableSessionStore,
+      signingKeyAvailable: Boolean(signingKey)
+    };
+    if (Object.values(parentAuthRequirements).some((available) => !available)) {
+      console.error('Parent authentication unavailable', {
+        component: 'parent_authentication', operation: 'preflight', category: 'AUTH_REQUIREMENT_UNAVAILABLE',
+        requestId: safeRequestId(diagnosticContext?.requestId),
+        requestPath: ['/api/auth/login', '/api/auth/parent/verify-code'].includes(diagnosticContext?.requestPath) ? diagnosticContext.requestPath : null,
+        ...parentAuthRequirements
+      });
+      return { ok: false, status: 503, error: 'Authentication service unavailable.' };
+    }
     let rows = [], rateLimited = false;
     try {
       await database.transaction(async (tx) => {
-        if (!['tidb', 'postgres'].includes(database.dialect)) throw new Error('Parent login requires a supported transactional database dialect.');
+        if (database.dialect !== 'tidb') throw new Error('Parent login requires TiDB.');
         const bucketHash = createHmac('sha256', signingKey).update(`parent-phone-login\0${normalized}`).digest('hex');
         const timestamp = new Date(now()).toISOString();
-        if (database.dialect === 'tidb') await tx.execute('INSERT IGNORE INTO parent_auth_rate_limits (bucket_hash,window_started_at,request_count,updated_at) VALUES (?,?,0,?)', [bucketHash, timestamp, timestamp]);
-        else await tx.execute('INSERT INTO parent_auth_rate_limits (bucket_hash,window_started_at,request_count,updated_at) VALUES (?,?,0,?) ON CONFLICT (bucket_hash) DO NOTHING', [bucketHash, timestamp, timestamp]);
+        await tidbInsertIfAbsent(tx, { insertSql:'INSERT INTO parent_auth_rate_limits (bucket_hash,window_started_at,request_count,updated_at) VALUES (?,?,0,?)', insertParameters:[bucketHash,timestamp,timestamp], conflictSql:'SELECT bucket_hash FROM parent_auth_rate_limits WHERE bucket_hash=?', conflictParameters:[bucketHash] });
         const limits = await tx.query('SELECT window_started_at AS windowStartedAt,request_count AS requestCount FROM parent_auth_rate_limits WHERE bucket_hash=? FOR UPDATE', [bucketHash]);
         if (!Array.isArray(limits) || limits.length !== 1) throw new Error('Parent login rate-limit row unavailable.');
         const limitRow = limits[0];
@@ -338,7 +355,15 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
       const session = await createDurableSessionResult(user);
       if (session.ok) users.push(user);
       return session;
-    } catch {
+    } catch (error) {
+      console.error('Parent authentication session creation failed', {
+        component: 'parent_authentication', operation: 'session_create', category: 'SESSION_PERSISTENCE_FAILED',
+        requestId: safeRequestId(diagnosticContext?.requestId),
+        requestPath: ['/api/auth/login', '/api/auth/parent/verify-code'].includes(diagnosticContext?.requestPath) ? diagnosticContext.requestPath : null,
+        errorType: safeDiagnosticIdentifier(error?.name) ?? 'Error',
+        code: safeDiagnosticCode(error?.code),
+        stack: safeAuthenticationStack(error?.stack)
+      });
       return { ok: false, status: 503, error: 'Authentication service unavailable.' };
     }
   }
@@ -352,7 +377,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     try {
       console.info('Authentication login checkpoint', {
         stage: 'user_query_before', requestId: safeRequestId(diagnosticContext?.requestId) ?? null,
-        requestPath: diagnosticContext?.requestPath === '/api/auth/login' ? diagnosticContext.requestPath : null
+        requestPath: ['/api/auth/login', '/api/auth/parent/verify-code'].includes(diagnosticContext?.requestPath) ? diagnosticContext.requestPath : null
       });
       rows = await database.query(`SELECT u.id,u.school_id AS schoolId,COALESCE(u.username,u.email) AS username,u.email,u.password_hash AS passwordHash,u.status,r.role_key AS roleKey,r.oversight_rank AS oversightRank,p.permission_key AS permissionKey
         FROM users u
@@ -363,7 +388,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
         WHERE LOWER(COALESCE(u.username,''))=? OR LOWER(COALESCE(u.email,''))=? ORDER BY COALESCE(r.oversight_rank,0) DESC,r.role_key,p.permission_key`, [key, key]);
       console.info('Authentication login checkpoint', {
         stage: 'user_query_after', requestId: safeRequestId(diagnosticContext?.requestId) ?? null,
-        requestPath: diagnosticContext?.requestPath === '/api/auth/login' ? diagnosticContext.requestPath : null,
+        requestPath: ['/api/auth/login', '/api/auth/parent/verify-code'].includes(diagnosticContext?.requestPath) ? diagnosticContext.requestPath : null,
         rowsReturned: Array.isArray(rows) ? rows.length : 0
       });
     } catch (error) {
@@ -411,7 +436,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
         console.error('School password verification failed', {
           component: 'school_authentication', operation: 'password_verify', category: 'PASSWORD_HASH_INVALID',
           requestId: safeRequestId(diagnosticContext?.requestId) ?? null,
-          requestPath: diagnosticContext?.requestPath === '/api/auth/login' ? diagnosticContext.requestPath : null,
+          requestPath: ['/api/auth/login', '/api/auth/parent/verify-code'].includes(diagnosticContext?.requestPath) ? diagnosticContext.requestPath : null,
           errorType: safeDiagnosticIdentifier(error?.name) ?? 'Error'
         });
       }
@@ -425,7 +450,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
       console.info('School login rejected', {
         component: 'school_authentication', operation: 'login_validation', category: identity ? 'ROLE_MISMATCH' : 'USER_NOT_FOUND',
         requestId: safeRequestId(diagnosticContext?.requestId) ?? null,
-        requestPath: diagnosticContext?.requestPath === '/api/auth/login' ? diagnosticContext.requestPath : null,
+        requestPath: ['/api/auth/login', '/api/auth/parent/verify-code'].includes(diagnosticContext?.requestPath) ? diagnosticContext.requestPath : null,
         accountFound: Boolean(identity), requestedRole: canonicalRoleKey(role), availableRoles: selected.availableRoles
       });
       return { ok: false, status: 401, error: 'The selected role does not match this account.' };
@@ -435,7 +460,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
       console.info('School login rejected', {
         component: 'school_authentication', operation: 'login_validation', category,
         requestId: safeRequestId(diagnosticContext?.requestId) ?? null,
-        requestPath: diagnosticContext?.requestPath === '/api/auth/login' ? diagnosticContext.requestPath : null,
+        requestPath: ['/api/auth/login', '/api/auth/parent/verify-code'].includes(diagnosticContext?.requestPath) ? diagnosticContext.requestPath : null,
         accountFound: Boolean(identity), accountActive: Boolean(active), roleAssigned: Boolean(roleKey), requestedRole: role ? canonicalRoleKey(role) : null,
         availableRoles: selected.availableRoles
       });
@@ -469,9 +494,11 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
   function authenticate(token) {
     const session = verifiedSession(token);
     if (!session || session.expiresAt <= now()) { if (token) sessions.delete(token); return null; }
+    if (session.roleKey && !ROLE_KEYS.has(canonicalRoleKey(session.roleKey))) { revokeLocalSession(token, session); return null; }
     const user = users.find((candidate) => candidate.id === session.userId && (!session.roleKey || canonicalRoleKey(candidate.roleKey) === canonicalRoleKey(session.roleKey)))
       ?? users.find((candidate) => candidate.id === session.userId);
     if (!user) { if (token) sessions.delete(token); return null; }
+    if (!ROLE_KEYS.has(canonicalRoleKey(user.roleKey))) { revokeLocalSession(token, session); return null; }
     if (!isActive(user)) { revokeLocalSession(token, session); securityEvent('SESSION_REVOKED', user, session.sessionId); return null; }
     return { ...sanitize(user, session.sessionId), permissions: user.permissions };
   }
@@ -495,19 +522,21 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     if (!row) {
       if (sessionDiagnostics && context) {
         try {
-          const diagnosticRows = await database.query(`SELECT s.expires_at AS expiresAt,s.revoked_at AS revokedAt,u.status AS accountStatus FROM auth_sessions s LEFT JOIN users u ON u.id=s.user_id WHERE s.token_hash=? LIMIT 1`, [tokenHash(token)]);
+          const diagnosticRows = await database.query(`SELECT s.expires_at AS expiresAt,s.revoked_at AS revokedAt,u.status AS accountStatus,CASE WHEN u.id IS NULL THEN 0 ELSE 1 END AS identityFound,CASE WHEN u.status='ACTIVE' THEN 1 ELSE 0 END AS restoreStatusAccepted FROM auth_sessions s LEFT JOIN users u ON u.id=s.user_id WHERE s.token_hash=? LIMIT 1`, [tokenHash(token)]);
           const diagnosticRow = diagnosticRows?.[0];
           const expiry = diagnosticRow ? Date.parse(diagnosticRow.expiresAt) : NaN;
-          sessionDiagnostic(context, 'session_record_classification', { recordFound: Boolean(diagnosticRow), revoked: Boolean(diagnosticRow?.revokedAt), expired: Number.isFinite(expiry) ? expiry <= now() : null, identityFound: Boolean(diagnosticRow && diagnosticRow.accountStatus != null), accountActive: diagnosticRow ? String(diagnosticRow.accountStatus ?? 'ACTIVE').toUpperCase() === 'ACTIVE' : null });
+          sessionDiagnostic(context, 'session_record_classification', { classificationQueryExecuted: true, recordFound: Boolean(diagnosticRow), revoked: Boolean(diagnosticRow?.revokedAt), expired: Number.isFinite(expiry) ? expiry <= now() : null, identityFound: Boolean(Number(diagnosticRow?.identityFound)), accountActive: diagnosticRow ? String(diagnosticRow.accountStatus ?? 'ACTIVE').toUpperCase() === 'ACTIVE' : null, restoreStatusAccepted: Boolean(Number(diagnosticRow?.restoreStatusAccepted)) });
         } catch (error) {
           sessionDiagnostic(context, 'session_record_classification', { querySucceeded: false, errorType: safeDiagnosticIdentifier(error?.name) ?? 'Error', errorCode: safeDiagnosticCode(error?.code) });
         }
       }
       if (session) revokeLocalSession(token, session); else sessions.delete(token); return null;
     }
-    const userRows = rows.filter((candidate) => candidate.userId === row.userId);
+    const userRows = rows.filter((candidate) => candidate.userId === row.userId && ROLE_KEYS.has(canonicalRoleKey(candidate.roleKey)));
     const selectedRoleKey = canonicalRoleKey(session?.roleKey ?? row.roleKey);
-    const roleKey = userRows.some((candidate) => canonicalRoleKey(candidate.roleKey) === selectedRoleKey) ? selectedRoleKey : canonicalRoleKey(row.roleKey);
+    if (session?.roleKey && !ROLE_KEYS.has(selectedRoleKey)) return null;
+    const roleKey = userRows.some((candidate) => canonicalRoleKey(candidate.roleKey) === selectedRoleKey) ? selectedRoleKey : canonicalRoleKey(userRows[0]?.roleKey);
+    if (!roleKey) return null;
     const scopedRows = userRows.filter((candidate) => canonicalRoleKey(candidate.roleKey) === roleKey);
     const user = addStaffAttendanceRoleGrants({ id: row.userId, username: row.username, email: row.email, portal: roleKey === 'PARENT' ? 'parent' : 'school', roleKey, schoolId: row.schoolId, accountStatus: 'ACTIVE', is_active: true, permissions: new Set(scopedRows.map((candidate) => candidate.permissionKey).filter(Boolean)) });
     if (user.roleKey === 'PARENT') for (const permission of PARENT_PERMISSIONS) user.permissions.add(permission);

@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createServer, request as httpRequest } from 'node:http';
 import { createApp } from '../src/server.js';
-import { createAuthService } from '../src/auth.js';
 import { DEFAULT_ADMISSION_FEES, createAdmissionFormService, feeDivisionForClass } from '../src/admission-form.js';
 import { createFeeService } from '../src/fees.js';
 
@@ -94,9 +93,12 @@ test('admission form migration contains relational constraints and versioned fee
 });
 
 test('admission form endpoints enforce parent and fee authority server-side', async () => {
-  const auth = createAuthService();
-  const parent = auth.login({ username: 'parent@example.com', password: 'Parent123!', portal: 'parent' });
-  const teacher = auth.login({ username: 'teacher@osaah.edu.gh', password: 'Teacher123!', portal: 'school' });
+  const actors = {
+    parent: { id: 'test-parent', roleKey: 'PARENT', portal: 'parent', schoolId: 'school-osaah-daylight', permissions: new Set() },
+    teacher: { id: 'test-teacher', roleKey: 'TEACHER', portal: 'school', schoolId: 'school-osaah-daylight', permissions: new Set(['students.read']) },
+    proprietor: { id: 'test-proprietor', roleKey: 'PROPRIETOR', portal: 'school', schoolId: 'school-osaah-daylight', permissions: new Set(['admissions.analytics.read']) }
+  };
+  const auth = { authenticateAsync: async (token) => actors[token] ?? null };
   const server = createServer(createApp({ auth }));
   await new Promise((resolve) => server.listen(0, resolve));
   const port = server.address().port;
@@ -107,13 +109,12 @@ test('admission form endpoints enforce parent and fee authority server-side', as
     req.end();
   });
   try {
-    assert.equal(await request('/api/admission-fees', { token: parent.token }), 200);
-    assert.equal(await request('/api/admission-fees', { token: teacher.token }), 403);
-    assert.equal(await request('/api/admission-applications', { method: 'POST', token: teacher.token, body: {} }), 403);
-    const proprietor = auth.login({ username: 'proprietor@osaah.edu.gh', password: 'Proprietor123!', portal: 'school' });
-    assert.equal(await request('/api/admission-analytics', { token: proprietor.token }), 200);
-    assert.equal(await request('/api/admission-analytics', { token: parent.token }), 403);
-    assert.equal(await request('/api/admission-analytics', { token: teacher.token }), 403);
+    assert.equal(await request('/api/admission-fees', { token: 'parent' }), 200);
+    assert.equal(await request('/api/admission-fees', { token: 'teacher' }), 403);
+    assert.equal(await request('/api/admission-applications', { method: 'POST', token: 'teacher', body: {} }), 403);
+    assert.equal(await request('/api/admission-analytics', { token: 'proprietor' }), 200);
+    assert.equal(await request('/api/admission-analytics', { token: 'parent' }), 403);
+    assert.equal(await request('/api/admission-analytics', { token: 'teacher' }), 403);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }

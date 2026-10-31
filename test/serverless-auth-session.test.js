@@ -5,12 +5,14 @@ import { createAuthService } from '../src/auth.js';
 import { createApp } from '../src/server.mjs';
 import { PROPRIETOR_SIDEBAR_ROUTES } from '../src/proprietor-sidebar-routes.js';
 import { TEST_PARENT_PHONE, TEST_PARENT_STUDENT_IDS } from '../src/test-parent-fixture.js';
+import { createConfiguredTestParent, isConfiguredTestParentActor, listConfiguredTestParentRelationships } from '../src/test-parent-fixture.js';
+import { createParentLoginDatabase } from './helpers/parent-login-fixture.js';
 
 const SESSION_SECRET = 'test-only-session-secret-with-at-least-32-characters';
 
 function request(server, path, { cookie, method = 'GET', headers = {}, body = null } = {}) {
   return new Promise((resolve, reject) => {
-    const req = httpRequest({ port: server.address().port, path, method, headers: { ...headers, ...(cookie ? { Cookie: cookie } : {}) } }, (response) => {
+    const req = httpRequest({ host: '127.0.0.1', port: server.address().port, path, method, headers: { ...headers, ...(cookie ? { Cookie: cookie } : {}) } }, (response) => {
       let body = ''; response.setEncoding('utf8'); response.on('data', (chunk) => { body += chunk; });
       response.on('end', () => resolve({ status: response.statusCode, body, headers: response.headers }));
     });
@@ -18,12 +20,26 @@ function request(server, path, { cookie, method = 'GET', headers = {}, body = nu
   });
 }
 
-test('production rejects in-memory Parent sessions when the shared signing secret is missing', () => {
+function otpService(parentUserId, phone, schoolId = 'sch_default_01') {
+  return {
+    async requestCode() { return { status: 202, body: { ok: true, challengeId: '00000000-0000-4000-8000-000000000001', message: 'If eligible, a code may arrive.' } }; },
+    async verifyCode(input) { return input.code === '123456' && input.challengeId === '00000000-0000-4000-8000-000000000001' && input.phone === phone ? { ok: true, identity: { parentUserId, phone, schoolId } } : { ok: false, status: 401, body: { error: 'The verification code is invalid or expired.' } }; }
+  };
+}
+
+async function completeParentOtp(server, phone = TEST_PARENT_PHONE) {
+  const requested = await request(server, '/api/auth/parent/request-code', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone }) });
+  assert.equal(requested.status, 202, requested.body);
+  const challengeId = JSON.parse(requested.body).challengeId;
+  return request(server, '/api/auth/parent/verify-code', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone, code: '123456', challengeId }) });
+}
+
+test('Parent authentication fails closed when durable TiDB session requirements are missing', async () => {
   const previousNodeEnv = process.env.NODE_ENV;
   process.env.NODE_ENV = 'production';
   try {
     const auth = createAuthService({ sessionSecret: '' });
-    const result = auth.loginByPhone({ phone: TEST_PARENT_PHONE, portal: 'parent' });
+    const result = await auth.loginByPhoneFromDatabase({ phone: TEST_PARENT_PHONE, portal: 'parent', verifiedOtp: true });
     assert.equal(result.ok, false);
     assert.equal(result.status, 503);
     assert.equal(result.error, 'Authentication service unavailable.');
@@ -37,13 +53,13 @@ test('production rejects in-memory Parent sessions when the shared signing secre
 test('signed proprietor session survives a different serverless instance', async () => {
   const loginInstance = createAuthService({ sessionSecret: SESSION_SECRET });
   const navigationInstance = createAuthService({ sessionSecret: SESSION_SECRET });
-  const login = loginInstance.login({ username: 'proprietor@osaah.edu.gh', password: 'Proprietor123!', portal: 'school' });
+  const login = loginInstance.login({ username: 'proprietor@osaah.edu.gh', password: 'Synthetic-Proprietor-Test-Only-2026!', portal: 'school' });
   assert.match(login.token, /^v1\./);
   assert.equal(navigationInstance.authenticate(login.token).roleKey, 'PROPRIETOR');
   assert.equal(navigationInstance.authenticate(login.token).schoolId, 'school-osaah-daylight');
 
   const server = createServer(createApp({ auth: navigationInstance, aiEnabled: false }));
-  await new Promise((resolve) => server.listen(0, resolve));
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   try {
     const cookie = `osaah_session=${login.token}`;
     for (const module of PROPRIETOR_SIDEBAR_ROUTES) {
@@ -62,26 +78,9 @@ test('signed proprietor session survives a different serverless instance', async
 });
 
 test('database Parent phone sessions persist and restore the Parent portal identity across instances', async () => {
-  const persisted = { session: null };
-  let revoked = false;
-  const database = {
-    supportsDurableAuthSessions: true,
-    async query(sql, params = []) {
-      if (sql.includes('FROM users u JOIN user_roles ur')) return [{ id: 'parent-db-1', schoolId: 'school-db-1', username: 'parent@example.test', email: 'parent@example.test', status: 'ACTIVE', parentPhone: '+233240000001' }];
-      if (sql.includes('FROM auth_sessions s JOIN users u')) {
-        if (revoked || !persisted.session || params[0] !== persisted.session.tokenHash) return [];
-        return [{ sessionId: persisted.session.sessionId, userId: 'parent-db-1', schoolId: 'school-db-1', expiresAt: persisted.session.expiresAt, username: 'parent@example.test', email: 'parent@example.test', status: 'ACTIVE', roleKey: 'PARENT', permissionKey: null }];
-      }
-      return [];
-    },
-    async execute(sql, params = []) {
-      if (sql.startsWith('INSERT INTO auth_sessions')) persisted.session = { sessionId: params[0], tokenHash: params[3], expiresAt: params[5] };
-      if (sql.startsWith('UPDATE auth_sessions SET revoked_at=')) revoked = true;
-      return { affectedRows: 1 };
-    }
-  };
+  const { database, persisted } = createParentLoginDatabase({ user: { id: 'parent-db-1', username: 'parent@example.test', email: 'parent@example.test', schoolId: 'school-db-1', phone: '+233240000001' } });
   const loginAuth = createAuthService({ database, sessionSecret: SESSION_SECRET });
-  const login = await loginAuth.loginByPhoneFromDatabase({ phone: '+233240000001' });
+  const login = await loginAuth.loginByPhoneFromDatabase({ phone: '+233240000001', verifiedOtp: true });
   assert.equal(login.ok, true);
   assert.ok(persisted.session, 'successful database Parent login must persist its session');
 
@@ -100,37 +99,35 @@ test('database Parent phone sessions persist and restore the Parent portal ident
 });
 
 test('controlled sample Parent session restores across serverless instances with Parent identity only', async () => {
-  const loginAuth = createAuthService({ sessionSecret: SESSION_SECRET });
-  const login = await loginAuth.loginByPhoneFromDatabase({ phone: TEST_PARENT_PHONE, portal: 'parent' });
+  const user = createConfiguredTestParent('sch_default_01');
+  const { database } = createParentLoginDatabase({ user });
+  const loginAuth = createAuthService({ database, sessionSecret: SESSION_SECRET });
+  const login = await loginAuth.loginByPhoneFromDatabase({ phone: TEST_PARENT_PHONE, portal: 'parent', verifiedOtp: true });
   assert.equal(login.ok, true);
-  const nextInstance = createAuthService({ sessionSecret: SESSION_SECRET });
+  const nextInstance = createAuthService({ database, sessionSecret: SESSION_SECRET });
   const restored = await nextInstance.authenticateAsync(login.token);
   assert.equal(restored.id, 'user-test-parent-sample');
   assert.equal(restored.portal, 'parent');
   assert.equal(restored.children, undefined);
 });
 
-test('controlled sample Parent namespace wins before a colliding durable Parent phone lookup', async () => {
-  let queried = false;
-  const database = {
-    async query() {
-      queried = true;
-      return [{ id: 'real-parent-1', schoolId: 'sch_default_01', username: 'real-parent@example.test', email: 'real-parent@example.test', status: 'ACTIVE', parentPhone: TEST_PARENT_PHONE }];
-    },
-    async execute() { return { affectedRows: 1 }; }
-  };
-  const auth = createAuthService({ database, sessionSecret: SESSION_SECRET, testParentSchoolId: 'sch_default_01' });
-  const login = await auth.loginByPhoneFromDatabase({ phone: '0247293733', portal: 'parent' });
-  assert.equal(login.ok, true);
-  assert.equal(login.user.id, 'user-test-parent-sample');
-  assert.equal(login.user.schoolId, 'sch_default_01');
-  assert.equal(queried, false, 'fixture authentication must not consult durable Parent identities');
+test('ambiguous duplicate Parent phone identities fail closed without selecting a sample identity', async () => {
+  const sample = createConfiguredTestParent('sch_default_01');
+  const row = { id: 'real-parent-1', schoolId: 'sch_default_01', username: 'real-parent@example.test', email: 'real-parent@example.test', status: 'ACTIVE', parentPhone: TEST_PARENT_PHONE, phoneMatchCount: 2 };
+  const { database, persisted } = createParentLoginDatabase({ user: sample, rows: [row] });
+  const auth = createAuthService({ database, sessionSecret: SESSION_SECRET });
+  const login = await auth.loginByPhoneFromDatabase({ phone: '0247293733', portal: 'parent', verifiedOtp: true });
+  assert.equal(login.ok, false);
+  assert.equal(login.status, 401);
+  assert.equal(login.token, undefined);
+  assert.equal(persisted.session, null, 'ambiguous phone ownership must never create a session');
 });
 
-test('database-backed test Parent session hydrates canonical scope on every instance and fails closed when fixtures are disabled', async () => {
-  const database = { async query() { return []; }, async execute() { return { affectedRows: 1 }; } };
-  const loginAuth = createAuthService({ database, sessionSecret: SESSION_SECRET, testParentSchoolId: 'sch_default_01' });
-  const login = await loginAuth.loginByPhoneFromDatabase({ phone: TEST_PARENT_PHONE, portal: 'parent' });
+test('verified database Parent session restores its canonical identity while sample relationships fail closed when disabled', async () => {
+  const user = createConfiguredTestParent('sch_default_01');
+  const { database } = createParentLoginDatabase({ user });
+  const loginAuth = createAuthService({ database, sessionSecret: SESSION_SECRET });
+  const login = await loginAuth.loginByPhoneFromDatabase({ phone: TEST_PARENT_PHONE, portal: 'parent', verifiedOtp: true });
   assert.equal(login.ok, true);
 
   const nextInstance = createAuthService({ database, sessionSecret: SESSION_SECRET, testParentSchoolId: 'sch_default_01' });
@@ -141,8 +138,11 @@ test('database-backed test Parent session hydrates canonical scope on every inst
   const previousFlag = process.env.OSAAH_ENABLE_SAMPLE_FIXTURES;
   process.env.OSAAH_ENABLE_SAMPLE_FIXTURES = 'false';
   try {
-    const disabledInstance = createAuthService({ database, sessionSecret: SESSION_SECRET, testParentSchoolId: 'sch_default_01' });
-    assert.equal(disabledInstance.authenticate(login.token), null);
+    const disabledInstance = createAuthService({ database, sessionSecret: SESSION_SECRET });
+    const disabledActor = await disabledInstance.authenticateAsync(login.token);
+    assert.equal(disabledActor.schoolId, 'sch_default_01');
+    assert.equal(isConfiguredTestParentActor(disabledActor), false);
+    assert.deepEqual(listConfiguredTestParentRelationships(disabledActor.id), []);
   } finally {
     if (previousFlag === undefined) delete process.env.OSAAH_ENABLE_SAMPLE_FIXTURES;
     else process.env.OSAAH_ENABLE_SAMPLE_FIXTURES = previousFlag;
@@ -150,15 +150,13 @@ test('database-backed test Parent session hydrates canonical scope on every inst
 });
 
 test('controlled sample Parent uses the canonical production school scope for login and child authorization', async () => {
-  const database = { async query() { return []; }, async execute() { return { affectedRows: 1 }; } };
-  const server = createServer(createApp({ database, aiEnabled: false }));
-  await new Promise((resolve) => server.listen(0, resolve));
+  const user = createConfiguredTestParent('sch_default_01');
+  const { database } = createParentLoginDatabase({ user });
+  const auth = createAuthService({ database, sessionSecret: SESSION_SECRET });
+  const server = createServer(createApp({ database, auth, parentSmsAuth: otpService(user.id, TEST_PARENT_PHONE), aiEnabled: false }));
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   try {
-    const login = await request(server, '/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone: TEST_PARENT_PHONE, portal: 'parent' })
-    });
+    const login = await completeParentOtp(server);
     assert.equal(login.status, 200, login.body);
     const cookie = login.headers['set-cookie']?.[0]?.split(';')[0];
     assert.ok(cookie, 'successful fixture login must establish a session cookie');
@@ -181,13 +179,16 @@ test('controlled sample Parent uses the canonical production school scope for lo
 });
 
 test('Parent APIs expose only linked children, canonical options, allowed records, and invalidate data on logout', async () => {
-  const auth = createAuthService({ sessionSecret: SESSION_SECRET });
-  const login = auth.loginByPhone({ phone: TEST_PARENT_PHONE, portal: 'parent' });
-  assert.equal(login.ok, true);
-  const cookie = `osaah_session=${login.token}`;
-  const server = createServer(createApp({ auth, aiEnabled: false }));
-  await new Promise((resolve) => server.listen(0, resolve));
+  const user = createConfiguredTestParent('sch_default_01');
+  const { database } = createParentLoginDatabase({ user });
+  const auth = createAuthService({ database, sessionSecret: SESSION_SECRET });
+  const server = createServer(createApp({ auth, database, parentSmsAuth: otpService(user.id, TEST_PARENT_PHONE, user.schoolId), aiEnabled: false }));
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   try {
+    const login = await completeParentOtp(server);
+    assert.equal(login.status, 200, login.body);
+    const cookie = login.headers['set-cookie']?.[0]?.split(';')[0];
+    assert.ok(cookie, 'OTP verification must establish the authenticated Parent session');
     const unauthenticatedChildren = await request(server, '/api/parent/children');
     assert.equal(unauthenticatedChildren.status, 401);
 
@@ -238,13 +239,13 @@ test('Parent APIs expose only linked children, canonical options, allowed record
 test('logout returns every school role to the public home and keeps protected routes guarded', async () => {
   const auth = createAuthService({ sessionSecret: SESSION_SECRET });
   const server = createServer(createApp({ auth, aiEnabled: false }));
-  await new Promise((resolve) => server.listen(0, resolve));
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const headteacher = auth.registerStaff({ fullName: 'Test Headteacher', staffId: 'STAFF-LOGOUT-HEAD', primaryRole: 'TEACHER' }, { schoolId: 'school-osaah-daylight' });
   auth.changeStaffRole(headteacher.staff.id, 'HEADTEACHER', 'school-osaah-daylight');
   const assistantHeadteacher = auth.registerStaff({ fullName: 'Test Assistant Headteacher', staffId: 'STAFF-LOGOUT-ASSISTANT', primaryRole: 'TEACHER' }, { schoolId: 'school-osaah-daylight' });
   auth.changeStaffRole(assistantHeadteacher.staff.id, 'ASSISTANT_HEADTEACHER', 'school-osaah-daylight');
   const schoolUsers = [
-    ['proprietor@osaah.edu.gh', 'Proprietor123!', '/reports'],
+    ['proprietor@osaah.edu.gh', 'Synthetic-Proprietor-Test-Only-2026!', '/reports'],
     [headteacher.staff.username, headteacher.temporaryPassword, '/academics'],
     [assistantHeadteacher.staff.username, assistantHeadteacher.temporaryPassword, '/academics'],
     ['bursar@osaah.edu.gh', 'Bursar123!', '/fees'],
@@ -272,15 +273,15 @@ test('logout returns every school role to the public home and keeps protected ro
 test('signed session rejects tampering, expires, and logout clears the cookie', async () => {
   let clock = 1_000;
   const auth = createAuthService({ sessionSecret: SESSION_SECRET, now: () => clock });
-  const login = auth.login({ username: 'proprietor@osaah.edu.gh', password: 'Proprietor123!', portal: 'school' });
+  const login = auth.login({ username: 'proprietor@osaah.edu.gh', password: 'Synthetic-Proprietor-Test-Only-2026!', portal: 'school' });
   assert.equal(auth.authenticate(`${login.token.slice(0, -1)}x`), null);
   clock = login.expiresAt + 1;
   assert.equal(auth.authenticate(login.token), null);
 
   const freshAuth = createAuthService({ sessionSecret: SESSION_SECRET });
-  const fresh = freshAuth.login({ username: 'proprietor@osaah.edu.gh', password: 'Proprietor123!', portal: 'school' });
+  const fresh = freshAuth.login({ username: 'proprietor@osaah.edu.gh', password: 'Synthetic-Proprietor-Test-Only-2026!', portal: 'school' });
   const server = createServer(createApp({ auth: freshAuth, aiEnabled: false }));
-  await new Promise((resolve) => server.listen(0, resolve));
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   try {
     const response = await request(server, '/api/auth/logout', { method: 'POST', cookie: `osaah_session=${fresh.token}` });
     assert.equal(response.status, 204);
@@ -292,18 +293,18 @@ test('signed session rejects tampering, expires, and logout clears the cookie', 
 test('test Parent child authorization survives separate serverless app instances', async () => {
   const previousSessionSecret = process.env.OSAAH_SESSION_SECRET;
   process.env.OSAAH_SESSION_SECRET = SESSION_SECRET;
-  const database = { async query() { return []; }, async execute() { return { affectedRows: 1 }; } };
-  const loginServer = createServer(createApp({ database, aiEnabled: false }));
-  const navigationServer = createServer(createApp({ database, aiEnabled: false }));
+  const user = createConfiguredTestParent('sch_default_01');
+  const { database } = createParentLoginDatabase({ user });
+  const loginAuth = createAuthService({ database, sessionSecret: SESSION_SECRET });
+  const navigationAuth = createAuthService({ database, sessionSecret: SESSION_SECRET });
+  const sms = otpService(user.id, TEST_PARENT_PHONE);
+  const loginServer = createServer(createApp({ auth: loginAuth, database, parentSmsAuth: sms, aiEnabled: false }));
+  const navigationServer = createServer(createApp({ auth: navigationAuth, database, parentSmsAuth: sms, aiEnabled: false }));
   if (previousSessionSecret === undefined) delete process.env.OSAAH_SESSION_SECRET;
   else process.env.OSAAH_SESSION_SECRET = previousSessionSecret;
-  await Promise.all([loginServer, navigationServer].map((server) => new Promise((resolve) => server.listen(0, resolve))));
+  await Promise.all([loginServer, navigationServer].map((server) => new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))));
   try {
-    const login = await request(loginServer, '/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone: TEST_PARENT_PHONE, portal: 'parent' })
-    });
+    const login = await completeParentOtp(loginServer);
     assert.equal(login.status, 200, login.body);
     const cookie = login.headers['set-cookie']?.[0]?.split(';')[0];
     assert.ok(cookie, 'cross-instance fixture login must establish a signed session cookie');

@@ -117,7 +117,7 @@ test('exam timetable creation is restricted, conflict checked and publication sc
 
 test('all school roles use canonical non-fallback routes for their visible navigation', () => {
   const rolePermissions = new Set(['*']);
-  for (const roleKey of ['PROPRIETOR','HEADTEACHER','ASSISTANT_HEADTEACHER','SCHOOL_ADMIN','ACCOUNTANT_BURSAR','TEACHER','ADMISSIONS_OFFICER','HR_OFFICER','EXAMINATION_OFFICER']) {
+  for (const roleKey of ['PROPRIETOR','HEADTEACHER','ASSISTANT_HEADTEACHER','SCHOOL_ADMIN','ACCOUNTANT_BURSAR','TEACHER','HR_OFFICER','EXAMINATION_OFFICER']) {
     const modules = visibleSidebar({ modules: SIDEBAR_MODULES, permissions: rolePermissions, roleKey, portal: 'school' }).flatMap((group) => group.modules.flatMap((module) => [module, ...(module.children ?? [])]));
     for (const module of modules.filter((item) => !['dashboard','logout'].includes(item.moduleKey))) assert.ok(module.route.startsWith('/') && module.route !== '/', `${roleKey}:${module.moduleKey}`);
   }

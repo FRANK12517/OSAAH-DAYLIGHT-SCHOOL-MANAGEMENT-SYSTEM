@@ -14,7 +14,7 @@ import { assertProductionAcademicMigrationAllowed } from '../src/platform/academ
     const runner = createMigrationRunner({ adapter, directory });
     const result = await runner.applyVersions({ versions: [55] });
     assert.deepEqual(result.applied.map((row) => row.version), [55]);
-    assert.deepEqual(adapter.storage.statements, ['SELECT 55;']);
+    assert.deepEqual(adapter.storage.statements, ['SELECT 55']);
     assert.equal(adapter.storage.locked, false);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

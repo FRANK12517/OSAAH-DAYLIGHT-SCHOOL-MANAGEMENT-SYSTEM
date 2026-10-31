@@ -4,20 +4,16 @@ import { createAuthService } from '../src/auth.js';
 import { normalizeGhanaPhone } from '../src/ghana-phone.js';
 import { authorizeParentStudent, PARENT_UNLINKED_MESSAGE } from '../src/parent-authorization.js';
 import { createStudentService } from '../src/students.js';
-import { TEST_PARENT_PHONE, TEST_PARENT_STUDENT_IDS } from '../src/test-parent-fixture.js';
+import { createConfiguredTestParent, TEST_PARENT_PHONE, TEST_PARENT_STUDENT_IDS } from '../src/test-parent-fixture.js';
 
 const schoolId = 'school-osaah-daylight';
 
-test('controlled test parent authenticates through canonical Ghana phone forms and establishes a server session', () => {
+test('controlled test parent phone-only login is denied for canonical Ghana phone forms', () => {
   const auth = createAuthService();
   for (const phone of ['0247293733', '+233247293733', '233247293733']) {
     const result = auth.loginByPhone({ phone, portal: 'parent' });
-    assert.equal(result.ok, true, phone);
-    assert.equal(result.user.portal, 'parent');
-    assert.equal(result.user.roleKey, 'PARENT');
-    assert.equal(result.user.children, undefined);
-    assert.equal(auth.authenticate(result.token)?.id, 'user-test-parent-sample');
-    auth.logout(result.token);
+    assert.equal(result.ok, false, phone);
+    assert.equal(result.token, undefined);
   }
   assert.equal(normalizeGhanaPhone('0247293733'), TEST_PARENT_PHONE);
   assert.equal(auth.loginByPhone({ phone: '0247293734', portal: 'parent' }).ok, false);
@@ -27,7 +23,7 @@ test('controlled test parent authenticates through canonical Ghana phone forms a
 test('test parent authorization resolves only existing sample students and rejects unrelated IDs', async () => {
   const students = createStudentService({ schoolId });
   const samples = students.seedSampleStudents();
-  const parent = createAuthService().loginByPhone({ phone: '0247293733', portal: 'parent' }).user;
+  const parent = createConfiguredTestParent(schoolId);
   const linked = await authorizeParentStudent({ actor: parent, permanentStudentId: TEST_PARENT_STUDENT_IDS[0], students });
   assert.equal(linked.permanentStudentId, samples[0].permanentStudentId);
   assert.equal(linked.isTestRecord, true);
