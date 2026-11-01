@@ -5,7 +5,7 @@ import { createAuthService } from '../src/auth.js';
 import { createCredentialedTestParent } from './helpers/parent-login-fixture.js';
 
 const staffCases = [
-  ['proprietor', 'PROPRIETOR', '/reports'],
+  ['proprietor', 'PROPRIETOR', '/'],
   ['administrator', 'SCHOOL_ADMIN', '/settings'],
   ['headteacher', 'HEADTEACHER', '/academics'],
   ['assistant-headteacher', 'ASSISTANT_HEADTEACHER', '/academics'],

@@ -58,6 +58,12 @@ function navigateToRoute(dashboard, route, title, { replace = false, navigationK
   dashboard.dataset.navigationKey = navigationKey || normalizedRoute;
   renderWorkspaceRoute(dashboard, normalizedRoute, title, navigationKey, exactView);
 }
+window.addEventListener('message', (event) => {
+  const dashboard = document.querySelector('#dashboard');
+  const frame = dashboard?.querySelector('#module-frame');
+  if (event.origin !== window.location.origin || event.source !== frame?.contentWindow || event.data?.type !== 'osaah:navigate-dashboard') return;
+  navigateToRoute(dashboard, '/', 'Dashboard Overview');
+});
 async function logoutToPublicHome() {
   const response = await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin', cache: 'no-store' });
   if (!response.ok) throw new Error('Unable to end the current session.');
@@ -110,10 +116,6 @@ form.addEventListener('submit', async (event) => {
       parentCodeLabel.hidden = false; parentResend.hidden = false; parentCodeInput.focus();
       submit.textContent = 'Verify code';
       document.querySelector('#login-error').textContent = result.message || 'If the number is eligible, a verification code may arrive shortly.';
-      return;
-    }
-    if (result.user.portal === 'school' && result.user.roleKey === 'PROPRIETOR') {
-      window.location.assign('/reports');
       return;
     }
     await renderDashboard(result.user, result.redirectTo);

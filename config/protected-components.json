@@ -422,7 +422,7 @@
           "path": "test/auth-session-diagnostics.test.js",
           "requiredMarkers": [
             "without credential values",
-            "NULL status from a missing identity",
+            "durable session restoration accepts NULL user status consistently with login validation",
             "when the service flag is disabled"
           ]
         },

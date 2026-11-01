@@ -1,4 +1,4 @@
-const EXECUTIVE_ROLES = new Set(['PROPRIETOR', 'HEADTEACHER', 'ASSISTANT_HEADTEACHER']);
+const EXECUTIVE_ROLES = new Set(['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'ASSISTANT_HEADTEACHER']);
 const QUALITY_ORDER = Object.freeze({ COMPLETE: 0, PARTIAL: 1, STALE: 2, UNAVAILABLE: 3, INVALID: 4 });
 const normalizeRole = (value) => String(value ?? '').trim().toUpperCase().replace(/[\s-]+/g, '_');
 const safeId = (value) => String(value).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
