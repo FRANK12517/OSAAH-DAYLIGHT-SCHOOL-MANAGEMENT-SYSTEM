@@ -171,6 +171,19 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
       ...details
     });
   };
+  const sessionRejectionDiagnostic = (context, reason, details = {}) => {
+    if (!context || !['/reports', '/api/auth/session'].includes(context.requestPath)) return;
+    console.warn('Authentication session rejected', {
+      requestId: safeRequestId(context.requestId) ?? null,
+      requestPath: context.requestPath,
+      stage: 'session_rejected',
+      reason,
+      cookieReceived: context.cookieReceived === true,
+      cookieParsed: context.cookieParsed === true,
+      credentialSource: ['cookie', 'bearer', 'unknown'].includes(context.credentialSource) ? context.credentialSource : 'unknown',
+      ...details
+    });
+  };
   const nowIso = () => new Date(now()).toISOString();
   async function persistDurableSession(user, session, token) {
     if (!durableSessionStore) return;
@@ -509,34 +522,83 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     const session = inspected.session;
     sessionDiagnostic(context, 'credential_received', { credentialPresent: Boolean(token), cookieReceived: context?.cookieReceived === true, cookieParsed: context?.cookieParsed === true, credentialSource: ['cookie', 'bearer', 'unknown'].includes(context?.credentialSource) ? context.credentialSource : 'unknown' });
     sessionDiagnostic(context, 'signature_verification', { result: inspected.verification, sessionClaimsValid: Boolean(session), sessionNotExpired: Boolean(session && session.expiresAt > now()), sessionIdFingerprint: fingerprint(session?.sessionId) });
-    if (!durableSessionStore || typeof token !== 'string' || !token || local && (!session || !durableSessionIds.has(session.sessionId))) return local;
+    if (!durableSessionStore || typeof token !== 'string' || !token || local && (!session || !durableSessionIds.has(session.sessionId))) {
+      if (!local) sessionRejectionDiagnostic(context, !token ? 'CREDENTIAL_MISSING' : !durableSessionStore ? 'DURABLE_SESSION_STORE_UNAVAILABLE' : 'LOCAL_SESSION_INVALID', {
+        signatureResult: inspected.verification,
+        durableSessionStoreAvailable: durableSessionStore
+      });
+      return local;
+    }
     let rows;
     try {
-      rows = await database.query(`SELECT s.id AS sessionId,s.user_id AS userId,s.school_id AS schoolId,s.expires_at AS expiresAt,COALESCE(u.username,u.email) AS username,u.email,u.status,r.role_key AS roleKey,r.oversight_rank AS oversightRank,p.permission_key AS permissionKey FROM auth_sessions s JOIN users u ON u.id=s.user_id LEFT JOIN user_roles ur ON ur.user_id=u.id LEFT JOIN roles r ON r.id=ur.role_id LEFT JOIN role_permissions rp ON rp.role_id=r.id LEFT JOIN permissions p ON p.id=rp.permission_id WHERE s.token_hash=? AND s.revoked_at IS NULL AND s.expires_at>? AND u.status='ACTIVE' ORDER BY COALESCE(r.oversight_rank,0) DESC,r.role_key,p.permission_key`, [tokenHash(token), nowIso()]);
+      rows = await database.query(`SELECT s.id AS sessionId,s.user_id AS userId,s.school_id AS schoolId,s.expires_at AS expiresAt,COALESCE(u.username,u.email) AS username,u.email,u.status,r.role_key AS roleKey,r.oversight_rank AS oversightRank,p.permission_key AS permissionKey FROM auth_sessions s JOIN users u ON u.id=s.user_id LEFT JOIN user_roles ur ON ur.user_id=u.id LEFT JOIN roles r ON r.id=ur.role_id LEFT JOIN role_permissions rp ON rp.role_id=r.id LEFT JOIN permissions p ON p.id=rp.permission_id WHERE s.token_hash=? AND s.revoked_at IS NULL AND s.expires_at>? AND UPPER(COALESCE(u.status,'ACTIVE'))='ACTIVE' ORDER BY COALESCE(r.oversight_rank,0) DESC,r.role_key,p.permission_key`, [tokenHash(token), nowIso()]);
     } catch (error) {
       sessionDiagnostic(context, 'session_store_lookup', { querySucceeded: false, errorType: safeDiagnosticIdentifier(error?.name) ?? 'Error', errorCode: safeDiagnosticCode(error?.code) });
+      sessionRejectionDiagnostic(context, 'SESSION_STORE_QUERY_FAILED', {
+        errorType: safeDiagnosticIdentifier(error?.name) ?? 'Error',
+        errorCode: safeDiagnosticCode(error?.code)
+      });
       throw error;
     }
     const row = rows?.[0];
     sessionDiagnostic(context, 'session_store_lookup', { querySucceeded: true, matchingRecord: Boolean(row), resultRowCount: Array.isArray(rows) ? rows.length : 0 });
     if (!row) {
-      if (sessionDiagnostics && context) {
+      let classification = null;
+      let classificationQueryFailed = false;
+      if (sessionDiagnostics && context || context && ['/reports', '/api/auth/session'].includes(context.requestPath)) {
         try {
-          const diagnosticRows = await database.query(`SELECT s.expires_at AS expiresAt,s.revoked_at AS revokedAt,u.status AS accountStatus,CASE WHEN u.id IS NULL THEN 0 ELSE 1 END AS identityFound,CASE WHEN u.status='ACTIVE' THEN 1 ELSE 0 END AS restoreStatusAccepted FROM auth_sessions s LEFT JOIN users u ON u.id=s.user_id WHERE s.token_hash=? LIMIT 1`, [tokenHash(token)]);
+          const diagnosticRows = await database.query(`SELECT s.expires_at AS expiresAt,s.revoked_at AS revokedAt,u.status AS accountStatus,CASE WHEN u.id IS NULL THEN 0 ELSE 1 END AS identityFound,CASE WHEN UPPER(COALESCE(u.status,'ACTIVE'))='ACTIVE' THEN 1 ELSE 0 END AS restoreStatusAccepted FROM auth_sessions s LEFT JOIN users u ON u.id=s.user_id WHERE s.token_hash=? LIMIT 1`, [tokenHash(token)]);
           const diagnosticRow = diagnosticRows?.[0];
           const expiry = diagnosticRow ? Date.parse(diagnosticRow.expiresAt) : NaN;
-          sessionDiagnostic(context, 'session_record_classification', { classificationQueryExecuted: true, recordFound: Boolean(diagnosticRow), revoked: Boolean(diagnosticRow?.revokedAt), expired: Number.isFinite(expiry) ? expiry <= now() : null, identityFound: Boolean(Number(diagnosticRow?.identityFound)), accountActive: diagnosticRow ? String(diagnosticRow.accountStatus ?? 'ACTIVE').toUpperCase() === 'ACTIVE' : null, restoreStatusAccepted: Boolean(Number(diagnosticRow?.restoreStatusAccepted)) });
+          classification = {
+            recordFound: Boolean(diagnosticRow),
+            revoked: Boolean(diagnosticRow?.revokedAt),
+            expired: Number.isFinite(expiry) ? expiry <= now() : null,
+            identityFound: Boolean(Number(diagnosticRow?.identityFound)),
+            accountActive: diagnosticRow ? String(diagnosticRow.accountStatus ?? 'ACTIVE').toUpperCase() === 'ACTIVE' : null,
+            restoreStatusAccepted: Boolean(Number(diagnosticRow?.restoreStatusAccepted))
+          };
+          sessionDiagnostic(context, 'session_record_classification', { classificationQueryExecuted: true, ...classification });
         } catch (error) {
+          classificationQueryFailed = true;
           sessionDiagnostic(context, 'session_record_classification', { querySucceeded: false, errorType: safeDiagnosticIdentifier(error?.name) ?? 'Error', errorCode: safeDiagnosticCode(error?.code) });
+          sessionRejectionDiagnostic(context, 'SESSION_RECORD_CLASSIFICATION_FAILED', {
+            errorType: safeDiagnosticIdentifier(error?.name) ?? 'Error',
+            errorCode: safeDiagnosticCode(error?.code)
+          });
         }
       }
+      const reason = classificationQueryFailed ? 'SESSION_RECORD_CLASSIFICATION_UNAVAILABLE'
+        : classification && !classification.recordFound ? 'SESSION_RECORD_NOT_FOUND'
+        : classification?.revoked ? 'SESSION_REVOKED'
+        : classification?.expired ? 'SESSION_EXPIRED'
+          : classification && !classification.identityFound ? 'SESSION_IDENTITY_MISSING'
+            : classification && !classification.accountActive ? 'ACCOUNT_INACTIVE'
+              : classification?.recordFound ? 'SESSION_RESTORE_PREDICATE_REJECTED'
+                : 'SESSION_RECORD_NOT_FOUND';
+      sessionRejectionDiagnostic(context, reason, {
+        signatureResult: inspected.verification,
+        classificationAvailable: Boolean(classification),
+        recordFound: classification?.recordFound ?? false,
+        revoked: classification?.revoked ?? null,
+        expired: classification?.expired ?? null,
+        identityFound: classification?.identityFound ?? null,
+        accountActive: classification?.accountActive ?? null,
+        restoreStatusAccepted: classification?.restoreStatusAccepted ?? null
+      });
       if (session) revokeLocalSession(token, session); else sessions.delete(token); return null;
     }
     const userRows = rows.filter((candidate) => candidate.userId === row.userId && ROLE_KEYS.has(canonicalRoleKey(candidate.roleKey)));
     const selectedRoleKey = canonicalRoleKey(session?.roleKey ?? row.roleKey);
-    if (session?.roleKey && !ROLE_KEYS.has(selectedRoleKey)) return null;
+    if (session?.roleKey && !ROLE_KEYS.has(selectedRoleKey)) {
+      sessionRejectionDiagnostic(context, 'SESSION_ROLE_INVALID', { roleResolved: false, signedRolePresent: true });
+      return null;
+    }
     const roleKey = userRows.some((candidate) => canonicalRoleKey(candidate.roleKey) === selectedRoleKey) ? selectedRoleKey : canonicalRoleKey(userRows[0]?.roleKey);
-    if (!roleKey) return null;
+    if (!roleKey) {
+      sessionRejectionDiagnostic(context, 'SESSION_ROLE_NOT_RESOLVED', { roleResolved: false, identityFound: true });
+      return null;
+    }
     const scopedRows = userRows.filter((candidate) => canonicalRoleKey(candidate.roleKey) === roleKey);
     const user = addStaffAttendanceRoleGrants({ id: row.userId, username: row.username, email: row.email, portal: roleKey === 'PARENT' ? 'parent' : 'school', roleKey, schoolId: row.schoolId, accountStatus: 'ACTIVE', is_active: true, permissions: new Set(scopedRows.map((candidate) => candidate.permissionKey).filter(Boolean)) });
     if (user.roleKey === 'PARENT') for (const permission of PARENT_PERMISSIONS) user.permissions.add(permission);

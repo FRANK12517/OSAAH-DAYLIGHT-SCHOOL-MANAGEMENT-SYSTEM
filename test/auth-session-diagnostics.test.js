@@ -27,11 +27,13 @@ async function makeDatabase({ restoreRows = null, classificationRow = null } = {
   const passwordHash = await bcrypt.hash(PASSWORD, 4);
   const savedSessions = new Map();
   const classificationLookups = [];
+  const restoreQueries = [];
   return {
     supportsDurableAuthSessions: true,
     dialect: 'mysql',
     savedSessions,
     classificationLookups,
+    restoreQueries,
     async execute(sql, params) {
       if (sql.startsWith('INSERT INTO auth_sessions')) savedSessions.set(params[3], { sessionId: params[0], userId: params[1], schoolId: params[2], expiresAt: params[5], revokedAt: null });
       return { affectedRows: 1 };
@@ -39,7 +41,7 @@ async function makeDatabase({ restoreRows = null, classificationRow = null } = {
     async query(sql, params) {
       if (sql.includes('LOWER(COALESCE(u.username')) return [{ id: USER_ID, schoolId: SCHOOL_ID, username: 'proprietor@example.invalid', email: 'proprietor@example.invalid', passwordHash, status: 'ACTIVE', roleKey: 'PROPRIETOR', oversightRank: 100, permissionKey: '*' }];
       if (sql.includes('CASE WHEN u.id IS NULL')) { classificationLookups.push({ sql, params }); return classificationRow ? [{ ...classificationRow }] : []; }
-      if (sql.includes('FROM auth_sessions s JOIN users u')) return typeof restoreRows === 'function' ? restoreRows(params, savedSessions) : restoreRows ?? [];
+      if (sql.includes('FROM auth_sessions s JOIN users u')) { restoreQueries.push(sql); return typeof restoreRows === 'function' ? restoreRows(params, savedSessions) : restoreRows ?? []; }
       throw new Error(`Unexpected diagnostic test query: ${sql.slice(0, 40)}`);
     }
   };
@@ -71,9 +73,12 @@ test('diagnostics are opt in and trace cross-instance restoration without creden
   } finally { console.info = originalInfo; }
 });
 
-test('classification query distinguishes an existing identity with NULL status from a missing identity', async () => {
+test('durable session restoration accepts NULL user status consistently with login validation', async () => {
   const now = Date.now();
-  const database = await makeDatabase({ classificationRow: { expiresAt: new Date(now + 60_000).toISOString(), revokedAt: null, identityFound: 1, restoreStatusAccepted: 0, accountStatus: null } });
+  const database = await makeDatabase({ restoreRows: (_params, savedSessions) => {
+    const session = [...savedSessions.values()][0];
+    return session ? [{ sessionId: session.sessionId, userId: USER_ID, schoolId: SCHOOL_ID, expiresAt: session.expiresAt, username: 'proprietor@example.invalid', email: 'proprietor@example.invalid', status: null, roleKey: 'PROPRIETOR', oversightRank: 100, permissionKey: '*' }] : [];
+  } });
   const loginAuth = createAuthService({ users: [], database, sessionSecret: SESSION_SECRET, sessionDiagnostics: true, now: () => now });
   const restoreAuth = createAuthService({ users: [], database, sessionSecret: SESSION_SECRET, sessionDiagnostics: true, now: () => now });
   const login = await loginAuth.loginFromDatabase({ username: 'proprietor@example.invalid', password: PASSWORD, portal: 'school', role: 'PROPRIETOR' });
@@ -82,20 +87,36 @@ test('classification query distinguishes an existing identity with NULL status f
   const originalInfo = console.info;
   console.info = (message, details) => { if (message === 'Authentication session diagnostic') events.push(details); };
   try {
-    assert.equal(await restoreAuth.authenticateAsync(login.token, { requestId: 'diag-null-status', requestPath: '/api/auth/session', cookieReceived: true, cookieParsed: true, credentialSource: 'cookie' }), null);
-    const classification = events.find((event) => event.stage === 'session_record_classification');
-    assert.equal(classification.classificationQueryExecuted, true);
-    assert.equal(classification.recordFound, true);
-    assert.equal(classification.identityFound, true);
-    assert.equal(classification.accountActive, true, 'null account status is active under the login rule');
-    assert.equal(classification.restoreStatusAccepted, false, 'the exact restore predicate requires ACTIVE');
-    assert.equal(classification.expired, false);
-    assert.equal(classification.revoked, false);
-    assert.equal(database.classificationLookups.length, 1);
-    assert.match(database.classificationLookups[0].sql, /WHERE s\.token_hash=\? LIMIT 1/);
-    assert.match(database.classificationLookups[0].sql, /CASE WHEN u\.status='ACTIVE' THEN 1 ELSE 0 END/);
-    assert.match(database.classificationLookups[0].params[0], /^[a-f0-9]{64}$/);
+    const restored = await restoreAuth.authenticateAsync(login.token, { requestId: 'diag-null-status', requestPath: '/api/auth/session', cookieReceived: true, cookieParsed: true, credentialSource: 'cookie' });
+    assert.equal(restored.roleKey, 'PROPRIETOR');
+    assert.equal(restored.schoolId, SCHOOL_ID);
+    assert.match(database.restoreQueries[0], /UPPER\(COALESCE\(u\.status,'ACTIVE'\)\)='ACTIVE'/);
+    assert.equal(database.classificationLookups.length, 0);
+    assert.ok(events.some((event) => event.stage === 'identity_restoration' && event.identityRestored && event.roleKey === 'PROPRIETOR'));
   } finally { console.info = originalInfo; }
+});
+
+test('protected session rejection logs a sanitized reason when detailed diagnostics are disabled', async () => {
+  const database = await makeDatabase();
+  const loginAuth = createAuthService({ users: [], database, sessionSecret: SESSION_SECRET, sessionDiagnostics: false });
+  const restoreAuth = createAuthService({ users: [], database, sessionSecret: SESSION_SECRET, sessionDiagnostics: false });
+  const events = [];
+  const originalWarn = console.warn;
+  console.warn = (message, details) => { if (message === 'Authentication session rejected') events.push(details); };
+  try {
+    const login = await loginAuth.loginFromDatabase({ username: 'proprietor@example.invalid', password: PASSWORD, portal: 'school', role: 'PROPRIETOR' });
+    assert.equal(login.ok, true);
+    assert.equal(await restoreAuth.authenticateAsync(login.token, { requestId: 'diag-rejected-1', requestPath: '/reports', cookieReceived: true, cookieParsed: true, credentialSource: 'cookie' }), null);
+    assert.equal(events.length, 1);
+    assert.deepEqual(events[0], {
+      requestId: 'diag-rejected-1', requestPath: '/reports', stage: 'session_rejected', reason: 'SESSION_RECORD_NOT_FOUND',
+      cookieReceived: true, cookieParsed: true, credentialSource: 'cookie', signatureResult: 'signature_valid',
+      classificationAvailable: true, recordFound: false, revoked: false, expired: null, identityFound: false,
+      accountActive: null, restoreStatusAccepted: false
+    });
+    const emitted = JSON.stringify(events);
+    for (const secret of [login.token, PASSWORD, SESSION_SECRET, SCHOOL_ID, USER_ID]) assert.equal(emitted.includes(secret), false);
+  } finally { console.warn = originalWarn; }
 });
 
 test('session diagnostics produce no records when the service flag is disabled', async () => {
@@ -146,4 +167,24 @@ test('server traces cookie receipt, issued attributes, and protected page author
     else process.env.OSAAH_AUTH_SESSION_DIAGNOSTICS = previousFlag;
     await new Promise((resolve) => server.close(resolve));
   }
+});
+
+test('protected page rejection logs cookie and authorization state without cookie contents', async () => {
+  const rejectedCookieValue = 'must-not-be-logged-session-value';
+  const auth = { async authenticateAsync() { return null; } };
+  const server = createServer(createApp({ auth, aiEnabled: false }));
+  const events = [];
+  const originalWarn = console.warn;
+  console.warn = (message, details) => { if (message === 'Protected page access rejected') events.push(details); };
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const response = await request(server, '/reports', { cookie: `osaah_session=${rejectedCookieValue}` });
+    assert.equal(response.status, 401);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].sessionCookiePresent, true);
+    assert.equal(events[0].sessionValid, false);
+    assert.equal(events[0].roleResolved, false);
+    assert.equal(events[0].rejectionReason, 'SESSION_VALIDATION_FAILED');
+    assert.equal(JSON.stringify(events).includes(rejectedCookieValue), false);
+  } finally { console.warn = originalWarn; await new Promise((resolve) => server.close(resolve)); }
 });
