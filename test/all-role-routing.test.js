@@ -117,7 +117,7 @@ test('exam timetable creation is restricted, conflict checked and publication sc
 
 test('all school roles use canonical non-fallback routes for their visible navigation', () => {
   const rolePermissions = new Set(['*']);
-  for (const roleKey of ['PROPRIETOR','HEADTEACHER','ASSISTANT_HEADTEACHER','SCHOOL_ADMIN','ACCOUNTANT_BURSAR','TEACHER','ADMISSIONS_OFFICER','HR_OFFICER','EXAMINATION_OFFICER']) {
+  for (const roleKey of ['PROPRIETOR','HEADTEACHER','ASSISTANT_HEADTEACHER','SCHOOL_ADMIN','ACCOUNTANT_BURSAR','TEACHER','HR_OFFICER','EXAMINATION_OFFICER']) {
     const modules = visibleSidebar({ modules: SIDEBAR_MODULES, permissions: rolePermissions, roleKey, portal: 'school' }).flatMap((group) => group.modules.flatMap((module) => [module, ...(module.children ?? [])]));
     for (const module of modules.filter((item) => !['dashboard','logout'].includes(item.moduleKey))) assert.ok(module.route.startsWith('/') && module.route !== '/', `${roleKey}:${module.moduleKey}`);
   }
@@ -134,6 +134,29 @@ test('workspace navigation normalizes the route inside the renderer and terminat
   assert.match(renderBody, /url\.searchParams\.set\('route', normalizedRoute\)/);
   assert.match(renderBody, /frame\.onerror = \(error\) =>/);
   assert.match(renderBody, /Unable to open \$\{title\}/);
+});
+
+test('school dashboard bootstrap consumes the server role redirect after login and session restoration', async () => {
+  const app = await readFile(new URL('../public/app.js', import.meta.url), 'utf8');
+  const auth = await readFile(new URL('../src/auth.js', import.meta.url), 'utf8');
+  const reports = await readFile(new URL('../public/reports-canonical.html', import.meta.url), 'utf8');
+  assert.match(auth, /PROPRIETOR:\s*'\/'/);
+  assert.match(auth, /SCHOOL_ADMIN:\s*'\/settings'/);
+  assert.match(auth, /HEADTEACHER:\s*'\/academics'/);
+  assert.match(auth, /ASSISTANT_HEADTEACHER:\s*'\/academics'/);
+  assert.match(auth, /ACCOUNTANT_BURSAR:\s*'\/fees'/);
+  assert.match(auth, /TEACHER:\s*'\/academics'/);
+  assert.doesNotMatch(app, /window\.location\.assign\('\/reports'\)/);
+  assert.match(reports, /postMessage\(\{type:'osaah:navigate-dashboard'\},location\.origin\)/);
+  assert.match(app, /event\.source !== frame\?\.contentWindow/);
+  assert.match(app, /navigateToRoute\(dashboard, '\/', 'Dashboard Overview'\)/);
+  assert.match(app, /function renderDashboard\(user, redirectTo = '\/'\)/);
+  assert.match(app, /function resolvePostLoginRoute\(user, redirectTo\)/);
+  assert.match(app, /const initialRoute = location\.pathname === '\/' \? resolvePostLoginRoute\(user, redirectTo\) : location\.pathname/);
+  assert.match(app, /findRouteLink\(requestedUrl\.pathname, requestedUrl\.searchParams\.get\('navigationKey'\)\)/);
+  assert.match(app, /if \(location\.pathname === '\/' && redirectLink\)/);
+  assert.match(app, /navigateToRoute\(dashboard, requestedUrl\.pathname/);
+  assert.match(app, /renderDashboard\(result\.user, result\.redirectTo\)/);
 });
 
 test('every configured role sidebar child has a stable identity and deterministic route', () => {

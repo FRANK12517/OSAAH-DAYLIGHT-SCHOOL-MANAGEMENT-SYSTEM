@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { gradeForTotal } from './grading.js';
 import { canonicalAcademicClass, defaultSubjectForClass, defaultSubjectsForClass, DEFAULT_SUBJECT_CONFIGURATION_VERSION, DEFAULT_SUBJECT_ASSIGNMENT_SLOTS, DEFAULT_DISTINCT_SUBJECT_NAMES } from './default-subject-catalog.js';
 import { calculateStudentResult, calculateClassPositions } from './result-calculation.js';
+import { tidbInsertIfAbsent } from './tidb-conflict.js';
 
 const rows = (value) => Array.isArray(value) ? value : [];
 const text = (value) => String(value ?? '').trim();
@@ -155,7 +156,8 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
               code = `${codeStem.slice(0, 27 - String(suffix).length)}_${suffix}`;
             }
             const subjectId = stableId('default-subject', schoolId, definition.name.toLocaleLowerCase('en'));
-            await tx.execute('INSERT INTO subjects (id,school_id,department_id,code,name,subject_type,is_scoring,assessment_components_json,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING', [subjectId, schoolId, null, code, definition.name, definition.subjectType, Boolean(definition.isScoring), JSON.stringify(definition.assessmentComponents), clock(), clock()]);
+            const subjectValues=[subjectId, schoolId, null, code, definition.name, definition.subjectType, Boolean(definition.isScoring), JSON.stringify(definition.assessmentComponents), clock(), clock()];
+            if(database.dialect==='tidb') await tidbInsertIfAbsent(tx,{insertSql:'INSERT INTO subjects (id,school_id,department_id,code,name,subject_type,is_scoring,assessment_components_json,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)',insertParameters:subjectValues,conflictSql:'SELECT id FROM subjects WHERE school_id=? AND (id=? OR code=? OR LOWER(name)=LOWER(?))',conflictParameters:[schoolId,subjectId,code,definition.name]});
             subject = rows(await tx.query('SELECT id,code,name,subject_type AS subjectType,is_scoring AS isScoring,is_active AS isActive,assessment_components_json AS assessmentComponentsJson FROM subjects WHERE school_id=? AND LOWER(name)=LOWER(?) LIMIT 2', [schoolId, definition.name]))[0];
             if (!subject) fail(`Unable to create the configured subject ${definition.name}.`, 409, 'SUBJECT_CONFIGURATION_CONFLICT');
             subjectsCreated += 1;
@@ -193,8 +195,12 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
             continue;
           }
           const targetYear = academicYearId;
-          const insert = await tx.execute('INSERT INTO subject_class_assignments (id,school_id,subject_id,class_id,academic_year_id,active,configuration_version,created_at,updated_at) VALUES (?,?,?,?,?,TRUE,?,?,?) ON CONFLICT DO NOTHING', [stableId('default-assignment', schoolId, classRow.id, subject.id, targetYear ?? 'default'), schoolId, subject.id, classRow.id, targetYear, String(DEFAULT_SUBJECT_CONFIGURATION_VERSION), clock(), clock()]);
-        if (Number(insert?.rowCount ?? insert?.affectedRows ?? 1) > 0) assignmentsCreated += 1;
+          const assignmentId=stableId('default-assignment', schoolId, classRow.id, subject.id, targetYear ?? 'default');
+          const assignmentValues=[assignmentId, schoolId, subject.id, classRow.id, targetYear, String(DEFAULT_SUBJECT_CONFIGURATION_VERSION), clock(), clock()];
+          const inserted = database.dialect==='tidb'
+            ? await tidbInsertIfAbsent(tx,{insertSql:'INSERT INTO subject_class_assignments (id,school_id,subject_id,class_id,academic_year_id,active,configuration_version,created_at,updated_at) VALUES (?,?,?,?,?,TRUE,?,?,?)',insertParameters:assignmentValues,conflictSql:'SELECT id FROM subject_class_assignments WHERE id=? OR (school_id=? AND subject_id=? AND class_id=? AND academic_year_id<=>?)',conflictParameters:[assignmentId,schoolId,subject.id,classRow.id,targetYear]})
+            : (await tx.execute('INSERT INTO subject_class_assignments (id,school_id,subject_id,class_id,academic_year_id,active,configuration_version,created_at,updated_at) VALUES (?,?,?,?,?,TRUE,?,?,?)', assignmentValues), true);
+          if (inserted) assignmentsCreated += 1;
         }
       }
       const historyAfter = await historicalAcademicCounts(tx, schoolId);

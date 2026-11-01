@@ -1,0 +1,38 @@
+{
+  "formatVersion": 1,
+  "status": "NOT_VERIFIED",
+  "intendedTarget": "osaahdaylightschool",
+  "verifiedDatabase": null,
+  "connection": {
+    "status": "BLOCKED_BEFORE_CONNECTION",
+    "adapterErrorCode": "DATABASE_URL_INVALID",
+    "connectionAttempted": false,
+    "credentialsPrinted": false
+  },
+  "expectedSchema": {
+    "status": "BLOCKED_NO_AUTHORITATIVE_TIDB_CONTRACT",
+    "schemaVersion": null,
+    "objectCount": null
+  },
+  "actualSchema": {
+    "status": "NOT_QUERIED",
+    "tableCount": null,
+    "viewCount": null,
+    "indexCount": null,
+    "foreignKeyCount": null,
+    "migrationLedgerStatus": "NOT_QUERIED"
+  },
+  "comparison": {
+    "status": "NOT_RUN",
+    "missingObjects": null,
+    "unexpectedObjects": null,
+    "typeMismatches": null,
+    "missingIndexes": null,
+    "missingConstraints": null,
+    "unresolvedDiscrepancies": [
+      "No approved canonical TiDB schema manifest exists.",
+      "The configured DATABASE_URL was rejected before any connection; actual target identity and object state are unknown."
+    ]
+  },
+  "releaseGate": "BLOCKED"
+}

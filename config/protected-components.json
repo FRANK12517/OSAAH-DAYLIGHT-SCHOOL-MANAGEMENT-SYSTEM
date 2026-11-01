@@ -395,6 +395,53 @@
           ]
         }
       ]
+    },
+    {
+      "id": "temporary-auth-session-diagnostics",
+      "description": "Opt-in, redacted production session restoration trace and token-hash-scoped read-only classification.",
+      "route": "/api/auth/session",
+      "files": [
+        {
+          "path": "src/auth.js",
+          "requiredMarkers": [
+            "OSAAH_AUTH_SESSION_DIAGNOSTICS",
+            "session_record_classification",
+            "CASE WHEN u.id IS NULL THEN 0 ELSE 1 END",
+            "databaseTargetFingerprint"
+          ]
+        },
+        {
+          "path": "src/server.mjs",
+          "requiredMarkers": [
+            "sessionDiagnosticContext(request, pathname",
+            "protected_page_authorization",
+            "session_cookie_issued"
+          ]
+        },
+        {
+          "path": "test/auth-session-diagnostics.test.js",
+          "requiredMarkers": [
+            "without credential values",
+            "durable session restoration accepts NULL user status consistently with login validation",
+            "when the service flag is disabled"
+          ]
+        },
+        {
+          "path": "docs/auth-session-diagnostics.md",
+          "requiredMarkers": [
+            "disabled by default",
+            "classification query",
+            "Disable the flag"
+          ]
+        },
+        {
+          "path": ".github/workflows/protected-components.yml",
+          "requiredMarkers": [
+            "Authentication session diagnostics regression suite",
+            "test/auth-session-diagnostics.test.js"
+          ]
+        }
+      ]
     }
   ]
 }

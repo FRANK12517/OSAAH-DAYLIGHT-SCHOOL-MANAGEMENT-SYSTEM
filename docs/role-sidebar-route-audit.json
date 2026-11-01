@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-08T03:18:13.096Z",
+  "generatedAt": "2026-10-18T16:59:48.958Z",
   "part": 29,
   "baseline": {
     "source": "Part 28 release-gate report supplied with the implementation specification",
@@ -15,8 +15,8 @@
       "ASSISTANT_HEADTEACHER",
       "TEACHER"
     ],
-    "roleDestinationRecords": 220,
-    "componentTargetPasses": 220,
+    "roleDestinationRecords": 230,
+    "componentTargetPasses": 230,
     "missingComponentTargetBlockers": 0,
     "sharedRouteContracts": 0,
     "duplicateRouteBlockers": 0,
@@ -767,6 +767,19 @@
         "/api/class-database/completed/options",
         "/api/class-database/completed"
       ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "admissions",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Admission / Admissions Workflow",
+      "oldRoute": "/admissions",
+      "existingImplementationFound": true,
+      "newRoute": "/admissions",
+      "exactView": "admissions",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
       "result": "PASS"
     },
     {
@@ -1601,8 +1614,29 @@
       "existingImplementationFound": true,
       "newRoute": "/communication/messages",
       "exactView": "messages",
-      "component": "/communication.html",
-      "apiDependencies": [],
+      "component": "/sms-messages.html",
+      "apiDependencies": [
+        "/api/sms/options",
+        "/api/sms/preview",
+        "/api/sms/drafts",
+        "/api/sms/send",
+        "/api/sms/history"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "in-app-messages",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "In-App Messages",
+      "oldRoute": "/communication/in-app-messages",
+      "existingImplementationFound": true,
+      "newRoute": "/communication/in-app-messages",
+      "exactView": "in-app-messages",
+      "component": "/in-app-messages.html",
+      "apiDependencies": [
+        "/api/communication/messages"
+      ],
       "result": "PASS"
     },
     {
@@ -2124,6 +2158,19 @@
       "result": "PASS"
     },
     {
+      "navigationKey": "admissions",
+      "role": "ASSISTANT_HEADTEACHER",
+      "parent": null,
+      "child": "Admission / Admissions Workflow",
+      "oldRoute": "/admissions",
+      "existingImplementationFound": true,
+      "newRoute": "/admissions",
+      "exactView": "admissions",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
       "navigationKey": "admission-prospectus",
       "role": "ASSISTANT_HEADTEACHER",
       "parent": null,
@@ -2132,6 +2179,19 @@
       "existingImplementationFound": true,
       "newRoute": "/admissions/prospectus",
       "exactView": "admission-prospectus",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "academics",
+      "role": "ASSISTANT_HEADTEACHER",
+      "parent": null,
+      "child": "Academics",
+      "oldRoute": "/academics",
+      "existingImplementationFound": true,
+      "newRoute": "/academics",
+      "exactView": "academics-overview",
       "component": "/operations-canonical.html",
       "apiDependencies": [],
       "result": "PASS"
@@ -2206,6 +2266,32 @@
       "result": "PASS"
     },
     {
+      "navigationKey": "examinations",
+      "role": "ASSISTANT_HEADTEACHER",
+      "parent": null,
+      "child": "Score Entry",
+      "oldRoute": "/examinations",
+      "existingImplementationFound": true,
+      "newRoute": "/examinations",
+      "exactView": "examinations",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "results",
+      "role": "ASSISTANT_HEADTEACHER",
+      "parent": null,
+      "child": "Results & Reports",
+      "oldRoute": "/results",
+      "existingImplementationFound": true,
+      "newRoute": "/results",
+      "exactView": "results",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
       "navigationKey": "mock-score-entry",
       "role": "ASSISTANT_HEADTEACHER",
       "parent": null,
@@ -2245,6 +2331,45 @@
       "result": "PASS"
     },
     {
+      "navigationKey": "broadsheets",
+      "role": "ASSISTANT_HEADTEACHER",
+      "parent": null,
+      "child": "Broadsheets",
+      "oldRoute": "/results/broadsheets",
+      "existingImplementationFound": true,
+      "newRoute": "/results/broadsheets",
+      "exactView": "broadsheets",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "report-cards",
+      "role": "ASSISTANT_HEADTEACHER",
+      "parent": null,
+      "child": "Report Cards",
+      "oldRoute": "/results/report-cards",
+      "existingImplementationFound": true,
+      "newRoute": "/results/report-cards",
+      "exactView": "report-cards",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "promotion-results",
+      "role": "ASSISTANT_HEADTEACHER",
+      "parent": null,
+      "child": "Promotion Results",
+      "oldRoute": "/results/promotions",
+      "existingImplementationFound": true,
+      "newRoute": "/results/promotions",
+      "exactView": "promotion-results",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
       "navigationKey": "admission-fee-management",
       "role": "ASSISTANT_HEADTEACHER",
       "parent": null,
@@ -2272,6 +2397,21 @@
       "component": "/staff-attendance.html",
       "apiDependencies": [
         "/api/attendance/staff"
+      ],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "in-app-messages",
+      "role": "ASSISTANT_HEADTEACHER",
+      "parent": null,
+      "child": "In-App Messages",
+      "oldRoute": "/communication/in-app-messages",
+      "existingImplementationFound": true,
+      "newRoute": "/communication/in-app-messages",
+      "exactView": "in-app-messages",
+      "component": "/in-app-messages.html",
+      "apiDependencies": [
+        "/api/communication/messages"
       ],
       "result": "PASS"
     },
@@ -2839,16 +2979,18 @@
       "result": "PASS"
     },
     {
-      "navigationKey": "messages",
+      "navigationKey": "in-app-messages",
       "role": "TEACHER",
       "parent": null,
-      "child": "Messages",
-      "oldRoute": "/communication/messages",
+      "child": "In-App Messages",
+      "oldRoute": "/communication/in-app-messages",
       "existingImplementationFound": true,
-      "newRoute": "/communication/messages",
-      "exactView": "messages",
-      "component": "/communication.html",
-      "apiDependencies": [],
+      "newRoute": "/communication/in-app-messages",
+      "exactView": "in-app-messages",
+      "component": "/in-app-messages.html",
+      "apiDependencies": [
+        "/api/communication/messages"
+      ],
       "result": "PASS"
     },
     {

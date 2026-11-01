@@ -59,7 +59,8 @@ print(json.dumps({
 `;
 
 function sqliteResult(sql) {
-  const result = spawnSync(process.env.PYTHON_EXECUTABLE ?? 'python3', ['-c', sqliteMigrationCheck], {
+  const pythonExecutable = process.env.PYTHON_EXECUTABLE ?? (process.platform === 'win32' ? 'python' : 'python3');
+  const result = spawnSync(pythonExecutable, ['-c', sqliteMigrationCheck], {
     input: JSON.stringify({ sql }), encoding: 'utf8'
   });
   assert.equal(result.status, 0, `python sqlite test failed: ${result.stderr}`);

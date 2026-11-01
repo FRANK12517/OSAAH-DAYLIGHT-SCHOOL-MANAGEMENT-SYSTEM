@@ -38,6 +38,7 @@ import { createReportingService } from './reporting.js';
 import { createAdmissionFormService } from './admission-form.js';
 import { createCommunicationEngine } from './communication-engine.js';
 import { createArkeselGateway, createDurableSmsService, SMS_AUTHORIZED_ROLES } from './durable-sms.js';
+import { createParentSmsAuthService } from './parent-sms-auth.js';
 import { createTranscriptService } from './transcripts.js';
 import { createAdmissionProspectusService, DEFAULT_PROSPECTUS_TEMPLATE, PROSPECTUS_PERMISSION } from './admission-prospectus.js';
 import { createAcademicResultsService, RESULT_HEADER_ASSET } from './academic-results.js';
@@ -69,6 +70,27 @@ const releaseMetadata = Object.freeze({
   deploymentId: process.env.VERCEL_DEPLOYMENT_ID ?? process.env.VERCEL_URL ?? 'local',
   environment: process.env.VERCEL_ENV ?? 'development'
 });
+
+export async function checkAuthenticationDatabaseHealth(database) {
+  const safeCode = (error) => /^[A-Z0-9_]+$/.test(String(error?.code ?? '')) ? error.code : 'UNKNOWN';
+  const result = { db: 'down', sessionStore: database?.supportsDurableAuthSessions ? 'down' : 'unsupported' };
+  if (!database?.query) return result;
+  try {
+    await database.query('SELECT 1', []);
+    result.db = 'up';
+  } catch (error) {
+    return { ...result, databaseErrorCode: safeCode(error) };
+  }
+  if (database.supportsDurableAuthSessions) {
+    try {
+      await database.query('SELECT id, user_id, school_id, token_hash, created_at, expires_at, revoked_at, last_used_at FROM auth_sessions LIMIT 0', []);
+      result.sessionStore = 'up';
+    } catch (error) {
+      result.sessionErrorCode = safeCode(error);
+    }
+  }
+  return result;
+}
 import { createOperationalAnalyticsRegistry, createOperationalIntelligence, registerBuiltInOperationalProviders } from './ai/operational-intelligence.js';
 import { createSchoolKnowledgeIntelligence, syncRepositoryKnowledgeSources } from './ai/school-knowledge-intelligence.js';
 import { createExecutiveCapabilityAdapters, createExecutiveIntelligence } from './ai/executive-intelligence.js';
@@ -99,7 +121,7 @@ import { createSchoolSettingsService } from './school-settings.js';
 import { createSingleSchoolOverviewService } from './single-school-overview.js';
 import { createSchoolProfileService } from './school-profile.js';
 import { authorizeParentStudent, PARENT_UNLINKED_MESSAGE } from './parent-authorization.js';
-import { isConfiguredTestStudentId } from './test-parent-fixture.js';
+import { isConfiguredTestStudentId, sampleFixturesEnabled, seedSampleStudentsIfEnabled } from './test-parent-fixture.js';
 import { createAssignmentService } from './assignments.js';
 import { createAttendanceAnalyticsService } from './attendance-analytics.js';
 import { createAttendanceReportsService } from './attendance-reports.js';
@@ -108,7 +130,7 @@ const root = join(fileURLToPath(new URL('.', import.meta.url)), '..', 'public');
 const mime = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.svg': 'image/svg+xml' };
 const branding = { schoolName: 'OSAAH DAYLIGHT SCH. COM.', location: 'BOGOSO', motto: 'AIM HIGH, ACADEMIC IS OUR CORE VALUE', logoPath: '/assets/osaah-daylight-logo.png', colours: { navy: '#102a43', royalBlue: '#1769aa', gold: '#d4a72c', white: '#ffffff' } };
 
-export function createApp({ auth = null, students = null, attendance = null, attendanceRepository = null, staffAttendanceOverview = null, studentAttendanceOverview = null, attendanceAnalytics = null, attendanceReports = null, examinations = null, fees = null, feeTypes = null, staff = null, communication = null, communicationEngine = null, durableAnnouncements = null, operations = null, resources = null, compliance = null, reporting = null, generalFinance = null, cashbook = null, admissionForms = null, admissionDocumentStorage = null, admissionProspectus = null, subjects = null, signatures = null, classDatabase = null, database = null, academicResults = null, transcripts = null, receiptBranding = null, prospectusPdf = createAdmissionProspectusPdfService(), resultPdf = createResultSlipPdfService(), sportingActivities = null, subjectRegister = null, shepActivities = null, assignments = null, aiGateway = null, aiConversation = null, capabilityRegistry = null, toolRegistry = null, providerRegistry = null, providerId = process.env.OSAAH_AI_PROVIDER_ID ?? 'openai', modelId = process.env.OSAAH_AI_MODEL_ID ?? 'unconfigured', financialIntelligence = null, academicAttendanceIntelligence = null, admissionsWorkforceIntelligence = null, schoolSettings = null, operationalIntelligence = null, schoolKnowledgeIntelligence = null, academicCalendar = null, executiveIntelligence = null, humanControlledActions = null, aiPersistence = null, aiEnabled = null, audit = () => {}, singleSchoolOverview = null, schoolProfile = null, sampleFixtureRepository = null, resultBlocking = null, allowSmsNonProduction = false } = {}) {
+export function createApp({ auth = null, parentSmsAuth = null, students = null, attendance = null, attendanceRepository = null, staffAttendanceOverview = null, studentAttendanceOverview = null, attendanceAnalytics = null, attendanceReports = null, examinations = null, fees = null, feeTypes = null, staff = null, communication = null, communicationEngine = null, durableAnnouncements = null, operations = null, resources = null, compliance = null, reporting = null, generalFinance = null, cashbook = null, admissionForms = null, admissionDocumentStorage = null, admissionProspectus = null, subjects = null, signatures = null, classDatabase = null, database = null, academicResults = null, transcripts = null, receiptBranding = null, prospectusPdf = createAdmissionProspectusPdfService(), resultPdf = createResultSlipPdfService(), sportingActivities = null, subjectRegister = null, shepActivities = null, assignments = null, aiGateway = null, aiConversation = null, capabilityRegistry = null, toolRegistry = null, providerRegistry = null, providerId = process.env.OSAAH_AI_PROVIDER_ID ?? 'openai', modelId = process.env.OSAAH_AI_MODEL_ID ?? 'unconfigured', financialIntelligence = null, academicAttendanceIntelligence = null, admissionsWorkforceIntelligence = null, schoolSettings = null, operationalIntelligence = null, schoolKnowledgeIntelligence = null, academicCalendar = null, executiveIntelligence = null, humanControlledActions = null, aiPersistence = null, aiEnabled = null, audit = () => {}, singleSchoolOverview = null, schoolProfile = null, sampleFixtureRepository = null, resultBlocking = null, allowSmsNonProduction = false } = {}) {
   const serviceSchoolId = process.env.OSAAH_SCHOOL_ID ?? (database ? DEFAULT_PRODUCTION_SCHOOL_ID : DEMO_SCHOOL_ID);
   auth ??= createAuthService({ database, testParentSchoolId: serviceSchoolId });
   schoolSettings ??= createSchoolSettingsService({ database, schoolProfile: branding });
@@ -148,6 +170,9 @@ export function createApp({ auth = null, students = null, attendance = null, att
   durableAnnouncements ??= database?.query && database?.execute ? createDurableAnnouncementsService({ database, schoolId: serviceSchoolId, audit }) : null;
   const smsGateway = createArkeselGateway();
   const smsRuntimeEnabled = (process.env.VERCEL === '1' && String(process.env.VERCEL_ENV ?? '').toLowerCase() === 'production' && String(process.env.NODE_ENV ?? '').toLowerCase() === 'production') || allowSmsNonProduction;
+  parentSmsAuth ??= smsRuntimeEnabled && database?.dialect === 'tidb' && database?.supportsDurableAuthSessions
+    ? createParentSmsAuthService({ database, gateway: smsGateway, schoolId: serviceSchoolId })
+    : null;
   const smsService = smsRuntimeEnabled && database?.query && database?.execute && database?.transaction ? createDurableSmsService({ database, schoolId: serviceSchoolId, gateway: smsGateway, audit }) : null;
   const smsAuthorized = (actor) => Boolean(actor && SMS_AUTHORIZED_ROLES.includes(canonicalRoleKey(actor.roleKey)) && canAccess(actor, 'messages.sms.send'));
   operations ??= createOperationsService({ schoolId: serviceSchoolId });
@@ -164,7 +189,7 @@ export function createApp({ auth = null, students = null, attendance = null, att
   singleSchoolOverview ??= createSingleSchoolOverviewService({ database, schoolSettings, students, attendance, attendanceRepository, examinations, fees, staff, communication, audit, schoolId: serviceSchoolId });
   schoolProfile ??= createSchoolProfileService({ database, schoolSettings, singleSchoolOverview, staff, schoolId: serviceSchoolId });
   academicCalendar ??= createAcademicCalendarService({ database, schoolId: serviceSchoolId, audit });
-  if (process.env.OSAAH_ENABLE_SAMPLE_FIXTURES !== 'false' && !students.listStudents({ requestedSchoolId: serviceSchoolId, includeTestRecords: true }).some((student) => student.isTestRecord)) students.seedSampleStudents?.();
+  seedSampleStudentsIfEnabled(students, serviceSchoolId);
   const feeCollections = database?.query && database?.execute && database?.transaction ? createFeeCollectionsRepository({ adapter: database, audit, strictValidation: true }) : null;
   const durableFeeReader = database?.supportsDurableAuthSessions && database?.query ? createDurableFeeReader({ adapter: database }) : null;
   const durableFeePayments = database?.query && database?.execute && database?.transaction ? createDurableFeePayments({ database, schoolId: serviceSchoolId, audit }) : null;
@@ -312,6 +337,15 @@ export function createApp({ auth = null, students = null, attendance = null, att
   function dispatchAnnouncement(body, actor) { if (body.confirm !== true) throw Object.assign(new Error('Explicit bulk-send confirmation is required.'), { status: 400 }); const links = announcementRecipients(body, actor); const emergency = Boolean(body.emergency); const title = emergency ? 'Emergency notice' : String(body.title ?? 'School announcement'); const message = emergency ? `URGENT — ${branding.schoolName}: ${String(body.message ?? '').trim()}` : String(body.message ?? '').trim(); if (!message) throw new Error('Announcement message is required.'); links.forEach((link) => { const key = `ANNOUNCEMENT:${body.idempotencyKey ?? `${title}:${message}`}:${link.parentId}:${link.permanentStudentId}`; if (body.channel !== 'SMS') communication.notify({ type: emergency ? 'EMERGENCY' : 'ANNOUNCEMENT', category: emergency ? 'EMERGENCY' : 'ANNOUNCEMENT', recipientId: link.parentId, studentId: link.studentId, permanentStudentId: link.permanentStudentId, studentName: link.studentName, title, body: message }, { userId: actor.id }); if (body.channel !== 'IN_APP' && link.telephone) { const queued = communicationEngine.enqueue({ channel: 'SMS', recipient: link.telephone, payload: { body: message, priority: emergency ? 'HIGH' : 'NORMAL' }, idempotencyKey: key }, { id: actor.id, schoolId: actor.schoolId }); communicationEngine.process(queued.id, actor).catch(() => {}); } }); return { queuedRecipients: links.length, channel: body.channel ?? 'BOTH', emergency, confirmed: true }; }
   return async function handle(request, response) {
     const pathname = new URL(request.url, 'http://localhost').pathname;
+    if (pathname === '/api/health' && request.method === 'GET') {
+      const startedAt = Date.now();
+      const health = await checkAuthenticationDatabaseHealth(database);
+      if (health.db === 'down') console.error('Authentication health check failed', { component: 'application_database', operation: 'health_check', code: health.databaseErrorCode ?? 'DATABASE_ADAPTER_UNAVAILABLE' });
+      if (health.sessionStore === 'down') console.error('Authentication health check failed', { component: 'application_database', operation: 'session_store_check', code: health.sessionErrorCode ?? 'UNKNOWN' });
+      const { databaseErrorCode, sessionErrorCode, ...publicHealth } = health;
+      const result = { ok: health.db === 'up' && health.sessionStore === 'up', ...publicHealth, latencyMs: Date.now() - startedAt };
+      return json(response, result, result.ok ? 200 : 503);
+    }
     if (pathname.startsWith('/assets/')) {
       const assetRoot = resolve(root);
       const assetFile = resolve(assetRoot, `.${pathname}`);
@@ -332,7 +366,33 @@ export function createApp({ auth = null, students = null, attendance = null, att
     if (pathname === '/api/public/admission-prospectus' && request.method === 'GET') return json(response, { prospectuses: admissionProspectus.list(Object.fromEntries(new URL(request.url, 'http://localhost').searchParams), publicProspectusActor) });
     if (pathname.startsWith('/api/public/admission-prospectus/') && pathname.endsWith('/pdf') && request.method === 'GET') { const id = pathname.split('/').filter(Boolean)[3]; const prospectus = admissionProspectus.get(id, publicProspectusActor); if (!prospectus) return json(response, { error: 'Published prospectus not found.' }, 404); try { const body = await prospectusPdf.pdf(prospectus); response.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="${safeProspectusFilename(prospectus)}"`, 'Cache-Control': 'public, max-age=300' }); return response.end(body); } catch { return json(response, { error: 'Prospectus PDF is temporarily unavailable.' }, 500); } }
     if (pathname === '/api/auth/login' && request.method === 'POST') return login(request, response, auth, audit);
-    if (pathname === '/api/auth/logout' && request.method === 'POST') { await auth.logoutSession(readCookie(request, 'osaah_session')); return json(response, { ok: true }, 204, `osaah_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${secureCookieSuffix(request)}`); }
+    if (pathname === '/api/auth/logout' && request.method === 'POST') { await auth.logoutSession(readCookie(request, 'osaah_session')); return json(response, { ok: true }, 204, `osaah_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${secureCookieSuffix(request)}`); }
+    if (pathname === '/api/auth/parent/request-code' && request.method === 'POST') {
+      const body = await readJson(request);
+      const result = parentSmsAuth?.requestCode
+        ? await parentSmsAuth.requestCode({ phone: body.phone, ipAddress: request.socket?.remoteAddress ?? 'unknown' })
+        : { status: 503, body: { error: 'Parent sign-in is temporarily unavailable.' } };
+      return json(response, result.body, result.status);
+    }
+    if (pathname === '/api/auth/parent/verify-code' && request.method === 'POST') {
+      const body = await readJson(request);
+      const verification = parentSmsAuth?.verifyCode
+        ? await parentSmsAuth.verifyCode({ phone: body.phone, code: body.code, challengeId: body.challengeId, ipAddress: request.socket?.remoteAddress ?? 'unknown' })
+        : { ok: false, status: 503, body: { error: 'Parent sign-in is temporarily unavailable.' } };
+      if (!verification.ok) return json(response, verification.body, verification.status);
+      const diagnosticContext = { requestPath: '/api/auth/parent/verify-code' };
+      const loginResult = typeof auth.loginByPhoneFromDatabase === 'function'
+        ? await auth.loginByPhoneFromDatabase({ phone: verification.identity.phone, portal: 'parent', diagnosticContext, verifiedOtp: true })
+        : await auth.loginParentByPhone({ phone: verification.identity.phone, portal: 'parent', diagnosticContext, verifiedOtp: true });
+      if (!loginResult.ok && loginResult.status === 503) return json(response, { error: loginResult.error }, 503);
+      if (!loginResult.ok || loginResult.user?.id !== verification.identity.parentUserId) {
+        if (loginResult.token) await auth.logoutSession(loginResult.token);
+        return json(response, { error: 'The verification code is invalid or expired.' }, 401);
+      }
+      audit(createAuditLog({ userId: loginResult.user.id, roleId: loginResult.user.roleKey, sessionId: loginResult.user.sessionId, action: 'LOGIN_SUCCESS', entity: 'Authentication' }));
+      const cookie = `osaah_session=${loginResult.token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${Math.floor(auth.sessionTtlMs / 1000)}${secureCookieSuffix(request)}`;
+      return json(response, { user: loginResult.user, redirectTo: loginResult.redirectTo, expiresAt: loginResult.expiresAt }, 200, cookie);
+    }
     if (pathname === '/api/auth/proprietor/login' && request.method === 'POST') {
       if (!proprietorAuthentication) return json(response, { error: 'Authentication service unavailable.' }, 500);
       try {
@@ -344,7 +404,11 @@ export function createApp({ auth = null, students = null, attendance = null, att
       }
     }
     if (pathname === '/api/auth/session' && request.method === 'GET') {
-      const user = await auth.authenticateAsync(readCookie(request, 'osaah_session') ?? bearer(request));
+      const sessionToken = readCookie(request, 'osaah_session');
+      const bearerToken = sessionToken ? null : bearer(request);
+      const authContext = sessionDiagnosticContext(request, pathname, sessionToken ?? bearerToken, sessionToken ? 'cookie' : bearerToken ? 'bearer' : 'unknown');
+      const user = await auth.authenticateAsync(sessionToken ?? bearerToken, authContext);
+      if (process.env.OSAAH_AUTH_SESSION_DIAGNOSTICS === '1') console.info('Authentication session diagnostic', { requestId: authContext.requestId, requestPath: pathname, stage: 'session_endpoint_result', authenticated: Boolean(user), roleKey: user?.roleKey === 'PROPRIETOR' ? 'PROPRIETOR' : user ? 'OTHER' : null });
       return user ? json(response, { user: publicUser(user), redirectTo: user.dashboard }) : json(response, { error: 'Authentication required.' }, 401);
     }
     if (pathname === '/api/auth/change-password' && request.method === 'POST') {
@@ -354,7 +418,7 @@ export function createApp({ auth = null, students = null, attendance = null, att
       try {
         const result = await auth.changeOwnPassword(user, await readJson(request), token);
         audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, roleId: user.roleKey, action: 'PASSWORD_CHANGED', entity: 'User', entityId: user.id }));
-        return json(response, result, 200, `osaah_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${secureCookieSuffix(request)}`);
+        return json(response, result, 200, `osaah_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${secureCookieSuffix(request)}`);
       } catch (error) {
         return json(response, { error: error.message, code: error.code ?? 'PASSWORD_CHANGE_FAILED' }, error.status ?? 400);
       }
@@ -453,6 +517,7 @@ export function createApp({ auth = null, students = null, attendance = null, att
       }
       if (pathname === '/api/sms/delivery-callback' && request.method === 'GET') { if (!smsService) return json(response, { error: 'Durable SMS service unavailable.' }, 503); try { const query = new URL(request.url, 'http://localhost').searchParams; return json(response, await smsService.deliveryCallback({ token: query.get('token'), smsId: query.get('sms_id'), status: query.get('status') })); } catch (error) { return json(response, { error: error.message }, error.status ?? 400); } }
       if (!user) return json(response, { error: 'Authentication required.' }, 401);
+      if (pathname.startsWith('/api/academic/sample/') && !sampleFixturesEnabled()) return json(response, { error: 'Sample Result / Test Mode is disabled.' }, 403);
       const durableAcademicEndpoints = new Set(['/api/academic/options', '/api/academic/result-students', '/api/academic/score-entry/roster', '/api/academic/mock-scores/roster', '/api/academic/scores', '/api/academic/results/save', '/api/academic/results/saved', '/api/academic/results/publish', '/api/academic/mock-scores', '/api/academic/result/pdf', '/api/academic/mock-result/pdf', '/api/academic/sample/result/pdf', '/api/academic/result', '/api/academic/mock-result', '/api/parent/results']);
       if (process.env.NODE_ENV === 'production' && !durableAcademic && (durableAcademicEndpoints.has(pathname) || pathname.startsWith('/api/subjects/'))) return json(response, { error: 'Durable academic data is unavailable; apply the required migrations and restore database connectivity before retrying.' }, 503);
       if (process.env.NODE_ENV === 'production' && pathname.startsWith('/api/examinations/promotion') && !durablePromotion) return json(response, { error: 'Durable promotion data is unavailable; apply the required migration and restore database connectivity before retrying.' }, 503);
@@ -639,6 +704,7 @@ export function createApp({ auth = null, students = null, attendance = null, att
           const sampleMode = String(query.sampleMode ?? '').toLowerCase() === 'true';
           let studentsForResult;
           if (sampleMode) {
+            if (!sampleFixturesEnabled()) return json(response, { error: 'Sample Result / Test Mode is disabled.' }, 403);
             const context = durableAcademic ? await durableAcademic.resultContext(query, user) : { className: classId };
             if (!canonicalClassId(context.className)) throw new Error('The selected class is not configured for sample results.');
             students.seedSampleStudents?.();
@@ -1277,10 +1343,28 @@ if (durableAcademic && body.sampleMode === true) {
     const protectedPage = pathname !== '/parent/admission-prospectus' && SIDEBAR_MODULES.some((module) => module.route === pathname && module.moduleKey !== 'dashboard' && module.moduleKey !== 'logout');
     let protectedUser = null;
     if (protectedPage) {
-      const user = await auth.authenticateAsync(readCookie(request, 'osaah_session') ?? bearer(request));
-      const accessibleModules = user ? visibleSidebar({ modules: SIDEBAR_MODULES, permissions: user.permissions, roleKey: user.roleKey, portal: user.portal, schoolType: user.schoolType, subscription: user.subscription, entitlements: user.entitlements, featureAvailability: user.featureAvailability }).flatMap((group) => group.modules.flatMap((module) => [module, ...(module.children ?? [])])) : [];
+      const sessionToken = readCookie(request, 'osaah_session');
+      const bearerToken = sessionToken ? null : bearer(request);
+      const authContext = sessionDiagnosticContext(request, pathname, sessionToken ?? bearerToken, sessionToken ? 'cookie' : bearerToken ? 'bearer' : 'unknown');
+      const user = await auth.authenticateAsync(sessionToken ?? bearerToken, authContext);
+      const roleKey = user ? canonicalRoleKey(user.roleKey ?? user.role) : null;
+      const accessibleModules = user ? visibleSidebar({ modules: SIDEBAR_MODULES, permissions: user.permissions, roleKey, portal: user.portal, schoolType: user.schoolType, subscription: user.subscription, entitlements: user.entitlements, featureAvailability: user.featureAvailability }).flatMap((group) => group.modules.flatMap((module) => [module, ...(module.children ?? [])])) : [];
       const authorized = user && (accessibleModules.some((module) => module.route === pathname) || user.portal === 'parent' && pathname === '/examinations/timetable');
+      if (process.env.OSAAH_AUTH_SESSION_DIAGNOSTICS === '1') console.info('Authentication session diagnostic', { requestId: authContext.requestId, requestPath: pathname, stage: 'protected_page_authorization', authenticated: Boolean(user), roleKey: user?.roleKey === 'PROPRIETOR' ? 'PROPRIETOR' : user ? 'OTHER' : null, authorizationGranted: Boolean(authorized) });
       if (!authorized) {
+        console.warn('Protected page access rejected', {
+          requestPath: pathname,
+          embedded: new URL(request.url, 'http://localhost').searchParams.get('embedded') === '1',
+          sessionCookiePresent: Boolean(sessionToken),
+          bearerTokenPresent: Boolean(bearerToken),
+          authenticated: Boolean(user),
+          sessionValid: Boolean(user),
+          roleResolved: Boolean(roleKey),
+          rejectionReason: user ? 'ROLE_ROUTE_FORBIDDEN' : !sessionToken && !bearerToken ? 'CREDENTIAL_MISSING' : 'SESSION_VALIDATION_FAILED',
+          portal: user?.portal ?? null,
+          roleKey,
+          routeVisible: Boolean(user && accessibleModules.some((module) => module.route === pathname))
+        });
         const isDocumentNavigation = request.headers['sec-fetch-mode'] === 'navigate' && new URL(request.url, 'http://localhost').searchParams.get('embedded') !== '1';
         if (!user && isDocumentNavigation) { response.writeHead(303, { Location: '/', 'Cache-Control': 'no-store' }); return response.end(); }
         response.writeHead(user ? 403 : 401, { 'Content-Type': 'text/plain; charset=utf-8' }); return response.end(user ? 'Forbidden' : 'Authentication required');
@@ -1339,6 +1423,7 @@ const aiGateway = aiEnabled ? createAIGateway({ capabilityRegistry, toolRegistry
 const aiConversation = aiEnabled ? createAIConversationService({ gateway: aiGateway, capabilityRegistry, toolRegistry }) : null;
 const isDirectExecution = process.argv[1] === fileURLToPath(import.meta.url);
 const configuredDatabase = await loadConfiguredDatabaseAdapter({ required: isDirectExecution || process.env.NODE_ENV === 'production' });
+if (configuredDatabase && (isDirectExecution || process.env.NODE_ENV === 'production')) await configuredDatabase.verifyReadiness();
 const app = createApp({ aiEnabled, aiPersistence, capabilityRegistry, toolRegistry, providerRegistry, providerId, aiGateway, aiConversation, database: configuredDatabase });
 const server = createServer(app);
 server.on('close', () => {
@@ -1353,16 +1438,29 @@ export { server };
 export default app;
 function publicUser(user) { const identity = { id: user.id, username: user.username, portal: user.portal, roleKey: user.roleKey, schoolId: user.schoolId }; return user.portal === 'parent' ? identity : { ...identity, children: user.children ?? [], assignedStudentIds: user.assignedStudentIds ?? [], assignedClassIds: user.assignedClassIds ?? [], assignedSubjectIds: user.assignedSubjectIds ?? [], assignedDepartmentIds: user.assignedDepartmentIds ?? [] }; }
 async function login(request, response, auth, audit) {
+  const requestIdHeader = request.headers['x-vercel-id'] ?? request.headers['x-request-id'];
+  const requestId = typeof requestIdHeader === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(requestIdHeader) ? requestIdHeader : randomUUID();
+  const diagnosticContext = { requestId, requestPath: '/api/auth/login' };
   try {
     const body = await readJson(request);
+    const emailValue = typeof body.email === 'string' ? body.email : body.username;
+    const normalizedEmail = typeof emailValue === 'string' ? emailValue.trim().toLowerCase() : '';
+    const maskedEmail = normalizedEmail.includes('@') ? `${normalizedEmail[0]}***@${normalizedEmail.split('@').at(-1)}` : null;
+    const requestedSchoolId = body.school_id ?? body.schoolId;
+    const schoolId = typeof requestedSchoolId === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(requestedSchoolId) ? requestedSchoolId : null;
+    console.info('Authentication login checkpoint', { stage: 'request_received', requestId, requestPath: '/api/auth/login', email: maskedEmail, schoolId, portal: body.portal === 'parent' ? 'parent' : 'school' });
     const isParentPhoneLogin = body.portal === 'parent' && Object.prototype.hasOwnProperty.call(body, 'phone');
+    const credentials = isParentPhoneLogin ? { phone: body.phone, diagnosticContext } : { ...body, diagnosticContext };
     const result = isParentPhoneLogin
-      ? (typeof auth.loginByPhoneFromDatabase === 'function' ? await auth.loginByPhoneFromDatabase(body) : auth.loginByPhone(body))
-      : (typeof auth.loginFromDatabase === 'function' ? await auth.loginFromDatabase(body) : auth.login(body));
+      ? { ok: false, status: 401, error: 'Unable to sign in. Check the phone number or contact the school.' }
+      : (typeof auth.loginFromDatabase === 'function' ? await auth.loginFromDatabase(credentials) : auth.login(body));
+    console.info('Authentication login checkpoint', { stage: result.ok ? 'session_created' : 'authentication_rejected', requestId, status: result.status ?? 200, authenticated: Boolean(result.ok) });
     if (!result.ok) return json(response, { error: result.error }, result.status);
 
     audit(createAuditLog({ userId: result.user.id, roleId: result.user.roleKey, sessionId: result.user.sessionId, action: 'LOGIN_SUCCESS', entity: 'Authentication' }));
-    return json(response, { user: result.user, redirectTo: result.redirectTo, expiresAt: result.expiresAt }, 200, `osaah_session=${result.token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Math.floor(auth.sessionTtlMs / 1000)}${secureCookieSuffix(request)}`);
+    const cookie = `osaah_session=${result.token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${Math.floor(auth.sessionTtlMs / 1000)}${secureCookieSuffix(request)}`;
+    if (process.env.OSAAH_AUTH_SESSION_DIAGNOSTICS === '1') console.info('Authentication session diagnostic', { requestId, requestPath: '/api/auth/login', stage: 'session_cookie_issued', cookieIssued: true, cookieName: 'osaah_session', path: '/', hostOnly: true, sameSite: 'Lax', secure: cookie.includes('; Secure'), httpOnly: true, maxAgeSeconds: Math.floor(auth.sessionTtlMs / 1000), trustedProxy: process.env.OSAAH_TRUST_PROXY === 'true' || process.env.VERCEL === '1' });
+    return json(response, { user: result.user, redirectTo: result.redirectTo, expiresAt: result.expiresAt }, 200, cookie);
   } catch (error) {
     const clientErrors = {
       INVALID_JSON: { status: 400, message: 'Invalid JSON request body.' },
@@ -1373,19 +1471,47 @@ async function login(request, response, auth, audit) {
       component: 'school_authentication',
       operation: 'login_request',
       category: clientError ? 'INVALID_LOGIN_REQUEST' : 'AUTHENTICATION_SERVICE_FAILED',
-      code: /^[A-Z0-9_]+$/.test(String(error?.code ?? '')) ? error.code : 'UNKNOWN'
+      requestId,
+      requestPath: '/api/auth/login',
+      code: /^[A-Z0-9_]+$/.test(String(error?.code ?? '')) ? error.code : 'UNKNOWN',
+      errorType: /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(String(error?.name ?? '')) ? error.name : 'Error',
+      stack: safeAuthenticationStack(error?.stack)
     });
     return json(response, {
       error: clientError?.message ?? 'Authentication service unavailable.'
     }, clientError?.status ?? 503);
   }
 }
+function safeAuthenticationStack(stack) {
+  if (typeof stack !== 'string') return null;
+  return stack.split('\n').slice(1, 9).map((line) => line.trim()
+    .replace(/(?:mysql|postgres(?:ql)?|https?):\/\/[^\s)]+/gi, '[redacted-url]')
+    .replace(/\bBearer\s+[^\s)]+/gi, 'Bearer [redacted]')
+    .replace(/\b(password|passwd|secret|token|connection[_ -]?string)\s*[:=]\s*[^\s,;)]+/gi, '$1=[redacted]')
+    .slice(0, 300));
+}
 function secureCookieSuffix(request) {
   const forwardedProto = String(request.headers['x-forwarded-proto'] ?? '').split(',')[0].trim().toLowerCase();
   const trustedProxy = process.env.OSAAH_TRUST_PROXY === 'true' || process.env.VERCEL === '1';
-  return request.socket?.encrypted || (trustedProxy && forwardedProto === 'https') ? '; Secure' : '';
+  const secure = process.env.NODE_ENV === 'production' || request.socket?.encrypted || (trustedProxy && forwardedProto === 'https');
+  return secure ? '; Secure' : '';
 }
-function readCookie(request, name) { return (request.headers.cookie ?? '').split(';').map((part) => part.trim().split('=')).find(([key]) => key === name)?.[1]; }
+function readCookie(request, name) {
+  const parsedCookie = request.cookies?.[name];
+  if (typeof parsedCookie === 'string') return parsedCookie;
+  for (const part of String(request.headers.cookie ?? '').split(';')) {
+    const separator = part.indexOf('=');
+    if (separator < 0 || part.slice(0, separator).trim() !== name) continue;
+    return part.slice(separator + 1).trim();
+  }
+  return undefined;
+}
+function sessionDiagnosticContext(request, requestPath, token, credentialSource) {
+  const suppliedId = request.headers['x-vercel-id'] ?? request.headers['x-request-id'];
+  const requestId = typeof suppliedId === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(suppliedId) ? suppliedId : randomUUID();
+  const cookieReceived = /(?:^|;\s*)osaah_session=/.test(String(request.headers.cookie ?? '')) || Boolean(request.cookies?.osaah_session);
+  return { requestId, requestPath, cookieReceived, cookieParsed: credentialSource === 'cookie' && Boolean(token), credentialSource };
+}
 function safeFeeError(error, fallbackStatus = 503) { const status = Number.isInteger(error?.status) && error.status >= 400 && error.status < 500 ? error.status : fallbackStatus; const safeMessages = new Set(['Forbidden.', 'Parent access required.', 'Financial read permission required.', 'Financial write permission required.', 'Collection not found.', 'Fee obligation not found.', 'Invalid amount.', 'Collection correction reason required.', 'Invalid collection type.', 'Invalid Extra Classes collection period.', 'Canteen collections support only 1st Term, 2nd Term, and 3rd Term.', 'Fee publication input is invalid.', 'Invalid fee target.', 'Academic year, term, fee type, and amount are required.', 'Academic year not found.', 'Term not found.', 'Fee structure not found.', 'Class is required for a specific-class fee.', 'Class not found.', 'A published fee obligation already exists for this student, fee type, and period. Resolve the existing fee before publishing an overlapping target.']); const message = safeMessages.has(error?.message) ? error.message : 'Fee service is temporarily unavailable.'; return { body: { error: message }, status }; }
 function parentApiError(response, error, endpoint) {
   const status = Number.isInteger(error?.status) && error.status >= 400 && error.status <= 599 ? error.status : 503;
@@ -1396,7 +1522,7 @@ function parentApiError(response, error, endpoint) {
 }
 function safeReceiptFilename(receiptNumber) { const safe = String(receiptNumber ?? '').replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 80) || 'receipt'; return `OSAAH-Receipt-${safe}.pdf`; }
 function safeProspectusFilename(prospectus) { const detail = `${prospectus.className}-${prospectus.academicYear}`.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 80); return `OSAAH-Admission-Prospectus-${detail || 'Published'}.pdf`; }
-function bearer(request) { const value = request.headers.authorization ?? ''; return value.startsWith('Bearer ') ? value.slice(7) : null; }
+function bearer(request) { const value = request.headers.authorization ?? ''; const match = /^Bearer\s+(.+)$/i.exec(value); return match?.[1] ?? null; }
 function readBytes(request, maxBytes) { return new Promise((resolve, reject) => { const declaredLength = Number(request.headers['content-length'] ?? 0); if (declaredLength > maxBytes) { request.resume(); reject(Object.assign(new Error(`Admission documents may not exceed ${maxBytes} bytes.`), { status: 413 })); return; } const chunks = []; let size = 0, tooLarge = false; request.on('data', (chunk) => { size += chunk.length; if (size > maxBytes) { tooLarge = true; chunks.length = 0; return; } if (!tooLarge) chunks.push(chunk); }); request.on('end', () => tooLarge ? reject(Object.assign(new Error(`Admission documents may not exceed ${maxBytes} bytes.`), { status: 413 })) : resolve(Buffer.concat(chunks))); request.on('error', reject); }); }
 function readJson(request) { return new Promise((resolve, reject) => { let data = ''; let tooLarge = false; request.on('data', (chunk) => { if (tooLarge) return; data += chunk; if (data.length > 100_000) { tooLarge = true; data = ''; } }); request.on('end', () => { if (tooLarge) return reject(Object.assign(new Error('Request body is too large.'), { status: 413, code: 'REQUEST_BODY_TOO_LARGE' })); try { resolve(data ? JSON.parse(data) : {}); } catch { reject(Object.assign(new Error('Invalid JSON request body.'), { status: 400, code: 'INVALID_JSON' })); } }); }); }
 function presentAdmissionApplication(record) { if (!record) return record; const sanitize = (value) => { if (Array.isArray(value)) return value.map(sanitize); if (!value || typeof value !== 'object') return value; return Object.fromEntries(Object.entries(value).filter(([key]) => !['storageKey', 'fileReference'].includes(key)).map(([key, item]) => [key, sanitize(item)])); }; return { ...sanitize(record), documents: sanitize(record.documents ?? []) }; }

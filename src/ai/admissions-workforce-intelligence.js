@@ -1,7 +1,7 @@
 import { createAIDataQualityGuard } from './data-quality-guard.js';
 import { createProductionDataGuard } from './production-data-guard.js';
 
-const ADMISSION_ROLES = new Set(['PROPRIETOR', 'HEADTEACHER', 'ASSISTANT_HEADTEACHER', 'ADMISSIONS_OFFICER']);
+const ADMISSION_ROLES = new Set(['PROPRIETOR', 'HEADTEACHER', 'ASSISTANT_HEADTEACHER']);
 const WORKFORCE_ROLES = new Set(['PROPRIETOR', 'HEADTEACHER', 'ASSISTANT_HEADTEACHER', 'SCHOOL_ADMIN', 'HR_OFFICER']);
 const REQUIRED_FIELDS = ['studentSurname', 'studentFirstName', 'dateOfBirth', 'gender', 'hometown', 'region', 'nationality', 'classAppliedFor', 'residentialAddress', 'digitalAddress', 'nearestLandmark'];
 const REQUIRED_DOCUMENTS = ['PASSPORT_PHOTOGRAPHS', 'BIRTH_CERTIFICATE_OR_GHANA_CARD', 'NHIS_CARD'];

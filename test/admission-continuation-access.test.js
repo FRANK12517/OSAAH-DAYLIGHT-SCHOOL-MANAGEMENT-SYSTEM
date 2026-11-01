@@ -32,8 +32,7 @@ test('admission write roles can fetch the staff continuation page with the exist
   const actors = {
     proprietor: actor('PROPRIETOR', ['*']),
     headteacher: actor('HEADTEACHER', ['admissions.read', 'admissions.write']),
-    assistant: actor('ASSISTANT_HEADTEACHER', ['admissions.read', 'admissions.write']),
-    admissionsOfficer: actor('ADMISSIONS_OFFICER', ['admissions.read', 'admissions.write'])
+    assistant: actor('ASSISTANT_HEADTEACHER', ['admissions.read', 'admissions.write'])
   };
   const base = await withServer(t, actors);
 
@@ -83,7 +82,7 @@ test('invalid or missing session identity cannot open an existing application co
 
 test('admissions.write from a mismatched school tenant does not authorize the route', async (t) => {
   const base = await withServer(t, {
-    otherSchool: actor('ADMISSIONS_OFFICER', ['admissions.read', 'admissions.write'], 'another-school')
+    otherSchool: actor('HEADTEACHER', ['admissions.read', 'admissions.write'], 'another-school')
   });
   const response = await fetch(base + CONTINUATION, session('otherSchool'));
   assert.equal(response.status, 403);
@@ -92,9 +91,9 @@ test('admissions.write from a mismatched school tenant does not authorize the ro
 
 test('incomplete or malformed authenticated identity context fails closed', async (t) => {
   const actors = {
-    missingSchool: actor('ADMISSIONS_OFFICER', ['admissions.write'], null),
-    missingPermissions: { id: 'test-missing-permissions', roleKey: 'ADMISSIONS_OFFICER', portal: 'school', schoolId: SCHOOL_ID },
-    malformedPermissions: { ...actor('ADMISSIONS_OFFICER', []), permissions: {} }
+    missingSchool: actor('HEADTEACHER', ['admissions.write'], null),
+    missingPermissions: { id: 'test-missing-permissions', roleKey: 'HEADTEACHER', portal: 'school', schoolId: SCHOOL_ID },
+    malformedPermissions: { ...actor('HEADTEACHER', []), permissions: {} }
   };
   const base = await withServer(t, actors);
   for (const token of Object.keys(actors)) {
@@ -106,7 +105,7 @@ test('incomplete or malformed authenticated identity context fails closed', asyn
 
 test('an authorized continuation does not turn a missing application into a successful record read', async (t) => {
   const base = await withServer(t, {
-    staff: actor('ADMISSIONS_OFFICER', ['admissions.read', 'admissions.write'])
+    staff: actor('HEADTEACHER', ['admissions.read', 'admissions.write'])
   });
   const page = await fetch(base + CONTINUATION, session('staff'));
   assert.equal(page.status, 200);

@@ -5,9 +5,9 @@ import { PROPRIETOR_SIDEBAR_ROUTES } from './proprietor-sidebar-routes.js';
 const proprietorRoute = (moduleKey) => PROPRIETOR_SIDEBAR_ROUTES.find((module) => module.moduleKey === moduleKey)?.route;
 
 registerModule({ moduleKey: 'student-profiles', moduleName: 'Student Profiles', category: 'STUDENTS MANAGEMENT', route: '/students', icon: '◎', displayOrder: 1, requiredPermission: 'students.read', roles: ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'TEACHER'] });
-registerModule({ moduleKey: 'student-search', moduleName: 'Student Search', category: 'STUDENTS MANAGEMENT', route: '/students/search', icon: '⌕', displayOrder: 2, requiredPermission: 'students.read', roles: ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'TEACHER', 'ADMISSIONS_OFFICER'] });
-registerModule({ moduleKey: 'admissions', moduleName: 'Admission / Admissions Workflow', category: 'STUDENTS MANAGEMENT', route: '/admissions', icon: '✦', displayOrder: 3, requiredPermission: 'admissions.read', roles: ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'ASSISTANT_HEADTEACHER', 'ADMISSIONS_OFFICER'] });
-registerModule({ moduleKey: 'admission-prospectus', moduleName: 'Admission Prospectus Management', category: 'ADMISSIONS', route: '/admissions/prospectus', icon: '▤', displayOrder: 6, requiredPermission: 'admission.prospectus.manage', roles: ['PROPRIETOR', 'HEADTEACHER', 'ASSISTANT_HEADTEACHER', 'ADMISSIONS_OFFICER'] });
+registerModule({ moduleKey: 'student-search', moduleName: 'Student Search', category: 'STUDENTS MANAGEMENT', route: '/students/search', icon: '⌕', displayOrder: 2, requiredPermission: 'students.read', roles: ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'ASSISTANT_HEADTEACHER', 'TEACHER'] });
+registerModule({ moduleKey: 'admissions', moduleName: 'Admission / Admissions Workflow', category: 'STUDENTS MANAGEMENT', route: '/admissions', icon: '✦', displayOrder: 3, requiredPermission: 'admissions.read', roles: ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'ASSISTANT_HEADTEACHER'] });
+registerModule({ moduleKey: 'admission-prospectus', moduleName: 'Admission Prospectus Management', category: 'ADMISSIONS', route: '/admissions/prospectus', icon: '▤', displayOrder: 6, requiredPermission: 'admission.prospectus.manage', roles: ['PROPRIETOR', 'HEADTEACHER', 'ASSISTANT_HEADTEACHER'] });
 registerModule({ moduleKey: 'admission-analytics', moduleName: 'Admission Analytics', category: 'REPORTS & ANALYTICS', route: '/admissions/analytics', icon: '▥', displayOrder: 2, requiredPermission: 'admissions.analytics.read', roles: ['PROPRIETOR', 'HEADTEACHER', 'ASSISTANT_HEADTEACHER'] });
 registerModule({ moduleKey: 'attendance-dashboard', moduleName: 'Attendance Overview', category: 'ATTENDANCE MANAGEMENT', route: '/attendance', icon: '✓', displayOrder: 1, requiredPermission: 'attendance.read', roles: ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'ASSISTANT_HEADTEACHER', 'TEACHER'] });
 registerModule({ moduleKey: 'student-attendance', moduleName: "Today's Attendance", category: 'ATTENDANCE MANAGEMENT', route: '/attendance/students', icon: '◷', displayOrder: 2, requiredPermission: 'attendance.read', roles: ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'ASSISTANT_HEADTEACHER', 'TEACHER'] });
@@ -89,13 +89,13 @@ registerNavigationGroup('ADMINISTRATIVE', 'settings.read', ['PROPRIETOR', 'SCHOO
   ['school-profile', 'School Profile', proprietorRoute('school-profile'), '▣'],
   ['academic-calendar', 'Academic Calendar', proprietorRoute('academic-calendar'), '□']
 ]);
-registerNavigationGroup('STUDENTS MANAGEMENT', 'students.read', ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'TEACHER', 'ADMISSIONS_OFFICER'], [
+registerNavigationGroup('STUDENTS MANAGEMENT', 'students.read', ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'ASSISTANT_HEADTEACHER', 'TEACHER'], [
   ['student-directory', 'Student Directory', '/students', '◎'],
   ['student-ids', 'Student IDs', '/students', '#'],
   ['student-transfers', 'Transfers', '/students', '↔'],
   ['student-alumni', 'Alumni', '/students', '◉']
 ]);
-registerNavigationGroup('ADMISSIONS', 'admissions.read', ['PROPRIETOR', 'SCHOOL_ADMIN', 'ADMISSIONS_OFFICER'], [
+registerNavigationGroup('ADMISSIONS', 'admissions.read', ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'ASSISTANT_HEADTEACHER'], [
   ['admission-enquiries', 'Enquiries', '/admissions', '?'],
   ['admission-applications', 'Applications', '/admissions', '✦'],
   ['admission-review', 'Application Review', '/admissions', '✓'],

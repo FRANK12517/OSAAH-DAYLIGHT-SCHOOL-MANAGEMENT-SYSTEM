@@ -7,7 +7,7 @@ const VERSION = 80;
 const NAME = '080_restore_student_enrollment_is_current.sql';
 const EXPECTED_DATABASE = 'osaahdaylightschool';
 const APPLY_TOKEN = 'APPLY_ENROLLMENT_IS_CURRENT_080';
-const ALLOWED_DEFERRED_PENDING_VERSIONS = new Set([49, 54, 55, 56, 58, 70, 71, 72, 77, 78, 79, 81]);
+const ALLOWED_DEFERRED_PENDING_VERSIONS = new Set([49, 54, 55, 56, 58, 70, 71, 72, 77, 78, 79, 81, 82, 83]);
 const directory = resolve(fileURLToPath(new URL('../schema/', import.meta.url)));
 const rows = (value) => Array.isArray(value) ? value : [];
 

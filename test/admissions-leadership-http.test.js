@@ -6,7 +6,7 @@ import { createApp } from '../src/server.js';
 
 test('all three leadership sessions can open Admissions and save/reopen a durable enquiry; teachers are denied', async () => {
   const auth = createAuthService();
-  const proprietor = auth.login({ username: 'proprietor@osaah.edu.gh', password: 'Proprietor123!', portal: 'school' });
+  const proprietor = auth.login({ username: 'proprietor@osaah.edu.gh', password: 'Synthetic-Proprietor-Test-Only-2026!', portal: 'school' });
   const leader = auth.authenticate(proprietor.token);
   const sessions = [proprietor];
   for (const roleKey of ['HEADTEACHER', 'ASSISTANT_HEADTEACHER']) {

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { tidbInsertOrUpdate } from './tidb-conflict.js';
 import { isConfiguredTestParentActor, isConfiguredTestStudentId, TEST_PARENT_SCHOOL_ID } from './test-parent-fixture.js';
 
 const FIXTURE_TYPES = Object.freeze(new Set([
@@ -68,7 +69,8 @@ export function createSampleFixtureRepository({ adapter, now = () => new Date().
     const timestamp = now();
     const id = fixtureId(identity);
     const payload = clone(input.fixturePayload ?? {});
-    await adapter.execute(`INSERT INTO sample_data_fixtures (fixture_id,school_id,sample_student_id,academic_year_id,term_id,class_id,fixture_type,fixture_payload,fixture_version,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT (fixture_id) DO UPDATE SET fixture_payload=EXCLUDED.fixture_payload,updated_at=EXCLUDED.updated_at`, [id, identity.schoolId, identity.sampleStudentId, identity.academicYearId, identity.termId, identity.classId, identity.fixtureType, JSON.stringify(payload), identity.fixtureVersion, timestamp, timestamp]);
+    const values=[id, identity.schoolId, identity.sampleStudentId, identity.academicYearId, identity.termId, identity.classId, identity.fixtureType, JSON.stringify(payload), identity.fixtureVersion, timestamp, timestamp];
+    if(adapter.dialect==='tidb') await tidbInsertOrUpdate(adapter,{insertSql:'INSERT INTO sample_data_fixtures (fixture_id,school_id,sample_student_id,academic_year_id,term_id,class_id,fixture_type,fixture_payload,fixture_version,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',insertParameters:values,conflictSql:'SELECT fixture_id FROM sample_data_fixtures WHERE fixture_id=?',conflictParameters:[id],updateSql:'UPDATE sample_data_fixtures SET fixture_payload=?,updated_at=? WHERE fixture_id=?',updateParameters:[JSON.stringify(payload),timestamp,id]});
     return getFixture(identity, actor);
   }
   async function getFixture(input, actor) {

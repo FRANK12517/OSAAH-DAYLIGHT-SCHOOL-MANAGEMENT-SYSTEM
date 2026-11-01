@@ -1,0 +1,10 @@
+# Database runtime selection
+
+The application uses one configured database adapter for authentication, durable sessions, and AI persistence.
+
+- TiDB can be selected explicitly with `OSAAH_DATABASE_ADAPTER=tidb` and a server-side MySQL-compatible `DATABASE_URL`, or selected automatically when `DATABASE_URL` uses `mysql://`/`mysql2://` and neither `OSAAH_POSTGRES_URL` nor `POSTGRES_URL` is configured. The adapter also accepts its documented server-side component variables. It enforces TLS 1.2 or later and certificate verification.
+- PostgreSQL/Supabase is selected through `OSAAH_POSTGRES_URL` or the fallback `POSTGRES_URL`. `OSAAH_POSTGRES_URL` takes precedence when both are set. A PostgreSQL URL in `DATABASE_URL` alone does not select the adapter; configure one of the explicit PostgreSQL URL variables.
+- With `OSAAH_DATABASE_ADAPTER=tidb`, a PostgreSQL URL in `DATABASE_URL`, `OSAAH_POSTGRES_URL`, or `POSTGRES_URL` is a configuration conflict. With `OSAAH_DATABASE_ADAPTER=postgres`, a MySQL `DATABASE_URL` is a conflict and a PostgreSQL runtime URL is required. Without an explicit selector, a MySQL `DATABASE_URL` selects TiDB only when no PostgreSQL runtime URL is configured. If a PostgreSQL runtime URL is configured, it selects PostgreSQL and a recognized but different MySQL or PostgreSQL `DATABASE_URL` is ignored with a sanitized warning; unsupported `DATABASE_URL` schemes are rejected. This supports deployments where a stale platform `DATABASE_URL` remains set.
+- Production requires `OSAAH_SESSION_SECRET` for signed sessions. Startup does not run migrations or create tables. The read-only `/api/health` check reports database and durable `auth_sessions` availability separately.
+
+This selection behavior does not verify that a configured server is TiDB or that the production schema is compatible. Before release, verify server identity, TLS, database name, `auth_sessions` columns/indexes, and login/session queries against an authorized TiDB environment. No live TiDB integration has been performed by this change.

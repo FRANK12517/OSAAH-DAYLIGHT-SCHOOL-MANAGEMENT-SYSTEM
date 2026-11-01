@@ -3,16 +3,20 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createAuthService } from '../src/auth.js';
 
-test('PR #201 keeps production database Parent authentication fail-closed without durable sessions', async () => {
+test('Production Parent authentication rejects an unverified phone login without using sample identity', async () => {
   const previous = process.env.NODE_ENV;
   process.env.NODE_ENV = 'production';
   try {
-    const database = { query: async () => [], execute: async () => {}, supportsDurableAuthSessions: false };
+    const database = {
+      query: async () => [{ id: 'db-parent', schoolId: 'sch_default_01', username: 'parent@example.invalid', email: 'parent@example.invalid', status: 'ACTIVE', parentPhone: '+233247293733' }],
+      execute: async () => {},
+      supportsDurableAuthSessions: false
+    };
     const auth = createAuthService({ database });
     const result = await auth.loginByPhoneFromDatabase({ phone: '0247293733', portal: 'parent' });
     assert.equal(result.ok, false);
-    assert.equal(result.status, 503);
-    assert.equal(result.error, 'Authentication service unavailable.');
+    assert.equal(result.status, 401);
+    assert.equal(result.ok, false);
   } finally {
     if (previous === undefined) delete process.env.NODE_ENV;
     else process.env.NODE_ENV = previous;
