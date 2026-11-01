@@ -138,6 +138,18 @@ test('workspace navigation normalizes the route inside the renderer and terminat
 
 test('school dashboard bootstrap consumes the server role redirect after login and session restoration', async () => {
   const app = await readFile(new URL('../public/app.js', import.meta.url), 'utf8');
+  const auth = await readFile(new URL('../src/auth.js', import.meta.url), 'utf8');
+  const reports = await readFile(new URL('../public/reports-canonical.html', import.meta.url), 'utf8');
+  assert.match(auth, /PROPRIETOR:\s*'\/'/);
+  assert.match(auth, /SCHOOL_ADMIN:\s*'\/settings'/);
+  assert.match(auth, /HEADTEACHER:\s*'\/academics'/);
+  assert.match(auth, /ASSISTANT_HEADTEACHER:\s*'\/academics'/);
+  assert.match(auth, /ACCOUNTANT_BURSAR:\s*'\/fees'/);
+  assert.match(auth, /TEACHER:\s*'\/academics'/);
+  assert.doesNotMatch(app, /window\.location\.assign\('\/reports'\)/);
+  assert.match(reports, /postMessage\(\{type:'osaah:navigate-dashboard'\},location\.origin\)/);
+  assert.match(app, /event\.source !== frame\?\.contentWindow/);
+  assert.match(app, /navigateToRoute\(dashboard, '\/', 'Dashboard Overview'\)/);
   assert.match(app, /function renderDashboard\(user, redirectTo = '\/'\)/);
   assert.match(app, /function resolvePostLoginRoute\(user, redirectTo\)/);
   assert.match(app, /const initialRoute = location\.pathname === '\/' \? resolvePostLoginRoute\(user, redirectTo\) : location\.pathname/);

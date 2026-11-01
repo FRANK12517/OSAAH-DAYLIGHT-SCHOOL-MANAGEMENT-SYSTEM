@@ -96,7 +96,7 @@ test('Part 3 preserves Proprietor login and canonical dashboard routing', async 
   const result = auth.login({ username: 'proprietor@osaah.edu.gh', password: 'Synthetic-Proprietor-Test-Only-2026!', portal: 'school' });
   assert.equal(result.ok, true);
   assert.equal(result.user.roleKey, 'PROPRIETOR');
-  assert.equal(result.redirectTo, '/reports');
+  assert.equal(result.redirectTo, '/');
   assert.equal(auth.authenticate(result.token).permissions.has('*'), true);
 });
 

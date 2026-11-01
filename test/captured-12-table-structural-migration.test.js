@@ -7,6 +7,7 @@ import { CAPTURED_MIGRATION_VERSION, CAPTURED_SCHEMA, renderCapturedStructuralMi
 const canonicalPath = new URL('../supabase/migrations/202610150001_osaah_daylight_schema.sql', import.meta.url);
 const auditPath = new URL('../docs/supabase-12-table-reconciliation-audit.md', import.meta.url);
 const migrationPath = new URL('../supabase/reconciliation/202610180001_captured_12_table_structural_stage.sql', import.meta.url);
+const normalizeLineEndings = (text) => text.replace(/\r\n?/g, '\n');
 
 const capturedFixture = `
 CREATE ROLE anon;
@@ -80,8 +81,8 @@ async function migrationSql() {
     readFile(canonicalPath, 'utf8'), readFile(auditPath, 'utf8'), readFile(migrationPath, 'utf8')
   ]);
   const rendered = renderCapturedStructuralMigration(canonical, audit).sql;
-  assert.equal(saved, rendered, 'checked-in structural SQL must match the canonical source and captured catalog manifest');
-  return saved;
+  assert.equal(normalizeLineEndings(saved), normalizeLineEndings(rendered), 'checked-in structural SQL must match the canonical source and captured catalog manifest');
+  return normalizeLineEndings(saved);
 }
 
 async function seedCapturedDatabase({ extraColumn = false, invalidType = false, invalidGeneration = false, duplicateKeys = false, extraTable = false } = {}) {
