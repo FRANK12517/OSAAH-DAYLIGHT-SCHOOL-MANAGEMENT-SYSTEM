@@ -297,7 +297,7 @@ export function createParentDashboardService({
   }
 
   function resultSourceFor(student) {
-    return Boolean(student?.isTestRecord ?? student?.is_test_record) ? academicResults : durableAcademic ?? academicResults;
+    return durableAcademic ?? academicResults;
   }
 
   async function loadPublishedResult(actor, student, context, resultOptions = {}) {
@@ -316,7 +316,8 @@ export function createParentDashboardService({
       examination: isMock ? 'MOCK' : 'TERMINAL',
       mockLabel,
       isSample,
-      sample: isSample
+      sample: isSample,
+      sampleMode: isSample
     };
     // The parent and academic context have already been authorized above. Use
     // that exact child/context for the server-side durable read; never trust

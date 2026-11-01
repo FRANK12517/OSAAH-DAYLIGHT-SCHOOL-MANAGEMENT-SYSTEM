@@ -15,6 +15,10 @@ async function fixture({ hasColumn = false, count = 17, productionBaseline = fal
   const appliedVersions = productionBaseline
     ? [50, 51, 52, 53, 57, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 73, 74, 75, 76]
     : migrations.filter((item) => item.version <= 79 && item.version !== 78).map((item) => item.version);
+  // Migration 080 scenarios run against a captured ledger where this release's
+  // later additive migration is already applied. The rejection test below
+  // removes 084 to verify an unreviewed pending migration still blocks 080.
+  appliedVersions.push(84);
   const storage = {
     applied: migrations.filter((item) => appliedVersions.includes(item.version)).map((item) => ({ version: item.version, name: item.name, checksum: item.checksum, appliedAt: '2026-10-10T00:00:00.000Z' })),
     baselines: [{ id: 'baseline-fixture', canonicalDatabase: 'osaahdaylightschool', repositoryCommit: 'a'.repeat(40), schemaFingerprint: 'b'.repeat(64), workflowProvenance: 'fixture/read-only', reconciliationMigration: '049_production_schema_reconciliation.sql', baselineType: 'HISTORICAL_BASELINE', historicalMigrationsExecuted: 0 }], statements: [], locked: false
@@ -51,9 +55,9 @@ test('Migration 080 restores the exact additive TiDB-compatible column contract 
   assert.doesNotMatch(sql, /\b(DROP|DELETE|TRUNCATE|REPLACE|UPDATE)\b/i);
   const migrations = await discoverMigrations(directory);
   assert.deepEqual(migrations.slice(-3).map(({ version, name }) => ({ version, name })), [
-    { version: 81, name: '081_student_health_insurance_number.sql' },
     { version: 82, name: '082_parent_sms_auth.sql' },
-    { version: 83, name: '083_result_blocking_tidb_scope.sql' }
+    { version: 83, name: '083_result_blocking_tidb_scope.sql' },
+    { version: 84, name: '084_demo_student_class_assignments.sql' }
   ]);
 });
 
@@ -70,10 +74,10 @@ test('Migration 080 dry-run uses the verified historical baseline and scopes exe
 
 test('Migration 080 refuses pending versions outside the verified production ledger gaps', async () => {
   const { adapter, storage } = await fixture({ productionBaseline: true });
-  storage.applied = storage.applied.filter((item) => item.version !== 50);
+  storage.applied = storage.applied.filter((item) => ![50, 84].includes(item.version));
   await assert.rejects(() => runProductionEnrollmentIsCurrentMigration080({ adapter, mode: 'dry-run' }), (error) => {
     assert.equal(error.code, 'MIGRATION_080_UNREVIEWED_PENDING');
-    assert.deepEqual(error.details.versions, [50]);
+    assert.deepEqual(error.details.versions, [50, 84]);
     return true;
   });
   assert.equal(storage.statements.length, 0);

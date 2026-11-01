@@ -91,12 +91,12 @@ test('sample Score Entry mode loads the canonical DEMO-001 fixture separately fr
   assert.equal(resultService.scoreEntryRoster({ ...filters, sampleMode: 'false' }, teacher).length, 0);
   const sampleRoster = resultService.scoreEntryRoster({ ...filters, sampleMode: 'true' }, teacher);
   assert.equal(sampleRoster.length, 1);
-  assert.equal(sampleRoster[0].permanentStudentId, 'OSAAH-DEMO-001');
+  assert.equal(sampleRoster[0].permanentStudentId, 'OSAAH/DEMO/001');
   assert.equal(sampleRoster[0].isTestRecord, true);
   eligibleStudent(students, classId, 'Real');
   const realRoster = resultService.scoreEntryRoster({ ...filters, sampleMode: 'true' }, teacher);
   assert.equal(realRoster.length, 1);
-  assert.equal(realRoster[0].permanentStudentId, 'OSAAH-DEMO-001');
+  assert.equal(realRoster[0].permanentStudentId, 'OSAAH/DEMO/001');
   assert.equal(realRoster[0].isTestRecord, true);
 });
 
@@ -194,12 +194,12 @@ test('authenticated Sample Mode loads and saves only the existing DEMO-001 sampl
     assert.equal(loaded.status, 200);
     const roster = await loaded.json();
     assert.equal(roster.students.length, 1);
-    assert.equal(roster.students[0].permanentStudentId, 'OSAAH-DEMO-001');
+    assert.equal(roster.students[0].permanentStudentId, 'OSAAH/DEMO/001');
     assert.equal(roster.students[0].isTestRecord, true);
     const savedResponse = await fetch(`${base}/api/academic/scores`, { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ ...Object.fromEntries(query), studentId: roster.students[0].studentId, caScore: 25, examScore: 35, sampleMode: true }) });
     assert.equal(savedResponse.status, 201);
     const saved = await savedResponse.json();
-    assert.equal(saved.studentIndexNumber, 'OSAAH-DEMO-001');
+    assert.equal(saved.studentIndexNumber, 'OSAAH/DEMO/001');
     assert.equal(saved.isTestRecord, true);
     const officialQuery = new URLSearchParams({ academicYear: '2026/2027', term: 'First Term', classId: 'JHS 1', subjectId: subject.id });
     const official = await fetch(`${base}/api/academic/score-entry/roster?${officialQuery}`, { headers });
@@ -217,6 +217,10 @@ test('durable Score Entry HTTP contract keeps empty, sample, validation, authori
       if (sql.includes('FROM academic_years')) return [{ id: 'ay_2026_01', name: '2026/2027' }];
       if (sql.includes('FROM terms')) return [{ id: 'term_2026_01', academicYearId: 'ay_2026_01', name: '1st Term' }];
       if (sql.includes('FROM classes WHERE school_id')) return [{ id: 'class_bs4_01', name: 'Basic 4' }];
+      if (sql.includes('FROM demo_student_class_assignments d')) return [
+        { studentId: 'demo-master-001', permanentStudentId: 'OSAAH/DEMO/001', firstName: 'Sample', surname: 'Student One', classId: 'class_bs4_01', schoolId },
+        { studentId: 'demo-master-002', permanentStudentId: 'OSAAH/DEMO/002', firstName: 'Sample', surname: 'Student Two', classId: 'class_bs4_01', schoolId }
+      ];
       if (sql.includes('FROM subject_class_assignments a JOIN subjects s') && sql.includes('WHERE a.school_id=? AND a.class_id=?')) return [{ id: 'subj_math', code: 'MATH', name: 'Mathematics', subjectType: 'CORE', isScoring: 1, subjectActive: 1, classId: 'class_bs4_01', className: 'Basic 4', academicYearId: null, assignmentActive: 1 }];
       if (sql.includes('FROM student_enrollments e JOIN students s')) {
         if (failRoster) throw new Error('database connection reset');
@@ -242,7 +246,7 @@ test('durable Score Entry HTTP contract keeps empty, sample, validation, authori
     const sample = await request({ ...context, sampleMode: 'true' });
     assert.equal(sample.status, 200);
     const sampleStudents = (await sample.json()).students;
-    assert.deepEqual(sampleStudents.map((student) => student.permanentStudentId), ['OSAAH-DEMO-001']);
+    assert.deepEqual(sampleStudents.map((student) => student.permanentStudentId), ['OSAAH/DEMO/001', 'OSAAH/DEMO/002']);
 
     const malformed = await request({ academicYearId: context.academicYearId, termId: context.termId, classId: context.classId });
     assert.equal(malformed.status, 400);
@@ -262,7 +266,7 @@ test('durable Score Entry HTTP contract keeps empty, sample, validation, authori
   }
 });
 
-test('durable sample Score Entry maps verified database IDs to the in-memory sample catalogue without widening teacher scope', async () => {
+test('durable sample Score Entry persists verified database assignments without widening teacher scope', async () => {
   const classId = 'class_jhs1_db';
   const subjectId = 'subject_math_db';
   const students = createStudentService({ schoolId });
@@ -276,6 +280,11 @@ test('durable sample Score Entry maps verified database IDs to the in-memory sam
       if (sql.includes('FROM academic_years')) return [{ id: 'ay_2026_01', name: '2026/2027' }];
       if (sql.includes('FROM terms')) return [{ id: 'term_2026_01', academicYearId: 'ay_2026_01', name: '1st Term' }];
       if (sql.includes('FROM classes WHERE school_id=? AND id=?')) return [{ id: classId, name: 'JHS 1' }];
+      if (sql.includes('FROM demo_student_class_assignments d')) return [
+        { studentId: 'demo-master-001', permanentStudentId: 'OSAAH/DEMO/001', firstName: 'Sample', surname: 'Student One', classId, schoolId },
+        { studentId: 'demo-master-002', permanentStudentId: 'OSAAH/DEMO/002', firstName: 'Sample', surname: 'Student Two', classId, schoolId }
+      ];
+      if (sql.includes('FROM student_profiles')) return [{ id: 'demo-profile-001' }];
       if (sql.includes('FROM subject_class_assignments a JOIN subjects s') && sql.includes('WHERE a.school_id=? AND a.class_id=?')) return [{ id: subjectId, code: 'MATH', name: 'Mathematics', subjectType: 'CORE', isScoring: 1, subjectActive: 1, classId, className: 'JHS 1', academicYearId: null, assignmentActive: 1 }];
       return [];
     },
@@ -295,12 +304,13 @@ test('durable sample Score Entry maps verified database IDs to the in-memory sam
     const rosterResponse = await fetch(`${base}/api/academic/score-entry/roster?${new URLSearchParams({ ...context, sampleMode: 'true' })}`, { headers });
     assert.equal(rosterResponse.status, 200);
     const roster = await rosterResponse.json();
-    assert.equal(roster.students.length, 1);
+    assert.equal(roster.students.length, 2);
+    assert.deepEqual(roster.students.map((student) => student.permanentStudentId), ['OSAAH/DEMO/001', 'OSAAH/DEMO/002']);
     const savedResponse = await fetch(`${base}/api/academic/scores`, { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ ...context, studentId: roster.students[0].studentId, caScore: 25, examScore: 35, sampleMode: true }) });
     assert.equal(savedResponse.status, 201);
     const saved = await savedResponse.json();
-    assert.equal(saved.studentIndexNumber, 'OSAAH-DEMO-001');
-    assert.equal(saved.classId, 'JHS 1', 'only the verified DB ID is translated at the in-memory sample-service boundary');
+    assert.equal(saved.permanentStudentId, 'OSAAH/DEMO/001');
+    assert.equal(saved.classId, classId, 'durable sample scores retain the verified TiDB class ID');
     assert.equal(saved.totalScore, 60);
 
     const denied = await fetch(`${base}/api/academic/scores`, { method: 'POST', headers: { Authorization: 'Bearer other-class', 'Content-Type': 'application/json' }, body: JSON.stringify({ ...context, studentId: roster.students[0].studentId, caScore: 25, examScore: 35, sampleMode: true }) });

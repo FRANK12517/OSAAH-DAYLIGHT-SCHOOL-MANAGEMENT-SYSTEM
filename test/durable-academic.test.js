@@ -17,6 +17,7 @@ function fakeDatabase() {
       if (sql.includes('FROM academic_years')) return [{ id: 'year-2026', name: '2026/2027', startsOn: '2026-09-01', endsOn: '2027-07-31', isCurrent: 1 }];
       if (sql.includes('FROM terms')) return [{ id: 'term-1', academicYearId: 'year-2026', name: 'First Term' }];
       if (sql.includes('FROM classes WHERE school_id')) return [{ id: 'class-basic-1', name: 'Basic 1' }];
+      if (sql.includes('FROM demo_student_class_assignments d')) return params[1] === 'class_bs4_01' ? [{ studentId: 'demo-master-001', permanentStudentId: 'OSAAH/DEMO/001', firstName: 'Sample', surname: 'Student One', classId: 'class_bs4_01', schoolId }] : [];
       if (sql.includes('FROM classes c JOIN levels')) return [{ id: 'class-basic-1', name: 'Basic 1', displayOrder: 1, levelName: 'LOWER_PRIMARY' }];
       if (sql.includes('FROM subjects WHERE')) return [{ id: 'subject-math', name: 'Mathematics' }];
       if (sql.includes('SELECT c.id,c.name FROM classes')) return [{ id: 'class-basic-1', name: 'Basic 1' }];
@@ -137,12 +138,33 @@ test('durable Sample Mode accepts production year, term, class, and subject IDs 
   const context = { academicYearId: 'ay_2026_01', termId: 'term_2026_01', classId: 'class_bs4_01', subjectId: 'subj_math' };
   const sampleRoster = await service.sampleScoreEntryRoster(context, teacher);
   assert.equal(sampleRoster.length, 1);
-  assert.equal(sampleRoster[0].permanentStudentId, 'OSAAH-DEMO-001');
+  assert.equal(sampleRoster[0].permanentStudentId, 'OSAAH/DEMO/001');
   assert.equal(sampleRoster[0].isTestRecord, true);
   assert.equal(sampleRoster[0].classId, 'class_bs4_01');
   assert.equal(sampleRoster[0].saved, false);
   await assert.rejects(() => service.sampleScoreEntryRoster({ ...context, subjectId: 'unassigned-subject' }, teacher), /Subject is invalid for this class and academic context/);
   await assert.rejects(() => service.sampleScoreEntryRoster(context, { ...teacher, assignedClassIds: ['another-class'] }), /outside your assignment/);
+});
+
+test('durable result generation resolves assigned demo students as test records', async () => {
+  const database = fakeDatabase();
+  const originalQuery = database.query.bind(database);
+  database.query = async (sql, params = []) => {
+    if (sql.includes('FROM academic_years')) return [{ id: 'year-2026', name: '2026/2027' }];
+    if (sql.includes('FROM terms')) return [{ id: 'term-1', academicYearId: 'year-2026', name: 'First Term' }];
+    if (sql.includes('FROM classes WHERE school_id')) return [{ id: 'class-basic-1', name: 'Basic 1' }];
+    if (sql.includes('FROM demo_student_class_assignments d')) return [{ studentId: 'demo-master-001', permanentStudentId: 'OSAAH/DEMO/001', firstName: 'Sample', surname: 'Student One', classId: 'class-basic-1', schoolId }];
+    if (sql.includes('FROM academic_score_records')) return [];
+    if (sql.includes('FROM academic_result_records')) return [];
+    return originalQuery(sql, params);
+  };
+  const service = createDurableAcademicService({ database, schoolId });
+  const actor = { ...manager, permissions: new Set(['results.read', 'results.generate', 'results.write', 'results.publish', 'subjects.read']) };
+  const students = await service.sampleResultStudents({ classId: 'class-basic-1', academicYear: '2026/2027', term: 'First Term' }, actor);
+  assert.deepEqual(students.map((student) => student.permanentStudentId), ['OSAAH/DEMO/001']);
+  const result = await service.result({ studentId: 'demo-master-001', classId: 'class-basic-1', academicYear: '2026/2027', term: 'First Term', sampleMode: true }, actor);
+  assert.equal(result.isSample, true);
+  assert.equal(result.studentIndexNumber, 'OSAAH/DEMO/001');
 });
 
 test('cross-school durable academic access is rejected', async () => {
@@ -364,9 +386,9 @@ test('Result-student roster retries legacy enrollment and student columns withou
   assert.equal(attempts.length, 4);
   assert.match(attempts[0], /enrollment_status/);
   assert.doesNotMatch(attempts[1], /enrollment_status|is_current/);
-  assert.match(attempts[2], /permanent_student_id NOT LIKE 'OSAAH-DEMO-%'/);
+  assert.match(attempts[2], /permanent_student_id NOT LIKE 'OSAAH\/DEMO\/%'/);
   assert.doesNotMatch(attempts[3], /student_status/);
-  assert.match(attempts[3], /permanent_student_id NOT LIKE 'OSAAH-DEMO-%'/);
+  assert.match(attempts[3], /permanent_student_id NOT LIKE 'OSAAH\/DEMO\/%'/);
 });
 
 test('Score Entry roster falls back when production enrollment status columns are absent', async () => {
@@ -420,7 +442,7 @@ test('Score Entry roster falls back to permanent-ID sample exclusion when studen
   const rosterQueries = calls.filter(({ sql }) => sql.includes('FROM student_enrollments e JOIN students s'));
   assert.equal(rosterQueries.length, 2);
   assert.match(rosterQueries[0].sql, /s\.is_test_record IS NOT TRUE/);
-  assert.match(rosterQueries[1].sql, /s\.permanent_student_id NOT LIKE 'OSAAH-DEMO-%'/);
+  assert.match(rosterQueries[1].sql, /s\.permanent_student_id NOT LIKE 'OSAAH\/DEMO\/%'/);
   assert.doesNotMatch(rosterQueries[1].sql, /is_test_record/);
 });
 

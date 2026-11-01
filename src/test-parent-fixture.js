@@ -1,7 +1,7 @@
 import { normalizeGhanaPhone } from './ghana-phone.js';
 
 export const TEST_PARENT_PHONE = '+233247293733';
-export const TEST_PARENT_STUDENT_IDS = Object.freeze(['OSAAH-DEMO-001', 'OSAAH-DEMO-002']);
+export const TEST_PARENT_STUDENT_IDS = Object.freeze(['OSAAH/DEMO/001', 'OSAAH/DEMO/002']);
 export const TEST_PARENT_ID = 'user-test-parent-sample';
 export const TEST_PARENT_SCHOOL_ID = 'school-osaah-daylight';
 

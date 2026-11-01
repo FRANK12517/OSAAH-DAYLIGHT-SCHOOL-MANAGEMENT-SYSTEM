@@ -23,6 +23,8 @@
     "test:integration": "node scripts/run-postgres-integration.mjs",
     "migration:apply": "node scripts/migrate.mjs apply",
     "migration:validate": "node scripts/migrate.mjs validate",
+    "demo-students:migrate": "node scripts/production-demo-student-migrate.mjs",
+    "demo-students:restore": "node scripts/production-demo-students.mjs",
     "production:three-terms": "node scripts/production-three-term-configure.mjs",
     "reconciliation:preflight": "node scripts/production-reconciliation-preflight.mjs",
     "admissions:migration-preflight": "node scripts/admission-workflow-migration-preflight.mjs",

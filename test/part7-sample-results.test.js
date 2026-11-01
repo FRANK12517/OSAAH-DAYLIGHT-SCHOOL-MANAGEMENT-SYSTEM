@@ -8,7 +8,7 @@ import { createSampleResultWorkflow } from '../src/sample-result-workflow.js';
 const SCHOOL_ID = 'school-osaah-daylight';
 const YEAR = '2026/2027';
 const TERMS = ['First Term', 'Second Term', 'Third Term'];
-const SAMPLE_IDS = ['OSAAH-DEMO-001', 'OSAAH-DEMO-002'];
+const SAMPLE_IDS = ['OSAAH/DEMO/001', 'OSAAH/DEMO/002'];
 const actor = {
   id: 'part7-sample-qa',
   roleKey: 'HEADTEACHER',
@@ -38,14 +38,14 @@ function saveInput(result, student) {
   };
 }
 
-test('canonical sample identities are unique and never accept slash-form duplicates', () => {
+test('canonical sample identities are unique and reject duplicates or malformed reserved IDs', () => {
   const { students, samples } = setup();
   assert.deepEqual(samples.map((student) => student.permanentStudentId), SAMPLE_IDS);
   assert.equal(new Set(samples.map((student) => student.permanentStudentId)).size, 2);
   assert.equal(students.listStudents().length, 0);
   assert.equal(students.listStudents({ includeTestRecords: true }).length, 2);
-  assert.throws(() => students.createStudent({ firstName: 'Duplicate', surname: 'Slash', permanentStudentId: 'OSAAH/DEM/0001', isTestRecord: true }), /malformed|permanent/i);
-  assert.throws(() => students.createStudent({ firstName: 'Duplicate', surname: 'Demo', permanentStudentId: 'OSAAH/DEMO/002', isTestRecord: true }), /malformed|permanent/i);
+  assert.throws(() => students.createStudent({ firstName: 'Duplicate', surname: 'Demo', permanentStudentId: 'OSAAH/DEMO/X-001', isTestRecord: true }), /malformed|permanent/i);
+  assert.throws(() => students.createStudent({ firstName: 'Duplicate', surname: 'Sample', permanentStudentId: 'OSAAH/DEMO/002', isTestRecord: true }), /Permanent Student ID already exists/);
 });
 
 test('both canonical samples generate, save, reload, and publish independently for all 13 classes and 3 terms', () => {

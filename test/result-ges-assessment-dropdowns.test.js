@@ -12,10 +12,12 @@ function loadResultView() {
   };
   const status = { textContent: '', dataset: {}, focus: noop };
   const host = { hidden: true, querySelectorAll: () => [], querySelector: () => null };
+  const retryOptions = { hidden: true, addEventListener: noop };
+  const retryStudents = { hidden: true, addEventListener: noop };
   const window = {};
   const context = {
     window,
-    document: { querySelector: (selector) => ({ '#result-context': form, '#status': status, '#result': host })[selector] },
+    document: { querySelector: (selector) => ({ '#result-context': form, '#status': status, '#result': host, '#retry-options': retryOptions, '#retry-students': retryStudents })[selector] },
     localStorage: { getItem: () => null, setItem: noop },
     fetch: () => new Promise(() => {}),
     URLSearchParams,
