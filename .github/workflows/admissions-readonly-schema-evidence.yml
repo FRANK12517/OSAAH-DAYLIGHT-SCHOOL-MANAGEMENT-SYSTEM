@@ -1,0 +1,195 @@
+name: Admissions read-only schema evidence
+
+on:
+  push:
+    branches:
+      - codex/admissions-readonly-schema-evidence
+    paths:
+      - .github/workflows/admissions-readonly-schema-evidence.yml
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Exact repository ref to inspect
+        required: true
+        default: main
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: admissions-readonly-schema-evidence
+  cancel-in-progress: false
+
+jobs:
+  inventory:
+    name: Read-only admissions schema and migration evidence
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - name: Check out requested ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_ref || github.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Confirm protected database secret is available
+        shell: bash
+        run: |
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "Protected DATABASE_URL is unavailable."
+            exit 1
+          fi
+          echo "Protected DATABASE_URL is available; value is not printed."
+
+      - name: Collect read-only admissions metadata
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import mysql from 'mysql2/promise';
+
+          const expectedDatabase = 'osaahdaylightschool';
+          const targetTables = [
+            'students',
+            'student_profiles',
+            'student_enrollments',
+            'student_id_sequences',
+            'admission_applications'
+          ];
+
+          function safeFailure(error) {
+            return {
+              ok: false,
+              error: {
+                code: error?.code ?? 'DATABASE_INVENTORY_FAILED',
+                errno: error?.errno ?? null,
+                sqlState: error?.sqlState ?? null
+              }
+            };
+          }
+
+          if (!process.env.DATABASE_URL) {
+            process.stdout.write(JSON.stringify({ ok: false, error: { code: 'DATABASE_URL_MISSING' } }) + '\n');
+            process.exit(1);
+          }
+
+          const pool = mysql.createPool({
+            uri: process.env.DATABASE_URL,
+            ssl: { minVersion: 'TLSv1.2', rejectUnauthorized: true },
+            waitForConnections: true,
+            connectionLimit: 1,
+            connectTimeout: 15000,
+            multipleStatements: false
+          });
+
+          try {
+            const [[dbRow]] = await pool.query('SELECT DATABASE() AS database_name');
+            const database = dbRow?.database_name ?? null;
+            if (database !== expectedDatabase) {
+              throw Object.assign(new Error('Connected database did not match the expected production database'), {
+                code: 'UNEXPECTED_DATABASE'
+              });
+            }
+
+            const [tableRows] = await pool.query(
+              `SELECT TABLE_NAME, TABLE_TYPE, ENGINE, TABLE_COLLATION
+               FROM information_schema.TABLES
+               WHERE TABLE_SCHEMA = DATABASE()
+                 AND (TABLE_NAME IN (?) OR LOWER(TABLE_NAME) LIKE '%migration%')
+               ORDER BY TABLE_NAME`,
+              [targetTables]
+            );
+
+            const [columnRows] = await pool.query(
+              `SELECT TABLE_NAME, ORDINAL_POSITION, COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE,
+                      COLUMN_DEFAULT, COLUMN_KEY, EXTRA
+               FROM information_schema.COLUMNS
+               WHERE TABLE_SCHEMA = DATABASE()
+                 AND (TABLE_NAME IN (?) OR LOWER(TABLE_NAME) LIKE '%migration%')
+               ORDER BY TABLE_NAME, ORDINAL_POSITION`,
+              [targetTables]
+            );
+
+            const [indexRows] = await pool.query(
+              `SELECT TABLE_NAME, INDEX_NAME, NON_UNIQUE, SEQ_IN_INDEX, COLUMN_NAME,
+                      COLLATION, SUB_PART, INDEX_TYPE
+               FROM information_schema.STATISTICS
+               WHERE TABLE_SCHEMA = DATABASE()
+                 AND (TABLE_NAME IN (?) OR LOWER(TABLE_NAME) LIKE '%migration%')
+               ORDER BY TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX`,
+              [targetTables]
+            );
+
+            const [constraintRows] = await pool.query(
+              `SELECT TABLE_NAME, CONSTRAINT_NAME, CONSTRAINT_TYPE
+               FROM information_schema.TABLE_CONSTRAINTS
+               WHERE CONSTRAINT_SCHEMA = DATABASE()
+                 AND TABLE_NAME IN (?)
+               ORDER BY TABLE_NAME, CONSTRAINT_NAME`,
+              [targetTables]
+            );
+
+            const [foreignKeyRows] = await pool.query(
+              `SELECT TABLE_NAME, COLUMN_NAME, CONSTRAINT_NAME,
+                      REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
+               FROM information_schema.KEY_COLUMN_USAGE
+               WHERE CONSTRAINT_SCHEMA = DATABASE()
+                 AND TABLE_NAME IN (?) AND REFERENCED_TABLE_NAME IS NOT NULL
+               ORDER BY TABLE_NAME, CONSTRAINT_NAME, ORDINAL_POSITION`,
+              [targetTables]
+            );
+
+            const ledgerTables = tableRows
+              .filter((row) => /migration/i.test(row.TABLE_NAME))
+              .map((row) => row.TABLE_NAME);
+
+            const ledgers = [];
+            for (const table of ledgerTables) {
+              const columns = columnRows
+                .filter((row) => row.TABLE_NAME === table)
+                .map((row) => row.COLUMN_NAME);
+              const safeColumns = columns.filter((name) =>
+                /version|migration|checksum|hash|applied|executed|filename|file_name|created|timestamp|success|status/i.test(name)
+              );
+              if (!safeColumns.length) {
+                ledgers.push({ table, columns, rows: 'NOT_QUERIED_NO_RECOGNIZED_LEDGER_COLUMNS' });
+                continue;
+              }
+              const quote = (name) => '`' + name.replace(/`/g, '``') + '`';
+              const quotedTable = quote(table);
+              const quotedColumns = safeColumns.map(quote).join(', ');
+              const [rows] = await pool.query(`SELECT ${quotedColumns} FROM ${quotedTable} LIMIT 5000`);
+              ledgers.push({ table, selectedColumns: safeColumns, rows });
+            }
+
+            const result = {
+              ok: true,
+              connectedDatabase: database,
+              expectedDatabase,
+              inventoryScope: 'information_schema metadata plus migration-ledger metadata only; no student, guardian, or application records queried',
+              tables: tableRows,
+              columns: columnRows,
+              indexes: indexRows,
+              constraints: constraintRows,
+              foreignKeys: foreignKeyRows,
+              migrationLedgers: ledgers
+            };
+            process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+          } catch (error) {
+            process.stdout.write(JSON.stringify(safeFailure(error), null, 2) + '\n');
+            process.exitCode = 1;
+          } finally {
+            await pool.end();
+          }
+          NODE
