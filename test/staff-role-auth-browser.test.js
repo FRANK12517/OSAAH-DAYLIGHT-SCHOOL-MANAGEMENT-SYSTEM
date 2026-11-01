@@ -17,7 +17,7 @@ const CHROMIUM_EXECUTABLE_PATH = [
   '/usr/bin/chromium'
 ].find((candidate) => candidate && existsSync(candidate));
 const ROLE_FLOWS = [
-  { name: 'proprietor', roleKey: 'PROPRIETOR', route: '/reports', identifier: 'username' },
+  { name: 'proprietor', roleKey: 'PROPRIETOR', route: '/', identifier: 'username' },
   { name: 'administrator', roleKey: 'SCHOOL_ADMIN', route: '/settings', identifier: 'username' },
   { name: 'headteacher', roleKey: 'HEADTEACHER', route: '/academics', identifier: 'username' },
   { name: 'assistant-headteacher', roleKey: 'ASSISTANT_HEADTEACHER', route: '/academics', identifier: 'username' },
@@ -124,6 +124,16 @@ test('synthetic local staff browser matrix verifies redirects, sessions, RBAC, a
         await page.goto(baseUrl);
         await page.waitForURL((url) => url.pathname === flow.route, { timeout: 10_000 });
         await page.locator('.workspace .topbar .eyebrow').filter({ hasText: roleLandmark }).waitFor();
+
+        if (flow.roleKey === 'PROPRIETOR') {
+          stage = 'open Reports and use its Dashboard breadcrumb';
+          await page.getByRole('button', { name: /REPORTS & ANALYTICS/ }).click();
+          await page.locator('[data-module="reports"]').click();
+          await page.waitForURL((url) => url.pathname === '/reports', { timeout: 10_000 });
+          await page.frameLocator('#module-frame').locator('.text-button').click();
+          await page.waitForURL((url) => url.pathname === '/', { timeout: 10_000 });
+          await page.locator('#dashboard-overview').waitFor({ state: 'visible' });
+        }
 
         stage = 'verify logout';
         await page.locator('[data-module="logout"]').click();

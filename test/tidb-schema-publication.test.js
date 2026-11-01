@@ -5,6 +5,7 @@ import test from 'node:test';
 import { buildTiDBSchemaEvidenceArtifacts } from '../scripts/publish-tidb-schema-evidence.mjs';
 
 const root = resolve(import.meta.dirname, '..');
+const normalizeLineEndings = (text) => text.replace(/\r\n?/g, '\n');
 const manifest = JSON.parse(await readFile(resolve(root, 'docs/tidb-schema-requirements-manifest.json'), 'utf8'));
 const artifacts = buildTiDBSchemaEvidenceArtifacts(manifest);
 
@@ -40,7 +41,7 @@ test('authoritative schema publication fails closed while domain contracts remai
 
 test('published evidence docs match the deterministic source manifest', async () => {
   for (const [relativePath, expected] of artifacts) {
-    assert.equal(await readFile(resolve(root, relativePath), 'utf8'), expected, `${relativePath} needs regeneration`);
+    assert.equal(normalizeLineEndings(await readFile(resolve(root, relativePath), 'utf8')), normalizeLineEndings(expected), `${relativePath} needs regeneration`);
   }
 });
 
