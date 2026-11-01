@@ -6,8 +6,13 @@ Part 28 identified structural routing defects. Part 29 repaired the application 
 
 | Measure | Result |
 |---|---:|
+<<<<<<< Updated upstream
 | Role/destination records | 230 |
 | Component-target passes | 230 |
+=======
+| Role/destination records | 229 |
+| Component-target passes | 229 |
+>>>>>>> Stashed changes
 | Missing-component blockers | 0 |
 | Shared-route contracts | 0 |
 | Incorrect shared-route blockers | 0 |

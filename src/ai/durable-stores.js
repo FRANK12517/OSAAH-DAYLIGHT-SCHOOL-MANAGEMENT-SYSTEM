@@ -9,6 +9,38 @@ function database(adapter) { if (!adapter || typeof adapter.query !== 'function'
 function safeDatabaseError(cause, code = 'PERSISTENCE_UNAVAILABLE') { if (cause?.code === code || cause?.code === 'IDEMPOTENCY_CONFLICT') return cause; return Object.assign(new Error('Durable persistence is unavailable.'), { code, status: 503 }); }
 function parse(value, fallback = null) { if (value === null || value === undefined || value === '') return fallback; try { return JSON.parse(value); } catch { return fallback; } }
 
+<<<<<<< HEAD
+function databaseAdapterModule(environment) {
+  const selected = environment.OSAAH_DATABASE_ADAPTER;
+  const postgresUrl = environment.OSAAH_POSTGRES_URL || environment.POSTGRES_URL;
+  const tidbUrl = environment.DATABASE_URL;
+  if (selected !== undefined && !['postgres', 'tidb'].includes(selected)) {
+    fail('DATABASE_ADAPTER_INVALID', 'OSAAH_DATABASE_ADAPTER must be either postgres or tidb.');
+  }
+  if (selected === 'tidb') {
+    if (postgresUrl) fail('DATABASE_CONFIGURATION_CONFLICT', 'TiDB selection conflicts with a configured PostgreSQL URL.');
+    if (!tidbUrl) fail('DATABASE_URL_REQUIRED', 'DATABASE_URL is required when OSAAH_DATABASE_ADAPTER=tidb.');
+    let url;
+    try { url = new URL(tidbUrl); } catch { fail('DATABASE_URL_INVALID', 'DATABASE_URL is not a valid TiDB/MySQL connection URL.'); }
+    if (url.protocol !== 'mysql:' || !url.hostname || !url.port || !url.username || !url.password || url.pathname !== '/osaahdaylightschool') {
+      fail('DATABASE_URL_INVALID', 'TiDB selection requires a mysql:// URL with username, password, host, port, and database osaahdaylightschool.');
+    }
+    return fileURLToPath(new URL('./tidb-database-adapter.js', import.meta.url));
+  }
+  if (selected === 'postgres') {
+    if (tidbUrl && (!postgresUrl || tidbUrl !== postgresUrl)) fail('DATABASE_CONFIGURATION_CONFLICT', 'PostgreSQL selection conflicts with DATABASE_URL.');
+    if (!postgresUrl) fail('POSTGRES_URL_REQUIRED', 'OSAAH_POSTGRES_URL or POSTGRES_URL is required when OSAAH_DATABASE_ADAPTER=postgres.');
+  } else if (tidbUrl && !postgresUrl) {
+    fail('DATABASE_ADAPTER_REQUIRED', 'Set OSAAH_DATABASE_ADAPTER=tidb to select TiDB/MySQL explicitly.');
+  } else if (tidbUrl && postgresUrl && tidbUrl !== postgresUrl) {
+    fail('DATABASE_CONFIGURATION_CONFLICT', 'Database URLs are both configured; select one adapter and remove the conflicting URL.');
+  }
+  if (postgresUrl) {
+    if (!/^\s*postgres(?:ql)?:/i.test(postgresUrl)) fail('DATABASE_URL_INVALID', 'PostgreSQL runtime URL must use the postgres:// or postgresql:// scheme.');
+    return fileURLToPath(new URL('./postgres-database-adapter.js', import.meta.url));
+  }
+  return null;
+=======
 function postgresConnectionString(value) { return typeof value === 'string' && /^\s*postgres(?:ql)?:/i.test(value); }
 function mysqlConnectionString(value) { return typeof value === 'string' && /^\s*mysql(?:2)?:/i.test(value); }
 export function inspectDatabaseConfiguration({ environment = process.env } = {}) {
@@ -78,6 +110,7 @@ function configuredDatabaseAdapterModule(environment) {
   if (databaseUrl && !mysqlDatabaseUrl) fail('DATABASE_URL_INVALID', 'DATABASE_URL must use mysql:// or mysql2://.');
   if (!databaseUrl) return null;
   return fileURLToPath(new URL('./tidb-database-adapter.js', import.meta.url));
+>>>>>>> origin/main
 }
 
 const AUDIT_INSERT = `INSERT INTO ai_audit_logs (id,request_id,correlation_id,occurred_at,event_type,severity,school_id,user_id,role_key,capability_id,tool_name,operation_type,authorization_result,data_scope_json,production_data_only,data_quality_status,request_status,duration_ms,provider,model,input_tokens,output_tokens,total_tokens,estimated_cost,error_code,action_requested,action_executed,approval_user_id,rejection_user_id,action_decision_at,target_record_id,rollback_reference_id,environment,metadata_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
@@ -113,8 +146,12 @@ export function selectAIPersistence({ environment = process.env.NODE_ENV ?? 'dev
 }
 
 export async function loadConfiguredAIPersistence({ environment = process.env } = {}) {
+<<<<<<< HEAD
+  const runtime = environment.NODE_ENV ?? 'development', modulePath = databaseAdapterModule(environment);
+=======
   const runtime = environment.NODE_ENV ?? 'development', modulePath = configuredDatabaseAdapterModule(environment);
   if (!modulePath && runtime === 'production') fail('TIDB_DATABASE_URL_REQUIRED', 'Production requires TiDB configuration for durable persistence.');
+>>>>>>> origin/main
   if (!modulePath) return selectAIPersistence({ environment: runtime, allowMemory: runtime !== 'production' });
   try {
     const loaded = await import(pathToFileURL(resolve(modulePath)));
@@ -128,8 +165,13 @@ export async function loadConfiguredAIPersistence({ environment = process.env } 
 }
 
 export async function loadConfiguredDatabaseAdapter({ environment = process.env, required = false } = {}) {
+<<<<<<< HEAD
+  const modulePath = databaseAdapterModule(environment);
+  if (!modulePath && required) fail('DATABASE_ADAPTER_REQUIRED', 'Configure OSAAH_DATABASE_ADAPTER and its matching database URL for application startup.');
+=======
   const modulePath = configuredDatabaseAdapterModule(environment);
   if (!modulePath && required) fail('TIDB_DATABASE_URL_REQUIRED', 'Configure DATABASE_URL for the TiDB database osaahdaylightschool.');
+>>>>>>> origin/main
   if (!modulePath) return null;
   const loaded = await import(pathToFileURL(resolve(modulePath)));
   return loaded.createDatabaseAdapter?.({ environment }) ?? null;
