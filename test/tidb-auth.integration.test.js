@@ -116,6 +116,7 @@ test('approved isolated TiDB authentication integration: staff roles, Parent pho
     const unauthenticatedChildren = await request(server, '/api/parent/children');
     assert.equal(unauthenticatedChildren.status, 401);
 
+<<<<<<< Updated upstream
     const codeRequest = await request(server, '/api/auth/parent/request-code', {
       method: 'POST', body: { phone: environment.OSAAH_TIDB_TEST_PARENT_PHONE }
     });
@@ -126,6 +127,12 @@ test('approved isolated TiDB authentication integration: staff roles, Parent pho
       method: 'POST', body: { phone: environment.OSAAH_TIDB_TEST_PARENT_PHONE, challengeId: safeJson(codeRequest).challengeId, code: deliveredCode }
     });
     assert.equal(parentLogin.status, 200, 'The pre-provisioned Parent test account must verify its OTP.');
+=======
+    const parentLogin = await request(server, '/api/auth/login', {
+      method: 'POST', body: { portal: 'parent', phone: environment.OSAAH_TIDB_TEST_PARENT_PHONE }
+    });
+    assert.equal(parentLogin.status, 200, 'The pre-provisioned phone-only Parent test account must authenticate.');
+>>>>>>> Stashed changes
     const parentBody = safeJson(parentLogin);
     assert.equal(parentBody.user.roleKey, 'PARENT');
     assert.equal(parentBody.redirectTo, '/');

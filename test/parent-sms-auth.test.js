@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+<<<<<<< Updated upstream
 import { EventEmitter } from 'node:events';
+=======
+import { readFile } from 'node:fs/promises';
+import { createServer, request as httpRequest } from 'node:http';
+import { PGlite } from '@electric-sql/pglite';
+>>>>>>> Stashed changes
 import { createParentSmsAuthService } from '../src/parent-sms-auth.js';
 import { createApp } from '../src/server.mjs';
 
@@ -9,6 +15,7 @@ const PARENT_ID = '97324d93-d2cd-11f1-acd1-4ad4f02e631a';
 const SCHOOL_ID = 'sch_default_01';
 const SECRET = 'test-only-hmac-secret-with-at-least-32-characters';
 
+<<<<<<< Updated upstream
 function post(app, path, body) {
   const request = new EventEmitter();
   request.url = path; request.method = 'POST'; request.headers = { 'content-type': 'application/json' }; request.socket = { remoteAddress: '127.0.0.1' };
@@ -18,6 +25,22 @@ function post(app, path, body) {
   return Promise.resolve(pending).then(() => ({ status: response.statusCode, body: JSON.parse(response.content || '{}'), cookie: response.headers?.['Set-Cookie'] }));
 }
 function fixture({ eligible = true, dialect = 'tidb', failInsert = false } = {}) {
+=======
+function post(server, path, body) {
+  return new Promise((resolve, reject) => {
+    const request = httpRequest({ port: server.address().port, host: '127.0.0.1', path, method: 'POST', headers: { 'content-type': 'application/json' } }, (response) => {
+      let content = '';
+      response.setEncoding('utf8');
+      response.on('data', (chunk) => { content += chunk; });
+      response.on('end', () => resolve({ status: response.statusCode, body: JSON.parse(content || '{}'), cookie: response.headers['set-cookie'] }));
+    });
+    request.on('error', reject);
+    request.end(JSON.stringify(body));
+  });
+}
+
+function fixture({ eligible = true, dialect = 'postgres', failInsert = false } = {}) {
+>>>>>>> Stashed changes
   const state = { challenges: [], buckets: new Map(), sends: [], statements: [], parent: { userId: PARENT_ID, schoolId: SCHOOL_ID, phone: PHONE, phoneMatchCount: 1 } };
   let transactionQueue = Promise.resolve();
   const db = {
@@ -207,6 +230,7 @@ test('database failure rolls back challenge and rate-limit writes', async () => 
   assert.equal(state.buckets.size, 0);
 });
 
+<<<<<<< Updated upstream
 test('legacy PostgreSQL parent-auth database configuration is not accepted', async () => {
   let calls = 0;
   const database = { dialect: 'postgres', supportsDurableAuthSessions: true, async query() { calls += 1; return []; }, async execute() { calls += 1; }, async transaction() { calls += 1; } };
@@ -251,4 +275,100 @@ test('Parent phone-only login is denied and OTP verification creates the only Pa
   assert.equal(logins[0].verifiedOtp, true);
   assert.equal(logins[0].phone, PHONE);
   assert.equal(logins[0].portal, 'parent');
+=======
+test('PostgreSQL challenge migration applies repeatedly to an isolated PGlite database', async () => {
+  const pg = new PGlite();
+  try {
+    await pg.exec('CREATE TABLE public.schools (id varchar(64) PRIMARY KEY); CREATE TABLE public.users (id varchar(64) PRIMARY KEY);');
+    const migration = await readFile(new URL('../supabase/migrations/202610280001_parent_sms_auth.sql', import.meta.url), 'utf8');
+    await pg.exec(migration);
+    await pg.exec(migration);
+    const tables = await pg.query("SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name LIKE 'parent_auth_%' ORDER BY table_name");
+    assert.deepEqual(tables.rows.map((row) => row.table_name), ['parent_auth_challenges', 'parent_auth_rate_limits']);
+    const security = await pg.query("SELECT c.relrowsecurity AS enabled FROM pg_class c WHERE c.relname IN ('parent_auth_challenges','parent_auth_rate_limits') ORDER BY c.relname");
+    assert.deepEqual(security.rows.map((row) => row.enabled), [true, true]);
+  } finally { await pg.close(); }
+});
+
+test('PGlite exercises the PostgreSQL challenge queries, rate limits, and atomic consumption', async () => {
+  const pg = new PGlite();
+  try {
+    await pg.exec(`CREATE TABLE public.schools (id varchar(64) PRIMARY KEY);
+      CREATE TABLE public.users (id varchar(64) PRIMARY KEY,school_id varchar(64) NOT NULL,phone varchar(32) NOT NULL,status varchar(24) NOT NULL,username varchar(128),email varchar(128));
+      CREATE TABLE public.roles (id varchar(64) PRIMARY KEY,school_id varchar(64) NOT NULL,role_key varchar(64) NOT NULL);
+      CREATE TABLE public.user_roles (user_id varchar(64) NOT NULL,role_id varchar(64) NOT NULL);
+      CREATE TABLE public.students (id varchar(64) PRIMARY KEY,school_id varchar(64) NOT NULL,student_status varchar(24) NOT NULL);
+      CREATE TABLE public.student_profiles (id varchar(64) PRIMARY KEY,school_id varchar(64) NOT NULL,student_master_id varchar(64) NOT NULL);
+      CREATE TABLE public.parent_student_links (parent_user_id varchar(64) NOT NULL,student_id varchar(64) NOT NULL,link_status varchar(24) NOT NULL);
+      INSERT INTO schools VALUES ('sch_default_01');
+      INSERT INTO users(id,school_id,phone,status,username,email) VALUES ('${PARENT_ID}','${SCHOOL_ID}','0247293733','ACTIVE','parent','parent@example.invalid');
+      INSERT INTO roles VALUES ('role-parent','${SCHOOL_ID}','PARENT');
+      INSERT INTO user_roles VALUES ('${PARENT_ID}','role-parent');
+      INSERT INTO students VALUES ('student-master','${SCHOOL_ID}','ACTIVE');
+      INSERT INTO student_profiles VALUES ('stud_sample_01','${SCHOOL_ID}','student-master');
+      INSERT INTO parent_student_links VALUES ('${PARENT_ID}','stud_sample_01','ACTIVE');`);
+    const migration = await readFile(new URL('../supabase/migrations/202610280001_parent_sms_auth.sql', import.meta.url), 'utf8');
+    await pg.exec(migration);
+    const aliases = (sql, rows) => {
+      const names = [...sql.matchAll(/\bAS\s+([A-Za-z_][A-Za-z0-9_]*)/g)].map((match) => match[1]);
+      return rows.map((source) => {
+        const row = { ...source };
+        for (const name of names) if (Object.hasOwn(row, name.toLowerCase()) && name !== name.toLowerCase()) { row[name] = row[name.toLowerCase()]; delete row[name.toLowerCase()]; }
+        return row;
+      });
+    };
+    const bind = (sql) => sql.replace(/\?/g, (_, offset) => `$${(sql.slice(0, offset).match(/\?/g)?.length ?? 0) + 1}`);
+    const query = async (sql, values = []) => {
+      const result = await pg.query(bind(sql), values);
+      return aliases(sql, result.rows);
+    };
+    const execute = async (sql, values = []) => { const result = await pg.query(bind(sql), values); return { affectedRows: result.affectedRows ?? result.rowCount ?? 0 }; };
+    const database = { dialect: 'postgres', supportsDurableAuthSessions: true, query, execute, async transaction(work) {
+      await pg.exec('BEGIN');
+      const tx = { query, execute };
+      try { const value = await work(tx); await pg.exec('COMMIT'); return value; }
+      catch (error) { await pg.exec('ROLLBACK'); throw error; }
+    } };
+    const gateway = { configured: true, async send() {} };
+    const service = createParentSmsAuthService({ database, gateway, schoolId: SCHOOL_ID, environment: { OSAAH_PARENT_OTP_HMAC_SECRET: SECRET }, codeGenerator: () => '123456' });
+    const requested = await service.requestCode({ phone: PHONE, ipAddress: '127.0.0.1' });
+    assert.equal(requested.status, 202);
+    assert.equal((await service.verifyCode({ phone: PHONE, code: '123456', challengeId: requested.body.challengeId, ipAddress: '127.0.0.1' })).ok, true);
+    assert.equal((await service.verifyCode({ phone: PHONE, code: '123456', challengeId: requested.body.challengeId, ipAddress: '127.0.0.1' })).ok, false);
+    const challenge = await pg.query('SELECT code_digest,consumed_at FROM parent_auth_challenges WHERE id=$1', [requested.body.challengeId]);
+    assert.notEqual(challenge.rows[0].code_digest, '123456');
+    assert.ok(challenge.rows[0].consumed_at);
+  } finally { await pg.close(); }
+});
+
+test('Parent login accepts a registered phone only and has no SMS challenge routes', async (t) => {
+  const logins = [];
+  const auth = {
+    sessionTtlMs: 60_000,
+    async authenticateAsync() { return null; },
+    async loginParentByPhone(input) {
+      logins.push(input);
+      return { ok: true, token: 'server-issued-token', user: { id: PARENT_ID, portal: 'parent', roleKey: 'PARENT', sessionId: 'session-1' }, redirectTo: '/', expiresAt: Date.now() + 60_000 };
+    }
+  };
+  const server = createServer(createApp({ auth }));
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve())));
+
+  const login = await post(server, '/api/auth/login', { portal: 'parent', phone: PHONE, password: 'must-not-be-used', code: '123456', role: 'PROPRIETOR' });
+  assert.equal(login.status, 200);
+  assert.equal(login.body.redirectTo, '/');
+  assert.match(login.cookie?.[0] ?? '', /^osaah_session=server-issued-token; HttpOnly/);
+  assert.equal(logins.length, 1);
+  assert.deepEqual(Object.keys(logins[0]).sort(), ['diagnosticContext', 'phone']);
+  assert.equal(logins[0].phone, PHONE);
+
+  const requestOtp = await post(server, '/api/auth/parent/request-code', { phone: PHONE });
+  const verifyOtp = await post(server, '/api/auth/parent/verify-code', { phone: PHONE, code: '123456' });
+  assert.equal(requestOtp.status, 401);
+  assert.equal(verifyOtp.status, 401);
+  assert.equal(logins.length, 1);
+  const serverSource = await readFile(new URL('../src/server.mjs', import.meta.url), 'utf8');
+  assert.doesNotMatch(serverSource, /\/api\/auth\/parent\/(?:request-code|verify-code)/);
+>>>>>>> Stashed changes
 });

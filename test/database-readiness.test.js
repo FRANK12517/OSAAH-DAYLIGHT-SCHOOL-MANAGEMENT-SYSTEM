@@ -89,14 +89,23 @@ test('database configuration readiness identifies missing TiDB settings and a Po
   assert.doesNotMatch(JSON.stringify(conflict), /secret|postgresql:\/\//);
 });
 
+<<<<<<< Updated upstream
 test('mixed PostgreSQL and TiDB URLs are rejected without exposing either URL', async () => {
+=======
+test('unselected mixed PostgreSQL and TiDB URLs are identified as a runtime precedence warning', async () => {
+>>>>>>> Stashed changes
   const result = await inspectDatabaseConfiguration({ environment: {
     DATABASE_URL: 'mysql://sample-user:sample-password@tidb-test.example.invalid:4000/osaahdaylightschool',
     OSAAH_POSTGRES_URL: 'postgresql://sample:sample@pg.example.invalid/osaah'
   } });
+<<<<<<< Updated upstream
   assert.equal(result.configurationStatus, 'CONFIGURATION_INVALID');
   assert.deepEqual(result.conflicts, ['DATABASE_CONFIGURATION_CONFLICT']);
   assert.equal(result.selectedAdapter, null);
+=======
+  assert.equal(result.selectedAdapter, 'postgres');
+  assert.ok(result.warnings.includes('POSTGRES_RUNTIME_URL_TAKES_PRECEDENCE_OVER_DATABASE_URL'));
+>>>>>>> Stashed changes
   assert.doesNotMatch(JSON.stringify(result), /sample-password|mysql:\/\/|postgresql:\/\//);
 });
 
@@ -113,8 +122,12 @@ test('database readiness detects differing connection overrides without revealin
     'DATABASE_SOURCES_DIFFER',
     'PORT_SOURCES_DIFFER',
     'USERNAME_SOURCES_DIFFER',
+<<<<<<< Updated upstream
     'PASSWORD_SOURCES_DIFFER',
     'DATABASE_NAME_MISMATCH'
+=======
+    'PASSWORD_SOURCES_DIFFER'
+>>>>>>> Stashed changes
   ]);
   assert.doesNotMatch(JSON.stringify(result), /another-host|different-user|different-password|sample-password/);
 });

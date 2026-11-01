@@ -1,6 +1,9 @@
 import { createHash, createHmac, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
 import { normalizeGhanaPhone } from './ghana-phone.js';
+<<<<<<< Updated upstream
 import { tidbInsertIfAbsent } from './tidb-conflict.js';
+=======
+>>>>>>> Stashed changes
 
 const PURPOSE = 'PARENT_LOGIN';
 const SCHOOL_ID = 'sch_default_01';
@@ -33,10 +36,21 @@ function equalDigest(a, b) {
 
 export function createParentSmsAuthService({ database, gateway, schoolId = SCHOOL_ID, environment = process.env, clock = () => Date.now(), codeGenerator = () => String(randomInt(0, 1_000_000)).padStart(6, '0') } = {}) {
   const secret = String(environment.OSAAH_PARENT_OTP_HMAC_SECRET ?? '');
+<<<<<<< Updated upstream
   const configured = Boolean(database?.dialect === 'tidb' && database?.query && database?.execute && database?.transaction && database?.supportsDurableAuthSessions && gateway?.configured && typeof gateway.send === 'function' && secret.length >= 32 && schoolId === SCHOOL_ID);
   const nowIso = () => timestamp(clock());
   const makeBucketId = (scope, value) => createHash('sha256').update(`${scope}\0${value}`).digest('hex');
   const upsertBucket = async (tx, id, now) => tidbInsertIfAbsent(tx, { insertSql: 'INSERT INTO parent_auth_rate_limits (bucket_hash,window_started_at,request_count,updated_at) VALUES (?,?,0,?)', insertParameters: [id, now, now], conflictSql: 'SELECT bucket_hash FROM parent_auth_rate_limits WHERE bucket_hash=?', conflictParameters: [id] });
+=======
+  const configured = Boolean(database?.query && database?.execute && database?.transaction && database?.supportsDurableAuthSessions && gateway?.configured && typeof gateway.send === 'function' && secret.length >= 32 && schoolId === SCHOOL_ID);
+  const nowIso = () => timestamp(clock());
+  const makeBucketId = (scope, value) => createHash('sha256').update(`${scope}\0${value}`).digest('hex');
+  const upsertBucket = async (tx, id, now) => {
+    if (database.dialect === 'postgres') await tx.execute('INSERT INTO parent_auth_rate_limits (bucket_hash,window_started_at,request_count,updated_at) VALUES (?,?,0,?) ON CONFLICT (bucket_hash) DO NOTHING', [id, now, now]);
+    else if (database.dialect === 'tidb') await tx.execute('INSERT IGNORE INTO parent_auth_rate_limits (bucket_hash,window_started_at,request_count,updated_at) VALUES (?,?,0,?)', [id, now, now]);
+    else throw Object.assign(new Error('Database dialect is unavailable.'), { code: 'AUTH_DATABASE_DIALECT_UNAVAILABLE' });
+  };
+>>>>>>> Stashed changes
   async function takeRateLimits(tx, buckets, nowMs) {
     const now = timestamp(nowMs);
     for (const bucket of buckets) await upsertBucket(tx, bucket.id, now);
@@ -159,3 +173,7 @@ export function createParentSmsAuthService({ database, gateway, schoolId = SCHOO
   }
   return Object.freeze({ configured, requestCode, verifyCode });
 }
+<<<<<<< Updated upstream
+=======
+
+>>>>>>> Stashed changes
