@@ -1,0 +1,50 @@
+name: Release verification
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [codex/tidb-only-runtime]
+
+permissions:
+  contents: read
+
+jobs:
+  release-verification:
+    name: Release tests and safety checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out source and comparison history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Run focused authentication, routing, TiDB, migration, and admissions tests
+        run: >-
+          node --test
+          test/auth-session-diagnostics.test.js
+          test/executive-intelligence.test.js
+          test/all-role-routing.test.js
+          test/staff-authentication-part3.test.js
+          test/serverless-auth-session.test.js
+          test/auth-request-token-extraction.test.js
+          test/tidb-database-adapter.test.js
+          test/migration-runner.test.js
+          test/admissions-role-model.test.js
+      - name: Run executive authorization and role routing tests
+        run: node --test test/executive-intelligence.test.js test/all-role-routing.test.js
+      - name: Run complete automated test suite
+        run: npm test
+      - name: Validate migration inventory
+        run: npm run migration:validate
+      - name: Verify protected login assets
+        run: npm run assets:verify
+      - name: Check release diff formatting
+        run: git diff --check origin/main...HEAD
