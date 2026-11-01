@@ -7,12 +7,9 @@ export function createParentLoginDatabase({ user = createConfiguredTestParent(),
     dialect: 'tidb',
     supportsDurableAuthSessions: true,
     async query(sql, params = []) {
-<<<<<<< Updated upstream
       if (/FROM terms t JOIN academic_years/i.test(sql)) return [{ id: 'term-1', academicYearId: 'year-1', name: 'Term 1', startsOn: '2026-01-01', endsOn: '2026-04-01', isCurrent: true }];
       if (/FROM academic_years/i.test(sql)) return [{ id: 'year-1', name: '2026/2027', startsOn: '2026-01-01', endsOn: '2026-12-31', isCurrent: true }];
       if (/FROM classes c/i.test(sql)) return [{ id: 'class-1', name: 'Basic 1', displayOrder: 1, levelName: 'Primary 1' }];
-=======
->>>>>>> Stashed changes
       if (/FROM users u JOIN schools school/i.test(sql)) return rows ?? [{
         id: user.id, schoolId: user.schoolId, username: user.username, email: user.email,
         status: 'ACTIVE', parentPhone: user.phone ?? TEST_PARENT_PHONE, phoneMatchCount: 1

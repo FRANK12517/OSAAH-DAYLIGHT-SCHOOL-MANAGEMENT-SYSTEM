@@ -191,55 +191,6 @@ test('application adapter loads TiDB when the runtime explicitly selects it', as
   await adapter.close();
 });
 
-<<<<<<< HEAD
-test('Vercel PostgreSQL integration URL configures the runtime when the app-specific URL is absent', async () => {
-  const adapter = await loadConfiguredDatabaseAdapter({ environment: { POSTGRES_URL: environment.OSAAH_POSTGRES_URL } });
-  assert.equal(typeof adapter?.transaction, 'function');
-  assert.equal(typeof adapter?.healthCheck, 'function');
-  await adapter.close();
-});
-
-test('application adapter requires explicit TiDB selection for a MySQL DATABASE_URL', async () => {
-  await assert.rejects(
-    () => loadConfiguredDatabaseAdapter({ environment: { DATABASE_URL: 'mysql://user:password@localhost:4000/osaah' } }),
-    (error) => error.code === 'DATABASE_ADAPTER_REQUIRED' && !error.message.includes('password')
-  );
-});
-
-test('explicit TiDB selection loads the existing MySQL adapter without connecting or exposing credentials', async () => {
-  const adapter = await loadConfiguredDatabaseAdapter({ environment: {
-    OSAAH_DATABASE_ADAPTER: 'tidb',
-    DATABASE_URL: 'mysql://user:secret@db.example.test:4000/osaahdaylightschool?ssl=true'
-  } });
-  assert.equal(typeof adapter?.transaction, 'function');
-  assert.equal(typeof adapter?.healthCheck, 'function');
-  await adapter.close();
-});
-
-test('database adapter selection rejects invalid, conflicting, and malformed configuration', async () => {
-  const invalid = [
-    { OSAAH_DATABASE_ADAPTER: 'mysql', DATABASE_URL: 'mysql://db.example/osaah' },
-    { OSAAH_DATABASE_ADAPTER: 'tidb', OSAAH_POSTGRES_URL: environment.OSAAH_POSTGRES_URL, DATABASE_URL: 'mysql://db.example/osaah' },
-    { OSAAH_DATABASE_ADAPTER: 'tidb', DATABASE_URL: 'postgresql://db.example/osaah' },
-    { OSAAH_DATABASE_ADAPTER: 'tidb', DATABASE_URL: 'mysql://user:secret@[' },
-    { OSAAH_DATABASE_ADAPTER: 'tidb', DATABASE_URL: 'mysql://user:secret@db.example.test:4000/other_database' },
-    { OSAAH_DATABASE_ADAPTER: 'postgres', OSAAH_POSTGRES_URL: environment.OSAAH_POSTGRES_URL, DATABASE_URL: 'mysql://db.example/osaah' }
-  ];
-  const codes = ['DATABASE_ADAPTER_INVALID', 'DATABASE_CONFIGURATION_CONFLICT', 'DATABASE_URL_INVALID', 'DATABASE_URL_INVALID', 'DATABASE_URL_INVALID', 'DATABASE_CONFIGURATION_CONFLICT'];
-  for (const [index, value] of invalid.entries()) {
-    await assert.rejects(() => loadConfiguredDatabaseAdapter({ environment: value }), (error) => error.code === codes[index] && !error.message.includes('secret'));
-  }
-});
-
-test('application adapter rejects legacy DATABASE_URL and requires an explicit PostgreSQL runtime URL', async () => {
-  await assert.rejects(
-    () => loadConfiguredDatabaseAdapter({ environment: { DATABASE_URL: 'postgresql://private:secret@localhost:5432/osaah' } }),
-    (error) => error.code === 'DATABASE_ADAPTER_REQUIRED' && !error.message.includes('secret')
-  );
-  await assert.rejects(
-    () => loadConfiguredDatabaseAdapter({ environment: {}, required: true }),
-    (error) => error.code === 'DATABASE_ADAPTER_REQUIRED'
-=======
 test('application adapter requires a valid TiDB URL and rejects PostgreSQL URLs', async () => {
   await assert.rejects(
     () => loadConfiguredDatabaseAdapter({ environment: { DATABASE_URL: 'postgresql://private:secret@localhost:5432/osaah' } }),
@@ -248,40 +199,12 @@ test('application adapter requires a valid TiDB URL and rejects PostgreSQL URLs'
   await assert.rejects(
     () => loadConfiguredDatabaseAdapter({ environment: {}, required: true }),
     (error) => error.code === 'TIDB_DATABASE_URL_REQUIRED'
->>>>>>> origin/main
   );
 });
 
 test('production/serverless startup fails closed when TiDB configuration is missing', async () => {
   await assert.rejects(
     () => loadConfiguredDatabaseAdapter({ environment: { NODE_ENV: 'production' }, required: true }),
-<<<<<<< HEAD
-    { code: 'DATABASE_ADAPTER_REQUIRED' }
-  );
-});
-
-test('explicit PostgreSQL selection fails closed when a conflicting TiDB URL remains configured', async () => {
-  await assert.rejects(
-    () => loadConfiguredDatabaseAdapter({ environment: { OSAAH_DATABASE_ADAPTER: 'postgres', OSAAH_POSTGRES_URL: environment.OSAAH_POSTGRES_URL, DATABASE_URL: 'mysql://user:password@legacy.example.test:4000/osaah' } }),
-    (error) => error.code === 'DATABASE_CONFIGURATION_CONFLICT' && !error.message.includes('password')
-  );
-});
-
-test('DATABASE_URL alone is rejected while explicit PostgreSQL URL remains supported', async () => {
-  await assert.rejects(
-    () => loadConfiguredDatabaseAdapter({ environment: { DATABASE_URL: 'mysql://user:password@legacy.example.test:4000/osaah' } }),
-    (error) => error.code === 'DATABASE_ADAPTER_REQUIRED' && !error.message.includes('password')
-  );
-  await assert.rejects(
-    () => loadConfiguredDatabaseAdapter({ environment: { DATABASE_URL: environment.OSAAH_POSTGRES_URL } }),
-    { code: 'DATABASE_ADAPTER_REQUIRED' }
-  );
-  const postgres = await loadConfiguredDatabaseAdapter({ environment: { OSAAH_DATABASE_ADAPTER: 'postgres', OSAAH_POSTGRES_URL: environment.OSAAH_POSTGRES_URL } });
-  assert.equal(typeof postgres?.transaction, 'function');
-  await postgres.close();
-  const adapter = await loadConfiguredDatabaseAdapter({ environment: { OSAAH_POSTGRES_URL: environment.OSAAH_POSTGRES_URL, DATABASE_URL: environment.OSAAH_POSTGRES_URL } });
-  assert.equal(typeof adapter?.transaction, 'function');
-=======
     { code: 'TIDB_DATABASE_URL_REQUIRED' }
   );
 });
@@ -295,7 +218,6 @@ test('PostgreSQL and conflicting legacy configuration are rejected without expos
 test('MySQL DATABASE_URL selects TiDB and PostgreSQL remains rejected', async () => {
   const adapter = await loadConfiguredDatabaseAdapter({ environment: { DATABASE_URL: 'mysql://user:password@legacy.example.test:4000/osaahdaylightschool' } });
   assert.equal(adapter.supportsDurableAuthSessions, true);
->>>>>>> origin/main
   await adapter.close();
   await assert.rejects(() => loadConfiguredDatabaseAdapter({ environment: { DATABASE_URL: environment.OSAAH_POSTGRES_URL } }), (error) => ['DATABASE_CONFIGURATION_CONFLICT', 'DATABASE_URL_INVALID'].includes(error.code));
 });
