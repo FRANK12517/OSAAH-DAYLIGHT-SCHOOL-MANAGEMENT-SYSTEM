@@ -1358,6 +1358,9 @@ if (durableAcademic && body.sampleMode === true) {
           sessionCookiePresent: Boolean(sessionToken),
           bearerTokenPresent: Boolean(bearerToken),
           authenticated: Boolean(user),
+          sessionValid: Boolean(user),
+          roleResolved: Boolean(roleKey),
+          rejectionReason: user ? 'ROLE_ROUTE_FORBIDDEN' : !sessionToken && !bearerToken ? 'CREDENTIAL_MISSING' : 'SESSION_VALIDATION_FAILED',
           portal: user?.portal ?? null,
           roleKey,
           routeVisible: Boolean(user && accessibleModules.some((module) => module.route === pathname))
