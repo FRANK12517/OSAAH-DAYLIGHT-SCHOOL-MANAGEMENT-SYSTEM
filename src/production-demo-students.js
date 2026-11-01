@@ -75,6 +75,15 @@ async function insertMissingMockScores(database, { schoolId, actorUserId, plans,
   return { inserted, preserved };
 }
 
+async function assertDemoAssignmentScope(database, { schoolId, studentId, classId }) {
+  const matching = rows(await database.query(`SELECT s.id AS studentId,c.id AS classId
+    FROM students s
+    JOIN classes c ON c.id=? AND c.school_id=?
+    WHERE s.id=? AND s.school_id=?
+    FOR UPDATE`, [classId, schoolId, studentId, schoolId]));
+  if (matching.length !== 1) fail('DEMO_ASSIGNMENT_TENANT_CONFLICT', 'A demonstration student and class must belong to the same school before assignment.');
+}
+
 async function inspect(database, { schoolId, parentPhone, expectedDatabase, migrationChecksum, actorUserId }) {
   const target = rows(await database.query('SELECT DATABASE() AS databaseName'))[0]?.databaseName;
   if (!target || target !== expectedDatabase) fail('DEMO_DATABASE_TARGET_MISMATCH', 'Connected database does not match the explicitly expected database.');
@@ -191,7 +200,10 @@ export async function provisionPermanentDemoStudents(database, {
       const link = rows(await tx.query('SELECT link_status AS linkStatus FROM parent_student_links WHERE parent_user_id=? AND student_id=? LIMIT 1 FOR UPDATE', [state.parentUserId, profile.id]))[0];
       if (!link) await tx.execute(`INSERT INTO parent_student_links (parent_user_id,student_id,permanent_student_id,telephone,relationship,relationship_type,link_status,created_at,updated_at)
         VALUES (?,?,?,?,'Parent','PARENT','ACTIVE',?,?)`, [state.parentUserId, profile.id, demo.permanentStudentId, normalizeGhanaPhone(parentPhone), timestamp, timestamp]);
-      for (const classRow of state.canonicalClasses) await tx.execute(`INSERT IGNORE INTO demo_student_class_assignments (school_id,student_id,class_id,created_by,created_at) VALUES (?,?,?,?,?)`, [schoolId, student.id, classRow.id, actorUserId, timestamp]);
+      for (const classRow of state.canonicalClasses) {
+        await assertDemoAssignmentScope(tx, { schoolId, studentId: student.id, classId: classRow.id });
+        await tx.execute(`INSERT IGNORE INTO demo_student_class_assignments (school_id,student_id,class_id,created_by,created_at) VALUES (?,?,?,?,?)`, [schoolId, student.id, classRow.id, actorUserId, timestamp]);
+      }
     }
     const scoreResult = await insertMissingMockScores(tx, { schoolId, actorUserId, plans: scorePlans, timestamp, idFactory });
     await tx.execute('INSERT INTO audit_logs (id,school_id,user_id,role_id,action,entity,entity_id,new_value,occurred_at) VALUES (?,?,?,?,?,?,?,?,?)', [idFactory(), schoolId, actorUserId, state.actor.roleId, 'DEMO_STUDENTS_RESTORED', 'DemonstrationStudents', null, JSON.stringify({ studentCount: DEMOS.length, classAssignmentCount: DEMOS.length * state.canonicalClasses.length, parentLinkCount: DEMOS.length, mockScoreCount: scorePlans.length, academicYearId: scorePlans[0].academicYearId, termId: scorePlans[0].termId, mockLabel: MOCK_LABEL }), timestamp]);

@@ -8,7 +8,7 @@ function database() {
   const writes = [];
   const queries = [];
   const records = { students: [], profiles: [], links: [], assignments: [], scores: [] };
-  const state = { crossSchoolAssignment: false };
+  const state = { crossSchoolAssignment: false, assignmentScopeMismatch: null, transactionCalls: 0 };
   const query = async (sql, params = []) => {
     queries.push({ sql, params });
     if (sql.includes('SELECT DATABASE()')) return [{ databaseName: 'osaahdaylightschool' }];
@@ -23,6 +23,14 @@ function database() {
     if (sql.includes('FROM users u LEFT JOIN user_roles')) return [{ id: 'parent-1', phone: '+233247293733', username: '+233247293733', status: 'ACTIVE', roleKey: 'PARENT' }];
     if (sql.includes('FROM users u') && sql.includes('role_key IN')) return [{ id: 'operator-1', status: 'ACTIVE', roleId: 'role-admin', roleKey: 'SCHOOL_ADMIN' }];
     if (sql.includes('FROM demo_student_class_assignments d') && sql.includes('LEFT JOIN students s')) return state.crossSchoolAssignment ? [{ assignmentSchoolId: 'school-a', studentId: 'demo-master-001', classId: 'class-other', studentSchoolId: 'school-a', classSchoolId: 'school-b' }] : [];
+    if (sql.includes('FROM students s') && sql.includes('JOIN classes c ON c.id=? AND c.school_id=?')) {
+      const [classId, schoolId, studentId, studentSchoolId] = params;
+      if (state.assignmentScopeMismatch === 'class' && classId === 'class-1') return [];
+      if (state.assignmentScopeMismatch === 'student') return [];
+      const student = records.students.find((item) => item.id === studentId && item.schoolId === studentSchoolId);
+      const classRow = CORE_LEVELS.map((name, index) => ({ id: `class-${index + 1}`, name, schoolId: 'school-a' })).find((item) => item.id === classId && item.schoolId === schoolId);
+      return student && classRow ? [{ studentId, classId }] : [];
+    }
     if (sql.includes('FROM classes WHERE')) return CORE_LEVELS.map((name, index) => ({ id: `class-${index + 1}`, name, schoolId: 'school-a' }));
     if (sql.includes('FROM students WHERE')) return records.students.filter((item) => item.schoolId === params[0] && ([params[1], params[2]].includes(item.permanentStudentId) || [params[3], params[4]].includes(item.admissionNumber)));
     if (sql.includes('FROM student_profiles')) return records.profiles.filter((item) => item.schoolId === params[0] && (item.studentMasterId === params[1] || item.studentId === params[2] || item.studentMasterId === params[1]));
@@ -42,7 +50,13 @@ function database() {
     else if (sql.includes('INSERT INTO academic_score_records')) records.scores.push({ id: params[0], schoolId: params[1], mockLabel: params[2], academicYearId: params[3], termId: params[4], classId: params[5], profileId: params[6], subjectId: params[7], totalScore: params[9], grade: params[10], remark: params[11], enteredBy: params[12] });
     return { affectedRows: 1 };
   };
-  const adapter = { dialect: 'tidb', query, execute, writes, queries, records, state, transaction: async (callback) => callback({ query, execute }) };
+  const adapter = { dialect: 'tidb', query, execute, writes, queries, records, state, transaction: async (callback) => {
+    state.transactionCalls += 1;
+    const snapshot = structuredClone(records);
+    const writeCount = writes.length;
+    try { return await callback({ query, execute }); }
+    catch (error) { Object.assign(records, snapshot); writes.splice(writeCount); throw error; }
+  } };
   return adapter;
 }
 
@@ -60,6 +74,7 @@ test('demo student apply idempotently provisions graded JHS mock scores without 
   await assert.rejects(() => provisionPermanentDemoStudents(db, { ...scope, apply: true }), { code: 'DEMO_APPLY_GUARD_REQUIRED' });
   const result = await provisionPermanentDemoStudents(db, { ...scope, actorUserId: 'operator-1', apply: true, approval: 'PRODUCTION_DEMO_RESTORE_APPROVED', backupReference: 'verified-backup-2026-11-01' });
   assert.equal(result.writesPerformed, true);
+  assert.equal(db.state.transactionCalls, 1, 'all provisioning and assignment writes must run inside one transaction');
   assert.equal(result.studentCount, 2);
   assert.deepEqual(db.records.students.map((student) => [student.permanentStudentId, `${student.firstName} ${student.lastName}`]), [
     ['OSAAH/DEMO/001', 'OSAAH Demo Student One'], ['OSAAH/DEMO/002', 'OSAAH Demo Student Two']
@@ -92,6 +107,19 @@ test('demo student provisioning rejects a cross-school class assignment before w
   db.state.crossSchoolAssignment = true;
   await assert.rejects(() => provisionPermanentDemoStudents(db, scope), { code: 'DEMO_ASSIGNMENT_TENANT_CONFLICT' });
   assert.equal(db.writes.length, 0);
+});
+
+test('demo student provisioning checks class and student school ownership inside the assignment transaction', async (t) => {
+  for (const mismatch of ['class', 'student']) {
+    await t.test(`rejects a cross-school ${mismatch}`, async () => {
+      const db = database();
+      db.state.assignmentScopeMismatch = mismatch;
+      await assert.rejects(() => provisionPermanentDemoStudents(db, { ...scope, actorUserId: 'operator-1', apply: true, approval: 'PRODUCTION_DEMO_RESTORE_APPROVED', backupReference: 'verified-backup-2026-11-01' }), { code: 'DEMO_ASSIGNMENT_TENANT_CONFLICT' });
+      assert.equal(db.state.transactionCalls, 1);
+      assert.equal(db.writes.length, 0, 'transaction rollback must discard all writes after the scope conflict');
+      assert.equal(db.records.assignments.length, 0);
+    });
+  }
 });
 
 test('demo student restoration rejects a mismatched database before writes', async () => {
