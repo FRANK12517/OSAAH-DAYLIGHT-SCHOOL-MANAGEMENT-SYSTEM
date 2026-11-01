@@ -124,13 +124,6 @@ test('TiDB adapter query returns rows directly for database, zero, single, multi
   } finally { await adapter.close(); }
 });
 
-<<<<<<< HEAD
-test('application AI persistence requires explicit TiDB selection for DATABASE_URL', async () => {
-  await assert.rejects(
-    () => loadConfiguredAIPersistence({ environment: { NODE_ENV: 'production', DATABASE_URL: 'mysql://user:password@example.test:4000/osaah' } }),
-    (error) => error.code === 'DATABASE_ADAPTER_REQUIRED' && !error.message.includes('password')
-  );
-=======
 test('application AI persistence selects TiDB from the explicit adapter setting', async () => {
   const persistence = await loadConfiguredAIPersistence({ environment: { NODE_ENV: 'production', OSAAH_DATABASE_ADAPTER: 'tidb', DATABASE_URL: 'mysql://user:password@example.test:4000/osaahdaylightschool' } });
   assert.equal(persistence.durable, true);
@@ -141,7 +134,6 @@ test('application adapter auto-detects a MySQL DATABASE_URL when no adapter is s
   const persistence = await loadConfiguredAIPersistence({ environment: { NODE_ENV: 'production', DATABASE_URL: 'mysql://user:password@example.test:4000/osaahdaylightschool' } });
   assert.equal(persistence.durable, true);
   await persistence.close();
->>>>>>> origin/main
 });
 
 function migrationPool({ failOn } = {}) {

@@ -41,11 +41,7 @@ test('synthetic Parent plus six staff logins keep identities, roles, routes, and
   });
   const auth = createAuthService({ users: [...staff.map(({ user }) => user)], database: parent.database, sessionSecret: 'test-only-parent-session-secret-0123456789' });
   const logins = [];
-<<<<<<< Updated upstream
   const parentLogin = await auth.loginParentByPhone({ phone: parent.user.phone, portal: 'parent', verifiedOtp: true });
-=======
-  const parentLogin = await auth.loginParentByPhone({ phone: parent.user.phone, portal: 'parent' });
->>>>>>> Stashed changes
   assert.equal(parentLogin.ok, true);
   logins.push({ id: parent.user.id, roleKey: 'PARENT', route: '/', token: parentLogin.token });
 
