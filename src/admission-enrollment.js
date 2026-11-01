@@ -5,6 +5,7 @@ import { requireStudentGender } from './student-gender.js';
 import { canonicalClassId } from './student-classes.js';
 import { normalizeGhanaPhone } from './ghana-phone.js';
 import { tidbInsertIfAbsent } from './tidb-conflict.js';
+import { TEST_PARENT_STUDENT_IDS } from './test-parent-fixture.js';
 
 function fail(code, message, status = 400) { throw Object.assign(new Error(message), { code, status }); }
 function value(...items) { return items.find((item) => item !== undefined && item !== null && item !== '') ?? null; }
@@ -132,7 +133,7 @@ export function createAdmissionEnrollmentService({ database, clock = () => new D
 
   async function authorizeParentStudent({ parentUserId, permanentStudentId, schoolId }) {
     if (!parentUserId || !permanentStudentId || !schoolId) fail('PARENT_STUDENT_SCOPE_REQUIRED', 'Parent, student, and school scope are required.', 400);
-    const result = rows(await database.query('SELECT s.id AS id,s.id AS studentId,s.id AS student_id,s.permanent_student_id AS permanentStudentId,s.permanent_student_id,s.gender,s.student_status AS studentStatus,sp.id AS studentProfileId,sp.id AS student_profile_id,sp.class_id AS classId,sp.class_id,sp.enrollment_status AS profileEnrollmentStatus,(SELECT e.enrollment_status FROM student_enrollments e WHERE e.student_id=s.id AND e.school_id=s.school_id AND e.is_current IS TRUE ORDER BY e.enrolled_at DESC,e.id DESC LIMIT 1) AS enrollmentStatus FROM students s JOIN student_profiles sp ON sp.student_master_id=s.id AND (sp.student_id=s.permanent_student_id OR sp.student_id=?) JOIN parent_student_links psl ON psl.student_id=sp.id AND psl.parent_user_id=? AND psl.link_status=? WHERE s.school_id=? AND s.permanent_student_id=? AND s.is_test_record IS FALSE LIMIT 1', [permanentStudentId, parentUserId, 'ACTIVE', schoolId, permanentStudentId]))[0];
+    const result = rows(await database.query('SELECT s.id AS id,s.id AS studentId,s.id AS student_id,s.permanent_student_id AS permanentStudentId,s.permanent_student_id,s.gender,s.student_status AS studentStatus,s.is_test_record AS isTestRecord,sp.id AS studentProfileId,sp.id AS student_profile_id,sp.class_id AS classId,sp.class_id,sp.enrollment_status AS profileEnrollmentStatus,(SELECT e.enrollment_status FROM student_enrollments e WHERE e.student_id=s.id AND e.school_id=s.school_id AND e.is_current IS TRUE ORDER BY e.enrolled_at DESC,e.id DESC LIMIT 1) AS enrollmentStatus FROM students s JOIN student_profiles sp ON sp.student_master_id=s.id AND (sp.student_id=s.permanent_student_id OR sp.student_id=?) JOIN parent_student_links psl ON psl.student_id=sp.id AND psl.parent_user_id=? AND psl.link_status=? WHERE s.school_id=? AND s.permanent_student_id=? AND (s.is_test_record IS FALSE OR (s.is_test_record IS TRUE AND s.permanent_student_id IN (?,?))) LIMIT 1', [permanentStudentId, parentUserId, 'ACTIVE', schoolId, permanentStudentId, ...TEST_PARENT_STUDENT_IDS]))[0];
     if (!result) fail('PARENT_STUDENT_FORBIDDEN', 'You are not authorized to access this student.', 403);
     return result;
   }
@@ -142,7 +143,7 @@ export function createAdmissionEnrollmentService({ database, clock = () => new D
     return rows(await database.query(`SELECT s.id AS id,s.id AS studentId,s.id AS student_id,
       s.permanent_student_id AS permanentStudentId,s.permanent_student_id,
       sp.id AS studentProfileId,sp.id AS student_profile_id,sp.class_id AS classId,sp.class_id,
-      s.first_name AS firstName,s.last_name AS lastName,s.gender,s.student_status AS studentStatus,
+      s.first_name AS firstName,s.last_name AS lastName,s.gender,s.student_status AS studentStatus,s.is_test_record AS isTestRecord,
       sp.enrollment_status AS profileEnrollmentStatus,
       (SELECT e.enrollment_status FROM student_enrollments e WHERE e.student_id=s.id AND e.school_id=s.school_id AND e.is_current IS TRUE ORDER BY e.enrolled_at DESC,e.id DESC LIMIT 1) AS enrollmentStatus,
       c.name AS className
@@ -151,12 +152,26 @@ export function createAdmissionEnrollmentService({ database, clock = () => new D
       JOIN student_profiles sp ON sp.id=psl.student_id AND sp.school_id=pu.school_id
       JOIN students s ON s.id=sp.student_master_id AND s.school_id=pu.school_id
       LEFT JOIN classes c ON c.id=sp.class_id AND c.school_id=pu.school_id
-      WHERE psl.parent_user_id=? AND psl.link_status='ACTIVE' AND s.school_id=? AND s.is_test_record IS FALSE
-      ORDER BY s.permanent_student_id,s.id`, [schoolId, parentUserId, schoolId]));
+      WHERE psl.parent_user_id=? AND psl.link_status='ACTIVE' AND s.school_id=?
+        AND (s.is_test_record IS FALSE OR (s.is_test_record IS TRUE AND s.permanent_student_id IN (?,?)))
+      ORDER BY s.permanent_student_id,s.id`, [schoolId, parentUserId, schoolId, ...TEST_PARENT_STUDENT_IDS]));
   }
 
   async function parentEnrolledInClass({ parentUserId, schoolId, permanentStudentId, academicYearId, termId, termName, classId, recordType = 'student-summary', legacyTermEvidence = null } = {}) {
     if (!parentUserId || !schoolId || !permanentStudentId || !academicYearId || !termId || !classId) return false;
+    if (TEST_PARENT_STUDENT_IDS.includes(String(permanentStudentId))) {
+      const demo = rows(await database.query(`SELECT d.class_id AS classId,t.id AS termId
+        FROM parent_student_links psl
+        JOIN users pu ON pu.id=psl.parent_user_id AND pu.school_id=? AND UPPER(COALESCE(pu.status,'ACTIVE'))='ACTIVE'
+        JOIN student_profiles sp ON sp.id=psl.student_id AND sp.school_id=pu.school_id
+        JOIN students s ON s.id=sp.student_master_id AND s.school_id=sp.school_id
+        JOIN demo_student_class_assignments d ON d.school_id=s.school_id AND d.student_id=s.id
+        JOIN academic_years y ON y.school_id=s.school_id AND y.id=?
+        JOIN terms t ON t.academic_year_id=y.id AND t.id=?
+        WHERE psl.parent_user_id=? AND psl.link_status='ACTIVE' AND s.school_id=?
+          AND s.permanent_student_id=? AND s.is_test_record IS TRUE AND d.class_id=? LIMIT 1`, [schoolId, academicYearId, termId, parentUserId, schoolId, permanentStudentId, classId]));
+      if (demo.length) return true;
+    }
     const result = rows(await database.query(`SELECT e.class_id AS classId
       ,e.term_id AS termId
       FROM parent_student_links psl

@@ -68,11 +68,11 @@ test('sample students use reserved IDs, populate every class, and stay out of no
   const repeated = students.seedSampleStudents();
   assert.equal(samples.length, 2);
   assert.deepEqual(repeated.map((student) => student.id), samples.map((student) => student.id));
-  assert.ok(samples.every((student) => student.isTestRecord && student.permanentStudentId.startsWith('OSAAH-DEMO-')));
+  assert.ok(samples.every((student) => student.isTestRecord && student.permanentStudentId.startsWith('OSAAH/DEMO/')));
   assert.equal(students.listStudents().length, 0);
   assert.equal(students.listStudents({ includeTestRecords: true }).length, 2);
-  assert.deepEqual(samples.map((student) => student.permanentStudentId), ['OSAAH-DEMO-001', 'OSAAH-DEMO-002']);
-  assert.throws(() => students.createStudent({ firstName: 'Unsafe', surname: 'Record', permanentStudentId: 'OSAAH-DEMO-X-001' }), /(reserved|malformed)/);
+  assert.deepEqual(samples.map((student) => student.permanentStudentId), ['OSAAH/DEMO/001', 'OSAAH/DEMO/002']);
+  assert.throws(() => students.createStudent({ firstName: 'Unsafe', surname: 'Record', permanentStudentId: 'OSAAH/DEMO/X-001' }), /(reserved|malformed)/);
 });
 
 test('attendance page exposes all canonical classes through one selector', async () => {

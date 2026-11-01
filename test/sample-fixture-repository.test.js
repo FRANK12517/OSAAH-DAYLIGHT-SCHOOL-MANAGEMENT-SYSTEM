@@ -6,7 +6,7 @@ import { createConfiguredTestParent } from '../src/test-parent-fixture.js';
 const schoolId = 'school-osaah-daylight';
 const staff = { id: 'head-1', schoolId, portal: 'school', roleKey: 'HEADTEACHER', permissions: new Set(['sample.fixtures.read', 'sample.fixtures.write']) };
 const parent = createConfiguredTestParent(schoolId);
-const identity = { schoolId, sampleStudentId: 'OSAAH-DEMO-001', academicYearId: 'ay-2026-27', termId: 'term-1', classId: 'class-primary-6', fixtureType: 'attendance', fixtureVersion: 1 };
+const identity = { schoolId, sampleStudentId: 'OSAAH/DEMO/001', academicYearId: 'ay-2026-27', termId: 'term-1', classId: 'class-primary-6', fixtureType: 'attendance', fixtureVersion: 1 };
 function database() {
   const rows = new Map();
   const key = (params) => params.join('|');
@@ -42,16 +42,16 @@ test('fixture initialization is durable, deterministic, and idempotent across re
   const recreated = createSampleFixtureRepository({ adapter: db, now: () => '2026-10-02T00:00:00.000Z' });
   const loaded = await recreated.getFixture(identity, staff);
   assert.deepEqual(loaded.fixturePayload, { label: 'SAMPLE DATA', present: 42 });
-  assert.equal(loaded.sampleStudentId, 'OSAAH-DEMO-001');
+  assert.equal(loaded.sampleStudentId, 'OSAAH/DEMO/001');
 });
 
 test('student identity and academic context remain independently scoped', async () => {
   const db = database();
   const repository = createSampleFixtureRepository({ adapter: db });
   await repository.ensureFixture({ ...identity, fixturePayload: { student: 'one' } }, staff);
-  await repository.ensureFixture({ ...identity, sampleStudentId: 'OSAAH-DEMO-002', termId: 'term-2', fixturePayload: { student: 'two' } }, staff);
-  assert.equal((await repository.listFixtures({ sampleStudentId: 'OSAAH-DEMO-001' }, staff)).length, 1);
-  assert.equal((await repository.getFixture({ ...identity, sampleStudentId: 'OSAAH-DEMO-002', termId: 'term-2' }, staff)).fixturePayload.student, 'two');
+  await repository.ensureFixture({ ...identity, sampleStudentId: 'OSAAH/DEMO/002', termId: 'term-2', fixturePayload: { student: 'two' } }, staff);
+  assert.equal((await repository.listFixtures({ sampleStudentId: 'OSAAH/DEMO/001' }, staff)).length, 1);
+  assert.equal((await repository.getFixture({ ...identity, sampleStudentId: 'OSAAH/DEMO/002', termId: 'term-2' }, staff)).fixturePayload.student, 'two');
   assert.equal((await repository.getFixture({ ...identity, termId: 'term-2' }, staff)), null);
 });
 

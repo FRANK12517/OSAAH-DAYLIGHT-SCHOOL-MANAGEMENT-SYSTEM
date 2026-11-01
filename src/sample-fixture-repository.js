@@ -6,7 +6,7 @@ const FIXTURE_TYPES = Object.freeze(new Set([
   'student-summary', 'attendance', 'published-results', 'result-slip', 'fees',
   'payments', 'receipts', 'announcements', 'timetable', 'assignments', 'historical-records'
 ]));
-const SAMPLE_IDS = Object.freeze(new Set(['OSAAH-DEMO-001', 'OSAAH-DEMO-002']));
+const SAMPLE_IDS = Object.freeze(new Set(['OSAAH/DEMO/001', 'OSAAH/DEMO/002']));
 const text = (value, label) => {
   const result = String(value ?? '').trim();
   if (!result) throw new Error(`${label} is required.`);

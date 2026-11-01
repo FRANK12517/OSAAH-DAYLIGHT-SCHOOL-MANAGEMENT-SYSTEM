@@ -60,7 +60,7 @@ export function createAcademicResultsService({ now = () => new Date().toISOStrin
     const roster = [...new Map(eligibleStudents.filter((student) => student.schoolId === schoolId && student.classId === classId && !student.isTestRecord).map((student) => [student.id, student])).values()];
     const sampleMode = filters.sampleMode === true || String(filters.sampleMode ?? '').toLowerCase() === 'true';
     const sampleRoster = sampleMode
-      ? (students?.listStudents?.({ requestedSchoolId: schoolId, includeTestRecords: true }) ?? []).filter((student) => student.schoolId === schoolId && student.isTestRecord && student.permanentStudentId === 'OSAAH-DEMO-001')
+      ? (students?.listStudents?.({ requestedSchoolId: schoolId, includeTestRecords: true }) ?? []).filter((student) => student.schoolId === schoolId && student.isTestRecord && student.permanentStudentId === 'OSAAH/DEMO/001')
       : [];
     const selectedRoster = sampleMode ? sampleRoster : roster;
     const scores = listScores({ academicYear, term, classId, subjectId }, actor);

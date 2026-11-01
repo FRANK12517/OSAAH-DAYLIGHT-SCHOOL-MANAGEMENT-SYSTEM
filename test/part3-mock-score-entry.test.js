@@ -92,7 +92,7 @@ test('durable Mock roster falls back when legacy TiDB omits optional enrollment 
   assert.equal(roster.length, 1);
   const finalRosterQuery = database.queries.filter(({ sql }) => sql.includes('LEFT JOIN academic_score_records')).at(-1);
   assert.doesNotMatch(finalRosterQuery.sql, /enrollment_status|is_current|student_status|is_test_record/);
-  assert.match(finalRosterQuery.sql, /OSAAH-DEMO-%/);
+  assert.match(finalRosterQuery.sql, /OSAAH\/DEMO\/%/);
   assert.match(finalRosterQuery.sql, /e\.term_id=\?/);
 });
 

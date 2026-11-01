@@ -186,7 +186,7 @@ test('Parent child list selects only linked active students from the authenticat
   assert.equal(children[0].permanentStudentId, 'OSAAH/2026/0001');
   assert.equal(children[0].lastName, 'Mensah');
   const [, sql, params] = state.calls.find((call) => call[0] === 'query' && call[1].includes('SELECT s.id AS id,s.id AS studentId') && call[1].includes('JOIN users pu'));
-  assert.deepEqual(params, ['school-1', 'parent-1', 'school-1']);
+  assert.deepEqual(params, ['school-1', 'parent-1', 'school-1', 'OSAAH/DEMO/001', 'OSAAH/DEMO/002']);
   assert.match(sql, /parent_student_links/);
   assert.match(sql, /psl\.parent_user_id=\?/);
   assert.match(sql, /pu\.school_id=\?/);
