@@ -1,9 +1,10 @@
 const EXECUTIVE_ROLES = new Set(['PROPRIETOR', 'HEADTEACHER', 'ASSISTANT_HEADTEACHER']);
 const QUALITY_ORDER = Object.freeze({ COMPLETE: 0, PARTIAL: 1, STALE: 2, UNAVAILABLE: 3, INVALID: 4 });
+const normalizeRole = (value) => String(value ?? '').trim().toUpperCase().replace(/[\s-]+/g, '_');
 const safeId = (value) => String(value).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const qualityOf = (value) => value?.dataQuality ?? value?.quality ?? null;
-function authorize(actor) { if (!actor?.id || !actor?.schoolId) throw Object.assign(new Error('Authentication is required.'), { code: 'UNAUTHENTICATED', status: 401 }); if (!EXECUTIVE_ROLES.has(actor.roleKey)) throw Object.assign(new Error('Executive Intelligence is unavailable for this role.'), { code: 'PERMISSION_DENIED', status: 403 }); }
+function authorize(actor) { if (!actor?.id || !actor?.schoolId) throw Object.assign(new Error('Authentication is required.'), { code: 'UNAUTHENTICATED', status: 401 }); const role = normalizeRole(actor.roleKey); if (!EXECUTIVE_ROLES.has(role)) { console.warn('[executive-intelligence] role authorization denied', { role: role || 'UNKNOWN', allowed: [...EXECUTIVE_ROLES] }); throw Object.assign(new Error('Executive Intelligence is unavailable for this role.'), { code: 'PERMISSION_DENIED', status: 403 }); } }
 function collect(value, key, output = []) { if (!value || typeof value !== 'object') return output; if (Array.isArray(value[key])) output.push(...value[key]); for (const child of Object.values(value)) if (child && typeof child === 'object') collect(child, key, output); return output; }
 function collectValues(value, key, output = []) { if (!value || typeof value !== 'object') return output; if (value[key] && typeof value[key] === 'object' && !Array.isArray(value[key])) output.push(value[key]); for (const child of Object.values(value)) if (child && typeof child === 'object' && child !== value[key]) collectValues(child, key, output); return output; }
 function qualities(value, output = []) { if (!value || typeof value !== 'object') return output; const quality = qualityOf(value); if (quality?.status) output.push(quality); for (const child of Object.values(value)) if (child && typeof child === 'object' && child !== quality) qualities(child, output); return output; }
