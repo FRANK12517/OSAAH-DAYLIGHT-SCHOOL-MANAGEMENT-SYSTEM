@@ -40,6 +40,33 @@ export function createAuthService({ users = DEMO_USERS, now = () => Date.now(), 
   const sessions = new Map(); const attempts = new Map(); const resetTokens = new Map();
   const administratorAssignments = [];
   const signingKey = typeof sessionSecret === 'string' && sessionSecret.length >= 32 ? sessionSecret : null;
+  const jwtSecret = process.env.JWT_SECRET;
+  function decodeJwt(token) {
+    if (typeof token !== 'string' || !jwtSecret || jwtSecret.length < 32) return null;
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    try {
+      const header = JSON.parse(Buffer.from(parts[0], 'base64url').toString('utf8'));
+      const claims = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+      if (header.alg !== 'HS256' || header.typ !== 'JWT' || Buffer.from(parts[0], 'base64url').toString('base64url') !== parts[0] || Buffer.from(parts[1], 'base64url').toString('base64url') !== parts[1]) return null;
+      const expected = createHmac('sha256', jwtSecret).update(`${parts[0]}.${parts[1]}`).digest();
+      const actual = Buffer.from(parts[2], 'base64url');
+      if (actual.toString('base64url') !== parts[2] || actual.length !== expected.length || !timingSafeEqual(actual, expected)) return null;
+      if (claims.iss !== 'osaah-daylight' || claims.aud !== 'school-portal' || typeof claims.sub !== 'string' || !claims.user || claims.user.id !== claims.sub || !Number.isInteger(claims.exp) || claims.exp <= Math.floor(now() / 1000) || !Array.isArray(claims.user.permissions)) return null;
+      if (!['school', 'parent'].includes(claims.user.portal) || !claims.user.schoolId || !claims.user.roleKey) return null;
+      return { ...claims.user, sessionId: claims.sid, expiresAt: claims.exp * 1000, permissions: new Set(claims.user.permissions) };
+    } catch { return null; }
+  }
+  function issueExternalSession(user) {
+    if (!jwtSecret || jwtSecret.length < 32) throw Object.assign(new Error('JWT_SECRET must contain at least 32 characters.'), { code: 'JWT_SECRET_REQUIRED', status: 503 });
+    const issuedAt = Math.floor(now() / 1000), expiresAt = issuedAt + Math.floor(SESSION_TTL_MS / 1000), sessionId = randomUUID();
+    const payloadUser = { id: String(user.id), username: String(user.username ?? user.email), email: String(user.email), fullName: String(user.fullName ?? user.username ?? user.email), portal: user.portal === 'parent' ? 'parent' : 'school', role: String(user.role ?? user.roleKey).toLowerCase(), roleKey: canonicalRoleKey(user.roleKey ?? user.role), schoolId: String(user.schoolId), schoolName: String(user.schoolName ?? ''), children: Array.isArray(user.children) ? user.children : [], assignedStudentIds: Array.isArray(user.assignedStudentIds) ? user.assignedStudentIds : [], assignedClassIds: Array.isArray(user.assignedClassIds) ? user.assignedClassIds : [], assignedSubjectIds: Array.isArray(user.assignedSubjectIds) ? user.assignedSubjectIds : [], assignedDepartmentIds: Array.isArray(user.assignedDepartmentIds) ? user.assignedDepartmentIds : [], permissions: [...new Set(user.permissions ?? [])].filter((permission) => typeof permission === 'string') };
+    if (!payloadUser.id || !payloadUser.schoolId || !payloadUser.roleKey || !payloadUser.schoolName) throw Object.assign(new Error('Database identity is incomplete.'), { code: 'AUTH_IDENTITY_INCOMPLETE', status: 503 });
+    const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
+    const payload = Buffer.from(JSON.stringify({ iss: 'osaah-daylight', aud: 'school-portal', sub: payloadUser.id, iat: issuedAt, exp: expiresAt, sid: sessionId, user: payloadUser })).toString('base64url');
+    const signature = createHmac('sha256', jwtSecret).update(`${header}.${payload}`).digest('base64url');
+    return { token: `${header}.${payload}.${signature}`, user: { id: payloadUser.id, username: payloadUser.username, email: payloadUser.email, fullName: payloadUser.fullName, portal: payloadUser.portal, role: payloadUser.role, roleKey: payloadUser.roleKey, schoolId: payloadUser.schoolId, schoolName: payloadUser.schoolName, children: payloadUser.children, assignedStudentIds: payloadUser.assignedStudentIds, assignedClassIds: payloadUser.assignedClassIds, assignedSubjectIds: payloadUser.assignedSubjectIds, assignedDepartmentIds: payloadUser.assignedDepartmentIds, sessionId }, redirectTo: SCHOOL_PORTAL_DASHBOARDS[payloadUser.roleKey] ?? '/', expiresAt: expiresAt * 1000 };
+  }
   function signSession(session) { const payload = Buffer.from(JSON.stringify(session)).toString('base64url'); const signature = createHmac('sha256', signingKey).update(payload).digest('base64url'); return `v1.${payload}.${signature}`; }
   function verifiedSession(token) {
     if (!signingKey || typeof token !== 'string' || !token.startsWith('v1.')) return sessions.get(token);
@@ -63,7 +90,7 @@ export function createAuthService({ users = DEMO_USERS, now = () => Date.now(), 
     if (!user || typeof password !== 'string' || !passwordMatches(password, user.passwordHash) || !isActive(user)) { const next = throttle ?? { count: 0 }; next.count += 1; if (next.count >= MAX_ATTEMPTS) next.lockedUntil = now() + LOCKOUT_MS; attempts.set(key, next); securityEvent('LOGIN_FAILED', user); return { ok: false, status: 401, error: GENERIC_LOGIN_ERROR }; }
     attempts.delete(key); const sessionId = randomUUID(); const expiresAt = now() + SESSION_TTL_MS; const session = { userId: user.id, sessionId, expiresAt }; const token = signingKey ? signSession(session) : randomBytes(32).toString('hex'); sessions.set(token, session); securityEvent('LOGIN_SUCCESS', user, sessionId); return { ok: true, token, user: sanitize(user, sessionId), redirectTo: SCHOOL_PORTAL_DASHBOARDS[canonicalRoleKey(user.roleKey)] ?? '/', expiresAt };
   }
-  function authenticate(token) { const session = verifiedSession(token); if (!session || session.expiresAt <= now()) { if (token) sessions.delete(token); return null; } const user = users.find((candidate) => candidate.id === session.userId); if (!user || !isActive(user)) { sessions.delete(token); if (user) securityEvent('SESSION_REVOKED', user, session.sessionId); return null; } return { ...sanitize(user, session.sessionId), permissions: user.permissions }; }
+  function authenticate(token) { const externalUser = decodeJwt(token); if (externalUser) return externalUser; const session = verifiedSession(token); if (!session || session.expiresAt <= now()) { if (token) sessions.delete(token); return null; } const user = users.find((candidate) => candidate.id === session.userId); if (!user || !isActive(user)) { sessions.delete(token); if (user) securityEvent('SESSION_REVOKED', user, session.sessionId); return null; } return { ...sanitize(user, session.sessionId), permissions: user.permissions }; }
   function logout(token) { const session = verifiedSession(token); if (session) { const user = users.find((candidate) => candidate.id === session.userId); sessions.delete(token); if (user) securityEvent('SESSION_REVOKED', user, session.sessionId); } }
   function changeAccountState(userId, active, status = active ? 'ACTIVE' : 'DISABLED') { const user = users.find((candidate) => candidate.id === userId); if (!user) return false; user.is_active = active; user.accountStatus = status; if (!active) for (const [token, session] of sessions) if (session.userId === userId) { sessions.delete(token); securityEvent(status === 'REVOKED' ? 'SESSION_REVOKED' : 'ACCOUNT_DISABLED', user, session.sessionId); } for (const assignment of administratorAssignments) if (assignment.userId === userId && !active) { assignment.status = status; assignment.removedAt ??= new Date(now()).toISOString(); } return true; }
   function setAccountStatus(userId, status) { return changeAccountState(userId, status === true); }
@@ -86,7 +113,7 @@ export function createAuthService({ users = DEMO_USERS, now = () => Date.now(), 
   function resetStaffCredentials(userId, schoolId) { const user = users.find((candidate) => candidate.id === userId && candidate.schoolId === schoolId && candidate.staffId); if (!user) return null; const temporaryPassword = randomBytes(18).toString('base64url'); user.passwordHash = passwordHash(temporaryPassword); user.must_change_password = true; for (const [token, session] of sessions) if (session.userId === userId) sessions.delete(token); return { username: user.username, temporaryPassword }; }
   function requestPasswordReset(username) { const user = users.find((candidate) => candidate.username.toLowerCase() === username.trim().toLowerCase()); if (!user) return { ok: true }; const token = randomUUID(); resetTokens.set(token, { userId: user.id, expiresAt: now() + RESET_TTL_MS }); return { ok: true, token }; }
   function completePasswordReset(token, newPassword) { const reset = resetTokens.get(token); if (!reset || reset.expiresAt <= now() || typeof newPassword !== 'string' || newPassword.length < 10) return { ok: false, error: 'Invalid or expired reset request.' }; const user = users.find((candidate) => candidate.id === reset.userId); if (!user) return { ok: false, error: 'Invalid or expired reset request.' }; user.passwordHash = passwordHash(newPassword); resetTokens.delete(token); for (const [sessionToken, session] of sessions) if (session.userId === user.id) sessions.delete(sessionToken); return { ok: true }; }
-  return { login, authenticate, logout, requestPasswordReset, completePasswordReset, setAccountStatus, revokeAccount, createAdministrator, listAdministrators, getAdministrator, updateAdministrator, resetAdministratorCredentials, registerStaff, listStaff, getStaff, updateStaff, changeStaffRole, assignStaff, resetStaffCredentials, sessionTtlMs: SESSION_TTL_MS, genericLoginError: GENERIC_LOGIN_ERROR };
+  return { login, authenticate, issueExternalSession, logout, requestPasswordReset, completePasswordReset, setAccountStatus, revokeAccount, createAdministrator, listAdministrators, getAdministrator, updateAdministrator, resetAdministratorCredentials, registerStaff, listStaff, getStaff, updateStaff, changeStaffRole, assignStaff, resetStaffCredentials, sessionTtlMs: SESSION_TTL_MS, genericLoginError: GENERIC_LOGIN_ERROR };
 }
 
 export function canAccess(user, permission) { return Boolean(user && (user.permissions.has('*') || user.permissions.has(permission))); }

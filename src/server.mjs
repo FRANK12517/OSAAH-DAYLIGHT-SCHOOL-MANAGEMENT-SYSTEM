@@ -27,6 +27,7 @@ import { createSubjectService } from './subjects.js';
 import { createSignatureService } from './signatures.js';
 import { createDatabaseAdapter } from './ai/tidb-database-adapter.js';
 import { createProprietorAuthenticationController } from './proprietor-authentication-controller.js';
+import { createDatabaseAuthenticationController } from './database-authentication-controller.js';
 import { createReceiptBrandingService } from './receipt-branding.js';
 import { createSportingActivitiesService, SPORTING_PERMISSIONS } from './sporting-activities.js';
 import { createSubjectRegisterService, SUBJECT_REGISTER_PERMISSIONS } from './subject-register.js';
@@ -70,6 +71,7 @@ export function createApp({ auth = createAuthService(), students = createStudent
   const feeCollections = database?.query && database?.execute && database?.transaction ? createFeeCollectionsRepository({ adapter: database, audit }) : null;
   const parentFeeObligations = database?.query ? createParentFeeObligationsRepository(database) : null;
   const proprietorAuthentication = database ? createProprietorAuthenticationController({ database }) : null;
+  const databaseAuthentication = database?.query ? createDatabaseAuthenticationController({ database, auth }) : null;
   const admissionPersistenceEnabled = String(process.env.OSAAH_ENABLE_DURABLE_ADMISSIONS ?? 'false').toLowerCase() === 'true';
   const admissionEnrollment = admissionPersistenceEnabled && database?.transaction ? createAdmissionEnrollmentService({ database }) : null;
   const admissionMigration = admissionPersistenceEnabled && database?.query && database?.transaction ? createAdmissionMigrationService({ database }) : null;
@@ -120,6 +122,8 @@ export function createApp({ auth = createAuthService(), students = createStudent
   function announcementPreview(body, actor) { const links = announcementRecipients(body, actor); const valid = links.filter((link) => link.telephone); return { intendedRecipients: links.length, validPhoneNumbers: valid.length, invalidOrMissingPhoneNumbers: links.length - valid.length, estimatedSmsCount: body.channel === 'IN_APP' ? 0 : valid.length, recipients: links.map((link) => ({ parentId: link.parentId, studentId: link.studentId, permanentStudentId: link.permanentStudentId, studentName: link.studentName, hasPhone: Boolean(link.telephone) })) }; }
   function dispatchAnnouncement(body, actor) { if (body.confirm !== true) throw Object.assign(new Error('Explicit bulk-send confirmation is required.'), { status: 400 }); const links = announcementRecipients(body, actor); const emergency = Boolean(body.emergency); const title = emergency ? 'Emergency notice' : String(body.title ?? 'School announcement'); const message = emergency ? `URGENT — ${branding.schoolName}: ${String(body.message ?? '').trim()}` : String(body.message ?? '').trim(); if (!message) throw new Error('Announcement message is required.'); links.forEach((link) => { const key = `ANNOUNCEMENT:${body.idempotencyKey ?? `${title}:${message}`}:${link.parentId}:${link.permanentStudentId}`; if (body.channel !== 'SMS') communication.notify({ type: emergency ? 'EMERGENCY' : 'ANNOUNCEMENT', category: emergency ? 'EMERGENCY' : 'ANNOUNCEMENT', recipientId: link.parentId, studentId: link.studentId, permanentStudentId: link.permanentStudentId, studentName: link.studentName, title, body: message }, { userId: actor.id }); if (body.channel !== 'IN_APP' && link.telephone) { const queued = communicationEngine.enqueue({ channel: 'SMS', recipient: link.telephone, payload: { body: message, priority: emergency ? 'HIGH' : 'NORMAL' }, idempotencyKey: key }, { id: actor.id, schoolId: actor.schoolId }); communicationEngine.process(queued.id, actor).catch(() => {}); } }); return { queuedRecipients: links.length, channel: body.channel ?? 'BOTH', emergency, confirmed: true }; }
   return async function handle(request, response) {
+    const requestId = randomUUID();
+    response.setHeader('X-Request-ID', requestId);
     const pathname = new URL(request.url, 'http://localhost').pathname;
     if (pathname.startsWith('/assets/')) {
       const assetRoot = resolve(root);
@@ -140,9 +144,42 @@ export function createApp({ auth = createAuthService(), students = createStudent
     if (pathname === '/api/public/admission-prospectus/options' && request.method === 'GET') return json(response, admissionProspectus.listOptions());
     if (pathname === '/api/public/admission-prospectus' && request.method === 'GET') return json(response, { prospectuses: admissionProspectus.list(Object.fromEntries(new URL(request.url, 'http://localhost').searchParams), publicProspectusActor) });
     if (pathname.startsWith('/api/public/admission-prospectus/') && pathname.endsWith('/pdf') && request.method === 'GET') { const id = pathname.split('/').filter(Boolean)[3]; const prospectus = admissionProspectus.get(id, publicProspectusActor); if (!prospectus) return json(response, { error: 'Published prospectus not found.' }, 404); try { const body = await prospectusPdf.pdf(prospectus); response.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="${safeProspectusFilename(prospectus)}"`, 'Cache-Control': 'public, max-age=300' }); return response.end(body); } catch { return json(response, { error: 'Prospectus PDF is temporarily unavailable.' }, 500); } }
-    if (pathname === '/api/auth/login' && request.method === 'POST') return login(request, response, auth, audit);
+    if (pathname === '/api/auth/login' && request.method === 'POST') {
+      try {
+        if (String(process.env.OSAAH_DATABASE_ADAPTER ?? '').trim().toLowerCase() === 'tidb') {
+          if (!databaseAuthentication) return json(response, { success: false, error: 'Authentication service is temporarily unavailable.' }, 503);
+          const result = await databaseAuthentication(await readJson(request));
+          if (result.status !== 200) return json(response, result.body, result.status);
+          const user = result.body.user;
+          audit(createAuditLog({ userId: user.id, roleId: user.roleKey, sessionId: user.sessionId, action: 'DATABASE_LOGIN_SUCCESS', entity: 'Authentication' }));
+          const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+          return json(response, result.body, 200, `osaah_session=${result.body.token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Math.floor(auth.sessionTtlMs / 1000)}${secure}`);
+        }
+        return await login(request, response, auth, audit);
+      } catch (error) {
+        console.error('[auth] login request failed', {
+          requestId,
+          errorName: typeof error?.name === 'string' ? error.name : 'Error',
+          errorCode: typeof error?.code === 'string' ? error.code : 'AUTH_LOGIN_FAILED'
+        });
+        return json(response, { error: 'Authentication service is temporarily unavailable.' }, 503);
+      }
+    }
     if (pathname === '/api/auth/logout' && request.method === 'POST') { auth.logout(readCookie(request, 'osaah_session')); return json(response, { ok: true }, 204, 'osaah_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'); }
     if (pathname === '/api/auth/proprietor/login' && request.method === 'POST') {
+      if (String(process.env.OSAAH_DATABASE_ADAPTER ?? '').trim().toLowerCase() === 'tidb') {
+        if (!databaseAuthentication) return json(response, { success: false, error: 'Authentication service is temporarily unavailable.' }, 503);
+        try {
+          const result = await databaseAuthentication(await readJson(request), { proprietorOnly: true });
+          if (result.status !== 200) return json(response, result.body, result.status);
+          const user = result.body.user;
+          audit(createAuditLog({ userId: user.id, roleId: user.roleKey, sessionId: user.sessionId, action: 'DATABASE_LOGIN_SUCCESS', entity: 'Authentication' }));
+          const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+          return json(response, result.body, 200, `osaah_session=${result.body.token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Math.floor(auth.sessionTtlMs / 1000)}${secure}`);
+        } catch {
+          return json(response, { success: false, error: 'Authentication service is temporarily unavailable.' }, 503);
+        }
+      }
       if (!proprietorAuthentication) return json(response, { error: 'Authentication service unavailable.' }, 500);
       try {
         const result = await proprietorAuthentication(await readJson(request));
@@ -154,7 +191,7 @@ export function createApp({ auth = createAuthService(), students = createStudent
     }
     if (pathname === '/api/auth/session' && request.method === 'GET') {
       const user = auth.authenticate(readCookie(request, 'osaah_session') ?? bearer(request));
-      return user ? json(response, { user: publicUser(user), redirectTo: user.dashboard }) : json(response, { error: 'Authentication required.' }, 401);
+      return user ? json(response, { user: publicUser(user), redirectTo: authRedirect(user) }) : json(response, { error: 'Authentication required.' }, 401);
     }
     if (pathname === '/api/auth/password-reset' && request.method === 'POST') { const body = await readJson(request); return json(response, auth.requestPasswordReset(body.username ?? '')); }
     if (pathname === '/api/auth/password-reset/complete' && request.method === 'POST') { const body = await readJson(request); const result = auth.completePasswordReset(body.token ?? '', body.newPassword ?? ''); return json(response, result, result.ok ? 200 : 400); }
@@ -436,7 +473,7 @@ export function createApp({ auth = createAuthService(), students = createStudent
       return json(response, { error: 'Not found.' }, 404);
     }
     if (pathname === '/website') { response.writeHead(302, { Location: '/#public-school-website', 'Cache-Control': 'no-store' }); return response.end(); }
-    const pageAliases = { '/developer/communication-setup': '/communication-setup.html', '/academics': '/academics.html', '/students': '/students.html', '/admissions': '/admissions.html', '/attendance': '/attendance.html', '/examinations': '/examinations.html', '/results': '/results.html', '/promotion': '/results.html', '/fees': '/fees.html', '/fees/admission-structures': '/admission-fees.html', '/fees/scholarships': '/fees.html', '/finance': '/finance.html', '/staff': '/staff.html', '/staff/leave': '/leave.html', '/staff/professional-development': '/staff.html', '/administrator-management': '/administrator-management.html', '/staff-management': '/staff-management.html', '/settings': '/index.html', '/users': '/administrator-management.html', '/communication': '/communication.html', '/communication/messages': '/communication.html', '/communication/calendar': '/communication.html', '/compliance': '/compliance.html', '/documents': '/documents.html', '/privacy': '/privacy.html', '/inventory': '/inventory.html', '/assets': '/assets.html', '/procurement': '/procurement.html', '/property': '/assets.html', '/library': '/library.html', '/transport': '/transport.html', '/sporting-activities': '/sporting-activities.html', '/transport/gps': '/transport.html', '/hostel': '/hostel.html', '/welfare/health': '/welfare.html', '/welfare/discipline': '/welfare.html', '/welfare/counselling': '/welfare.html' };
+    const pageAliases = { '/dashboard': '/index.html', '/developer/communication-setup': '/communication-setup.html', '/academics': '/academics.html', '/students': '/students.html', '/admissions': '/admissions.html', '/attendance': '/attendance.html', '/examinations': '/examinations.html', '/results': '/results.html', '/promotion': '/results.html', '/fees': '/fees.html', '/fees/admission-structures': '/admission-fees.html', '/fees/scholarships': '/fees.html', '/finance': '/finance.html', '/staff': '/staff.html', '/staff/leave': '/leave.html', '/staff/professional-development': '/staff.html', '/administrator-management': '/administrator-management.html', '/staff-management': '/staff-management.html', '/settings': '/index.html', '/users': '/administrator-management.html', '/communication': '/communication.html', '/communication/messages': '/communication.html', '/communication/calendar': '/communication.html', '/compliance': '/compliance.html', '/documents': '/documents.html', '/privacy': '/privacy.html', '/inventory': '/inventory.html', '/assets': '/assets.html', '/procurement': '/procurement.html', '/property': '/assets.html', '/library': '/library.html', '/transport': '/transport.html', '/sporting-activities': '/sporting-activities.html', '/transport/gps': '/transport.html', '/hostel': '/hostel.html', '/welfare/health': '/welfare.html', '/welfare/discipline': '/welfare.html', '/welfare/counselling': '/welfare.html' };
     Object.assign(pageAliases, { '/about-developer': '/about-developer.html', '/copyright': '/copyright.html' });
     Object.assign(pageAliases, { '/reports': '/reports.html', '/reports/academic': '/reports-academic.html', '/reports/financial': '/reports-financial.html', '/official-documents': '/official-documents.html', '/website': '/website.html', '/admissions/prospectus': '/admission-prospectus.html', '/parent/admission-prospectus': '/parent-admission-prospectus.html', '/examinations/marks': '/examinations.html', '/examinations/mock': '/mock-examinations.html', '/results/mock': '/results.html', '/academics/subjects': '/subjects.html', '/academics/subject-register': '/subject-register.html', '/welfare/shep': '/shep-activities.html', '/settings/result-signatures': '/result-signatures.html', '/fees/invoices': '/receipts.html' });
     Object.assign(pageAliases, { '/academics': '/subjects.html', '/admissions/analytics': '/admission-analytics.html', '/settings/multi-school': '/index.html', '/user-guide': '/user-guide.html' }, PROPRIETOR_PAGE_ALIASES, Object.fromEntries(Object.keys(PROPRIETOR_PAGE_ALIASES).filter((route) => route === '/finance' || route.startsWith('/finance/') || route.startsWith('/fees/')).map((route) => [route, '/finance-canonical.html'])));
@@ -502,7 +539,8 @@ if (process.env.NODE_ENV !== 'production' && process.argv[1] === fileURLToPath(i
 }
 export { server };
 export default app;
-function publicUser(user) { return { id: user.id, username: user.username, portal: user.portal, roleKey: user.roleKey, schoolId: user.schoolId, children: user.children ?? [], assignedStudentIds: user.assignedStudentIds ?? [], assignedClassIds: user.assignedClassIds ?? [], assignedSubjectIds: user.assignedSubjectIds ?? [], assignedDepartmentIds: user.assignedDepartmentIds ?? [] }; }
+function authRedirect(user) { if (user.portal === 'parent') return '/'; return user.roleKey === 'TEACHER' ? '/academics' : '/dashboard'; }
+function publicUser(user) { return { id: user.id, username: user.username, portal: user.portal, roleKey: user.roleKey, schoolId: user.schoolId, redirectTo: authRedirect(user), children: user.children ?? [], assignedStudentIds: user.assignedStudentIds ?? [], assignedClassIds: user.assignedClassIds ?? [], assignedSubjectIds: user.assignedSubjectIds ?? [], assignedDepartmentIds: user.assignedDepartmentIds ?? [] }; }
 async function login(request, response, auth, audit) { const body = await readJson(request); const result = auth.login(body); if (!result.ok) return json(response, { error: result.error }, result.status); audit(createAuditLog({ userId: result.user.id, roleId: result.user.roleKey, sessionId: result.user.sessionId, action: 'LOGIN_SUCCESS', entity: 'Authentication' })); return json(response, { user: result.user, redirectTo: result.redirectTo, expiresAt: result.expiresAt }, 200, `osaah_session=${result.token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Math.floor(auth.sessionTtlMs / 1000)}`); }
 function readCookie(request, name) { return (request.headers.cookie ?? '').split(';').map((part) => part.trim().split('=')).find(([key]) => key === name)?.[1]; }
 function safeReceiptFilename(receiptNumber) { const safe = String(receiptNumber ?? '').replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 80) || 'receipt'; return `OSAAH-Receipt-${safe}.pdf`; }
