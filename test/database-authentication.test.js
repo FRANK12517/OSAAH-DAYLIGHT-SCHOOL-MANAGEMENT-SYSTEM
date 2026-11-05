@@ -23,7 +23,7 @@ test('database login uses portal_users email or username and issues the protecte
         ...school,
         database: { query: async (...args) => { calls.push(args); return [record]; } }
       });
-      const result = await controller({ username: identifier, password: 'TestPassword123!', portal: 'school' });
+      const result = await controller({ username: identifier, password: 'TestPassword123!', portal: 'school', role: 'PROPRIETOR' });
       assert.equal(result.status, 200);
       assert.equal(result.body.success, true);
       assert.equal(result.body.user.id, record.id);
@@ -37,8 +37,8 @@ test('database login uses portal_users email or username and issues the protecte
       const session = auth.authenticate(result.body.token);
       assert.equal(session.id, record.id);
       assert.equal(session.permissions.has('*'), true);
-      assert.equal(calls[0][0], 'SELECT id, portal_name, email, password_hash, role, is_active FROM portal_users WHERE (email = ? OR portal_name = ?) AND is_active = 1 LIMIT 2');
-      assert.deepEqual(calls[0][1], [identifier.toLowerCase(), identifier]);
+      assert.equal(calls[0][0], 'SELECT id, portal_name, email, password_hash, role, is_active FROM portal_users WHERE (LOWER(email) = ? OR LOWER(portal_name) = ?) AND is_active = 1 LIMIT 2');
+      assert.deepEqual(calls[0][1], [identifier.toLowerCase(), identifier.toLowerCase()]);
     }
   } finally {
     if (priorSecret === undefined) delete process.env.JWT_SECRET;
@@ -63,7 +63,8 @@ test('database login applies role permissions and role-specific redirects', asyn
         ...school,
         database: { query: async () => [{ ...record, role, portal_name: 'frank.abban', email: 'abbanfrank348@gmail.com' }] }
       });
-      const result = await controller({ email: 'abbanfrank348@gmail.com', password: 'TestPassword123!' });
+      const requestedRole = role === 'ADMINISTRATOR' ? 'SCHOOL_ADMIN' : role === 'ACCOUNTANT' ? 'ACCOUNTANT_BURSAR' : role;
+      const result = await controller({ email: 'abbanfrank348@gmail.com', password: 'TestPassword123!', portal: 'school', role: requestedRole });
       assert.equal(result.status, 200, role);
       assert.equal(result.body.user.role, expectedRole);
       assert.equal(result.body.user.redirectTo, redirectTo);
@@ -71,6 +72,38 @@ test('database login applies role permissions and role-specific redirects', asyn
       assert.ok(session.permissions.size > 0);
       assert.equal(session.permissions.has('*'), role === 'PROPRIETOR');
     }
+  } finally {
+    if (priorSecret === undefined) delete process.env.JWT_SECRET;
+    else process.env.JWT_SECRET = priorSecret;
+  }
+});
+
+test('database login validates the requested role and blocks school accounts from the parent portal', async () => {
+  const priorSecret = process.env.JWT_SECRET;
+  process.env.JWT_SECRET = secret;
+  try {
+    let calls = 0;
+    const controller = createDatabaseAuthenticationController({
+      auth: createAuthService(),
+      ...school,
+      database: { query: async () => { calls += 1; return [{ ...record, role: 'ADMINISTRATOR' }]; } }
+    });
+    const matchingAlias = await controller({ username: record.email, password: 'TestPassword123!', portal: 'school', role: 'Administrator' });
+    assert.equal(matchingAlias.status, 200);
+    assert.equal(matchingAlias.body.user.role, 'SCHOOL_ADMIN');
+
+    const mismatch = await controller({ username: record.email, password: 'TestPassword123!', portal: 'school', role: 'PROPRIETOR' });
+    assert.equal(mismatch.status, 401);
+    assert.deepEqual(mismatch.body, { success: false, error: 'The selected role does not match this account.' });
+
+    const unsupported = await controller({ username: record.email, password: 'TestPassword123!', portal: 'school', role: 'DEVELOPER' });
+    assert.equal(unsupported.status, 401);
+    assert.equal(unsupported.body.error, 'The selected role does not match this account.');
+
+    const parentPortal = await controller({ username: record.email, password: 'TestPassword123!', portal: 'parent', role: 'PARENT' });
+    assert.equal(parentPortal.status, 401);
+    assert.deepEqual(parentPortal.body, { success: false, error: 'Incorrect username or password.' });
+    assert.equal(calls, 3);
   } finally {
     if (priorSecret === undefined) delete process.env.JWT_SECRET;
     else process.env.JWT_SECRET = priorSecret;

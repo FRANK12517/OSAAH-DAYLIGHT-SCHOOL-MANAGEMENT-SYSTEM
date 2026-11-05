@@ -17,6 +17,21 @@ const ROLE_PERMISSIONS = Object.freeze({
 });
 const ROLE_REDIRECTS = Object.freeze({ TEACHER: '/academics' });
 const VALID_ROLES = new Set(Object.keys(ROLE_PERMISSIONS));
+const REQUESTED_ROLE_ALIASES = Object.freeze({
+  ADMINISTRATOR: 'SCHOOL_ADMIN',
+  SCHOOL_ADMINISTRATOR: 'SCHOOL_ADMIN',
+  ACCOUNTANT: 'ACCOUNTANT_BURSAR',
+  CLASSROOM_TEACHER: 'TEACHER',
+  PROPRIETOR: 'PROPRIETOR',
+  PROPRIETRESS: 'PROPRIETOR',
+  SCHOOL_PROPRIETOR: 'PROPRIETOR',
+  SCHOOL_PROPRIETRESS: 'PROPRIETOR'
+});
+
+function requestedRoleKey(value) {
+  const normalized = String(value ?? '').trim().toUpperCase().replace(/[\s-]+/g, '_');
+  return REQUESTED_ROLE_ALIASES[normalized] ?? canonicalRoleKey(normalized);
+}
 
 export function createDatabaseAuthenticationController({
   database,
@@ -34,17 +49,22 @@ export function createDatabaseAuthenticationController({
     const normalizedIdentifier = identifier.toLowerCase();
     const password = typeof input.password === 'string' ? input.password : '';
     if (!normalizedIdentifier || !password) return { status: 401, body: { ...INVALID } };
+    if (input.portal && String(input.portal).trim().toLowerCase() !== 'school') return { status: 401, body: { ...INVALID } };
     if (!schoolId || !schoolName) return { status: 503, body: { success: false, error: 'Authentication service is temporarily unavailable.' }, code: 'AUTH_SCHOOL_SCOPE_REQUIRED' };
     try {
       const rows = await database.query(
-        'SELECT id, portal_name, email, password_hash, role, is_active FROM portal_users WHERE (email = ? OR portal_name = ?) AND is_active = 1 LIMIT 2',
-        [normalizedIdentifier, identifier]
+        'SELECT id, portal_name, email, password_hash, role, is_active FROM portal_users WHERE (LOWER(email) = ? OR LOWER(portal_name) = ?) AND is_active = 1 LIMIT 2',
+        [normalizedIdentifier, normalizedIdentifier]
       );
       if (!Array.isArray(rows) || rows.length !== 1) return { status: 401, body: { ...INVALID } };
       const record = rows[0];
       if (Number(record.is_active) !== 1 && record.is_active !== true) return { status: 401, body: { ...INVALID } };
       const roleKey = canonicalRoleKey(record.role) === 'ADMINISTRATOR' ? 'SCHOOL_ADMIN' : canonicalRoleKey(record.role);
       if (!VALID_ROLES.has(roleKey) || (proprietorOnly && roleKey !== 'PROPRIETOR')) return { status: 401, body: { ...INVALID } };
+      const selectedRole = input.role ?? input.roleKey;
+      if (selectedRole && requestedRoleKey(selectedRole) !== roleKey) {
+        return { status: 401, body: { success: false, error: 'The selected role does not match this account.' } };
+      }
       if (typeof record.password_hash !== 'string' || !/^\$2[aby]\$/.test(record.password_hash) || !await bcryptCompare(password, record.password_hash)) {
         return { status: 401, body: { ...INVALID } };
       }
