@@ -61,12 +61,12 @@ export function createDatabaseAuthenticationController({
       if (Number(record.is_active) !== 1 && record.is_active !== true) return { status: 401, body: { ...INVALID } };
       const roleKey = canonicalRoleKey(record.role) === 'ADMINISTRATOR' ? 'SCHOOL_ADMIN' : canonicalRoleKey(record.role);
       if (!VALID_ROLES.has(roleKey) || (proprietorOnly && roleKey !== 'PROPRIETOR')) return { status: 401, body: { ...INVALID } };
+      if (typeof record.password_hash !== 'string' || !/^\$2[aby]\$/.test(record.password_hash) || !await bcryptCompare(password, record.password_hash)) {
+        return { status: 401, body: { ...INVALID } };
+      }
       const selectedRole = input.role ?? input.roleKey;
       if (selectedRole && requestedRoleKey(selectedRole) !== roleKey) {
         return { status: 401, body: { success: false, error: 'The selected role does not match this account.' } };
-      }
-      if (typeof record.password_hash !== 'string' || !/^\$2[aby]\$/.test(record.password_hash) || !await bcryptCompare(password, record.password_hash)) {
-        return { status: 401, body: { ...INVALID } };
       }
 
       const username = String(record.portal_name ?? record.email ?? '');

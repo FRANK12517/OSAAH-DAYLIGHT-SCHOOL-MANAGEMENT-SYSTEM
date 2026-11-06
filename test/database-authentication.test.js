@@ -100,10 +100,14 @@ test('database login validates the requested role and blocks school accounts fro
     assert.equal(unsupported.status, 401);
     assert.equal(unsupported.body.error, 'The selected role does not match this account.');
 
+    const invalidPassword = await controller({ username: record.email, password: 'wrong', portal: 'school', role: 'PROPRIETOR' });
+    assert.equal(invalidPassword.status, 401);
+    assert.deepEqual(invalidPassword.body, { success: false, error: 'Incorrect username or password.' });
+
     const parentPortal = await controller({ username: record.email, password: 'TestPassword123!', portal: 'parent', role: 'PARENT' });
     assert.equal(parentPortal.status, 401);
     assert.deepEqual(parentPortal.body, { success: false, error: 'Incorrect username or password.' });
-    assert.equal(calls, 3);
+    assert.equal(calls, 4);
   } finally {
     if (priorSecret === undefined) delete process.env.JWT_SECRET;
     else process.env.JWT_SECRET = priorSecret;
