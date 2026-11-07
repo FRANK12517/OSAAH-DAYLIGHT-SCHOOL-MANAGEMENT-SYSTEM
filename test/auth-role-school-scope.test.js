@@ -7,16 +7,20 @@ const schoolId = 'school-a';
 const password = 'Valid-Scoped-Password-123!';
 const passwordHash = `auth-test-salt:${scryptSync(password, 'auth-test-salt', 32).toString('hex')}`;
 
-function createDatabase({ roleSchoolId, roleKey = 'ACCOUNTANT_BURSAR', assigned = true } = {}) {
+function createDatabase({ roleSchoolId, sessionSchoolId = schoolId, roleKey = 'ACCOUNTANT_BURSAR', assigned = true } = {}) {
   const queries = [];
   const sessions = new Map();
+  let currentRoleSchoolId = roleSchoolId;
+  let currentSessionSchoolId = sessionSchoolId;
   return {
     queries,
     supportsDurableAuthSessions: true,
+    setRoleSchoolId(value) { currentRoleSchoolId = value; },
+    setSessionSchoolId(value) { currentSessionSchoolId = value; },
     async query(sql, params = []) {
       queries.push(sql);
       if (sql.includes('FROM users u') && !sql.includes('FROM auth_sessions')) {
-        const roleIsVisible = assigned && (roleSchoolId === schoolId || roleSchoolId === null);
+        const roleIsVisible = assigned && (currentRoleSchoolId === schoolId || currentRoleSchoolId === null);
         return [{
           id: 'user-a', schoolId, username: 'accountant@school.test', email: 'accountant@school.test',
           passwordHash, status: 'ACTIVE', roleKey: roleIsVisible ? roleKey : null,
@@ -25,12 +29,14 @@ function createDatabase({ roleSchoolId, roleKey = 'ACCOUNTANT_BURSAR', assigned 
       }
       if (sql.includes('FROM auth_sessions')) {
         const session = [...sessions.values()].find((candidate) => candidate.tokenHash === params[0] && !candidate.revokedAt && candidate.expiresAt > params[1]);
-        return session ? [{ sessionId: session.id, userId: 'user-a', schoolId, expiresAt: session.expiresAt, username: 'accountant@school.test', email: 'accountant@school.test', roleKey, permissionKey: 'finance.read' }] : [];
+        if (!session || currentSessionSchoolId !== schoolId) return [];
+        const roleIsVisible = assigned && (currentRoleSchoolId === schoolId || currentRoleSchoolId === null);
+        return [{ sessionId: session.id, userId: 'user-a', schoolId: currentSessionSchoolId, expiresAt: session.expiresAt, username: 'accountant@school.test', email: 'accountant@school.test', roleKey: roleIsVisible ? roleKey : null, permissionKey: roleIsVisible ? 'finance.read' : null }];
       }
       return [];
     },
     async execute(sql, params = []) {
-      if (sql.startsWith('INSERT INTO auth_sessions')) sessions.set(params[0], { id: params[0], tokenHash: params[3], expiresAt: params[5], revokedAt: null });
+      if (sql.startsWith('INSERT INTO auth_sessions')) sessions.set(params[0], { id: params[0], schoolId: params[2], tokenHash: params[3], expiresAt: params[5], revokedAt: null });
       if (sql.startsWith('UPDATE auth_sessions SET revoked_at=? WHERE token_hash=?')) {
         for (const session of sessions.values()) if (session.tokenHash === params[1]) session.revokedAt = params[0];
       }
@@ -76,4 +82,45 @@ test('role assignment absence remains rejected and global roles remain supported
     assert.equal(result.ok, true);
     assert.equal(result.user.roleKey, 'ACCOUNTANT_BURSAR');
   });
+});
+
+test('durable session restoration retains same-school and explicitly global roles', async (t) => {
+  for (const roleSchoolId of [schoolId, null]) {
+    await t.test(roleSchoolId ?? 'global role', async () => {
+      const database = createDatabase({ roleSchoolId });
+      const auth = createAuthService({ users: [], database, sessionSecret: 'test-session-secret-012345678901234567890' });
+      const login = await auth.loginFromDatabase({ username: 'accountant@school.test', password, portal: 'school', role: 'ACCOUNTANT' });
+      assert.equal(login.ok, true);
+
+      const restored = await auth.authenticateAsync(login.token);
+      assert.equal(restored.schoolId, schoolId);
+      assert.equal(restored.roleKey, 'ACCOUNTANT_BURSAR');
+      const restorationQuery = database.queries.find((query) => query.includes('FROM auth_sessions s JOIN users u'));
+      assert.match(restorationQuery, /r\.school_id=u\.school_id OR r\.school_id IS NULL/);
+      assert.match(restorationQuery, /s\.school_id=u\.school_id/);
+    });
+  }
+});
+
+test('durable sessions reject a role that becomes cross-school after login', async () => {
+  const database = createDatabase({ roleSchoolId: schoolId });
+  const auth = createAuthService({ users: [], database, sessionSecret: 'test-session-secret-012345678901234567890' });
+  const login = await auth.loginFromDatabase({ username: 'accountant@school.test', password, portal: 'school', role: 'ACCOUNTANT' });
+  assert.equal(login.ok, true);
+
+  database.setRoleSchoolId('school-b');
+  assert.equal(await auth.authenticateAsync(login.token), null);
+});
+
+test('durable sessions reject stored school context that differs from the user school', async () => {
+  const database = createDatabase({ roleSchoolId: schoolId });
+  const auth = createAuthService({ users: [], database, sessionSecret: 'test-session-secret-012345678901234567890' });
+  const login = await auth.loginFromDatabase({ username: 'accountant@school.test', password, portal: 'school', role: 'ACCOUNTANT' });
+  assert.equal(login.ok, true);
+
+  database.setSessionSchoolId('school-b');
+  const restored = await auth.authenticateAsync(login.token);
+  assert.equal(restored, null);
+  const restorationQuery = database.queries.find((query) => query.includes('FROM auth_sessions s JOIN users u'));
+  assert.match(restorationQuery, /s\.school_id=u\.school_id/);
 });
