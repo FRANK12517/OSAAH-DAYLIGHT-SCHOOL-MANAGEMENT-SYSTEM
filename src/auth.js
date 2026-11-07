@@ -395,7 +395,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
       rows = await database.query(`SELECT u.id,u.school_id AS schoolId,COALESCE(u.username,u.email) AS username,u.email,u.password_hash AS passwordHash,u.status,r.role_key AS roleKey,r.oversight_rank AS oversightRank,p.permission_key AS permissionKey
         FROM users u
         LEFT JOIN user_roles ur ON ur.user_id=u.id
-        LEFT JOIN roles r ON r.id=ur.role_id
+        LEFT JOIN roles r ON r.id=ur.role_id AND (r.school_id=u.school_id OR r.school_id IS NULL)
         LEFT JOIN role_permissions rp ON rp.role_id=r.id
         LEFT JOIN permissions p ON p.id=rp.permission_id
         WHERE LOWER(COALESCE(u.username,''))=? OR LOWER(COALESCE(u.email,''))=? ORDER BY COALESCE(r.oversight_rank,0) DESC,r.role_key,p.permission_key`, [key, key]);
@@ -531,7 +531,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     }
     let rows;
     try {
-      rows = await database.query(`SELECT s.id AS sessionId,s.user_id AS userId,s.school_id AS schoolId,s.expires_at AS expiresAt,COALESCE(u.username,u.email) AS username,u.email,u.status,r.role_key AS roleKey,r.oversight_rank AS oversightRank,p.permission_key AS permissionKey FROM auth_sessions s JOIN users u ON u.id=s.user_id LEFT JOIN user_roles ur ON ur.user_id=u.id LEFT JOIN roles r ON r.id=ur.role_id LEFT JOIN role_permissions rp ON rp.role_id=r.id LEFT JOIN permissions p ON p.id=rp.permission_id WHERE s.token_hash=? AND s.revoked_at IS NULL AND s.expires_at>? AND UPPER(COALESCE(u.status,'ACTIVE'))='ACTIVE' ORDER BY COALESCE(r.oversight_rank,0) DESC,r.role_key,p.permission_key`, [tokenHash(token), nowIso()]);
+      rows = await database.query(`SELECT s.id AS sessionId,s.user_id AS userId,s.school_id AS schoolId,s.expires_at AS expiresAt,COALESCE(u.username,u.email) AS username,u.email,u.status,r.role_key AS roleKey,r.oversight_rank AS oversightRank,p.permission_key AS permissionKey FROM auth_sessions s JOIN users u ON u.id=s.user_id LEFT JOIN user_roles ur ON ur.user_id=u.id LEFT JOIN roles r ON r.id=ur.role_id AND (r.school_id=u.school_id OR r.school_id IS NULL) LEFT JOIN role_permissions rp ON rp.role_id=r.id LEFT JOIN permissions p ON p.id=rp.permission_id WHERE s.token_hash=? AND s.school_id=u.school_id AND s.revoked_at IS NULL AND s.expires_at>? AND UPPER(COALESCE(u.status,'ACTIVE'))='ACTIVE' ORDER BY COALESCE(r.oversight_rank,0) DESC,r.role_key,p.permission_key`, [tokenHash(token), nowIso()]);
     } catch (error) {
       sessionDiagnostic(context, 'session_store_lookup', { querySucceeded: false, errorType: safeDiagnosticIdentifier(error?.name) ?? 'Error', errorCode: safeDiagnosticCode(error?.code) });
       sessionRejectionDiagnostic(context, 'SESSION_STORE_QUERY_FAILED', {
