@@ -144,14 +144,16 @@ test('authorized staff can continue through the normal workflow to the applicati
 
   await admission.locator('[name="parentPhone"]').fill('0241234567');
   await nextButton.click({ force: true });
-  await page.frameLocator('#module-frame').getByRole('heading', { name: 'OFFICIAL ADMISSION FORM' }).waitFor();
+  const applicationForm = page.frameLocator('#module-frame');
+  await applicationForm.getByRole('heading', { name: 'OFFICIAL ADMISSION FORM' }).waitFor();
+  await applicationForm.locator('#form-status').filter({ hasText: /^Draft APP-/ }).waitFor();
   assert.equal(applicationWrites.length, 1, 'the normal UI sends one authorized enquiry request');
   assert.equal(applicationWrites[0].method, 'POST');
   assert.equal(applicationWrites[0].payload.admissionType, 'FIRST_TIME');
   assert.equal(applicationWrites[0].payload.classAppliedFor, 'Basic 2');
-  assert.equal(await page.frameLocator('#module-frame').locator('[name="studentFirstName"]').inputValue(), 'Synthetic Browser');
-  assert.equal(await page.frameLocator('#module-frame').locator('[name="studentSurname"]').inputValue(), 'Candidate');
-  assert.equal(await page.frameLocator('#module-frame').locator('[name="primaryGuardianPrimaryPhone"]').inputValue(), '+233241234567');
+  assert.equal(await applicationForm.locator('[name="studentFirstName"]').inputValue(), 'Synthetic Browser');
+  assert.equal(await applicationForm.locator('[name="studentSurname"]').inputValue(), 'Candidate');
+  assert.equal(await applicationForm.locator('[name="primaryGuardianPrimaryPhone"]').inputValue(), '+233241234567');
   assert.equal(continuationResponses.at(-1)?.status, 200, 'the authenticated staff session can fetch the application page');
   assert.match(continuationResponses.at(-1)?.url ?? '', /applicationNumber=APP-/);
   assert.match(continuationResponses.at(-1)?.url ?? '', /step=2/);
