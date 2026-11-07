@@ -1,5 +1,9 @@
 import bcrypt from 'bcrypt';
+import { promisify } from 'node:util';
+import { scrypt as scryptCallback, timingSafeEqual } from 'node:crypto';
 import { canonicalRoleKey } from './auth.js';
+
+const deriveScrypt = promisify(scryptCallback);
 
 const INVALID = Object.freeze({ success: false, error: 'Incorrect username or password.' });
 const ADMINISTRATOR_PERMISSIONS = Object.freeze([
@@ -33,6 +37,23 @@ function requestedRoleKey(value) {
   return REQUESTED_ROLE_ALIASES[normalized] ?? canonicalRoleKey(normalized);
 }
 
+async function verifyPassword(password, storedHash, bcryptCompare) {
+  if (typeof storedHash !== 'string') return false;
+  if (/^\$2[aby]\$/.test(storedHash)) return bcryptCompare(password, storedHash);
+
+  // Legacy in-memory/staff credential issuance stores Node scrypt as
+  // `<16-byte-hex-salt>:<32-byte-hex-digest>`. Accept only this exact format.
+  const match = /^([a-f0-9]{32}):([a-f0-9]{64})$/i.exec(storedHash);
+  if (!match) return false;
+  try {
+    const actual = await deriveScrypt(password, match[1], 32);
+    const expected = Buffer.from(match[2], 'hex');
+    return actual.length === expected.length && timingSafeEqual(actual, expected);
+  } catch {
+    return false;
+  }
+}
+
 export function createDatabaseAuthenticationController({
   database,
   auth,
@@ -61,7 +82,7 @@ export function createDatabaseAuthenticationController({
       if (Number(record.is_active) !== 1 && record.is_active !== true) return { status: 401, body: { ...INVALID } };
       const roleKey = canonicalRoleKey(record.role) === 'ADMINISTRATOR' ? 'SCHOOL_ADMIN' : canonicalRoleKey(record.role);
       if (!VALID_ROLES.has(roleKey) || (proprietorOnly && roleKey !== 'PROPRIETOR')) return { status: 401, body: { ...INVALID } };
-      if (typeof record.password_hash !== 'string' || !/^\$2[aby]\$/.test(record.password_hash) || !await bcryptCompare(password, record.password_hash)) {
+      if (!await verifyPassword(password, record.password_hash, bcryptCompare)) {
         return { status: 401, body: { ...INVALID } };
       }
       const selectedRole = input.role ?? input.roleKey;
