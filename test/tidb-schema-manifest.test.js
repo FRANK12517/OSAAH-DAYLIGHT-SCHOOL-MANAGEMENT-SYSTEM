@@ -135,11 +135,11 @@ test('generated repository evidence manifest stays explicitly unresolved and is 
   assert.match(domainMatrix, /Fully resolved required tables: \*\*0 of 71\*\*/);
   assert.ok(manifest.unresolvedSummary.runtimeSqlConfirmedTables > 0);
   assert.equal(manifest.unresolvedSummary.runtimeTablesWithoutAnySchemaDefinitionEvidence, 1);
-  assert.equal(manifest.unresolvedSummary.runtimeWriteColumnPairsWithoutAnySchemaDefinitionEvidence, 1);
+  assert.equal(manifest.unresolvedSummary.runtimeWriteColumnPairsWithoutAnySchemaDefinitionEvidence, 2);
   assert.ok(manifest.tables.find((table) => table.name === 'class_subjects').runtimeRequiredness.startsWith('OPTIONAL_LEGACY_'));
   assert.deepEqual(
     manifest.tables.find((table) => table.name === 'staff_profiles').runtimeWriteColumnsWithoutSchemaEvidence,
-    ['staff_number']
+    ['position', 'staff_number']
   );
   const staffProfileGaps = reconciliation.tableDispositions.find((item) => item.name === 'staff_profiles').missingEvidence.join(' ');
   assert.match(staffProfileGaps, /caller-supplied staff_number/i);
