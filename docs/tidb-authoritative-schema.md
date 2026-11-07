@@ -7,14 +7,14 @@
 - Database: `osaahdaylightschool`.
 - Single-school identity: `sch_default_01`; no additional school scope is introduced by this schema work.
 - Production adapter: explicit TiDB selection through mysql2 with TLS verification enabled.
-- Runtime source scan: 153 source files, 543 SQL observations, 71 statically SQL-confirmed table names, and 134 write-column observations.
+- Runtime source scan: 157 source files, 577 SQL observations, 72 statically SQL-confirmed table names, and 140 write-column observations.
 - Current numbered repository SQL: 82 files. These historical migrations are not, by themselves, a reviewed fresh-install plan.
 
 ## Evidence status
 
 The entity inventory contains 164 historical/runtime table names and 8 historical view names. Runtime query evidence, historical DDL, and parallel PostgreSQL definitions are kept in separate evidence fields. 5 platform metadata tables have native TiDB DDL in source but are not live-verified; 159 application/historical objects remain unresolved for canonical DDL.
 
-The relationship map contains 400 historical foreign-key candidates and 127 runtime JOIN observations. Neither set is treated as a TiDB constraint without field-level and lifecycle review.
+The relationship map contains 400 historical foreign-key candidates and 134 runtime JOIN observations. Neither set is treated as a TiDB constraint without field-level and lifecycle review.
 
 ## Required artifacts
 
