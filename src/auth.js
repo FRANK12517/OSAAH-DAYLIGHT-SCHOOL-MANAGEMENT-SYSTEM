@@ -395,7 +395,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
       rows = await database.query(`SELECT u.id,u.school_id AS schoolId,COALESCE(u.username,u.email) AS username,u.email,u.password_hash AS passwordHash,u.status,r.role_key AS roleKey,r.oversight_rank AS oversightRank,p.permission_key AS permissionKey
         FROM users u
         LEFT JOIN user_roles ur ON ur.user_id=u.id
-        LEFT JOIN roles r ON r.id=ur.role_id
+        LEFT JOIN roles r ON r.id=ur.role_id AND (r.school_id=u.school_id OR r.school_id IS NULL)
         LEFT JOIN role_permissions rp ON rp.role_id=r.id
         LEFT JOIN permissions p ON p.id=rp.permission_id
         WHERE LOWER(COALESCE(u.username,''))=? OR LOWER(COALESCE(u.email,''))=? ORDER BY COALESCE(r.oversight_rank,0) DESC,r.role_key,p.permission_key`, [key, key]);
