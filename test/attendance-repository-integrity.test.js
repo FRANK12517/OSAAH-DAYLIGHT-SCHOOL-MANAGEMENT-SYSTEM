@@ -93,3 +93,29 @@ test('multiple saves refuse to proceed when the database adapter cannot guarante
   assert.equal(saved.studentId, 'student-1');
   assert.equal(db.records.size, 1);
 });
+
+test('attendance alert reads fall back to the verified legacy date column without writes', async () => {
+  const queries = [];
+  const adapter = {
+    async query(sql, params = []) {
+      queries.push({ sql, params });
+      if (/ORDER BY attendance_date/i.test(sql)) {
+        throw Object.assign(new Error("Unknown column 'attendance_date' in 'order clause'"), { code: 'ER_BAD_FIELD_ERROR' });
+      }
+      if (/ORDER BY `date`,student_id/i.test(sql)) {
+        return [{ id: 'legacy-attendance-1', schoolId: 'school-1', academicYear: '2026/2027', term: 'First Term', date: '2026-10-10', classId: 'class-1', studentId: 'student-1', status: 'ABSENT' }];
+      }
+      throw new Error('Unexpected query');
+    },
+    async execute() { throw new Error('Alert read must not write'); }
+  };
+  const repository = createAttendanceRepository({ adapter });
+  const records = await repository.listStudentAlertRecords({ schoolId: 'school-1' });
+  assert.equal(records.length, 1);
+  assert.deepEqual({ id: records[0].id, schoolId: records[0].schoolId, date: records[0].date, status: records[0].status }, {
+    id: 'legacy-attendance-1', schoolId: 'school-1', date: '2026-10-10', status: 'ABSENT'
+  });
+  assert.equal(queries.length, 2);
+  assert.deepEqual(queries.map(({ params }) => params), [['school-1'], ['school-1']]);
+  assert.match(queries[1].sql, /WHERE school_id=\? ORDER BY `date`,student_id/);
+});
