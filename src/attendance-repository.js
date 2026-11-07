@@ -10,6 +10,13 @@ function source(value) { const result = String(value ?? 'MANUAL').toUpperCase();
 function time(value, label) { if (value == null || value === '') return null; if (!/^([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/.test(String(value))) throw new Error(`Invalid ${label}`); return String(value); }
 function staffTime(value) { if (value == null || value === '') return null; const result = String(value); if (/^([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/.test(result) || !Number.isNaN(Date.parse(result))) return result; throw new Error('Invalid attendance time'); }
 function timestampMillis(value) { const result = value instanceof Date ? value.getTime() : Date.parse(String(value ?? '')); return Number.isFinite(result) ? result : null; }
+function isMissingAttendanceDateColumn(error) {
+  const code = String(error?.code ?? '').toUpperCase();
+  const message = String(error?.message ?? error?.sqlMessage ?? '');
+  return ['ER_BAD_FIELD_ERROR', 'ER_UNKNOWN_COLUMN', '42703', '42S22'].includes(code)
+    && /unknown column|column .* does not exist/i.test(message)
+    && /\battendance_date\b/i.test(message);
+}
 function validateReason(status, value) { if (['ABSENT', 'LATE', 'EARLY_DEPARTURE', 'EXCUSED_ABSENCE', 'UNEXCUSED_ABSENCE', 'SICK_ABSENCE'].includes(status) && !String(value ?? '').trim()) throw new Error(`Reason is required for ${status}`); }
 function attendanceRow(row) { return { id: row.id, schoolId: row.schoolId ?? row.school_id, academicYear: row.academicYear ?? row.academic_year, term: row.term, date: row.date ?? row.attendance_date, classId: row.classId ?? row.class_id, studentId: row.studentId ?? row.student_id, subjectId: row.subjectId ?? row.subject_id ?? null, status: row.status, method: row.method, arrivalTime: row.arrivalTime ?? row.arrival_time ?? null, departureTime: row.departureTime ?? row.departure_time ?? null, reason: row.reason ?? null, version: Number(row.version ?? 1), recordedBy: row.recordedBy ?? row.recorded_by ?? row.enteredBy ?? row.entered_by, recordedAt: row.recordedAt ?? row.recorded_at ?? row.enteredAt ?? row.entered_at, updatedBy: row.updatedBy ?? row.updated_by ?? row.enteredBy ?? row.entered_by, updatedAt: row.updatedAt ?? row.updated_at, source: row.source ?? 'MANUAL', enteredBy: row.enteredBy ?? row.entered_by ?? row.recordedBy ?? row.recorded_by, enteredAt: row.enteredAt ?? row.entered_at ?? row.recordedAt ?? row.recorded_at }; }
 function staffRow(row) { const type = row.type ?? row.attendance_type; const status = String(row.status ?? row.attendance_status ?? statusFromStaffAttendanceType(type) ?? '').toUpperCase(); return { id: row.id, schoolId: row.schoolId ?? row.school_id, academicYear: row.academicYear ?? row.academic_year, term: row.term, staffId: row.staffId ?? row.staff_id, date: row.date ?? row.attendance_date, type: type ?? typeFromStaffAttendanceStatus(status), status, source: row.source ?? row.attendance_source ?? 'MANUAL', leaveRequestId: row.leaveRequestId ?? row.leave_request_id ?? null, note: row.note ?? null, previousStatus: row.previousStatus ?? row.previous_status ?? null, time: row.time !== undefined ? row.time : row.attendance_time ?? null, recordedBy: row.recordedBy ?? row.recorded_by ?? row.enteredBy ?? row.entered_by, recordedAt: row.recordedAt ?? row.recorded_at ?? row.createdAt ?? row.created_at, updatedBy: row.updatedBy ?? row.updated_by ?? row.enteredBy ?? row.entered_by, updatedAt: row.updatedAt ?? row.updated_at ?? row.createdAt ?? row.created_at, enteredBy: row.enteredBy ?? row.entered_by ?? row.recordedBy ?? row.recorded_by, createdAt: row.createdAt ?? row.created_at ?? row.recordedAt ?? row.recorded_at }; }
@@ -128,6 +135,28 @@ function buildAttendanceRepository({ adapter, now, insideTransaction }) {
     return rows(result).map(attendanceRow);
   }
 
+  // Production may still be on the documented legacy student_attendance schema
+  // (date/remarks/created_at) while the additive compatibility migration is
+  // pending. Alerts need only these stable identity/context fields; keep that
+  // read path available without changing schema or touching attendance rows.
+  async function listStudentAlertRecords({ schoolId } = {}) {
+    if (!schoolId) throw new Error('School context is required.');
+    try {
+      const result = await adapter.query(
+        `SELECT ${STUDENT_SELECT} FROM student_attendance WHERE school_id=? ORDER BY attendance_date,student_id`,
+        [schoolId]
+      );
+      return rows(result).map(attendanceRow);
+    } catch (error) {
+      if (!isMissingAttendanceDateColumn(error)) throw error;
+      const result = await adapter.query(
+        'SELECT id,school_id AS schoolId,academic_year AS academicYear,term,`date` AS date,class_id AS classId,student_id AS studentId,status FROM student_attendance WHERE school_id=? ORDER BY `date`,student_id',
+        [schoolId]
+      );
+      return rows(result).map(attendanceRow);
+    }
+  }
+
   async function listStaffRecords(filters = {}) {
     const conditions = ['school_id=?']; const params = [filters.schoolId];
     for (const [column, value] of [['academic_year', filters.academicYear], ['term', filters.term], ['attendance_date', filters.date], ['staff_id', filters.staffId]]) if (value) { conditions.push(`${column}=?`); params.push(value); }
@@ -154,7 +183,7 @@ function buildAttendanceRepository({ adapter, now, insideTransaction }) {
     return rows(await adapter.query(`SELECT id,school_id AS schoolId,attendance_record_id AS attendanceRecordId,person_id AS personId,person_type AS personType,previous_status AS previousStatus,new_status AS newStatus,previous_reason AS previousReason,new_reason AS newReason,changed_by AS changedBy,changed_at AS changedAt,source,action FROM attendance_audit_history WHERE ${conditions.join(' AND ')} ORDER BY changed_at,id`, params));
   }
 
-  return { saveStudentAttendance, saveStudentAttendanceBatch, saveStaffAttendance, upsertStaffAttendance, findStaffAttendance, listStudentRecords, listStaffRecords, listAuditHistory };
+  return { saveStudentAttendance, saveStudentAttendanceBatch, saveStaffAttendance, upsertStaffAttendance, findStaffAttendance, listStudentRecords, listStudentAlertRecords, listStaffRecords, listAuditHistory };
 }
 
 export function createAttendanceRepository({ adapter, now = () => new Date().toISOString() } = {}) {
