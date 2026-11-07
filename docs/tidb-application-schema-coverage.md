@@ -10,20 +10,20 @@
 ## Repository evidence
 
 - Numbered SQL migration files: 82.
-- Runtime source files scanned: 153.
-- Extracted runtime SQL observations: 543.
-- Runtime-SQL-confirmed table names: 71.
-- Runtime write-column observations: 134.
+- Runtime source files scanned: 157.
+- Extracted runtime SQL observations: 577.
+- Runtime-SQL-confirmed table names: 72.
+- Runtime write-column observations: 140.
 - Native platform metadata definitions in TiDB source: 5; these are not live-verified application schema.
 - Historical table-name candidates: 157.
-- Historical names with extracted runtime SQL: 65.
-- Runtime-linked names whose SQL was not statically extracted: 17.
+- Historical names with extracted runtime SQL: 66.
+- Runtime-linked names whose SQL was not statically extracted: 16.
 - Historical names without an extracted runtime operation: 75.
 - Historical views: 8.
 - Original application tables: 159.
-- Source-classified active runtime tables: 66.
+- Source-classified active runtime tables: 67.
 - Legacy compatibility alternatives: 1.
-- Application tables with unresolved disposition: 92.
+- Application tables with unresolved disposition: 91.
 - Supported-workflow historical views: 5; unresolved views: 3.
 - Complete authoritative application DDL definitions: 0.
 
@@ -100,7 +100,7 @@ These counts overlap by design. Static query extraction can miss dynamic SQL and
 
 ## Active runtime module-to-entity trace
 
-- Modules mapped to directly used application tables: 114.
+- Modules mapped to directly used application tables: 116.
 - Complete authoritative schema contracts for these modules: 0.
 
 - `academic-calendar`: `academic_calendar_events`, `academic_years`, `classes`, `staff`, `students`, `terms`.
@@ -110,7 +110,7 @@ These counts overlap by design. Static query extraction can miss dynamic SQL and
 - `admission-prospectus`: `assignments`, `classes`, `staff`, `students`.
 - `ai/academic-attendance-intelligence`: `classes`, `staff`, `students`, `subjects`.
 - `ai/admissions-workforce-intelligence`: `assignments`, `roles`, `staff`.
-- `ai/authorization-guard`: `classes`, `students`, `subjects`.
+- `ai/authorization-guard`: `classes`, `departments`, `students`, `subjects`.
 - `ai/capabilities/core.capability`: `announcements`, `roles`, `staff`, `students`.
 - `ai/contracts`: `classes`, `levels`, `subjects`.
 - `ai/conversation`: `staff`, `students`.
@@ -143,13 +143,14 @@ These counts overlap by design. Static query extraction can miss dynamic SQL and
 - `default-subject-catalog`: `classes`.
 - `durable-academic`: `academic_years`, `assignments`, `classes`, `examinations`, `levels`, `student_enrollments`, `student_profiles`, `students`, `subject_class_assignments`, `subjects`, `terms`.
 - `durable-administrator-credential-reset`: `auth_sessions`, `roles`, `user_roles`, `users`.
-- `durable-admissions`: `admission_applications`, `classes`.
+- `durable-admissions`: `admission_applications`, `classes`, `levels`.
 - `durable-announcements`: `announcement_reads`, `announcement_recipients`, `announcement_records`, `announcements`, `parent_student_links`, `roles`, `staff`, `user_roles`, `users`.
 - `durable-credential-management`: `auth_sessions`, `roles`, `staff`, `user_roles`, `users`.
 - `durable-fee-payments`: `academic_years`, `fee_invoice_items`, `fee_invoices`, `fee_obligations`, `payments`, `student_fee_accounts`, `student_fee_ledger`, `student_fee_payments`, `student_fee_receipts`, `students`, `terms`.
 - `durable-fee-reader`: `fee_invoice_items`, `fee_invoices`, `parent_student_links`, `payments`, `student_fee_accounts`, `student_fee_payments`, `student_fee_receipts`, `student_profiles`, `students`, `users`.
 - `durable-promotion`: `academic_years`, `classes`, `promotion_decisions`, `student_enrollments`, `student_profiles`, `students`, `terms`.
 - `durable-result-blocking`: `academic_result_blocks`, `academic_result_unblock_requests`, `roles`.
+- `durable-role-account-provisioning`: `auth_sessions`, `departments`, `parent_student_links`, `roles`, `schools`, `staff`, `staff_profiles`, `user_roles`, `users`.
 - `durable-sms`: `academic_years`, `classes`, `parent_student_links`, `roles`, `student_enrollments`, `student_profiles`, `students`, `terms`, `user_roles`, `users`.
 - `durable-staff-provisioning`: `auth_sessions`, `classes`, `roles`, `schools`, `staff`, `staff_assignments`, `staff_profiles`, `subjects`, `user_roles`, `users`.
 - `durable-student-profile`: `assignments`, `student_family_contacts`, `student_profiles`, `students`.
@@ -191,6 +192,7 @@ These counts overlap by design. Static query extraction can miss dynamic SQL and
 - `result-calculation`: `subjects`.
 - `result-slip`: `subjects`.
 - `result-slip-pdf`: `students`, `subjects`.
+- `role-provisioning-diagnostic`: `roles`, `staff`, `staff_profiles`, `user_roles`, `users`.
 - `roles`: `staff`.
 - `sample-academic-context`: `classes`, `terms`.
 - `sample-fixture-repository`: `announcements`, `assignments`, `payments`, `sample_data_fixtures`.
