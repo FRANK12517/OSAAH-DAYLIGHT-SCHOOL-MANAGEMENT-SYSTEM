@@ -266,7 +266,6 @@ test('durable sample Score Entry maps verified database IDs to the in-memory sam
   const classId = 'class_jhs1_db';
   const subjectId = 'subject_math_db';
   const students = createStudentService({ schoolId });
-  students.seedSampleStudents();
   const subjects = createSubjectService({ schoolId });
   const academicResults = createAcademicResultsService({ schoolId, students, subjects });
   const actor = { ...teacher, assignedClassIds: [classId], assignedSubjectIds: [subjectId] };
@@ -282,18 +281,21 @@ test('durable sample Score Entry maps verified database IDs to the in-memory sam
     async execute() { return { affectedRows: 1 }; }
   };
   const previousSchoolId = process.env.OSAAH_SCHOOL_ID;
+  const previousVercelEnv = process.env.VERCEL_ENV;
+  const previousFixtureFlag = process.env.OSAAH_ENABLE_SAMPLE_FIXTURES;
   process.env.OSAAH_SCHOOL_ID = schoolId;
+  process.env.VERCEL_ENV = 'production';
+  process.env.OSAAH_ENABLE_SAMPLE_FIXTURES = 'true';
   const app = createApp({ auth, database, students, subjects, academicResults, aiEnabled: false });
-  if (previousSchoolId === undefined) delete process.env.OSAAH_SCHOOL_ID;
-  else process.env.OSAAH_SCHOOL_ID = previousSchoolId;
   const server = http.createServer(app);
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   try {
     const base = `http://127.0.0.1:${server.address().port}`;
     const headers = { Authorization: 'Bearer authorized' };
     const context = { academicYear: '2026/2027', term: 'term_2026_01', classId, subjectId };
+    assert.equal(students.listStudents({ requestedSchoolId: schoolId, includeTestRecords: true }).filter((student) => student.isTestRecord).length, 0, 'production startup must not seed sample students');
     const rosterResponse = await fetch(`${base}/api/academic/score-entry/roster?${new URLSearchParams({ ...context, sampleMode: 'true' })}`, { headers });
-    assert.equal(rosterResponse.status, 200);
+    assert.equal(rosterResponse.status, 200, await rosterResponse.clone().text());
     const roster = await rosterResponse.json();
     assert.equal(roster.students.length, 1);
     const savedResponse = await fetch(`${base}/api/academic/scores`, { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ ...context, studentId: roster.students[0].studentId, caScore: 25, examScore: 35, sampleMode: true }) });
@@ -307,6 +309,77 @@ test('durable sample Score Entry maps verified database IDs to the in-memory sam
     assert.equal(denied.status, 403, 'the sample mapping must not bypass database class assignment checks');
   } finally {
     await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    if (previousSchoolId === undefined) delete process.env.OSAAH_SCHOOL_ID;
+    else process.env.OSAAH_SCHOOL_ID = previousSchoolId;
+    if (previousVercelEnv === undefined) delete process.env.VERCEL_ENV;
+    else process.env.VERCEL_ENV = previousVercelEnv;
+    if (previousFixtureFlag === undefined) delete process.env.OSAAH_ENABLE_SAMPLE_FIXTURES;
+    else process.env.OSAAH_ENABLE_SAMPLE_FIXTURES = previousFixtureFlag;
+  }
+});
+
+test('production Sample Mode Mock Score Entry resolves DB identifiers and stores sample scores only in memory', async () => {
+  const classId = 'class_jhs1_db';
+  const subjectId = 'subject_math_db';
+  const students = createStudentService({ schoolId });
+  const subjects = createSubjectService({ schoolId });
+  const academicResults = createAcademicResultsService({ schoolId, students, subjects });
+  const teacherActor = { ...teacher, permissions: new Set(['academics.read', 'subjects.read', 'mock.scores.read', 'mock.scores.write']), assignedClassIds: [classId], assignedSubjectIds: [subjectId] };
+  const otherClassActor = { ...teacherActor, assignedClassIds: ['class_other'] };
+  const auth = { authenticateAsync: async (token) => token === 'authorized' ? teacherActor : token === 'other-class' ? otherClassActor : null };
+  let enrollmentQueries = 0;
+  let writes = 0;
+  const database = {
+    async query(sql) {
+      if (sql.includes('FROM student_enrollments')) { enrollmentQueries += 1; return []; }
+      if (sql.includes('FROM academic_years')) return [{ id: 'ay_2026_01', name: '2026/2027' }];
+      if (sql.includes('FROM terms')) return [{ id: 'term_2026_01', academicYearId: 'ay_2026_01', name: '1st Term' }];
+      if (sql.includes('FROM classes WHERE school_id=? AND id=?')) return [{ id: classId, name: 'JHS 1' }];
+      if (sql.includes('FROM subject_class_assignments a JOIN subjects s') && sql.includes('WHERE a.school_id=? AND a.class_id=?')) return [{ id: subjectId, code: 'MATH', name: 'Mathematics', subjectType: 'CORE', isScoring: 1, subjectActive: 1, classId, className: 'JHS 1', academicYearId: null, assignmentActive: 1 }];
+      return [];
+    },
+    async execute() { writes += 1; return { affectedRows: 1 }; }
+  };
+  const previousSchoolId = process.env.OSAAH_SCHOOL_ID;
+  const previousVercelEnv = process.env.VERCEL_ENV;
+  const previousFixtureFlag = process.env.OSAAH_ENABLE_SAMPLE_FIXTURES;
+  process.env.OSAAH_SCHOOL_ID = schoolId;
+  process.env.VERCEL_ENV = 'production';
+  process.env.OSAAH_ENABLE_SAMPLE_FIXTURES = 'true';
+  const app = createApp({ auth, database, students, subjects, academicResults, aiEnabled: false });
+  const server = http.createServer(app);
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const headers = { Authorization: 'Bearer authorized' };
+    const context = { classId, subjectId, academicYearId: 'ay_2026_01', termId: 'term_2026_01', mockLabel: '1st Mock', sampleMode: 'true' };
+    assert.equal(students.listStudents({ requestedSchoolId: schoolId, includeTestRecords: true }).filter((student) => student.isTestRecord).length, 0, 'production startup must not seed sample fixtures');
+    const query = new URLSearchParams(context);
+    const rosterResponse = await fetch(`${base}/api/academic/mock-scores/roster?${query}`, { headers });
+    assert.equal(rosterResponse.status, 200, await rosterResponse.clone().text());
+    const loaded = await rosterResponse.json();
+    assert.equal(loaded.students.length, 2);
+    assert.deepEqual(loaded.students.map((item) => item.permanentStudentId), ['OSAAH/DEMO/001', 'OSAAH/DEMO/002']);
+    assert.ok(loaded.students.every((item) => item.isTestRecord));
+    const firstStudent = loaded.students[0];
+    const save = await fetch(`${base}/api/academic/mock-scores`, { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ ...context, studentId: firstStudent.studentId, totalScore: 87 }) });
+    assert.equal(save.status, 201, await save.clone().text());
+    assert.equal((await save.json()).isTestRecord, true);
+    const savedRosterResponse = await fetch(`${base}/api/academic/mock-scores/roster?${query}`, { headers });
+    const savedRoster = (await savedRosterResponse.json()).students;
+    assert.equal(savedRoster.find((item) => item.studentId === firstStudent.studentId).totalScore, 87);
+    const denied = await fetch(`${base}/api/academic/mock-scores/roster?${query}`, { headers: { Authorization: 'Bearer other-class' } });
+    assert.equal(denied.status, 403, 'the sample mapping must preserve database class assignment scope');
+    assert.equal(enrollmentQueries, 0, 'sample rosters must not query genuine enrollment rows');
+    assert.equal(writes, 0, 'sample mock scores must not write to TiDB');
+  } finally {
+    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    if (previousSchoolId === undefined) delete process.env.OSAAH_SCHOOL_ID;
+    else process.env.OSAAH_SCHOOL_ID = previousSchoolId;
+    if (previousVercelEnv === undefined) delete process.env.VERCEL_ENV;
+    else process.env.VERCEL_ENV = previousVercelEnv;
+    if (previousFixtureFlag === undefined) delete process.env.OSAAH_ENABLE_SAMPLE_FIXTURES;
+    else process.env.OSAAH_ENABLE_SAMPLE_FIXTURES = previousFixtureFlag;
   }
 });
 

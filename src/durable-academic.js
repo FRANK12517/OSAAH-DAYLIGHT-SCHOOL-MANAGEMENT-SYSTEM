@@ -507,6 +507,31 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     if (!JHS_CLASSES.has(text(classRow?.name))) fail('Mock examinations are available for JHS 1, JHS 2, and JHS 3 only.');
   }
 
+  async function sampleMockScoreContext(input = {}, actor) {
+    assertActor(actor);
+    if (!authorized(actor, 'mock.scores.read') && !authorized(actor, 'mock.scores.write')) fail('Forbidden.', 403, 'ACADEMIC_PERMISSION_REQUIRED');
+    const classId = text(input.classId), subjectId = text(input.subjectId), mockLabel = text(input.mockLabel);
+    if (!classId || !subjectId || !MOCK_TYPES.includes(mockLabel)) fail('Class, subject, and Mock Examination are required.');
+    assertClassScope(classId, actor);
+    const period = await resolvePeriod(input);
+    const classRow = await classFor(classId);
+    if (!JHS_CLASSES.has(text(classRow.name))) fail('Mock examinations are available for JHS 1, JHS 2, and JHS 3 only.');
+    const subject = (await listSubjects({ classId, academicYearId: period.yearId }, actor))
+      .find((item) => text(item.id) === subjectId && item.active !== false && item.subjectActive !== false && item.isScoring !== false && Number(item.isScoring) !== 0);
+    if (!subject || !await scoringSubjectAssigned({ classId, subjectId, academicYearId: period.yearId }, actor)) {
+      fail('Subject is invalid for this class and academic context.', 400, 'INVALID_CLASS_SUBJECT');
+    }
+    return {
+      class: { id: text(classRow.id), name: text(classRow.name) },
+      subject: { id: text(subject.id), name: text(subject.name) },
+      academicYearId: period.yearId,
+      academicYear: period.yearName,
+      termId: period.termId,
+      term: period.termName,
+      mockLabel
+    };
+  }
+
   async function roster(input = {}, actor) {
     assertActor(actor);
     if (!authorized(actor, 'marks.write') && !authorized(actor, 'results.read')) fail('Forbidden.', 403, 'ACADEMIC_PERMISSION_REQUIRED');
@@ -558,6 +583,7 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     const classRow = await classFor(classId);
     const subject = (await listSubjects({ classId, academicYearId: period.yearId }, actor)).find((item) => text(item.id) === subjectId && item.isScoring !== false && Number(item.isScoring) !== 0);
     if (!subject) fail('Subject is invalid for this class and academic context.', 400, 'INVALID_CLASS_SUBJECT');
+    students?.seedSampleStudents?.();
     const fixtures = students?.listStudents?.({ requestedSchoolId: schoolId, includeTestRecords: true }) ?? [];
     const sampleStudents = fixtures
       .filter((student) => student.schoolId === schoolId && student.isTestRecord === true && student.permanentStudentId === SAMPLE_STUDENT_IDS[0])
@@ -918,7 +944,7 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     return buildMockBroadsheet(input, actor);
   }
 
-  return Object.freeze({ options, listSubjects, subjectCatalog, mockSubjectCatalog, subjectConfiguration, createSubject, updateSubject, deactivateSubject, subjectCascade, configureDefaultSubjects, listAssignments, assignSubject, deactivateSubjectAssignment, roster, sampleScoreEntryContext, sampleScoreEntryRoster, resultStudents, resultContext, saveScore, mockRoster, saveMockScore, listScores, resolvePeriod, result: canonicalResult, saveResult, publishResults: publishResult, publicationFor, savedResultFor: async (input, actor) => canonicalResult(input, actor), broadsheet, mockBroadsheet });
+  return Object.freeze({ options, listSubjects, subjectCatalog, mockSubjectCatalog, subjectConfiguration, createSubject, updateSubject, deactivateSubject, subjectCascade, configureDefaultSubjects, listAssignments, assignSubject, deactivateSubjectAssignment, roster, sampleScoreEntryContext, sampleScoreEntryRoster, sampleMockScoreContext, resultStudents, resultContext, saveScore, mockRoster, saveMockScore, listScores, resolvePeriod, result: canonicalResult, saveResult, publishResults: publishResult, publicationFor, savedResultFor: async (input, actor) => canonicalResult(input, actor), broadsheet, mockBroadsheet });
 }
 
 export default createDurableAcademicService;

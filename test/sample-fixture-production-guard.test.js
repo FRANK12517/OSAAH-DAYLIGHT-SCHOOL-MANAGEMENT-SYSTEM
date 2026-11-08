@@ -1,6 +1,20 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { sampleFixturesEnabled, seedSampleStudentsIfEnabled } from '../src/test-parent-fixture.js';
+import { PRODUCTION_SAFE_ACADEMIC_SAMPLE_ENDPOINTS } from '../src/academic-sample-mode.js';
+
+test('production academic sample allowlist includes only isolated sample lifecycle routes', () => {
+  for (const route of [
+    '/api/academic/sample/generate',
+    '/api/academic/sample/mock-generate',
+    '/api/academic/sample/result/pdf',
+    '/api/academic/sample/publish',
+    '/api/academic/sample/state',
+    '/api/academic/sample/reset',
+    '/api/academic/sample/mock-reset'
+  ]) assert.ok(PRODUCTION_SAFE_ACADEMIC_SAMPLE_ENDPOINTS.has(route), `${route} should support the isolated production sample workflow`);
+  assert.ok(!PRODUCTION_SAFE_ACADEMIC_SAMPLE_ENDPOINTS.has('/api/academic/sample/unknown'));
+});
 
 test('sample fixtures remain available outside production unless explicitly disabled', () => {
   assert.equal(sampleFixturesEnabled({}), true);
