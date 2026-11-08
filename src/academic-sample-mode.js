@@ -11,5 +11,9 @@ export function isSampleModeEnabled(input = {}) {
 export const PRODUCTION_SAFE_ACADEMIC_SAMPLE_ENDPOINTS = Object.freeze(new Set([
   '/api/academic/sample/generate',
   '/api/academic/sample/mock-generate',
-  '/api/academic/sample/result/pdf'
+  '/api/academic/sample/result/pdf',
+  '/api/academic/sample/publish',
+  '/api/academic/sample/state',
+  '/api/academic/sample/reset',
+  '/api/academic/sample/mock-reset'
 ]));

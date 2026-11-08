@@ -79,6 +79,26 @@ test('Result Slip student API scopes real students and returns only existing sam
     assert.ok(generated.subjects.length > 0);
     assert.equal(students.counts().students, officialCountBefore, 'sample generation must not alter official student counts');
 
+    const sampleStateQuery = new URLSearchParams({ permanentStudentId: 'OSAAH/DEMO/001', academicYear: '2026/2027', term: 'First Term', examinationType: 'TERMINAL' });
+    const sampleStateResponse = await fetch(`${base}/api/academic/sample/state?${sampleStateQuery}`, { headers });
+    assert.equal(sampleStateResponse.status, 200, 'production sample state must remain available to authorized school users');
+    assert.equal((await sampleStateResponse.json()).sample.isSample, true);
+    const samplePublishResponse = await fetch(`${base}/api/academic/sample/publish`, {
+      method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ permanentStudentId: 'OSAAH/DEMO/001', classId: 'Primary 1', academicYear: '2026/2027', term: 'First Term' })
+    });
+    assert.equal(samplePublishResponse.status, 200, 'production sample publication should not be blocked by the non-production fixture guard');
+    const samplePublication = await samplePublishResponse.json();
+    assert.equal(samplePublication.isSample, true);
+    assert.equal(samplePublication.status, 'PUBLISHED');
+    const sampleResetResponse = await fetch(`${base}/api/academic/sample/reset`, {
+      method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ permanentStudentId: 'OSAAH/DEMO/001', classId: 'Primary 1', academicYear: '2026/2027', term: 'First Term' })
+    });
+    assert.equal(sampleResetResponse.status, 200, 'production sample reset should operate on the isolated in-memory sample workflow');
+    assert.equal((await sampleResetResponse.json()).isSample, true);
+    assert.equal(students.counts().students, officialCountBefore, 'sample lifecycle actions must not modify official student counts');
+
     const samplePdfResponse = await fetch(`${base}/api/academic/sample/result/pdf`, {
       method: 'POST', headers: { ...headers, 'Content-Type': 'application/json', Accept: 'application/pdf' },
       body: JSON.stringify({ sampleStudentId: 'OSAAH/DEMO/001', classId: 'Primary 1', academicYear: '2026/2027', term: 'First Term', resultType: 'TERMINAL' })
@@ -134,6 +154,12 @@ test('Result Slip student API scopes real students and returns only existing sam
     });
     assert.equal(mockResultResponse.status, 201, 'Mock Result Slip generation must work in production runtime');
     assert.equal((await mockResultResponse.json()).result.isSample, true);
+    const sampleMockResetResponse = await fetch(`${base}/api/academic/sample/mock-reset`, {
+      method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ permanentStudentId: 'OSAAH/DEMO/002', classId: 'JHS 1', academicYear: '2026/2027', term: 'First Term', mockLabel: '1st Mock' })
+    });
+    assert.equal(sampleMockResetResponse.status, 200, 'production sample Mock reset should remain available for authorized school users');
+    assert.equal((await sampleMockResetResponse.json()).isSample, true);
     const mockScoreRosterResponse = await fetch(`${base}/api/academic/mock-scores/roster?${new URLSearchParams({ classId: 'JHS 1', academicYear: '2026/2027', term: 'First Term', mockLabel: '1st Mock', isTestMode: 'true' })}`, { headers });
     assert.equal(mockScoreRosterResponse.status, 200);
     assert.deepEqual((await mockScoreRosterResponse.json()).students.map((student) => student.permanentStudentId), ['OSAAH/DEMO/001', 'OSAAH/DEMO/002']);
