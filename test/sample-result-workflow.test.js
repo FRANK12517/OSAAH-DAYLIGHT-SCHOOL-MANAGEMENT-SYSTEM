@@ -5,7 +5,7 @@ import { createSubjectService } from '../src/subjects.js';
 import { createAcademicResultsService } from '../src/academic-results.js';
 import { createSampleResultWorkflow } from '../src/sample-result-workflow.js';
 
-const actor = { id: 'head-1', roleKey: 'HEADTEACHER', schoolId: 'school-osaah-daylight', permissions: new Set(['marks.write', 'results.generate', 'results.read', 'results.publish']) };
+const actor = { id: 'head-1', roleKey: 'HEADTEACHER', portal: 'school', schoolId: 'school-osaah-daylight', permissions: new Set(['marks.write', 'results.generate', 'results.read', 'results.publish']) };
 
 test('sample workflow uses existing reserved-ID students in every configured core class', () => {
   const students = createStudentService();
@@ -54,7 +54,7 @@ test('sample rankings never include real students and real rankings never includ
   assert.equal(realResult.subjects[0].subjectPosition, '1st');
 });
 
-test('sample publication is explicitly classified and real sample reset cannot touch a real student', () => {
+test('sample publication is explicitly classified and real sample reset cannot touch a real student', async () => {
   const students = createStudentService();
   const sample = students.seedSampleStudents()[0];
   const real = students.createStudent({ firstName: 'Real', surname: 'Student', classId: 'Primary 1', admissionYearId: '2026' });
@@ -62,9 +62,53 @@ test('sample publication is explicitly classified and real sample reset cannot t
   const results = createAcademicResultsService({ students, subjects });
   const workflow = createSampleResultWorkflow({ students, subjects, academicResults: results });
   workflow.generate({ classId: 'Primary 1', studentId: sample.id, academicYear: '2026/2027', term: 'First Term' }, actor);
-  const publication = workflow.publish({ permanentStudentId: sample.permanentStudentId, classId: 'Primary 1', academicYear: '2026/2027', term: 'First Term' }, actor);
+  const publication = await workflow.publish({ permanentStudentId: sample.permanentStudentId, classId: 'Primary 1', academicYear: '2026/2027', term: 'First Term' }, actor);
   assert.equal(publication.isSample, true);
   assert.equal(publication.sampleLabel, 'SAMPLE DATA');
-  assert.throws(() => workflow.reset({ permanentStudentId: real.permanentStudentId, academicYear: '2026/2027', term: 'First Term' }, actor), /sample/);
-  assert.equal(workflow.reset({ permanentStudentId: sample.permanentStudentId, academicYear: '2026/2027', term: 'First Term' }, actor).isSample, true);
+  await assert.rejects(() => workflow.reset({ permanentStudentId: real.permanentStudentId, classId: 'Primary 1', academicYear: '2026/2027', term: 'First Term' }, actor), /sample/);
+  assert.equal((await workflow.reset({ permanentStudentId: sample.permanentStudentId, classId: 'Primary 1', academicYear: '2026/2027', term: 'First Term' }, actor)).isSample, true);
+});
+
+test('terminal sample publish and reset refresh exact school, student, class, and term state without changing scores', async () => {
+  const students = createStudentService();
+  const [sample] = students.seedSampleStudents();
+  const real = students.createStudent({ firstName: 'Real', surname: 'Student', classId: 'Primary 1', admissionYearId: '2026' });
+  const subjects = createSubjectService();
+  const results = createAcademicResultsService({ students, subjects });
+  const workflow = createSampleResultWorkflow({ students, subjects, academicResults: results });
+  const context = { academicYear: '2026/2027', term: 'First Term' };
+
+  workflow.generate({ ...context, classId: 'Primary 1', studentId: sample.id }, actor);
+  workflow.generate({ ...context, classId: 'JHS 1', studentId: sample.id }, actor);
+  const realSubject = subjects.list({ classId: 'Primary 1' }, actor)[0];
+  const realScore = results.saveScore({ studentId: real.id, classId: 'Primary 1', subjectId: realSubject.id, ...context, caScore: 40, examScore: 45 }, actor);
+  const primaryScoresBefore = results.listScores({ studentId: sample.id, classId: 'Primary 1', ...context }, actor);
+  const jhsScoresBefore = results.listScores({ studentId: sample.id, classId: 'JHS 1', ...context }, actor);
+  const primaryStateInput = { permanentStudentId: sample.permanentStudentId, classId: 'Primary 1', ...context, examinationType: 'TERMINAL' };
+  const jhsStateInput = { ...primaryStateInput, classId: 'JHS 1' };
+
+  assert.equal((await workflow.state(primaryStateInput, actor)).publicationStatus, 'UNPUBLISHED');
+  const publication = await workflow.publish(primaryStateInput, actor);
+  assert.equal(publication.status, 'PUBLISHED');
+  assert.equal((await workflow.state(primaryStateInput, actor)).publication.id, publication.id);
+  assert.equal((await workflow.state(jhsStateInput, actor)).publicationStatus, 'UNPUBLISHED');
+
+  const unauthorized = { ...actor, roleKey: 'TEACHER', assignedClassIds: ['Primary 1'], permissions: new Set(['marks.write', 'results.generate', 'results.read']) };
+  await assert.rejects(() => workflow.reset(primaryStateInput, unauthorized), /Forbidden/);
+  assert.equal((await workflow.state(primaryStateInput, actor)).publicationStatus, 'PUBLISHED', 'rejected reset must not clear generated state');
+  const foreignSchool = { ...actor, schoolId: 'another-school' };
+  await assert.rejects(() => workflow.state(primaryStateInput, foreignSchool), /Forbidden/);
+  await assert.rejects(() => workflow.reset(primaryStateInput, foreignSchool), /Forbidden/);
+
+  const reset = await workflow.reset(primaryStateInput, actor);
+  assert.equal(reset.publicationRemoved, true);
+  assert.equal(await workflow.state(primaryStateInput, actor), null);
+  assert.equal((await workflow.state(jhsStateInput, actor)).publicationStatus, 'UNPUBLISHED', 'reset must leave another class state alone');
+  assert.equal(results.publicationFor({ studentId: sample.id, classId: 'Primary 1', ...context, isSample: true }), null);
+  assert.equal(results.publicationFor({ studentId: sample.id, classId: 'JHS 1', ...context, isSample: true }), null);
+  assert.deepEqual(results.listScores({ studentId: sample.id, classId: 'Primary 1', ...context }, actor), primaryScoresBefore);
+  assert.deepEqual(results.listScores({ studentId: sample.id, classId: 'JHS 1', ...context }, actor), jhsScoresBefore);
+  assert.deepEqual(results.listScores({ studentId: real.id, classId: 'Primary 1', ...context }, actor), [realScore]);
+  assert.equal(students.counts().students, 1, 'sample lifecycle must preserve the real student roster');
+  assert.equal((await workflow.reset(primaryStateInput, actor)).publicationRemoved, false, 'repeated reset is safe and idempotent');
 });

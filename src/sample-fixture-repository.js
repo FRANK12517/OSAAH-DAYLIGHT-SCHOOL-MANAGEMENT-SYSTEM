@@ -5,7 +5,7 @@ import { SAMPLE_STUDENT_IDS, canonicalSampleStudentId, sampleStudentIdAliases } 
 
 const FIXTURE_TYPES = Object.freeze(new Set([
   'student-summary', 'attendance', 'published-results', 'result-slip', 'fees',
-  'payments', 'receipts', 'announcements', 'timetable', 'assignments', 'historical-records'
+  'payments', 'receipts', 'announcements', 'timetable', 'assignments', 'historical-records', 'result-lifecycle'
 ]));
 const SAMPLE_IDS = new Set(SAMPLE_STUDENT_IDS);
 const text = (value, label) => {
@@ -33,7 +33,7 @@ function assertIdentity(input) {
   if (!Number.isSafeInteger(identity.fixtureVersion) || identity.fixtureVersion < 1) throw new Error('Fixture version must be a positive integer.');
   return identity;
 }
-function assertActor(actor, schoolId, action) {
+function assertActor(actor, schoolId, action, fixtureType) {
   if (!actor?.id || actor.schoolId !== schoolId || actor.portal !== 'parent' && actor.portal !== 'school') throw Object.assign(new Error('Sample fixture access is forbidden.'), { status: 403, code: 'SAMPLE_FIXTURE_FORBIDDEN' });
   if (actor.portal === 'parent') {
     if (!isConfiguredTestParentActor(actor, schoolId)) throw Object.assign(new Error('Sample fixture access is forbidden.'), { status: 403, code: 'SAMPLE_FIXTURE_FORBIDDEN' });
@@ -41,7 +41,12 @@ function assertActor(actor, schoolId, action) {
     return;
   }
   const permissions = actor.permissions;
-  if (!(permissions?.has?.('*') || permissions?.has?.(`sample.fixtures.${action}`) || permissions?.has?.('results.read') && action === 'read')) throw Object.assign(new Error('Sample fixture access is forbidden.'), { status: 403, code: 'SAMPLE_FIXTURE_FORBIDDEN' });
+  const lifecyclePermission = fixtureType === 'result-lifecycle'
+      ? action === 'read'
+      ? permissions?.has?.('results.read') || permissions?.has?.('results.generate') || permissions?.has?.('results.publish') || permissions?.has?.('mock.results.read') || permissions?.has?.('mock.scores.read') || permissions?.has?.('mock.scores.write')
+      : permissions?.has?.('results.generate') || permissions?.has?.('results.publish') || permissions?.has?.('mock.scores.write')
+    : false;
+  if (!(permissions?.has?.('*') || permissions?.has?.(`sample.fixtures.${action}`) || permissions?.has?.('results.read') && action === 'read' || lifecyclePermission)) throw Object.assign(new Error('Sample fixture access is forbidden.'), { status: 403, code: 'SAMPLE_FIXTURE_FORBIDDEN' });
 }
 function fromRow(row) {
   if (!row) return null;
@@ -66,7 +71,7 @@ export function createSampleFixtureRepository({ adapter, now = () => new Date().
   if (!adapter?.query || !adapter?.execute) throw new Error('A durable database adapter is required.');
   async function ensureFixture(input, actor) {
     const identity = assertIdentity({ ...input, schoolId: input.schoolId ?? schoolId });
-    assertActor(actor, identity.schoolId, 'write');
+    assertActor(actor, identity.schoolId, 'write', identity.fixtureType);
     const timestamp = now();
     const id = fixtureId(identity);
     const payload = clone(input.fixturePayload ?? {});
@@ -81,7 +86,7 @@ export function createSampleFixtureRepository({ adapter, now = () => new Date().
   }
   async function getFixture(input, actor) {
     const identity = assertIdentity({ ...input, schoolId: input.schoolId ?? schoolId });
-    assertActor(actor, identity.schoolId, 'read');
+    assertActor(actor, identity.schoolId, 'read', identity.fixtureType);
     const aliases = sampleStudentIdAliases(identity.sampleStudentId);
     for (const sampleStudentId of aliases) {
       const rows = await adapter.query(`SELECT fixture_id AS fixtureId,school_id AS schoolId,sample_student_id AS sampleStudentId,academic_year_id AS academicYearId,term_id AS termId,class_id AS classId,fixture_type AS fixtureType,fixture_payload AS fixturePayload,fixture_version AS fixtureVersion,created_at AS createdAt,updated_at AS updatedAt FROM sample_data_fixtures WHERE school_id=? AND sample_student_id=? AND academic_year_id=? AND term_id=? AND class_id=? AND fixture_type=? AND fixture_version=? LIMIT 1`, [identity.schoolId, sampleStudentId, identity.academicYearId, identity.termId, identity.classId, identity.fixtureType, identity.fixtureVersion]);
