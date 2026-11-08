@@ -12,6 +12,8 @@ const SAMPLE_IDS = ['OSAAH/DEMO/001', 'OSAAH/DEMO/002'];
 const actor = {
   id: 'part7-sample-qa',
   roleKey: 'HEADTEACHER',
+  portal: 'school',
+  portal: 'school',
   schoolId: SCHOOL_ID,
   permissions: new Set(['marks.write', 'results.generate', 'results.read', 'results.write', 'results.publish'])
 };
@@ -58,7 +60,7 @@ test('legacy demo IDs reconcile in memory to the canonical ID without duplicatin
   assert.equal(students.listStudents({ includeTestRecords: true }).length, 2);
 });
 
-test('both canonical samples generate, save, reload, and publish independently for all 13 classes and 3 terms', () => {
+test('both canonical samples generate, save, reload, and publish independently for all 13 classes and 3 terms', async () => {
   const { students, subjects, academicResults, workflow, samples } = setup();
   const publicationIds = new Map();
   let generatedCount = 0;
@@ -89,7 +91,7 @@ test('both canonical samples generate, save, reload, and publish independently f
 
         const beforePublish = academicResults.publicationFor({ classId, academicYear: YEAR, term, isSample: true, studentId: student.id });
         assert.equal(beforePublish, null);
-        const published = workflow.publish({ permanentStudentId: student.permanentStudentId, classId, academicYear: YEAR, term }, actor);
+        const published = await workflow.publish({ permanentStudentId: student.permanentStudentId, classId, academicYear: YEAR, term }, actor);
         assert.equal(published.status, 'PUBLISHED');
         assert.equal(published.isSample, true);
         assert.equal(published.studentId, student.id);
@@ -97,7 +99,7 @@ test('both canonical samples generate, save, reload, and publish independently f
         publicationIds.set(publicationKey, published.id);
         assert.deepEqual(academicResults.publicationFor({ classId, academicYear: YEAR, term, isSample: true, studentId: student.id }), published);
 
-        const idempotent = workflow.publish({ permanentStudentId: student.permanentStudentId, classId, academicYear: YEAR, term }, actor);
+        const idempotent = await workflow.publish({ permanentStudentId: student.permanentStudentId, classId, academicYear: YEAR, term }, actor);
         assert.equal(idempotent.id, published.id);
         assert.equal(academicResults.publicationFor({ classId, academicYear: YEAR, term, isSample: true, studentId: student.id }).id, published.id);
       }
@@ -112,13 +114,13 @@ test('both canonical samples generate, save, reload, and publish independently f
   assert.equal(students.counts().students, 0);
 });
 
-test('sample publication cannot expose another term, Mock record, or official cohort', () => {
+test('sample publication cannot expose another term, Mock record, or official cohort', async () => {
   const { students, subjects, academicResults, workflow, samples } = setup();
   const sample = samples[0];
   const other = samples[1];
   const generated = workflow.generate({ classId: 'JHS 1', studentId: sample.id, academicYear: YEAR, term: 'First Term' }, actor);
   academicResults.saveResult(saveInput(generated, sample), actor);
-  workflow.publish({ permanentStudentId: sample.permanentStudentId, classId: 'JHS 1', academicYear: YEAR, term: 'First Term' }, actor);
+  await workflow.publish({ permanentStudentId: sample.permanentStudentId, classId: 'JHS 1', academicYear: YEAR, term: 'First Term' }, actor);
   assert.equal(academicResults.publicationFor({ classId: 'JHS 1', academicYear: YEAR, term: 'Second Term', isSample: true, studentId: sample.id }), null);
   assert.equal(academicResults.publicationFor({ classId: 'JHS 1', academicYear: YEAR, term: 'First Term', isSample: true, studentId: other.id }), null);
   assert.equal(academicResults.publicationFor({ classId: 'JHS 1', academicYear: YEAR, term: 'First Term', examination: 'MOCK', mockLabel: '1st Mock', isSample: true, studentId: sample.id }), null);
