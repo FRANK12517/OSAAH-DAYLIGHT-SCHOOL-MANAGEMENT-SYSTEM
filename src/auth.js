@@ -82,7 +82,7 @@ function schoolLoginDiagnostics(error, { requestId, requestPath } = {}) {
     component: 'school_authentication', operation: 'login_lookup', stage: 'user_query_failed',
     category,
     requestId: safeRequestId(requestId) ?? randomUUID(),
-    requestPath: ['/api/auth/login', '/api/auth/parent/verify-code'].includes(requestPath) ? requestPath : null,
+    requestPath: requestPath === '/api/auth/login' ? requestPath : null,
     name: safeDiagnosticIdentifier(error?.name), code: safeDiagnosticCode(error?.code),
     sqlState, severity: safeDiagnosticIdentifier(error?.severity),
     errno: Number.isSafeInteger(error?.errno) ? error.errno : null,
@@ -316,7 +316,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, schoolI
       console.error('Parent authentication unavailable', {
         component: 'parent_authentication', operation: 'preflight', category: 'AUTH_REQUIREMENT_UNAVAILABLE',
         requestId: safeRequestId(diagnosticContext?.requestId),
-        requestPath: ['/api/auth/login', '/api/auth/parent/verify-code'].includes(diagnosticContext?.requestPath) ? diagnosticContext.requestPath : null,
+          requestPath: diagnosticContext?.requestPath === '/api/auth/login' ? diagnosticContext.requestPath : null,
         ...parentAuthRequirements
       });
       return { ok: false, status: 503, error: 'Authentication service unavailable.' };
@@ -381,7 +381,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, schoolI
       console.error('Parent authentication session creation failed', {
         component: 'parent_authentication', operation: 'session_create', category: 'SESSION_PERSISTENCE_FAILED',
         requestId: safeRequestId(diagnosticContext?.requestId),
-        requestPath: ['/api/auth/login', '/api/auth/parent/verify-code'].includes(diagnosticContext?.requestPath) ? diagnosticContext.requestPath : null,
+        requestPath: diagnosticContext?.requestPath === '/api/auth/login' ? diagnosticContext.requestPath : null,
         errorType: safeDiagnosticIdentifier(error?.name) ?? 'Error',
         code: safeDiagnosticCode(error?.code),
         stack: safeAuthenticationStack(error?.stack)
@@ -399,7 +399,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, schoolI
     try {
       console.info('Authentication login checkpoint', {
         stage: 'user_query_before', requestId: safeRequestId(diagnosticContext?.requestId) ?? null,
-        requestPath: ['/api/auth/login', '/api/auth/parent/verify-code'].includes(diagnosticContext?.requestPath) ? diagnosticContext.requestPath : null
+        requestPath: diagnosticContext?.requestPath === '/api/auth/login' ? diagnosticContext.requestPath : null
       });
       rows = await database.query(`SELECT u.id,u.school_id AS schoolId,COALESCE(u.username,u.email) AS username,u.email,u.password_hash AS passwordHash,u.status,r.role_key AS roleKey,r.oversight_rank AS oversightRank,p.permission_key AS permissionKey
         FROM users u
@@ -410,7 +410,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, schoolI
         WHERE (LOWER(COALESCE(u.username,''))=? OR LOWER(COALESCE(u.email,''))=?)${canonicalSchoolId ? ' AND u.school_id=?' : ''} ORDER BY COALESCE(r.oversight_rank,0) DESC,r.role_key,p.permission_key`, canonicalSchoolId ? [key, key, canonicalSchoolId] : [key, key]);
       console.info('Authentication login checkpoint', {
         stage: 'user_query_after', requestId: safeRequestId(diagnosticContext?.requestId) ?? null,
-        requestPath: ['/api/auth/login', '/api/auth/parent/verify-code'].includes(diagnosticContext?.requestPath) ? diagnosticContext.requestPath : null,
+        requestPath: diagnosticContext?.requestPath === '/api/auth/login' ? diagnosticContext.requestPath : null,
         rowsReturned: Array.isArray(rows) ? rows.length : 0
       });
     } catch (error) {
@@ -424,7 +424,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, schoolI
       console.info('School login rejected', {
         component: 'school_authentication', operation: 'login_validation', category: 'AMBIGUOUS_IDENTIFIER',
         requestId: safeRequestId(diagnosticContext?.requestId) ?? null,
-        requestPath: ['/api/auth/login', '/api/auth/parent/verify-code'].includes(diagnosticContext?.requestPath) ? diagnosticContext.requestPath : null
+        requestPath: diagnosticContext?.requestPath === '/api/auth/login' ? diagnosticContext.requestPath : null
       });
       const next = throttle ?? { count: 0 }; next.count += 1; if (next.count >= MAX_ATTEMPTS) next.lockedUntil = now() + LOCKOUT_MS; attempts.set(key, next);
       securityEvent('LOGIN_FAILED', null);
@@ -469,7 +469,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, schoolI
         console.error('School password verification failed', {
           component: 'school_authentication', operation: 'password_verify', category: 'PASSWORD_HASH_INVALID',
           requestId: safeRequestId(diagnosticContext?.requestId) ?? null,
-          requestPath: ['/api/auth/login', '/api/auth/parent/verify-code'].includes(diagnosticContext?.requestPath) ? diagnosticContext.requestPath : null,
+        requestPath: diagnosticContext?.requestPath === '/api/auth/login' ? diagnosticContext.requestPath : null,
           errorType: safeDiagnosticIdentifier(error?.name) ?? 'Error'
         });
       }
@@ -483,7 +483,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, schoolI
       console.info('School login rejected', {
         component: 'school_authentication', operation: 'login_validation', category: identity ? 'ROLE_MISMATCH' : 'USER_NOT_FOUND',
         requestId: safeRequestId(diagnosticContext?.requestId) ?? null,
-        requestPath: ['/api/auth/login', '/api/auth/parent/verify-code'].includes(diagnosticContext?.requestPath) ? diagnosticContext.requestPath : null,
+        requestPath: diagnosticContext?.requestPath === '/api/auth/login' ? diagnosticContext.requestPath : null,
         accountFound: Boolean(identity), requestedRole: canonicalRoleKey(role), availableRoles: selected.availableRoles
       });
       const next = throttle ?? { count: 0 }; next.count += 1; if (next.count >= MAX_ATTEMPTS) next.lockedUntil = now() + LOCKOUT_MS; attempts.set(key, next);
@@ -495,7 +495,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, schoolI
       console.info('School login rejected', {
         component: 'school_authentication', operation: 'login_validation', category,
         requestId: safeRequestId(diagnosticContext?.requestId) ?? null,
-        requestPath: ['/api/auth/login', '/api/auth/parent/verify-code'].includes(diagnosticContext?.requestPath) ? diagnosticContext.requestPath : null,
+        requestPath: diagnosticContext?.requestPath === '/api/auth/login' ? diagnosticContext.requestPath : null,
         accountFound: Boolean(identity), accountActive: Boolean(active), roleAssigned: Boolean(roleKey), requestedRole: role ? canonicalRoleKey(role) : null,
         availableRoles: selected.availableRoles
       });

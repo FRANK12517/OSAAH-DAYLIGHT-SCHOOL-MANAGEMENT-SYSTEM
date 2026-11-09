@@ -216,10 +216,11 @@ test('legacy PostgreSQL parent-auth database configuration is not accepted', asy
   assert.equal((await service.requestCode({ phone: PHONE })).status, 503);
   assert.equal(calls, 0);
 });
-test('Parent phone-only login creates a session without requiring the legacy optional OTP endpoints', async () => {
+test('Parent phone-only login creates a session and does not invoke verification-code services', async () => {
   const logins = [];
   const auth = {
     sessionTtlMs: 60_000,
+    async authenticateAsync() { return { id: PARENT_ID, portal: 'parent', roleKey: 'PARENT', schoolId: SCHOOL_ID, permissions: new Set(['children.read']) }; },
     async loginParentByPhone(input) {
       logins.push(input);
       return { ok: true, token: 'server-issued-token', user: { id: PARENT_ID, portal: 'parent', roleKey: 'PARENT', sessionId: `session-${logins.length}` }, redirectTo: '/', expiresAt: Date.now() + 60_000 };
@@ -242,13 +243,15 @@ test('Parent phone-only login creates a session without requiring the legacy opt
   assert.equal(logins[0].portal, 'parent');
   assert.equal(logins[0].verifiedOtp, undefined);
 
-  const requestOtp = await post(app, '/api/auth/parent/request-code', { phone: PHONE });
-  assert.equal(requestOtp.status, 202);
-  assert.equal(requested[0].phone, PHONE);
-  const verifyOtp = await post(app, '/api/auth/parent/verify-code', { phone: PHONE, code: '123456', challengeId: 'challenge-1' });
-  assert.equal(verifyOtp.status, 200);
-  assert.match(verifyOtp.cookie ?? '', /^osaah_session=server-issued-token; HttpOnly/);
-  assert.deepEqual(verified[0], { phone: PHONE, code: '123456', challengeId: 'challenge-1', ipAddress: '127.0.0.1' });
-  assert.equal(logins.length, 2);
-  assert.equal(logins[1].verifiedOtp, true, 'legacy OTP endpoint remains compatible but is not required');
+  assert.equal(requested.length, 0);
+  assert.equal(verified.length, 0);
+  assert.equal(logins.length, 1);
+  assert.equal(logins[0].verifiedOtp, undefined);
+  const requestCode = await post(app, '/api/auth/parent/request-code', { phone: PHONE });
+  const verifyCode = await post(app, '/api/auth/parent/verify-code', { phone: PHONE, code: '123456', challengeId: 'challenge-1' });
+  assert.equal(requestCode.status, 404, 'Authenticated Parent sessions must not expose a code-request endpoint');
+  assert.equal(verifyCode.status, 404, 'Authenticated Parent sessions must not expose a code-verification endpoint');
+  assert.equal(requested.length, 0);
+  assert.equal(verified.length, 0);
+  assert.equal(logins.length, 1);
 });
