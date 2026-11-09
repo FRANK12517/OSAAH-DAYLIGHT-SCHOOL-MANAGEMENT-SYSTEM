@@ -42,11 +42,10 @@ test('Parent database lookup failure is logged with safe correlation metadata an
     });
   }, async transaction(callback) { return callback(this); }, async execute() { return { affectedRows: 1 }; } };
   const auth = createAuthService({ database, schoolId: 'school-1', sessionSecret: '01234567890123456789012345678901' });
-  const parentSmsAuth = { async requestCode() { return { status: 202, body: { challengeId: 'challenge', message: 'If eligible, a code may arrive.' } }; }, async verifyCode() { return { ok: true, identity: { phone: '+233241234567', parentUserId: 'parent-1', schoolId: 'school-1' } }; } };
-  const server = createServer(createApp({ auth, database, parentSmsAuth, aiEnabled: false }));
+  const server = createServer(createApp({ auth, database, aiEnabled: false }));
   try {
     await new Promise((resolve) => server.listen(0, resolve));
-    const response = await request(server, '/api/auth/parent/verify-code', { phone: '0241234567', challengeId: 'challenge', code: 'private-code' }, { 'x-request-id': 'parent-req-42' });
+    const response = await request(server, '/api/auth/login', { portal: 'parent', phone: '0241234567' }, { 'x-request-id': 'parent-req-42' });
     assert.equal(response.status, 503);
     assert.equal(queryCalls, 1, 'a database error must not retry with a less restrictive Parent link query');
     assert.deepEqual(response.body, { error: 'Authentication service unavailable.' });
@@ -54,8 +53,8 @@ test('Parent database lookup failure is logged with safe correlation metadata an
     assert.equal(logs.length, 1);
     assert.equal(logs[0][0], 'Parent database authentication query failed');
     const diagnostic = logs[0][1];
-    assert.match(diagnostic.requestId, /^[0-9a-f-]{36}$/i);
-    assert.equal(diagnostic.requestPath, '/api/auth/parent/verify-code');
+    assert.equal(diagnostic.requestId, 'parent-req-42');
+    assert.equal(diagnostic.requestPath, '/api/auth/login');
     assert.equal(diagnostic.component, 'parent_authentication');
     assert.equal(diagnostic.operation, 'login_lookup');
     assert.equal(diagnostic.sqlState, '42501');
@@ -66,7 +65,7 @@ test('Parent database lookup failure is logged with safe correlation metadata an
     assert.ok(diagnostic.hint);
     assert.ok(diagnostic.context);
     const output = JSON.stringify({ logs, response });
-    for (const value of ['0241234567', 'do-not-log', 'private-data', 'private-code', 'parent name', 'SELECT with bound parameters']) assert.doesNotMatch(output, new RegExp(value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    for (const value of ['0241234567', 'do-not-log', 'private-data', 'parent name', 'SELECT with bound parameters']) assert.doesNotMatch(output, new RegExp(value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
     assert.equal(diagnostic.query, undefined);
     assert.equal(diagnostic.parameters, undefined);
   } finally {

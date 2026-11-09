@@ -49,6 +49,17 @@ test('Parent phone login refuses accounts returned outside the configured school
   assert.equal(result.status, 401);
 });
 
+test('unknown registered-format Parent phones receive the same generic failure without creating a session', async () => {
+  const user = { ...createConfiguredTestParent('sch_default_01'), schoolId: 'sch_default_01', phone: TEST_PARENT_PHONE };
+  const { database, persisted } = createParentLoginDatabase({ user });
+  const auth = createAuthService({ users: [], database, schoolId: 'sch_default_01', sessionSecret: 'test-parent-session-secret-at-least-32-chars' });
+  const result = await auth.loginByPhoneFromDatabase({ phone: '0240000000', portal: 'parent', ipAddress: 'test-client' });
+  assert.equal(result.ok, false);
+  assert.equal(result.status, 401);
+  assert.equal(result.error, 'Unable to sign in. Check the phone number or contact the school.');
+  assert.equal(persisted.session, null);
+});
+
 test('Parent phone login applies persistent per-phone throttling', async () => {
   const user = { ...createConfiguredTestParent('sch_default_01'), schoolId: 'sch_default_01', phone: TEST_PARENT_PHONE };
   const { database } = createParentLoginDatabase({ user });

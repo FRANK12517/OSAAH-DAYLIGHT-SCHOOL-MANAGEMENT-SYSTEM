@@ -157,6 +157,7 @@ test('embedded module navigation preserves exact identity, refreshes the shell, 
 test('school dashboard bootstrap consumes the server role redirect after login and session restoration', async () => {
   const app = await readFile(new URL('../public/app.js', import.meta.url), 'utf8');
   const auth = await readFile(new URL('../src/auth.js', import.meta.url), 'utf8');
+  const server = await readFile(new URL('../src/server.mjs', import.meta.url), 'utf8');
   const reports = await readFile(new URL('../public/reports-canonical.html', import.meta.url), 'utf8');
   assert.match(auth, /PROPRIETOR:\s*'\/dashboard'/);
   assert.match(auth, /SCHOOL_ADMIN:\s*'\/dashboard'/);
@@ -179,6 +180,7 @@ test('school dashboard bootstrap consumes the server role redirect after login a
   assert.match(app, /location\.pathname === '\/dashboard'/);
   assert.match(app, /location\.pathname === '\/parent-dashboard'/);
   assert.doesNotMatch(app, /api\/auth\/parent\/(?:request-code|verify-code)/);
+  assert.doesNotMatch(server, /api\/auth\/parent\/(?:request-code|verify-code)/);
 });
 
 test('every configured role sidebar child has a stable identity and deterministic route', () => {
