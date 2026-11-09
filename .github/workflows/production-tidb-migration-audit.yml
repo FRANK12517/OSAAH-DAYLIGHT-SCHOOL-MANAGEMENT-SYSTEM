@@ -1,0 +1,97 @@
+name: Production TiDB migration audit
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Full 40-character SHA of the exact production release commit
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-tidb-migration-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    name: Read-only production migration ledger audit
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    steps:
+      - name: Check out workflow source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Validate release SHA format
+        env:
+          RELEASE_REF: ${{ inputs.release_ref }}
+        shell: bash
+        run: |
+          if [[ ! "${RELEASE_REF}" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "release_ref must be a full 40-character commit SHA."
+            exit 1
+          fi
+
+      - name: Check out requested release from the approved repository
+        uses: actions/checkout@v4
+        with:
+          repository: FRANK12517/OSAAH-DAYLIGHT-SCHOOL-MANAGEMENT-SYSTEM
+          ref: ${{ inputs.release_ref }}
+          path: release-source
+          persist-credentials: false
+
+      - name: Verify checked-out repository and commit
+        id: release
+        env:
+          RELEASE_REF: ${{ inputs.release_ref }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_repository="$(git -C release-source remote get-url origin)"
+          if [[ "${actual_repository}" != "https://github.com/FRANK12517/OSAAH-DAYLIGHT-SCHOOL-MANAGEMENT-SYSTEM.git" ]]; then
+            echo "The release checkout did not come from the approved repository."
+            exit 1
+          fi
+          checked_out_commit="$(git -C release-source rev-parse --verify 'HEAD^{commit}')"
+          if [[ "${checked_out_commit,,}" != "${RELEASE_REF,,}" ]]; then
+            echo "The release checkout does not match release_ref."
+            exit 1
+          fi
+          echo "commit=${checked_out_commit}" >> "${GITHUB_OUTPUT}"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Confirm protected database secret is available
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        shell: bash
+        run: |
+          if [[ -z "${DATABASE_URL:-}" ]]; then
+            echo "Protected DATABASE_URL is unavailable."
+            exit 1
+          fi
+          echo "Protected DATABASE_URL is available."
+
+      - name: Inspect production migration ledger (read-only)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          OSAAH_DATABASE_ADAPTER: tidb
+          TIDB_SSL_REJECT_UNAUTHORIZED: 'true'
+          OSAAH_MIGRATION_SOURCE_ROOT: ${{ github.workspace }}/release-source
+          OSAAH_DATABASE_ADAPTER_MODULE: ${{ github.workspace }}/release-source/src/ai/tidb-database-adapter.js
+          OSAAH_RELEASE_REF: ${{ inputs.release_ref }}
+          OSAAH_VERIFIED_RELEASE_COMMIT: ${{ steps.release.outputs.commit }}
+          OSAAH_DEPLOYMENT_REFERENCE: dpl_4jT69Hvt8opZbLUhXFvAk99xWkNH
+        run: node scripts/migrate.mjs status
