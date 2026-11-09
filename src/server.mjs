@@ -414,20 +414,20 @@ export function createApp({ auth = null, parentSmsAuth = null, students = null, 
     if (pathname === '/api/auth/parent/request-code' && request.method === 'POST') {
       const body = await readJson(request);
       const result = parentSmsAuth?.requestCode
-        ? await parentSmsAuth.requestCode({ phone: body.phone, ipAddress: request.socket?.remoteAddress ?? 'unknown' })
+        ? await parentSmsAuth.requestCode({ phone: body.phone, ipAddress: clientIpAddress(request) })
         : { status: 503, body: { error: 'Parent sign-in is temporarily unavailable.' } };
       return json(response, result.body, result.status);
     }
     if (pathname === '/api/auth/parent/verify-code' && request.method === 'POST') {
       const body = await readJson(request);
       const verification = parentSmsAuth?.verifyCode
-        ? await parentSmsAuth.verifyCode({ phone: body.phone, code: body.code, challengeId: body.challengeId, ipAddress: request.socket?.remoteAddress ?? 'unknown' })
+        ? await parentSmsAuth.verifyCode({ phone: body.phone, code: body.code, challengeId: body.challengeId, ipAddress: clientIpAddress(request) })
         : { ok: false, status: 503, body: { error: 'Parent sign-in is temporarily unavailable.' } };
       if (!verification.ok) return json(response, verification.body, verification.status);
       const diagnosticContext = { requestPath: '/api/auth/parent/verify-code' };
       const loginResult = typeof auth.loginByPhoneFromDatabase === 'function'
-        ? await auth.loginByPhoneFromDatabase({ phone: verification.identity.phone, portal: 'parent', diagnosticContext, verifiedOtp: true })
-        : await auth.loginParentByPhone({ phone: verification.identity.phone, portal: 'parent', diagnosticContext, verifiedOtp: true });
+        ? await auth.loginByPhoneFromDatabase({ phone: verification.identity.phone, portal: 'parent', diagnosticContext, ipAddress: clientIpAddress(request), verifiedOtp: true })
+        : await auth.loginParentByPhone({ phone: verification.identity.phone, portal: 'parent', diagnosticContext, ipAddress: clientIpAddress(request), verifiedOtp: true });
       if (!loginResult.ok && loginResult.status === 503) return json(response, { error: loginResult.error }, 503);
       if (!loginResult.ok || loginResult.user?.id !== verification.identity.parentUserId) {
         if (loginResult.token) await auth.logoutSession(loginResult.token);
@@ -1404,7 +1404,7 @@ if (durableAcademic && isSampleModeEnabled(body)) {
       }
     }
     if (pathname === '/website') { response.writeHead(302, { Location: '/#public-school-website', 'Cache-Control': 'no-store' }); return response.end(); }
-    const pageAliases = { '/developer/communication-setup': '/communication-setup.html', '/academics': '/academics.html', '/students': '/students.html', '/admissions': '/admissions.html', '/attendance': '/attendance-overview.html', '/examinations': '/examinations.html', '/results': '/results.html', '/promotion': '/results.html', '/fees': '/fees.html', '/fees/admission-structures': '/admission-fees.html', '/fees/scholarships': '/fees.html', '/finance': '/finance.html', '/staff': '/staff.html', '/staff/leave': '/leave.html', '/staff/professional-development': '/staff.html', '/administrator-management': '/administrator-management.html', '/staff-management': '/staff-management.html', '/settings': '/school-settings.html', '/users': '/users-and-roles.html', '/communication': '/communication.html', '/communication/messages': '/sms-messages.html', '/communication/in-app-messages': '/in-app-messages.html', '/communication/calendar': '/academic-calendar.html', '/academic-calendar': '/academic-calendar.html', '/compliance': '/compliance.html', '/documents': '/documents.html', '/privacy': '/privacy.html', '/inventory': '/inventory.html', '/assets': '/assets.html', '/procurement': '/procurement.html', '/property': '/assets.html', '/library': '/library.html', '/transport': '/transport.html', '/sporting-activities': '/sporting-activities.html', '/transport/gps': '/transport.html', '/hostel': '/hostel.html', '/welfare/health': '/welfare.html', '/welfare/discipline': '/welfare.html', '/welfare/counselling': '/welfare.html' };
+    const pageAliases = { '/dashboard': '/index.html', '/parent-dashboard': '/index.html', '/developer/communication-setup': '/communication-setup.html', '/academics': '/academics.html', '/students': '/students.html', '/admissions': '/admissions.html', '/attendance': '/attendance-overview.html', '/examinations': '/examinations.html', '/results': '/results.html', '/promotion': '/results.html', '/fees': '/fees.html', '/fees/admission-structures': '/admission-fees.html', '/fees/scholarships': '/fees.html', '/finance': '/finance.html', '/staff': '/staff.html', '/staff/leave': '/leave.html', '/staff/professional-development': '/staff.html', '/administrator-management': '/administrator-management.html', '/staff-management': '/staff-management.html', '/settings': '/school-settings.html', '/users': '/users-and-roles.html', '/communication': '/communication.html', '/communication/messages': '/sms-messages.html', '/communication/in-app-messages': '/in-app-messages.html', '/communication/calendar': '/academic-calendar.html', '/academic-calendar': '/academic-calendar.html', '/compliance': '/compliance.html', '/documents': '/documents.html', '/privacy': '/privacy.html', '/inventory': '/inventory.html', '/assets': '/assets.html', '/procurement': '/procurement.html', '/property': '/assets.html', '/library': '/library.html', '/transport': '/transport.html', '/sporting-activities': '/sporting-activities.html', '/transport/gps': '/transport.html', '/hostel': '/hostel.html', '/welfare/health': '/welfare.html', '/welfare/discipline': '/welfare.html', '/welfare/counselling': '/welfare.html' };
     Object.assign(pageAliases, { '/about-developer': '/about-developer.html', '/copyright': '/copyright.html' });
     Object.assign(pageAliases, { '/reports': '/reports.html', '/reports/academic': '/reports-academic.html', '/reports/financial': '/reports-financial.html', '/official-documents': '/official-documents.html', '/website': '/website.html', '/admissions/prospectus': '/admission-prospectus.html', '/parent/admission-prospectus': '/parent-admission-prospectus.html', '/examinations/marks': '/examinations.html', '/examinations/mock': '/mock-examinations.html', '/results/mock': '/results.html', '/academics/subjects': '/subjects.html', '/academics/subject-register': '/subject-register.html', '/welfare/shep': '/shep-activities.html', '/settings/result-signatures': '/result-signatures.html', '/fees/invoices': '/receipts.html' });
     Object.assign(pageAliases, { '/academics': '/subjects.html', '/admissions/analytics': '/admission-analytics.html', '/settings/single-school': '/single-school-panel.html', '/user-guide': '/user-guide.html', '/finance/receipts': '/finance-canonical.html' }, PROPRIETOR_PAGE_ALIASES, { '/settings/profile': '/school-profile.html' }, Object.fromEntries(Object.keys(PROPRIETOR_PAGE_ALIASES).filter((route) => route === '/finance' || route.startsWith('/finance/') || route.startsWith('/fees/')).map((route) => [route, '/finance-canonical.html'])));
@@ -1420,7 +1420,7 @@ if (durableAcademic && isSampleModeEnabled(body)) {
       ['/assets/', '/assets.html'], ['/property/', '/assets.html'], ['/procurement/', '/procurement.html'],
       ['/compliance/', '/compliance.html'], ['/documents/', '/documents.html'], ['/reports/', '/reports.html']
     ];
-    const protectedPage = pathname !== '/parent/admission-prospectus' && SIDEBAR_MODULES.some((module) => module.route === pathname && module.moduleKey !== 'dashboard' && module.moduleKey !== 'logout');
+    const protectedPage = ['/dashboard', '/parent-dashboard'].includes(pathname) || pathname !== '/parent/admission-prospectus' && SIDEBAR_MODULES.some((module) => module.route === pathname && module.moduleKey !== 'dashboard' && module.moduleKey !== 'logout');
     let protectedUser = null;
     if (protectedPage) {
       const sessionToken = readCookie(request, 'osaah_session');
@@ -1429,7 +1429,7 @@ if (durableAcademic && isSampleModeEnabled(body)) {
       const user = await auth.authenticateAsync(sessionToken ?? bearerToken, authContext);
       const roleKey = user ? canonicalRoleKey(user.roleKey ?? user.role) : null;
       const accessibleModules = user ? visibleSidebar({ modules: SIDEBAR_MODULES, permissions: user.permissions, roleKey, portal: user.portal, schoolType: user.schoolType, subscription: user.subscription, entitlements: user.entitlements, featureAvailability: user.featureAvailability }).flatMap((group) => group.modules.flatMap((module) => [module, ...(module.children ?? [])])) : [];
-      const authorized = user && (accessibleModules.some((module) => module.route === pathname) || user.portal === 'parent' && pathname === '/examinations/timetable');
+      const authorized = user && (pathname === '/dashboard' ? user.portal === 'school' : pathname === '/parent-dashboard' ? user.portal === 'parent' : accessibleModules.some((module) => module.route === pathname) || user.portal === 'parent' && pathname === '/examinations/timetable');
       if (process.env.OSAAH_AUTH_SESSION_DIAGNOSTICS === '1') console.info('Authentication session diagnostic', { requestId: authContext.requestId, requestPath: pathname, stage: 'protected_page_authorization', authenticated: Boolean(user), roleKey: user?.roleKey === 'PROPRIETOR' ? 'PROPRIETOR' : user ? 'OTHER' : null, authorizationGranted: Boolean(authorized) });
       if (!authorized) {
         console.warn('Protected page access rejected', {
@@ -1472,8 +1472,8 @@ if (durableAcademic && isSampleModeEnabled(body)) {
       if (!user && !guestAdmissionSession) publicAdmissionCookie = `osaah_admission_session=${randomUUID()}; Path=/; HttpOnly; SameSite=Lax${secureCookieSuffix(request)}`;
     }
     const fallbackPage = modulePageFallbacks.find(([prefix]) => pathname.startsWith(prefix))?.[1];
-    const schoolShellNavigation = protectedUser?.portal === 'school' && request.headers['sec-fetch-mode'] === 'navigate' && new URL(request.url, 'http://localhost').searchParams.get('embedded') !== '1';
-    const file = pathname === '/' || schoolShellNavigation ? '/index.html' : pathname === '/admissions/apply' ? '/admission-application.html' : pageAliases[pathname] ?? fallbackPage ?? pathname;
+    const shellNavigation = ['school', 'parent'].includes(protectedUser?.portal) && request.headers['sec-fetch-mode'] === 'navigate' && new URL(request.url, 'http://localhost').searchParams.get('embedded') !== '1';
+    const file = pathname === '/' || shellNavigation ? '/index.html' : pathname === '/admissions/apply' ? '/admission-application.html' : pageAliases[pathname] ?? fallbackPage ?? pathname;
     try {
       let body = await readFile(join(root, file));
       const requestedNavigationKey = new URL(request.url, 'http://localhost').searchParams.get('navigationKey');
@@ -1530,9 +1530,9 @@ async function login(request, response, auth, audit) {
     const schoolId = typeof requestedSchoolId === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(requestedSchoolId) ? requestedSchoolId : null;
     console.info('Authentication login checkpoint', { stage: 'request_received', requestId, requestPath: '/api/auth/login', email: maskedEmail, schoolId, portal: body.portal === 'parent' ? 'parent' : 'school' });
     const isParentPhoneLogin = body.portal === 'parent' && Object.prototype.hasOwnProperty.call(body, 'phone');
-    const credentials = isParentPhoneLogin ? { phone: body.phone, diagnosticContext } : { ...body, diagnosticContext };
+    const credentials = isParentPhoneLogin ? { phone: body.phone, portal: 'parent', diagnosticContext, ipAddress: clientIpAddress(request) } : { ...body, diagnosticContext };
     const result = isParentPhoneLogin
-      ? { ok: false, status: 401, error: 'Unable to sign in. Check the phone number or contact the school.' }
+      ? (typeof auth.loginByPhoneFromDatabase === 'function' ? await auth.loginByPhoneFromDatabase(credentials) : { ok: false, status: 503, error: 'Authentication service unavailable.' })
       : (typeof auth.loginFromDatabase === 'function' ? await auth.loginFromDatabase(credentials) : auth.login(body));
     console.info('Authentication login checkpoint', { stage: result.ok ? 'session_created' : 'authentication_rejected', requestId, status: result.status ?? 200, authenticated: Boolean(result.ok) });
     if (!result.ok) return json(response, { error: result.error }, result.status);
@@ -1575,6 +1575,11 @@ function secureCookieSuffix(request) {
   const trustedProxy = process.env.OSAAH_TRUST_PROXY === 'true' || process.env.VERCEL === '1';
   const secure = process.env.NODE_ENV === 'production' || request.socket?.encrypted || (trustedProxy && forwardedProto === 'https');
   return secure ? '; Secure' : '';
+}
+function clientIpAddress(request) {
+  const trustedProxy = process.env.OSAAH_TRUST_PROXY === 'true' || process.env.VERCEL === '1';
+  const forwarded = trustedProxy ? String(request.headers['x-forwarded-for'] ?? '').split(',')[0].trim() : '';
+  return forwarded && forwarded.length <= 128 ? forwarded : request.socket?.remoteAddress ?? 'unknown';
 }
 function readCookie(request, name) {
   const parsedCookie = request.cookies?.[name];

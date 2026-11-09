@@ -79,18 +79,18 @@ test('signed proprietor session survives a different serverless instance', async
 
 test('database Parent phone sessions persist and restore the Parent portal identity across instances', async () => {
   const { database, persisted } = createParentLoginDatabase({ user: { id: 'parent-db-1', username: 'parent@example.test', email: 'parent@example.test', schoolId: 'school-db-1', phone: '+233240000001' } });
-  const loginAuth = createAuthService({ database, sessionSecret: SESSION_SECRET });
+  const loginAuth = createAuthService({ database, schoolId: 'school-db-1', sessionSecret: SESSION_SECRET });
   const login = await loginAuth.loginByPhoneFromDatabase({ phone: '+233240000001', verifiedOtp: true });
   assert.equal(login.ok, true);
   assert.ok(persisted.session, 'successful database Parent login must persist its session');
 
-  const nextInstanceAuth = createAuthService({ database, sessionSecret: SESSION_SECRET });
+  const nextInstanceAuth = createAuthService({ database, schoolId: 'school-db-1', sessionSecret: SESSION_SECRET });
   const restored = await nextInstanceAuth.authenticateAsync(login.token);
   assert.equal(restored.portal, 'parent');
   assert.equal(restored.roleKey, 'PARENT');
   assert.ok(restored.permissions.has('children.read'));
   assert.equal(restored.schoolId, 'school-db-1');
-  const independentInstanceAuth = createAuthService({ database, sessionSecret: SESSION_SECRET });
+  const independentInstanceAuth = createAuthService({ database, schoolId: 'school-db-1', sessionSecret: SESSION_SECRET });
   assert.equal((await independentInstanceAuth.authenticateAsync(login.token)).roleKey, 'PARENT');
   await nextInstanceAuth.logoutSession(login.token);
   assert.equal(await loginAuth.authenticateAsync(login.token), null, 'the login instance must observe persistent logout');
@@ -101,10 +101,10 @@ test('database Parent phone sessions persist and restore the Parent portal ident
 test('controlled sample Parent session restores across serverless instances with Parent identity only', async () => {
   const user = createConfiguredTestParent('sch_default_01');
   const { database } = createParentLoginDatabase({ user });
-  const loginAuth = createAuthService({ database, sessionSecret: SESSION_SECRET });
+  const loginAuth = createAuthService({ database, schoolId: 'sch_default_01', sessionSecret: SESSION_SECRET });
   const login = await loginAuth.loginByPhoneFromDatabase({ phone: TEST_PARENT_PHONE, portal: 'parent', verifiedOtp: true });
   assert.equal(login.ok, true);
-  const nextInstance = createAuthService({ database, sessionSecret: SESSION_SECRET });
+  const nextInstance = createAuthService({ database, schoolId: 'sch_default_01', sessionSecret: SESSION_SECRET });
   const restored = await nextInstance.authenticateAsync(login.token);
   assert.equal(restored.id, 'user-test-parent-sample');
   assert.equal(restored.portal, 'parent');
@@ -115,7 +115,7 @@ test('ambiguous duplicate Parent phone identities fail closed without selecting 
   const sample = createConfiguredTestParent('sch_default_01');
   const row = { id: 'real-parent-1', schoolId: 'sch_default_01', username: 'real-parent@example.test', email: 'real-parent@example.test', status: 'ACTIVE', parentPhone: TEST_PARENT_PHONE, phoneMatchCount: 2 };
   const { database, persisted } = createParentLoginDatabase({ user: sample, rows: [row] });
-  const auth = createAuthService({ database, sessionSecret: SESSION_SECRET });
+  const auth = createAuthService({ database, schoolId: 'sch_default_01', sessionSecret: SESSION_SECRET });
   const login = await auth.loginByPhoneFromDatabase({ phone: '0247293733', portal: 'parent', verifiedOtp: true });
   assert.equal(login.ok, false);
   assert.equal(login.status, 401);
@@ -126,11 +126,11 @@ test('ambiguous duplicate Parent phone identities fail closed without selecting 
 test('verified database Parent session restores its canonical identity while sample relationships fail closed when disabled', async () => {
   const user = createConfiguredTestParent('sch_default_01');
   const { database } = createParentLoginDatabase({ user });
-  const loginAuth = createAuthService({ database, sessionSecret: SESSION_SECRET });
+  const loginAuth = createAuthService({ database, schoolId: 'sch_default_01', sessionSecret: SESSION_SECRET });
   const login = await loginAuth.loginByPhoneFromDatabase({ phone: TEST_PARENT_PHONE, portal: 'parent', verifiedOtp: true });
   assert.equal(login.ok, true);
 
-  const nextInstance = createAuthService({ database, sessionSecret: SESSION_SECRET, testParentSchoolId: 'sch_default_01' });
+  const nextInstance = createAuthService({ database, schoolId: 'sch_default_01', sessionSecret: SESSION_SECRET, testParentSchoolId: 'sch_default_01' });
   const restored = await nextInstance.authenticateAsync(login.token);
   assert.equal(restored.schoolId, 'sch_default_01');
   assert.equal(restored.children, undefined);
@@ -138,7 +138,7 @@ test('verified database Parent session restores its canonical identity while sam
   const previousFlag = process.env.OSAAH_ENABLE_SAMPLE_FIXTURES;
   process.env.OSAAH_ENABLE_SAMPLE_FIXTURES = 'false';
   try {
-    const disabledInstance = createAuthService({ database, sessionSecret: SESSION_SECRET });
+    const disabledInstance = createAuthService({ database, schoolId: 'sch_default_01', sessionSecret: SESSION_SECRET });
     const disabledActor = await disabledInstance.authenticateAsync(login.token);
     assert.equal(disabledActor.schoolId, 'sch_default_01');
     assert.equal(isConfiguredTestParentActor(disabledActor), false);
@@ -152,7 +152,7 @@ test('verified database Parent session restores its canonical identity while sam
 test('controlled sample Parent uses the canonical production school scope for login and child authorization', async () => {
   const user = createConfiguredTestParent('sch_default_01');
   const { database } = createParentLoginDatabase({ user });
-  const auth = createAuthService({ database, sessionSecret: SESSION_SECRET });
+  const auth = createAuthService({ database, schoolId: 'sch_default_01', sessionSecret: SESSION_SECRET });
   const server = createServer(createApp({ database, auth, parentSmsAuth: otpService(user.id, TEST_PARENT_PHONE), aiEnabled: false }));
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   try {
@@ -167,6 +167,10 @@ test('controlled sample Parent uses the canonical production school scope for lo
     assert.equal(user.id, 'user-test-parent-sample');
     assert.equal(user.schoolId, 'sch_default_01');
     assert.equal(user.children, undefined, 'sample-child authorization must not be embedded in the session');
+    const parentDashboard = await request(server, '/parent-dashboard', { cookie, headers: { 'Sec-Fetch-Mode': 'navigate' } });
+    assert.equal(parentDashboard.status, 200, parentDashboard.body);
+    assert.match(parentDashboard.body, /id="dashboard"/);
+    assert.equal((await request(server, '/dashboard', { cookie, headers: { 'Sec-Fetch-Mode': 'navigate' } })).status, 403);
 
     const children = await request(server, '/api/parent/children', { cookie });
     assert.equal(children.status, 200, children.body);
@@ -181,7 +185,7 @@ test('controlled sample Parent uses the canonical production school scope for lo
 test('Parent APIs expose only linked children, canonical options, allowed records, and invalidate data on logout', async () => {
   const user = createConfiguredTestParent('sch_default_01');
   const { database } = createParentLoginDatabase({ user });
-  const auth = createAuthService({ database, sessionSecret: SESSION_SECRET });
+  const auth = createAuthService({ database, schoolId: 'sch_default_01', sessionSecret: SESSION_SECRET });
   const server = createServer(createApp({ auth, database, parentSmsAuth: otpService(user.id, TEST_PARENT_PHONE, user.schoolId), aiEnabled: false }));
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   try {
@@ -255,13 +259,17 @@ test('logout returns every school role to the public home and keeps protected ro
     for (const [username, password, protectedRoute] of schoolUsers) {
       const login = auth.login({ username, password, portal: 'school' });
       assert.equal(login.ok, true, `${username} should log in`);
+      const dashboard = await request(server, '/dashboard', { cookie: `osaah_session=${login.token}`, headers: { 'Sec-Fetch-Mode': 'navigate' } });
+      assert.equal(dashboard.status, 200, `${username} dashboard should be authorized`);
+      assert.match(dashboard.body, /id="dashboard"/);
+      assert.equal((await request(server, '/parent-dashboard', { cookie: `osaah_session=${login.token}`, headers: { 'Sec-Fetch-Mode': 'navigate' } })).status, 403);
       const logout = await request(server, '/api/auth/logout', { method: 'POST', cookie: `osaah_session=${login.token}` });
       assert.equal(logout.status, 204, `${username} logout should succeed`);
       assert.match(logout.headers['set-cookie'][0], /osaah_session=;/);
       const publicHome = await request(server, '/', { headers: { 'Sec-Fetch-Mode': 'navigate' } });
       assert.equal(publicHome.status, 200);
       assert.match(publicHome.body, /id="login-form"/);
-      const protectedNavigation = await request(server, protectedRoute, { headers: { 'Sec-Fetch-Mode': 'navigate' } });
+      const protectedNavigation = await request(server, '/dashboard', { headers: { 'Sec-Fetch-Mode': 'navigate' } });
       assert.equal(protectedNavigation.status, 303, `${username} must be redirected away from protected navigation`);
       assert.equal(protectedNavigation.headers.location, '/');
       const protectedApi = await request(server, '/api/sidebar');
@@ -295,8 +303,8 @@ test('test Parent child authorization survives separate serverless app instances
   process.env.OSAAH_SESSION_SECRET = SESSION_SECRET;
   const user = createConfiguredTestParent('sch_default_01');
   const { database } = createParentLoginDatabase({ user });
-  const loginAuth = createAuthService({ database, sessionSecret: SESSION_SECRET });
-  const navigationAuth = createAuthService({ database, sessionSecret: SESSION_SECRET });
+  const loginAuth = createAuthService({ database, schoolId: 'sch_default_01', sessionSecret: SESSION_SECRET });
+  const navigationAuth = createAuthService({ database, schoolId: 'sch_default_01', sessionSecret: SESSION_SECRET });
   const sms = otpService(user.id, TEST_PARENT_PHONE);
   const loginServer = createServer(createApp({ auth: loginAuth, database, parentSmsAuth: sms, aiEnabled: false }));
   const navigationServer = createServer(createApp({ auth: navigationAuth, database, parentSmsAuth: sms, aiEnabled: false }));

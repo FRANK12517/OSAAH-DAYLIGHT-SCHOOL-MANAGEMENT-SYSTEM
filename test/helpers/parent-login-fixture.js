@@ -2,6 +2,7 @@ import { createConfiguredTestParent, TEST_PARENT_PHONE } from '../../src/test-pa
 
 export function createParentLoginDatabase({ user = createConfiguredTestParent(), rows = null } = {}) {
   const persisted = { session: null };
+  const buckets = new Map();
   const bucket = { windowStartedAt: new Date(0).toISOString(), requestCount: 0 };
   const database = {
     dialect: 'tidb',
@@ -10,10 +11,10 @@ export function createParentLoginDatabase({ user = createConfiguredTestParent(),
       if (/FROM terms t JOIN academic_years/i.test(sql)) return [{ id: 'term-1', academicYearId: 'year-1', name: 'Term 1', startsOn: '2026-01-01', endsOn: '2026-04-01', isCurrent: true }];
       if (/FROM academic_years/i.test(sql)) return [{ id: 'year-1', name: '2026/2027', startsOn: '2026-01-01', endsOn: '2026-12-31', isCurrent: true }];
       if (/FROM classes c/i.test(sql)) return [{ id: 'class-1', name: 'Basic 1', displayOrder: 1, levelName: 'Primary 1' }];
-      if (/FROM users u JOIN schools school/i.test(sql)) return rows ?? [{
+      if (/FROM users u JOIN schools school/i.test(sql)) return rows ?? (params.at(-1) === user.schoolId ? [{
         id: user.id, schoolId: user.schoolId, username: user.username, email: user.email,
         status: 'ACTIVE', parentPhone: user.phone ?? TEST_PARENT_PHONE, phoneMatchCount: 1
-      }];
+      }] : []);
       if (/FROM auth_sessions s JOIN users u/i.test(sql)) {
         if (!persisted.session || params[0] !== persisted.session.tokenHash) return [];
         return [{ sessionId: persisted.session.sessionId, userId: user.id, schoolId: user.schoolId,
@@ -23,21 +24,31 @@ export function createParentLoginDatabase({ user = createConfiguredTestParent(),
       return [];
     },
     async execute(sql, params = []) {
-      if (/UPDATE parent_auth_rate_limits SET/i.test(sql)) Object.assign(bucket, { windowStartedAt: params[0], requestCount: params[1] });
+      if (/UPDATE parent_auth_rate_limits SET/i.test(sql)) {
+        const state = buckets.get(params[3]) ?? bucket;
+        Object.assign(state, { windowStartedAt: params[0], requestCount: params[1] });
+        buckets.set(params[3], state);
+        Object.assign(bucket, state);
+      }
       if (/INSERT INTO auth_sessions/i.test(sql)) persisted.session = { sessionId: params[0], tokenHash: params[3], expiresAt: params[5] };
       if (/UPDATE auth_sessions SET revoked_at=/i.test(sql)) persisted.session = null;
       return { affectedRows: 1 };
     },
     async transaction(callback) {
       return callback({
-        query: async (sql, params = []) => /parent_auth_rate_limits/i.test(sql)
-          ? [{ windowStartedAt: bucket.windowStartedAt, requestCount: bucket.requestCount }]
-          : database.query(sql, params),
+        query: async (sql, params = []) => {
+          if (/parent_auth_rate_limits/i.test(sql)) {
+            const state = buckets.get(params[0]) ?? { windowStartedAt: new Date(0).toISOString(), requestCount: 0 };
+            buckets.set(params[0], state);
+            return [{ windowStartedAt: state.windowStartedAt, requestCount: state.requestCount }];
+          }
+          return database.query(sql, params);
+        },
         execute: (sql, params = []) => database.execute(sql, params)
       });
     }
   };
-  return { database, persisted, bucket };
+  return { database, persisted, bucket, buckets };
 }
 
 export async function createCredentialedTestParent(schoolId = 'sch_default_01') {

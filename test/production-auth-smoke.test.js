@@ -4,11 +4,11 @@ import { chromium } from 'playwright';
 const PRODUCTION_URL = 'https://www.osaahdaylightschool.online';
 const enabled = process.env.OSAAH_RUN_PRODUCTION_AUTH_SMOKE_TESTS === '1';
 const flows = [
-  { label: 'Proprietor', role: 'PROPRIETOR', route: '/', identifierEnv: 'PROD_PROPRIETOR_IDENTIFIER', passwordEnv: 'PROD_PROPRIETOR_PASSWORD' },
-  { label: 'Administrator', role: 'SCHOOL_ADMIN', route: '/settings', identifierEnv: 'PROD_ADMINISTRATOR_IDENTIFIER', passwordEnv: 'PROD_ADMINISTRATOR_PASSWORD' },
-  { label: 'Headteacher', role: 'HEADTEACHER', route: '/academics', identifierEnv: 'PROD_HEADTEACHER_IDENTIFIER', passwordEnv: 'PROD_HEADTEACHER_PASSWORD' },
-  { label: 'Assistant Headteacher', role: 'ASSISTANT_HEADTEACHER', route: '/academics', identifierEnv: 'PROD_ASSISTANT_HEADTEACHER_IDENTIFIER', passwordEnv: 'PROD_ASSISTANT_HEADTEACHER_PASSWORD' },
-  { label: 'Accountant', role: 'ACCOUNTANT_BURSAR', route: '/fees', identifierEnv: 'PROD_ACCOUNTANT_IDENTIFIER', passwordEnv: 'PROD_ACCOUNTANT_PASSWORD' },
+  { label: 'Proprietor', role: 'PROPRIETOR', route: '/dashboard', identifierEnv: 'PROD_PROPRIETOR_IDENTIFIER', passwordEnv: 'PROD_PROPRIETOR_PASSWORD' },
+  { label: 'Administrator', role: 'SCHOOL_ADMIN', route: '/dashboard', identifierEnv: 'PROD_ADMINISTRATOR_IDENTIFIER', passwordEnv: 'PROD_ADMINISTRATOR_PASSWORD' },
+  { label: 'Headteacher', role: 'HEADTEACHER', route: '/dashboard', identifierEnv: 'PROD_HEADTEACHER_IDENTIFIER', passwordEnv: 'PROD_HEADTEACHER_PASSWORD' },
+  { label: 'Assistant Headteacher', role: 'ASSISTANT_HEADTEACHER', route: '/dashboard', identifierEnv: 'PROD_ASSISTANT_HEADTEACHER_IDENTIFIER', passwordEnv: 'PROD_ASSISTANT_HEADTEACHER_PASSWORD' },
+  { label: 'Accountant', role: 'ACCOUNTANT_BURSAR', route: '/dashboard', identifierEnv: 'PROD_ACCOUNTANT_IDENTIFIER', passwordEnv: 'PROD_ACCOUNTANT_PASSWORD' },
   { label: 'Teacher username', role: 'TEACHER', route: '/academics', identifierEnv: 'PROD_TEACHER_USERNAME', passwordEnv: 'PROD_TEACHER_PASSWORD' },
   { label: 'Teacher email', role: 'TEACHER', route: '/academics', identifierEnv: 'PROD_TEACHER_EMAIL', passwordEnv: 'PROD_TEACHER_PASSWORD' }
 ];

@@ -22,8 +22,8 @@ test('Parent phone-only authentication is denied before any identity lookup', as
   const auth = createAuthService({ database: { async query() { calls += 1; return []; } } });
   const result = await auth.loginByPhoneFromDatabase({ phone: '0241234567' });
   assert.equal(calls, 0);
-  assert.equal(result.status, 401);
-  assert.equal(result.error, 'Unable to sign in. Check the phone number or contact the school.');
+  assert.equal(result.status, 503);
+  assert.equal(result.error, 'Authentication service unavailable.');
 });
 
 test('Parent database lookup failure is logged with safe correlation metadata and returns generic 503', async () => {
@@ -31,7 +31,8 @@ test('Parent database lookup failure is logged with safe correlation metadata an
   let queryCalls = 0;
   const originalError = console.error;
   console.error = (...args) => logs.push(args);
-  const database = { dialect: 'tidb', supportsDurableAuthSessions: true, async query() {
+  const database = { dialect: 'tidb', supportsDurableAuthSessions: true, async query(sql) {
+    if (/parent_auth_rate_limits/i.test(sql)) return [{ windowStartedAt: new Date(0).toISOString(), requestCount: 0 }];
     queryCalls += 1;
     throw Object.assign(new Error("permission denied for table users; phone=0241234567 password=do-not-log"), {
       code: '42501', severity: 'ERROR', schema: 'public', table: 'users',
@@ -40,7 +41,7 @@ test('Parent database lookup failure is logged with safe correlation metadata an
       parameters: ['0241234567', 'do-not-log-this']
     });
   }, async transaction(callback) { return callback(this); }, async execute() { return { affectedRows: 1 }; } };
-  const auth = createAuthService({ database, sessionSecret: '01234567890123456789012345678901' });
+  const auth = createAuthService({ database, schoolId: 'school-1', sessionSecret: '01234567890123456789012345678901' });
   const parentSmsAuth = { async requestCode() { return { status: 202, body: { challengeId: 'challenge', message: 'If eligible, a code may arrive.' } }; }, async verifyCode() { return { ok: true, identity: { phone: '+233241234567', parentUserId: 'parent-1', schoolId: 'school-1' } }; } };
   const server = createServer(createApp({ auth, database, parentSmsAuth, aiEnabled: false }));
   try {

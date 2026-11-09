@@ -15,10 +15,10 @@ const passwords = Object.freeze({
   assistant: 'SyntheticAssistant123!'
 });
 const accounts = [
-  ['db-accountant', 'accountant@osaah.edu.gh', passwords.accountant, 'ACCOUNTANT_BURSAR', '/fees', ['fees.read', 'fees.write', 'finance.read']],
-  ['db-administrator', 'administrator@osaah.edu.gh', passwords.administrator, 'SCHOOL_ADMIN', '/settings', ['users.read', 'settings.read']],
-  ['db-headteacher', 'headteacher@osaah.edu.gh', passwords.headteacher, 'HEADTEACHER', '/academics', ['academics.read', 'students.read']],
-  ['db-assistant', 'assistantheadteacher@osaah.edu.gh', passwords.assistant, 'ASSISTANT_HEADTEACHER', '/academics', ['academics.read', 'students.read']]
+  ['db-accountant', 'accountant@osaah.edu.gh', passwords.accountant, 'ACCOUNTANT_BURSAR', '/dashboard', ['fees.read', 'fees.write', 'finance.read']],
+  ['db-administrator', 'administrator@osaah.edu.gh', passwords.administrator, 'SCHOOL_ADMIN', '/dashboard', ['users.read', 'settings.read']],
+  ['db-headteacher', 'headteacher@osaah.edu.gh', passwords.headteacher, 'HEADTEACHER', '/dashboard', ['academics.read', 'students.read']],
+  ['db-assistant', 'assistantheadteacher@osaah.edu.gh', passwords.assistant, 'ASSISTANT_HEADTEACHER', '/dashboard', ['academics.read', 'students.read']]
 ];
 
 async function databaseFixture() {
@@ -114,7 +114,7 @@ test('Part 3 normalizes role aliases and preserves teacher username and email id
   assert.equal(byUsername.redirectTo, '/academics');
   const admin = await auth.loginFromDatabase({ username: 'administrator@osaah.edu.gh', password: passwords.administrator, portal: 'school', role: 'SCHOOL_ADMIN' });
   assert.equal(admin.user.roleKey, 'SCHOOL_ADMIN');
-  assert.equal(admin.redirectTo, '/settings');
+  assert.equal(admin.redirectTo, '/dashboard');
 });
 
 test('Part 3 preserves same-school Proprietor database login and session identity', async () => {
@@ -126,7 +126,7 @@ test('Part 3 preserves same-school Proprietor database login and session identit
   assert.equal(result.ok, true);
   assert.equal(result.user.id, 'db-proprietor');
   assert.equal(result.user.roleKey, 'PROPRIETOR');
-  assert.equal(result.redirectTo, '/');
+  assert.equal(result.redirectTo, '/dashboard');
   assert.equal(auth.authenticate(result.token).roleKey, 'PROPRIETOR');
 });
 
@@ -138,7 +138,7 @@ test('Part 3 uses the existing School Portal route, preserves sessions, applies 
     const login = await http(server, '/api/auth/login', { method: 'POST', body: { username: accounts[0][1], password: passwords.accountant, portal: 'school' } });
     assert.equal(login.status, 200);
     assert.equal(login.body.user.roleKey, 'ACCOUNTANT_BURSAR');
-    assert.equal(login.body.redirectTo, '/fees');
+    assert.equal(login.body.redirectTo, '/dashboard');
     const cookie = login.headers['set-cookie'][0].split(';')[0];
     const session = await http(server, '/api/auth/session', { cookie });
     assert.equal(session.status, 200);
@@ -160,7 +160,7 @@ test('Part 3 preserves Proprietor login and canonical dashboard routing', async 
   const result = auth.login({ username: 'proprietor@osaah.edu.gh', password: 'Synthetic-Proprietor-Test-Only-2026!', portal: 'school' });
   assert.equal(result.ok, true);
   assert.equal(result.user.roleKey, 'PROPRIETOR');
-  assert.equal(result.redirectTo, '/');
+  assert.equal(result.redirectTo, '/dashboard');
   assert.equal(auth.authenticate(result.token).permissions.has('*'), true);
 });
 
@@ -219,7 +219,7 @@ test('Part 3 HTTPS login sets a secure HTTP-only cookie and the session endpoint
       body: { username: accounts[1][1], password: passwords.administrator, portal: 'school' }
     });
     assert.equal(login.status, 200);
-    assert.equal(login.body.redirectTo, '/settings');
+    assert.equal(login.body.redirectTo, '/dashboard');
     assert.match(login.headers['set-cookie'][0], /HttpOnly/);
     assert.match(login.headers['set-cookie'][0], /Secure/);
     assert.match(login.headers['set-cookie'][0], /SameSite=Lax/);
@@ -227,7 +227,7 @@ test('Part 3 HTTPS login sets a secure HTTP-only cookie and the session endpoint
     const session = await http(server, '/api/auth/session', { cookie });
     assert.equal(session.status, 200);
     assert.equal(session.body.user.roleKey, 'SCHOOL_ADMIN');
-    assert.equal(session.body.redirectTo, '/settings');
+    assert.equal(session.body.redirectTo, '/dashboard');
   } finally {
     await new Promise((resolve) => server.close(resolve));
     if (previousVercel === undefined) delete process.env.VERCEL;
@@ -242,8 +242,8 @@ test('Part 3 frontend uses the API role route and rejects unsafe redirect target
   const resolvePostLoginRoute = vm.runInNewContext(`(${helper})`);
   assert.equal(resolvePostLoginRoute({ portal: 'school' }, '/reports'), '/reports');
   assert.equal(resolvePostLoginRoute({ portal: 'school' }, '/academics'), '/academics');
-  assert.equal(resolvePostLoginRoute({ portal: 'school' }, '//example.test'), '/');
-  assert.equal(resolvePostLoginRoute({ portal: 'parent' }, '/reports'), '/');
+  assert.equal(resolvePostLoginRoute({ portal: 'school' }, '//example.test'), '/dashboard');
+  assert.equal(resolvePostLoginRoute({ portal: 'parent' }, '/reports'), '/reports');
   assert.match(source, /function renderDashboard\(user, redirectTo = '\/'\)/);
   assert.match(source, /history\.replaceState\(\{ route: initialRoute \}, '', initialRoute\)/);
 });

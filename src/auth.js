@@ -13,7 +13,8 @@ const MAX_ATTEMPTS = 5;
 const LOCKOUT_MS = 15 * 60 * 1000;
 const GENERIC_LOGIN_ERROR = 'Incorrect username or password.';
 const PARENT_GENERIC_LOGIN_ERROR = 'Unable to sign in. Check the phone number or contact the school.';
-const PARENT_PHONE_LOGIN_LIMIT = 10;
+const PARENT_PHONE_LOGIN_LIMIT = 3;
+const PARENT_PHONE_LOGIN_IP_LIMIT = 10;
 const PARENT_PHONE_LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const POSTGRES_DIAGNOSTIC_FIELDS = Object.freeze(['schema', 'table', 'column', 'constraint', 'routine']);
 const AUTH_SESSION_DIAGNOSTICS = process.env.OSAAH_AUTH_SESSION_DIAGNOSTICS === '1';
@@ -96,7 +97,7 @@ function schoolLoginDiagnostics(error, { requestId, requestPath } = {}) {
 }
 const PARENT_PERMISSIONS = Object.freeze(['children.read', 'communication.read', 'messages.read', 'messages.write', 'calendar.read', 'library.read', 'transport.read', 'hostel.read', 'discipline.read']);
 export const SCHOOL_PORTAL_ROLE_ALIASES = Object.freeze({ ADMINISTRATOR: 'SCHOOL_ADMIN', SCHOOL_ADMINISTRATOR: 'SCHOOL_ADMIN', ACCOUNTANT: 'ACCOUNTANT_BURSAR', CLASSROOM_TEACHER: 'TEACHER', PROPRIETOR: 'PROPRIETOR', PROPRIETRESS: 'PROPRIETOR', SCHOOL_PROPRIETOR: 'PROPRIETOR', SCHOOL_PROPRIETRESS: 'PROPRIETOR' });
-export const SCHOOL_PORTAL_DASHBOARDS = Object.freeze({ PROPRIETOR: '/', SCHOOL_ADMIN: '/settings', HEADTEACHER: '/academics', ASSISTANT_HEADTEACHER: '/academics', ACCOUNTANT_BURSAR: '/fees', TEACHER: '/academics', DEVELOPER: '/developer/communication-setup' });
+export const SCHOOL_PORTAL_DASHBOARDS = Object.freeze({ PROPRIETOR: '/dashboard', SCHOOL_ADMIN: '/dashboard', HEADTEACHER: '/dashboard', ASSISTANT_HEADTEACHER: '/dashboard', ACCOUNTANT_BURSAR: '/dashboard', TEACHER: '/academics', DEVELOPER: '/developer/communication-setup' });
 const STAFF_ASSIGNABLE_ROLES = Object.freeze({ SCHOOL_ADMIN: 'SCHOOL_ADMIN', ADMINISTRATOR: 'SCHOOL_ADMIN', HEADTEACHER: 'HEADTEACHER', ASSISTANT_HEADTEACHER: 'ASSISTANT_HEADTEACHER', ACCOUNTANT: 'ACCOUNTANT_BURSAR', ACCOUNTANT_BURSAR: 'ACCOUNTANT_BURSAR', CLASSROOM_TEACHER: 'TEACHER', TEACHER: 'TEACHER' });
 const ROLE_PERMISSIONS = Object.freeze({ HEADTEACHER: ['students.read', 'academics.read', 'attendance.read', 'examinations.read', 'results.read', 'results.generate', 'results.print', 'admissions.read', 'admissions.review', 'admissions.accept', 'admissions.reject', 'admissions.analytics.read', 'admission.prospectus.manage', 'subjects.read', 'subjects.manage', 'signatures.manage', 'mock.scores.read', 'mock.scores.write', 'mock.results.read', 'mock.results.generate', 'fees.read', 'finance.read', 'staff.read', 'communication.read', 'announcements.create', 'calendar.read', 'calendar.write', 'reports.read', 'sporting_activities.view', 'sporting_activities.create', 'sporting_activities.update', 'sporting_activities.delete', 'sporting_activities.manage_fixtures', 'sporting_activities.record_results', 'sporting_activities.manage_participants', 'sporting_activities.generate_reports', 'subject_register.view', 'subject_register.manage', 'subject_register.assign_teacher', 'subject_register.activate', 'subject_register.deactivate', 'subject_register.copy_register', 'shep_activities.view', 'shep_activities.create', 'shep_activities.update', 'shep_activities.manage_participants', 'shep_activities.record_screening', 'shep_activities.create_referral', 'shep_activities.manage_followup', 'shep_activities.generate_reports', 'staff.attendance.read', 'staff.attendance.write'], ASSISTANT_HEADTEACHER: ['students.read', 'academics.read', 'attendance.read', 'examinations.read', 'results.read', 'results.generate', 'results.print', 'admissions.read', 'admissions.review', 'admissions.accept', 'admissions.reject', 'admissions.analytics.read', 'admission.prospectus.manage', 'subjects.read', 'subjects.manage', 'signatures.manage', 'mock.scores.read', 'mock.scores.write', 'mock.results.read', 'mock.results.generate', 'fees.read', 'finance.read', 'staff.read', 'communication.read', 'announcements.create', 'calendar.read', 'calendar.write', 'sporting_activities.view', 'sporting_activities.create', 'sporting_activities.update', 'sporting_activities.delete', 'sporting_activities.manage_fixtures', 'sporting_activities.record_results', 'sporting_activities.manage_participants', 'sporting_activities.generate_reports', 'subject_register.view', 'subject_register.manage', 'subject_register.assign_teacher', 'subject_register.activate', 'subject_register.deactivate', 'subject_register.copy_register', 'staff.attendance.read', 'staff.attendance.write'], ACCOUNTANT_BURSAR: ['students.read', 'fees.read', 'fees.write', 'finance.read', 'fees.configure', 'fees.collect'], TEACHER: ['students.read', 'academics.read', 'attendance.read', 'attendance.write', 'examinations.read', 'marks.write', 'results.read', 'results.generate', 'results.print', 'mock.scores.read', 'mock.scores.write', 'mock.results.read', 'mock.results.generate', 'leave.read', 'leave.write', 'staff.professional-development.view', 'communication.read', 'calendar.read', 'messages.read', 'messages.write', 'sporting_activities.view', 'sporting_activities.create', 'sporting_activities.update', 'sporting_activities.manage_fixtures', 'sporting_activities.record_results', 'sporting_activities.manage_participants', 'sporting_activities.generate_reports', 'subject_register.view', 'shep_activities.view', 'shep_activities.create', 'shep_activities.update', 'shep_activities.manage_participants', 'shep_activities.record_screening', 'shep_activities.create_referral', 'shep_activities.manage_followup', 'shep_activities.generate_reports'] });
 for (const roleKey of ['HEADTEACHER', 'ASSISTANT_HEADTEACHER']) ROLE_PERMISSIONS[roleKey].push('admissions.write');
@@ -228,7 +229,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, schoolI
   function revokeLocalSession(token, session = verifiedSession(token)) { if (session?.sessionId) revokedSessionIds.add(session.sessionId); if (token) sessions.delete(token); if (session?.sessionId) durableSessionIds.delete(session.sessionId); }
   function isActive(user) { return user.is_active !== false && user.isActive !== false && !['DISABLED', 'REVOKED', 'REMOVED', 'SUSPENDED', 'DEACTIVATED'].includes(String(user.accountStatus ?? '').toUpperCase()); }
   function securityEvent(action, user, sessionId = null) { audit({ action, entity: 'Authentication', entityId: user?.id ?? null, userId: user?.id ?? null, roleId: canonicalRoleKey(user?.roleKey), sessionId }); }
-  function sanitize(user, sessionId = null) { const roleKey = canonicalRoleKey(user.roleKey); return { id: user.id, username: user.username, portal: user.portal, roleKey, role: roleKey, accountStatus: isActive(user) ? 'ACTIVE' : String(user.accountStatus ?? 'DISABLED').toUpperCase(), schoolId: user.schoolId, sessionId, dashboard: SCHOOL_PORTAL_DASHBOARDS[roleKey] ?? '/', schoolType: user.schoolType, subscription: user.subscription, entitlements: user.entitlements ?? [], featureAvailability: user.featureAvailability ?? [], ...(roleKey === 'PARENT' ? {} : { children: user.children ?? [], authorizedStaffIds: user.authorizedStaffIds ?? [], assignedStudentIds: user.assignedStudentIds ?? [], assignedParentIds: user.assignedParentIds ?? [], assignedClassIds: user.assignedClassIds ?? [], assignedSubjectIds: user.assignedSubjectIds ?? [], assignedDepartmentIds: user.assignedDepartmentIds ?? [] }) }; }
+  function sanitize(user, sessionId = null) { const roleKey = canonicalRoleKey(user.roleKey); const dashboard = user.portal === 'parent' ? '/parent-dashboard' : SCHOOL_PORTAL_DASHBOARDS[roleKey] ?? '/dashboard'; return { id: user.id, username: user.username, portal: user.portal, roleKey, role: roleKey, accountStatus: isActive(user) ? 'ACTIVE' : String(user.accountStatus ?? 'DISABLED').toUpperCase(), schoolId: user.schoolId, sessionId, dashboard, schoolType: user.schoolType, subscription: user.subscription, entitlements: user.entitlements ?? [], featureAvailability: user.featureAvailability ?? [], ...(roleKey === 'PARENT' ? {} : { children: user.children ?? [], authorizedStaffIds: user.authorizedStaffIds ?? [], assignedStudentIds: user.assignedStudentIds ?? [], assignedParentIds: user.assignedParentIds ?? [], assignedClassIds: user.assignedClassIds ?? [], assignedSubjectIds: user.assignedSubjectIds ?? [], assignedDepartmentIds: user.assignedDepartmentIds ?? [] }) }; }
   function selectAuthorizedRoleRows(rows, requestedRole = null) {
     const normalizedRequested = requestedRole ? canonicalRoleKey(requestedRole) : null;
     const grouped = new Map();
@@ -256,7 +257,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, schoolI
     const session = { userId: user.id, roleKey: canonicalRoleKey(user.roleKey), sessionId, expiresAt };
     const token = signingKey ? signSession(session) : randomBytes(32).toString('hex');
     sessions.set(token, session); securityEvent('LOGIN_SUCCESS', user, sessionId);
-    return { ok: true, token, user: sanitize(user, sessionId), redirectTo: SCHOOL_PORTAL_DASHBOARDS[canonicalRoleKey(user.roleKey)] ?? '/', expiresAt };
+    return { ok: true, token, user: sanitize(user, sessionId), redirectTo: user.portal === 'parent' ? '/parent-dashboard' : SCHOOL_PORTAL_DASHBOARDS[canonicalRoleKey(user.roleKey)] ?? '/dashboard', expiresAt };
   }
   async function createDurableSessionResult(user, diagnosticContext = null) {
     if (process.env.NODE_ENV === 'production' && !durableSessionStore) return { ok: false, status: 503, error: 'Authentication service unavailable.' };
@@ -269,7 +270,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, schoolI
     sessions.set(token, session);
     if (durableSessionStore) durableSessionIds.add(session.sessionId);
     securityEvent('LOGIN_SUCCESS', user, sessionId);
-    return { ok: true, token, user: sanitize(user, sessionId), redirectTo: SCHOOL_PORTAL_DASHBOARDS[canonicalRoleKey(user.roleKey)] ?? '/', expiresAt };
+    return { ok: true, token, user: sanitize(user, sessionId), redirectTo: user.portal === 'parent' ? '/parent-dashboard' : SCHOOL_PORTAL_DASHBOARDS[canonicalRoleKey(user.roleKey)] ?? '/dashboard', expiresAt };
   }
   function loginByPhone({ phone, password, portal = 'parent' }) {
     return { ok: false, status: 401, error: GENERIC_LOGIN_ERROR };
@@ -299,17 +300,17 @@ export function createAuthService({ users = DEMO_USERS, database = null, schoolI
     }
     return user;
   }
-  async function loginParentByPhone({ phone, portal = 'parent', diagnosticContext, verifiedOtp = false }) {
+  async function loginParentByPhone({ phone, portal = 'parent', diagnosticContext, ipAddress = 'unknown' }) {
     const normalized = normalizeGhanaPhone(phone);
     if (portal !== 'parent') return { ok: false, status: 401, error: PARENT_GENERIC_LOGIN_ERROR };
-    if (verifiedOtp !== true) return { ok: false, status: 401, error: PARENT_GENERIC_LOGIN_ERROR };
     if (!normalized) return { ok: false, status: 400, error: 'Enter a valid Ghanaian phone number.' };
     const parentAuthRequirements = {
       queryAvailable: typeof database?.query === 'function',
       transactionAvailable: typeof database?.transaction === 'function',
       durableSessionCapability: Boolean(database?.supportsDurableAuthSessions),
       durableSessionStoreAvailable: durableSessionStore,
-      signingKeyAvailable: Boolean(signingKey)
+      signingKeyAvailable: Boolean(signingKey),
+      schoolScopeAvailable: Boolean(canonicalSchoolId)
     };
     if (Object.values(parentAuthRequirements).some((available) => !available)) {
       console.error('Parent authentication unavailable', {
@@ -324,17 +325,24 @@ export function createAuthService({ users = DEMO_USERS, database = null, schoolI
     try {
       await database.transaction(async (tx) => {
         if (database.dialect !== 'tidb') throw new Error('Parent login requires TiDB.');
-        const bucketHash = createHmac('sha256', signingKey).update(`parent-phone-login\0${normalized}`).digest('hex');
+        const phoneBucketHash = createHmac('sha256', signingKey).update(`parent-phone-login\0${normalized}`).digest('hex');
+        const ipBucketHash = createHmac('sha256', signingKey).update(`parent-ip-login\0${String(ipAddress).slice(0, 128)}`).digest('hex');
         const timestamp = new Date(now()).toISOString();
-        await tidbInsertIfAbsent(tx, { insertSql:'INSERT INTO parent_auth_rate_limits (bucket_hash,window_started_at,request_count,updated_at) VALUES (?,?,0,?)', insertParameters:[bucketHash,timestamp,timestamp], conflictSql:'SELECT bucket_hash FROM parent_auth_rate_limits WHERE bucket_hash=?', conflictParameters:[bucketHash] });
-        const limits = await tx.query('SELECT window_started_at AS windowStartedAt,request_count AS requestCount FROM parent_auth_rate_limits WHERE bucket_hash=? FOR UPDATE', [bucketHash]);
-        if (!Array.isArray(limits) || limits.length !== 1) throw new Error('Parent login rate-limit row unavailable.');
-        const limitRow = limits[0];
-        const startedAt = Date.parse(limitRow.windowStartedAt);
-        const expired = !Number.isFinite(startedAt) || now() - startedAt >= PARENT_PHONE_LOGIN_WINDOW_MS;
-        const count = expired ? 0 : Number(limitRow.requestCount ?? 0);
-        rateLimited = count >= PARENT_PHONE_LOGIN_LIMIT;
-        await tx.execute('UPDATE parent_auth_rate_limits SET window_started_at=?,request_count=?,updated_at=? WHERE bucket_hash=?', [expired ? timestamp : limitRow.windowStartedAt, count + (rateLimited ? 0 : 1), timestamp, bucketHash]);
+        const buckets = [{ hash: phoneBucketHash, limit: PARENT_PHONE_LOGIN_LIMIT }, { hash: ipBucketHash, limit: PARENT_PHONE_LOGIN_IP_LIMIT }].sort((a, b) => a.hash.localeCompare(b.hash));
+        const limitRows = [];
+        for (const bucket of buckets) {
+          await tidbInsertIfAbsent(tx, { insertSql:'INSERT INTO parent_auth_rate_limits (bucket_hash,window_started_at,request_count,updated_at) VALUES (?,?,0,?)', insertParameters:[bucket.hash,timestamp,timestamp], conflictSql:'SELECT bucket_hash FROM parent_auth_rate_limits WHERE bucket_hash=?', conflictParameters:[bucket.hash] });
+          const limits = await tx.query('SELECT window_started_at AS windowStartedAt,request_count AS requestCount FROM parent_auth_rate_limits WHERE bucket_hash=? FOR UPDATE', [bucket.hash]);
+          if (!Array.isArray(limits) || limits.length !== 1) throw new Error('Parent login rate-limit row unavailable.');
+          const limitRow = limits[0];
+          const startedAt = Date.parse(limitRow.windowStartedAt);
+          const expired = !Number.isFinite(startedAt) || now() - startedAt >= PARENT_PHONE_LOGIN_WINDOW_MS;
+          limitRows.push({ bucket, limitRow, expired, count: expired ? 0 : Number(limitRow.requestCount ?? 0) });
+        }
+        rateLimited = limitRows.some(({ bucket, count }) => count >= bucket.limit);
+        for (const { bucket, limitRow, expired, count } of limitRows) {
+          await tx.execute('UPDATE parent_auth_rate_limits SET window_started_at=?,request_count=?,updated_at=? WHERE bucket_hash=?', [expired ? timestamp : limitRow.windowStartedAt, count + (rateLimited ? 0 : 1), timestamp, bucket.hash]);
+        }
         if (rateLimited) return;
         rows = await tx.query(`SELECT DISTINCT u.id,u.school_id AS schoolId,COALESCE(u.username,u.email) AS username,u.email,u.status,u.phone AS parentPhone,
             (SELECT COUNT(DISTINCT phone_user.id) FROM users phone_user
@@ -345,10 +353,10 @@ export function createAuthService({ users = DEMO_USERS, database = null, schoolI
           JOIN student_profiles sp ON sp.id=psl.student_id AND sp.school_id=u.school_id
           JOIN students s ON s.id=sp.student_master_id AND s.school_id=u.school_id
           WHERE REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(u.phone,''),' ',''),'-',''),'(',''),')',''),'+','') IN (?,?,?)
-            AND r.school_id=u.school_id AND r.role_key='PARENT'
+            AND u.school_id=? AND r.school_id=u.school_id AND r.role_key='PARENT'
             AND UPPER(COALESCE(u.status,'ACTIVE'))='ACTIVE'
             AND UPPER(COALESCE(sp.enrollment_status,'ACTIVE'))='ACTIVE'
-            AND UPPER(COALESCE(s.student_status,'ACTIVE'))='ACTIVE'`, [normalized.slice(1), `0${normalized.slice(4)}`, normalized, normalized.slice(1), `0${normalized.slice(4)}`, normalized]);
+            AND UPPER(COALESCE(s.student_status,'ACTIVE'))='ACTIVE'`, [normalized.slice(1), `0${normalized.slice(4)}`, normalized, normalized.slice(1), `0${normalized.slice(4)}`, normalized, canonicalSchoolId]);
       });
     } catch (error) {
       console.error('Parent database authentication query failed', {

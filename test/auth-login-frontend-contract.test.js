@@ -45,10 +45,10 @@ test('login response parser masks malformed and empty JSON errors', async () => 
 
 test('login submits a dashboard only after a successful response with a user', () => {
   const submitStart = appSource.indexOf("form.addEventListener('submit'");
-  const submitEnd = appSource.indexOf("parentResend.addEventListener", submitStart);
+  const submitEnd = appSource.indexOf("restoreSession();", submitStart);
   const submitHandler = appSource.slice(submitStart, submitEnd);
 
   assert.match(submitHandler, /await readApiJson\(response, 'Sign-in service'\)/);
-  assert.match(submitHandler, /if \(!response\.ok \|\| result\.error \|\| .* !result\.user\)/);
+  assert.match(submitHandler, /if \(!response\.ok \|\| result\.error \|\| !result\.user\)/);
   assert.ok(submitHandler.indexOf('if (!response.ok') < submitHandler.indexOf('await renderDashboard(result.user, result.redirectTo)'));
 });

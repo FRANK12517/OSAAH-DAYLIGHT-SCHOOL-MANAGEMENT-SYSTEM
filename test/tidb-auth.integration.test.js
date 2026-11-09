@@ -128,7 +128,7 @@ test('approved isolated TiDB authentication integration: staff roles, Parent pho
     assert.equal(parentLogin.status, 200, 'The pre-provisioned Parent test account must verify its OTP.');
     const parentBody = safeJson(parentLogin);
     assert.equal(parentBody.user.roleKey, 'PARENT');
-    assert.equal(parentBody.redirectTo, '/');
+    assert.equal(parentBody.redirectTo, '/parent-dashboard');
     const parentCookie = parentLogin.headers['set-cookie']?.[0]?.split(';')[0];
     assert.ok(parentCookie, 'Successful Parent authentication must issue a durable session cookie.');
     sessionCookies.push(parentCookie);
