@@ -17,11 +17,11 @@ const CHROMIUM_EXECUTABLE_PATH = [
   '/usr/bin/chromium'
 ].find((candidate) => candidate && existsSync(candidate));
 const ROLE_FLOWS = [
-  { name: 'proprietor', roleKey: 'PROPRIETOR', route: '/', identifier: 'username' },
-  { name: 'administrator', roleKey: 'SCHOOL_ADMIN', route: '/settings', identifier: 'username' },
-  { name: 'headteacher', roleKey: 'HEADTEACHER', route: '/academics', identifier: 'username' },
-  { name: 'assistant-headteacher', roleKey: 'ASSISTANT_HEADTEACHER', route: '/academics', identifier: 'username' },
-  { name: 'accountant', roleKey: 'ACCOUNTANT_BURSAR', route: '/fees', identifier: 'username' },
+  { name: 'proprietor', roleKey: 'PROPRIETOR', route: '/dashboard', identifier: 'username' },
+  { name: 'administrator', roleKey: 'SCHOOL_ADMIN', route: '/dashboard', identifier: 'username' },
+  { name: 'headteacher', roleKey: 'HEADTEACHER', route: '/dashboard', identifier: 'username' },
+  { name: 'assistant-headteacher', roleKey: 'ASSISTANT_HEADTEACHER', route: '/dashboard', identifier: 'username' },
+  { name: 'accountant', roleKey: 'ACCOUNTANT_BURSAR', route: '/dashboard', identifier: 'username' },
   { name: 'teacher-username', roleKey: 'TEACHER', route: '/academics', identifier: 'username' },
   { name: 'teacher-email', roleKey: 'TEACHER', route: '/academics', identifier: 'email' }
 ];

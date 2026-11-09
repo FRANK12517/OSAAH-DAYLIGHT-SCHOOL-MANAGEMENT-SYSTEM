@@ -284,10 +284,10 @@ test('durable staff provisioning supports each requested role and dashboard', as
   const database = createFakeDatabase();
   const auth = createAuthService({ database });
   const scenarios = [
-    { name: 'School Administrator', staffId: 'GEN-ADMIN-001', email: 'admin@example.test', role: 'SCHOOL_ADMIN', password: 'SyntheticAdmin123!' , dashboard: '/settings' },
-    { name: 'Headteacher', staffId: 'GEN-HEAD-001', email: 'head@example.test', role: 'HEADTEACHER', password: 'SyntheticHead123!', dashboard: '/academics' },
-    { name: 'Assistant Headteacher', staffId: 'GEN-AHEAD-001', email: 'assistant@example.test', role: 'ASSISTANT_HEADTEACHER', password: 'SyntheticAssistant123!', dashboard: '/academics' },
-    { name: 'Accountant', staffId: 'GEN-ACCOUNTANT-001', email: 'accountant@example.test', role: 'ACCOUNTANT', password: 'SyntheticAccountant123!', dashboard: '/fees' },
+    { name: 'School Administrator', staffId: 'GEN-ADMIN-001', email: 'admin@example.test', role: 'SCHOOL_ADMIN', password: 'SyntheticAdmin123!' , dashboard: '/dashboard' },
+    { name: 'Headteacher', staffId: 'GEN-HEAD-001', email: 'head@example.test', role: 'HEADTEACHER', password: 'SyntheticHead123!', dashboard: '/dashboard' },
+    { name: 'Assistant Headteacher', staffId: 'GEN-AHEAD-001', email: 'assistant@example.test', role: 'ASSISTANT_HEADTEACHER', password: 'SyntheticAssistant123!', dashboard: '/dashboard' },
+    { name: 'Accountant', staffId: 'GEN-ACCOUNTANT-001', email: 'accountant@example.test', role: 'ACCOUNTANT', password: 'SyntheticAccountant123!', dashboard: '/dashboard' },
     { name: 'Teacher', staffId: 'GEN-TEACHER-001', email: 'teacher@example.test', role: 'CLASSROOM_TEACHER', password: 'SyntheticTeacher123!', dashboard: '/academics' }
   ];
   for (const scenario of scenarios) {

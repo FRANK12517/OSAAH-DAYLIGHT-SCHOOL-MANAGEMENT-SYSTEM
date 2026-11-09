@@ -17,8 +17,8 @@ test('Admissions is assigned to existing leadership roles, not a separate role i
   assert.equal(ROLE_KEYS.has('ADMISSIONS_OFFICER'), false);
   assert.equal(Object.hasOwn(SCHOOL_PORTAL_DASHBOARDS, 'ADMISSIONS_OFFICER'), false);
   assert.equal(Object.hasOwn(SCHOOL_PORTAL_DASHBOARDS, 'PROPRIETOR'), true);
-  assert.equal(SCHOOL_PORTAL_DASHBOARDS.HEADTEACHER, '/academics');
-  assert.equal(SCHOOL_PORTAL_DASHBOARDS.ASSISTANT_HEADTEACHER, '/academics');
+  assert.equal(SCHOOL_PORTAL_DASHBOARDS.HEADTEACHER, '/dashboard');
+  assert.equal(SCHOOL_PORTAL_DASHBOARDS.ASSISTANT_HEADTEACHER, '/dashboard');
 
   const [loginPage, rolesSource, authSource] = await Promise.all([
     readFile(new URL('../public/app.js', import.meta.url), 'utf8'),

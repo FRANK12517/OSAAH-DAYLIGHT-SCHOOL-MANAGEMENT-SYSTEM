@@ -5,11 +5,11 @@ import { createAuthService } from '../src/auth.js';
 import { createCredentialedTestParent } from './helpers/parent-login-fixture.js';
 
 const staffCases = [
-  ['proprietor', 'PROPRIETOR', '/'],
-  ['administrator', 'SCHOOL_ADMIN', '/settings'],
-  ['headteacher', 'HEADTEACHER', '/academics'],
-  ['assistant-headteacher', 'ASSISTANT_HEADTEACHER', '/academics'],
-  ['accountant', 'ACCOUNTANT_BURSAR', '/fees'],
+  ['proprietor', 'PROPRIETOR', '/dashboard'],
+  ['administrator', 'SCHOOL_ADMIN', '/dashboard'],
+  ['headteacher', 'HEADTEACHER', '/dashboard'],
+  ['assistant-headteacher', 'ASSISTANT_HEADTEACHER', '/dashboard'],
+  ['accountant', 'ACCOUNTANT_BURSAR', '/dashboard'],
   ['teacher', 'TEACHER', '/academics']
 ];
 
@@ -39,11 +39,11 @@ test('synthetic Parent plus six staff logins keep identities, roles, routes, and
       password: credential.password
     };
   });
-  const auth = createAuthService({ users: [...staff.map(({ user }) => user)], database: parent.database, sessionSecret: 'test-only-parent-session-secret-0123456789' });
+  const auth = createAuthService({ users: [...staff.map(({ user }) => user)], database: parent.database, schoolId: 'sch_default_01', sessionSecret: 'test-only-parent-session-secret-0123456789' });
   const logins = [];
-  const parentLogin = await auth.loginParentByPhone({ phone: parent.user.phone, portal: 'parent', verifiedOtp: true });
+  const parentLogin = await auth.loginParentByPhone({ phone: parent.user.phone, portal: 'parent' });
   assert.equal(parentLogin.ok, true);
-  logins.push({ id: parent.user.id, roleKey: 'PARENT', route: '/', token: parentLogin.token });
+  logins.push({ id: parent.user.id, roleKey: 'PARENT', route: '/parent-dashboard', token: parentLogin.token });
 
   for (let index = 0; index < staffCases.length; index += 1) {
     const [username, roleKey, route] = staffCases[index];
