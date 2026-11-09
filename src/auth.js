@@ -125,7 +125,7 @@ export const DEMO_USERS = [
   { id: 'user-dpo-1', username: 'dpo@osaah.edu.gh', passwordHash: passwordHash('DataProtection123!', 'dpo-salt'), portal: 'school', roleKey: 'DATA_PROTECTION_OFFICER', schoolId: 'school-osaah-daylight', permissions: new Set(['privacy.read', 'privacy.write', 'documents.read']) }
 ];
 
-export function createAuthService({ users = DEMO_USERS, database = null, now = () => Date.now(), audit = () => {}, sessionSecret = process.env.OSAAH_SESSION_SECRET, sessionDiagnostics = AUTH_SESSION_DIAGNOSTICS } = {}) {
+export function createAuthService({ users = DEMO_USERS, database = null, schoolId = null, now = () => Date.now(), audit = () => {}, sessionSecret = process.env.OSAAH_SESSION_SECRET, sessionDiagnostics = AUTH_SESSION_DIAGNOSTICS } = {}) {
   users = users.map((user) => addStaffAttendanceRoleGrants({ ...user, permissions: new Set(user.permissions), children: user.children?.map((child) => ({ ...child })) }));
   const sessions = new Map(); const durableSessionIds = new Set(); const revokedSessionIds = new Set(); const attempts = new Map(); const resetTokens = new Map();
   const administratorAssignments = [];
@@ -137,6 +137,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
     return durableAdministratorCredentialReset.resetByEmail(email, newPassword, schoolId);
   }
   const signingKey = typeof sessionSecret === 'string' && sessionSecret.length >= 32 ? sessionSecret : null;
+  const canonicalSchoolId = typeof schoolId === 'string' && schoolId.trim() ? schoolId.trim() : null;
   const durableSessionStore = Boolean(database?.supportsDurableAuthSessions && database?.query && database?.execute);
   const tokenHash = (token) => createHash('sha256').update(String(token)).digest('hex');
   const fingerprint = (value) => value ? createHash('sha256').update(String(value)).digest('hex').slice(0, 20) : null;
@@ -398,7 +399,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
         LEFT JOIN roles r ON r.id=ur.role_id AND (r.school_id=u.school_id OR r.school_id IS NULL)
         LEFT JOIN role_permissions rp ON rp.role_id=r.id
         LEFT JOIN permissions p ON p.id=rp.permission_id
-        WHERE LOWER(COALESCE(u.username,''))=? OR LOWER(COALESCE(u.email,''))=? ORDER BY COALESCE(r.oversight_rank,0) DESC,r.role_key,p.permission_key`, [key, key]);
+        WHERE (LOWER(COALESCE(u.username,''))=? OR LOWER(COALESCE(u.email,''))=?)${canonicalSchoolId ? ' AND u.school_id=?' : ''} ORDER BY COALESCE(r.oversight_rank,0) DESC,r.role_key,p.permission_key`, canonicalSchoolId ? [key, key, canonicalSchoolId] : [key, key]);
       console.info('Authentication login checkpoint', {
         stage: 'user_query_after', requestId: safeRequestId(diagnosticContext?.requestId) ?? null,
         requestPath: ['/api/auth/login', '/api/auth/parent/verify-code'].includes(diagnosticContext?.requestPath) ? diagnosticContext.requestPath : null,
@@ -410,6 +411,17 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
       return { ok: false, status: 503, error: 'Authentication service unavailable.' };
     }
     const identityRows = rows ?? [];
+    const distinctIdentityIds = new Set(identityRows.map((candidate) => String(candidate.id ?? '')).filter(Boolean));
+    if (distinctIdentityIds.size > 1) {
+      console.info('School login rejected', {
+        component: 'school_authentication', operation: 'login_validation', category: 'AMBIGUOUS_IDENTIFIER',
+        requestId: safeRequestId(diagnosticContext?.requestId) ?? null,
+        requestPath: ['/api/auth/login', '/api/auth/parent/verify-code'].includes(diagnosticContext?.requestPath) ? diagnosticContext.requestPath : null
+      });
+      const next = throttle ?? { count: 0 }; next.count += 1; if (next.count >= MAX_ATTEMPTS) next.lockedUntil = now() + LOCKOUT_MS; attempts.set(key, next);
+      securityEvent('LOGIN_FAILED', null);
+      return { ok: false, status: 401, error: GENERIC_LOGIN_ERROR };
+    }
     const identity = identityRows[0];
     console.info('Authentication login checkpoint', {
       stage: 'user_lookup_result', requestId: safeRequestId(diagnosticContext?.requestId) ?? null,
@@ -466,7 +478,9 @@ export function createAuthService({ users = DEMO_USERS, database = null, now = (
         requestPath: ['/api/auth/login', '/api/auth/parent/verify-code'].includes(diagnosticContext?.requestPath) ? diagnosticContext.requestPath : null,
         accountFound: Boolean(identity), requestedRole: canonicalRoleKey(role), availableRoles: selected.availableRoles
       });
-      return { ok: false, status: 401, error: 'The selected role does not match this account.' };
+      const next = throttle ?? { count: 0 }; next.count += 1; if (next.count >= MAX_ATTEMPTS) next.lockedUntil = now() + LOCKOUT_MS; attempts.set(key, next);
+      securityEvent('LOGIN_FAILED', null);
+      return { ok: false, status: 401, error: GENERIC_LOGIN_ERROR };
     }
     if (!row || !active || !passwordValid || !roleKey) {
       const category = !identity ? 'USER_NOT_FOUND' : !active ? 'ACCOUNT_INACTIVE' : passwordCheckFailed ? 'PASSWORD_HASH_INVALID' : !roleKey ? 'ROLE_NOT_ASSIGNED' : 'PASSWORD_MISMATCH';

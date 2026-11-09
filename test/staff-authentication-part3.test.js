@@ -7,7 +7,7 @@ import test from 'node:test';
 import { createAuthService } from '../src/auth.js';
 import { createApp } from '../src/server.mjs';
 
-const schoolId = 'school-osaah-daylight';
+const schoolId = 'sch_default_01';
 const passwords = Object.freeze({
   accountant: 'SyntheticAccountant123!',
   administrator: 'SyntheticAdministrator123!',
@@ -27,7 +27,7 @@ async function databaseFixture() {
     rows.push({ id, schoolId, username: email, email, passwordHash: await bcrypt.hash(password, 4), status: 'ACTIVE', roleKey, permissionKey: permissions[0] });
     for (const permissionKey of permissions.slice(1)) rows.push({ id, schoolId, username: email, email, passwordHash: rows.at(-1).passwordHash, status: 'ACTIVE', roleKey, permissionKey });
   }
-  return { query: async (_sql, params) => rows.filter((row) => row.username.toLowerCase() === params[0] || row.email.toLowerCase() === params[1]) };
+  return { rows, query: async (sql, params) => rows.filter((row) => (row.username.toLowerCase() === params[0] || row.email.toLowerCase() === params[1]) && (!sql.includes('AND u.school_id=?') || row.schoolId === params[2])) };
 }
 
 function http(server, path, { method = 'GET', body, cookie, token, headers: additionalHeaders = {} } = {}) {
@@ -64,6 +64,70 @@ test('Part 3 rejects invalid, unknown, disabled, and cross-role database credent
   const disabled = { ...database, query: async (...args) => (await database.query(...args)).map((row) => ({ ...row, status: 'DISABLED' })) };
   assert.equal((await createAuthService({ database: disabled }).loginFromDatabase({ username: accounts[0][1], password: passwords.accountant, portal: 'school' })).ok, false);
   assert.equal((await auth.loginFromDatabase({ username: accounts[0][1], password: passwords.accountant, portal: 'school', role: 'HEADTEACHER' })).ok, false);
+});
+
+test('Part 3 keeps role mismatch errors generic and rejects invalid/inactive identities', async () => {
+  const database = await databaseFixture();
+  const auth = createAuthService({ database, schoolId });
+  const wrongRole = await auth.loginFromDatabase({ username: accounts[0][1], password: passwords.accountant, portal: 'school', role: 'HEADTEACHER' });
+  assert.deepEqual(wrongRole, { ok: false, status: 401, error: 'Incorrect username or password.' });
+  const inactive = { ...database, query: async (sql, params) => (await database.query(sql, params)).map((row) => ({ ...row, status: 'DISABLED' })) };
+  assert.deepEqual(await createAuthService({ database: inactive, schoolId }).loginFromDatabase({ username: accounts[0][1], password: passwords.accountant, portal: 'school' }), { ok: false, status: 401, error: 'Incorrect username or password.' });
+});
+
+test('Part 3 scopes production staff identity lookup to the configured canonical school', async () => {
+  const database = await databaseFixture();
+  const account = database.rows.find((row) => row.id === 'db-administrator');
+  database.rows.push({ ...account, id: 'foreign-admin', schoolId: 'another-school', passwordHash: await bcrypt.hash('ForeignSynthetic123!', 4) });
+  let queryText = '';
+  let queryParameters = [];
+  const query = database.query;
+  database.query = async (sql, params) => { queryText = sql; queryParameters = params; return query(sql, params); };
+  const auth = createAuthService({ database, schoolId });
+  const result = await auth.loginFromDatabase({ username: account.email, password: passwords.administrator, portal: 'school', role: 'ADMINISTRATOR' });
+  assert.equal(result.ok, true);
+  assert.equal(result.user.id, 'db-administrator');
+  assert.equal(result.user.schoolId, schoolId);
+  assert.match(queryText, /WHERE \(LOWER\(COALESCE\(u\.username,''\)\)=\? OR LOWER\(COALESCE\(u\.email,''\)\)=\?\) AND u\.school_id=\?/);
+  assert.deepEqual(queryParameters, [account.email, account.email, schoolId]);
+});
+
+test('Part 3 rejects ambiguous same-school email and username identities with a generic error', async () => {
+  const database = await databaseFixture();
+  const account = database.rows.find((row) => row.id === 'db-administrator');
+  database.rows.push({ ...account, id: 'duplicate-admin' });
+  const auth = createAuthService({ database, schoolId });
+  const result = await auth.loginFromDatabase({ username: account.email, password: passwords.administrator, portal: 'school', role: 'ADMINISTRATOR' });
+  assert.deepEqual(result, { ok: false, status: 401, error: 'Incorrect username or password.' });
+});
+
+test('Part 3 normalizes role aliases and preserves teacher username and email identity', async () => {
+  const database = await databaseFixture();
+  const teacherHash = await bcrypt.hash('SyntheticTeacher123!', 4);
+  database.rows.push({ id: 'db-teacher', schoolId, username: 'frank.abban', email: 'teacher@example.test', passwordHash: teacherHash, status: 'ACTIVE', roleKey: 'TEACHER', permissionKey: 'academics.read' });
+  const auth = createAuthService({ database, schoolId, sessionSecret: 'part-3-test-session-secret-0123456789' });
+  const byUsername = await auth.loginFromDatabase({ username: 'frank.abban', password: 'SyntheticTeacher123!', portal: 'school', role: 'TEACHER' });
+  const byEmail = await auth.loginFromDatabase({ username: 'TEACHER@example.test', password: 'SyntheticTeacher123!', portal: 'school', role: 'TEACHER' });
+  assert.equal(byUsername.ok, true);
+  assert.equal(byEmail.ok, true);
+  assert.equal(byUsername.user.id, byEmail.user.id);
+  assert.equal(byUsername.redirectTo, '/academics');
+  const admin = await auth.loginFromDatabase({ username: 'administrator@osaah.edu.gh', password: passwords.administrator, portal: 'school', role: 'SCHOOL_ADMIN' });
+  assert.equal(admin.user.roleKey, 'SCHOOL_ADMIN');
+  assert.equal(admin.redirectTo, '/settings');
+});
+
+test('Part 3 preserves same-school Proprietor database login and session identity', async () => {
+  const database = await databaseFixture();
+  const proprietorHash = await bcrypt.hash('SyntheticProprietor123!', 4);
+  database.rows.push({ id: 'db-proprietor', schoolId, username: 'proprietor@example.test', email: 'proprietor@example.test', passwordHash: proprietorHash, status: 'ACTIVE', roleKey: 'PROPRIETOR', permissionKey: '*' });
+  const auth = createAuthService({ database, schoolId, sessionSecret: 'part-3-test-session-secret-0123456789' });
+  const result = await auth.loginFromDatabase({ username: 'proprietor@example.test', password: 'SyntheticProprietor123!', portal: 'school', role: 'PROPRIETOR' });
+  assert.equal(result.ok, true);
+  assert.equal(result.user.id, 'db-proprietor');
+  assert.equal(result.user.roleKey, 'PROPRIETOR');
+  assert.equal(result.redirectTo, '/');
+  assert.equal(auth.authenticate(result.token).roleKey, 'PROPRIETOR');
 });
 
 test('Part 3 uses the existing School Portal route, preserves sessions, applies RBAC, and logs out', async () => {
