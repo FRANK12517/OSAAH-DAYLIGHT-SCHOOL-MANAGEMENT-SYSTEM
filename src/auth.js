@@ -254,7 +254,13 @@ export function createAuthService({ users = DEMO_USERS, database = null, schoolI
     if (process.env.NODE_ENV === 'production' && !signingKey) return { ok: false, status: 503, error: 'Authentication service unavailable.' };
     attempts.delete(user.id);
     const sessionId = randomUUID(); const expiresAt = now() + SESSION_TTL_MS;
-    const session = { userId: user.id, roleKey: canonicalRoleKey(user.roleKey), sessionId, expiresAt };
+    const session = {
+      userId: user.id,
+      roleKey: canonicalRoleKey(user.roleKey),
+      sessionId,
+      expiresAt,
+      ...(user.portal === 'parent' ? { phone: user.phone, role: 'PARENT' } : {})
+    };
     const token = signingKey ? signSession(session) : randomBytes(32).toString('hex');
     sessions.set(token, session); securityEvent('LOGIN_SUCCESS', user, sessionId);
     return { ok: true, token, user: sanitize(user, sessionId), redirectTo: user.portal === 'parent' ? '/parent-dashboard' : SCHOOL_PORTAL_DASHBOARDS[canonicalRoleKey(user.roleKey)] ?? '/dashboard', expiresAt };
@@ -263,7 +269,13 @@ export function createAuthService({ users = DEMO_USERS, database = null, schoolI
     if (process.env.NODE_ENV === 'production' && !durableSessionStore) return { ok: false, status: 503, error: 'Authentication service unavailable.' };
     attempts.delete(user.id);
     const sessionId = randomUUID(); const expiresAt = now() + SESSION_TTL_MS;
-    const session = { userId: user.id, roleKey: canonicalRoleKey(user.roleKey), sessionId, expiresAt };
+    const session = {
+      userId: user.id,
+      roleKey: canonicalRoleKey(user.roleKey),
+      sessionId,
+      expiresAt,
+      ...(user.portal === 'parent' ? { phone: user.phone, role: 'PARENT' } : {})
+    };
     const token = signingKey ? signSession(session) : randomBytes(32).toString('hex');
     await persistDurableSession(user, session, token);
     sessionDiagnostic(diagnosticContext ? { ...diagnosticContext, tokenFingerprint: fingerprint(token) } : null, 'session_persisted', { persistenceCompleted: Boolean(durableSessionStore), sessionIdFingerprint: fingerprint(session.sessionId), sessionNotExpired: session.expiresAt > now() });
@@ -344,7 +356,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, schoolI
           await tx.execute('UPDATE parent_auth_rate_limits SET window_started_at=?,request_count=?,updated_at=? WHERE bucket_hash=?', [expired ? timestamp : limitRow.windowStartedAt, count + (rateLimited ? 0 : 1), timestamp, bucket.hash]);
         }
         if (rateLimited) return;
-        rows = await tx.query(`SELECT DISTINCT u.id,u.school_id AS schoolId,COALESCE(u.username,u.email) AS username,u.email,u.status,u.phone AS parentPhone,
+        rows = await tx.query(`SELECT DISTINCT u.id,u.school_id AS schoolId,u.status,u.phone AS parentPhone,
             (SELECT COUNT(DISTINCT phone_user.id) FROM users phone_user
               WHERE REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(phone_user.phone,''),' ',''),'-',''),'(',''),')',''),'+','') IN (?,?,?)) AS phoneMatchCount
           FROM users u JOIN schools school ON school.id=u.school_id
@@ -372,7 +384,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, schoolI
     if (!row) {
       securityEvent('PARENT_PHONE_LOGIN_FAILED', null); return { ok: false, status: 401, error: PARENT_GENERIC_LOGIN_ERROR };
     }
-    const user = { id: row.id, username: row.username ?? row.email ?? row.id, email: row.email, portal: 'parent', roleKey: 'PARENT', schoolId: row.schoolId, phone: normalized, accountStatus: 'ACTIVE', is_active: true, permissions: new Set(PARENT_PERMISSIONS) };
+    const user = { id: row.id, username: normalized, portal: 'parent', roleKey: 'PARENT', schoolId: row.schoolId, phone: normalized, accountStatus: 'ACTIVE', is_active: true, permissions: new Set(PARENT_PERMISSIONS) };
     try {
       const session = await createDurableSessionResult(user);
       if (session.ok) users.push(user);
