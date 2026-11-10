@@ -1,6 +1,7 @@
 const state = { portal: null };
 let dashboardBuildPromise = null;
 const form = document.querySelector('#login-form');
+if (form) form.noValidate = true;
 const assistantModule = import('/ai-assistant.js');
 const financialModule = import('/financial-intelligence.js');
 const learningModule = import('/academic-attendance-intelligence.js');
@@ -103,34 +104,57 @@ document.querySelector('#back-button')?.addEventListener('click', () => { form.h
 const passwordInput = document.querySelector('#password-input');
 const passwordToggle = document.querySelector('#password-toggle');
 passwordToggle?.addEventListener('click', () => { const shouldShow = passwordInput.type === 'password'; passwordInput.type = shouldShow ? 'text' : 'password'; const label = shouldShow ? 'Hide password' : 'Show password'; passwordToggle.setAttribute('aria-label', label); passwordToggle.setAttribute('aria-pressed', String(shouldShow)); passwordToggle.title = label; passwordInput.focus({ preventScroll: true }); });
-form.addEventListener('submit', async (event) => {
+async function handleLoginSubmit(event) {
   event.preventDefault();
   const data = Object.fromEntries(new FormData(form));
   const isParent = state.portal === 'parent';
-  const credentials = isParent ? { portal: 'parent', phone: data.phone } : { ...data, portal: 'school' };
+  const phoneNumber = String(data.phone ?? '').trim();
+  if (isParent && !phoneNumber) {
+    document.querySelector('#login-error').textContent = 'Enter your registered parent phone number.';
+    return;
+  }
+  const credentials = isParent ? { portal: 'parent', phone: phoneNumber } : { ...data, portal: 'school' };
   if (!isParent) delete credentials.phone;
   const submit = form.querySelector('button[type="submit"]');
+  if (!submit) {
+    document.querySelector('#login-error').textContent = 'The sign-in form is unavailable. Reload the page and try again.';
+    return;
+  }
   submit.disabled = true;
   submit.textContent = 'Signing in…';
   document.querySelector('#login-error').textContent = '';
   try {
     const endpoint = '/api/auth/login';
     const body = credentials;
+    if (isParent) {
+      const digits = phoneNumber.replace(/\D/g, '');
+      console.log('Parent auth request initiated for phone ending:', digits.slice(-4) || '[invalid]');
+    }
     const response = await fetchWithTimeout(endpoint, {
       method: 'POST', credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     }, 'Sign-in');
     const result = await readApiJson(response, 'Sign-in service');
-    if (!response.ok || result.error || !result.user) throw new Error(result.error || (isParent ? 'Parent sign-in could not be completed.' : 'Incorrect username or password.'));
+    if (!response.ok || result.error || !result.user) {
+      const statusMessage = response.status === 400 ? 'Check the submitted sign-in details and try again.'
+        : response.status === 401 ? 'Unable to sign in. Check the phone number or contact the school.'
+          : response.status === 429 ? 'Too many sign-in attempts. Try again later.'
+            : response.status >= 500 ? 'Authentication service is temporarily unavailable. Please try again later.'
+              : (isParent ? 'Parent sign-in could not be completed.' : 'Incorrect username or password.');
+      throw new Error(result.error || statusMessage);
+    }
     await renderDashboard(result.user, result.redirectTo);
   } catch (error) {
     document.querySelector('#login-error').textContent = error?.message || 'Sign-in could not be completed. Please try again.';
   } finally {
-    submit.disabled = false;
-    submit.textContent = isParent ? 'Continue' : 'Sign in securely';
+    if (submit) {
+      submit.disabled = false;
+      submit.textContent = isParent ? 'Continue' : 'Sign in securely';
+    }
   }
-});
+}
+form?.addEventListener('submit', handleLoginSubmit);
 restoreSession();
 async function restoreSession() { try { const response = await fetch('/api/auth/session', { credentials: 'same-origin', headers: { Accept: 'application/json' } }); if (!response.ok) return; const result = await response.json(); if (result.user) { document.querySelector('.portal-grid').hidden = true; await renderDashboard(result.user, result.redirectTo); } } catch {} }
 function resolvePostLoginRoute(user, redirectTo) { const fallback = user?.portal === 'parent' ? '/parent-dashboard' : user?.roleKey === 'TEACHER' ? '/academics' : '/dashboard'; return typeof redirectTo === 'string' && redirectTo.startsWith('/') && !redirectTo.startsWith('//') ? redirectTo : fallback; }

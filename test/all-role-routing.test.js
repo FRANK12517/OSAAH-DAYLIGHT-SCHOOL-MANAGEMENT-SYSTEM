@@ -150,8 +150,8 @@ test('embedded module navigation preserves exact identity, refreshes the shell, 
   assert.match(app, /setTimeout\(\(\) => failToOpen\('timeout'\), 20000\)/);
   assert.match(app, /taking too long to open/);
   assert.match(app, /clearTimeout\(Number\(dashboard\.dataset\.navigationTimer\)\)/);
-  assert.match(index, /app\.js\?v=20261103-1/);
-  assert.match(serviceWorker, /osaah-shell-v5/);
+  assert.match(index, /app\.js\?v=20261110-1/);
+  assert.match(serviceWorker, /osaah-shell-v6/);
 });
 
 test('school dashboard bootstrap consumes the server role redirect after login and session restoration', async () => {
