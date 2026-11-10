@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs';
 import { createHash, createHmac, randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
-import { normalizeGhanaPhone } from './ghana-phone.js';
+import { ghanaPhoneLookupValues, normalizeGhanaPhone, resolveParentPhoneLoginRows } from './auth/parent-auth-service.js';
 import { createDurableStaffProvisioning } from './durable-staff-provisioning.js';
 import { ROLE_KEYS } from './roles.js';
 import { createDurableAdministratorCredentialReset } from './durable-administrator-credential-reset.js';
@@ -356,6 +356,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, schoolI
           await tx.execute('UPDATE parent_auth_rate_limits SET window_started_at=?,request_count=?,updated_at=? WHERE bucket_hash=?', [expired ? timestamp : limitRow.windowStartedAt, count + (rateLimited ? 0 : 1), timestamp, bucket.hash]);
         }
         if (rateLimited) return;
+        const phoneValues = ghanaPhoneLookupValues(normalized);
         rows = await tx.query(`SELECT DISTINCT u.id,u.school_id AS schoolId,u.status,u.phone AS parentPhone,
             (SELECT COUNT(DISTINCT phone_user.id) FROM users phone_user
               WHERE REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(phone_user.phone,''),' ',''),'-',''),'(',''),')',''),'+','') IN (?,?,?)) AS phoneMatchCount
@@ -368,7 +369,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, schoolI
             AND u.school_id=? AND r.school_id=u.school_id AND r.role_key='PARENT'
             AND UPPER(COALESCE(u.status,'ACTIVE'))='ACTIVE'
             AND UPPER(COALESCE(sp.enrollment_status,'ACTIVE'))='ACTIVE'
-            AND UPPER(COALESCE(s.student_status,'ACTIVE'))='ACTIVE'`, [normalized.slice(1), `0${normalized.slice(4)}`, normalized, normalized.slice(1), `0${normalized.slice(4)}`, normalized, canonicalSchoolId]);
+          AND UPPER(COALESCE(s.student_status,'ACTIVE'))='ACTIVE'`, [...phoneValues, ...phoneValues, canonicalSchoolId]);
       });
     } catch (error) {
       console.error('Parent database authentication query failed', {
@@ -379,8 +380,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, schoolI
       return { ok: false, status: 503, error: 'Authentication service unavailable.' };
     }
     if (rateLimited) return { ok: false, status: 429, error: 'Too many sign-in attempts. Try again later.' };
-    const matches = rows.filter((candidate) => normalizeGhanaPhone(candidate.parentPhone) === normalized);
-    const row = matches.length === 1 && Number(matches[0].phoneMatchCount) === 1 ? matches[0] : null;
+    const row = resolveParentPhoneLoginRows(rows, normalized);
     if (!row) {
       securityEvent('PARENT_PHONE_LOGIN_FAILED', null); return { ok: false, status: 401, error: PARENT_GENERIC_LOGIN_ERROR };
     }
