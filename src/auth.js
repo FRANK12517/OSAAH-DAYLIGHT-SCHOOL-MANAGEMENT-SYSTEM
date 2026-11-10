@@ -454,11 +454,41 @@ export function createAuthService({ users = DEMO_USERS, database = null, schoolI
     let passwordCheckFailed = false;
     if (row && typeof password === 'string' && typeof row.passwordHash === 'string') {
       try {
+        const storedHash = row.passwordHash;
+        const usesLegacyScrypt = storedHash.includes(':');
+        const usesBcrypt = /^\$2[aby]\$/.test(storedHash);
         console.info('Authentication login checkpoint', {
           stage: 'password_compare_before', requestId: safeRequestId(diagnosticContext?.requestId) ?? null,
-          algorithm: row.passwordHash.includes(':') ? 'scrypt' : 'bcrypt'
+          algorithm: usesLegacyScrypt ? 'scrypt' : usesBcrypt ? 'bcrypt' : 'legacy_plaintext'
         });
-        passwordValid = row.passwordHash.includes(':') ? passwordMatches(password, row.passwordHash) : await bcrypt.compare(password, row.passwordHash);
+        if (usesLegacyScrypt) {
+          passwordValid = passwordMatches(password, storedHash);
+        } else if (usesBcrypt) {
+          passwordValid = await bcrypt.compare(password, storedHash);
+        } else if (active && roleKey && roleKey !== 'PROPRIETOR' && storedHash === password) {
+          // Transitional support for legacy non-proprietor school accounts:
+          // upgrade to bcrypt before allowing the login to create a session.
+          if (typeof database?.execute !== 'function') throw new Error('Password hash upgrade is unavailable.');
+          const upgradedHash = await bcrypt.hash(password, 12);
+          const upgrade = await database.execute(
+            "UPDATE users SET password_hash=?,updated_at=? WHERE id=? AND school_id=? AND password_hash=? AND status='ACTIVE'",
+            [upgradedHash, nowIso(), row.id, row.schoolId, storedHash]
+          );
+          passwordValid = Number(upgrade?.affectedRows) === 1;
+          if (!passwordValid) {
+            // Another concurrent login may have upgraded the same password.
+            // Accept only after verifying the current bcrypt value.
+            const currentRows = await database.query(
+              'SELECT password_hash AS passwordHash,status FROM users WHERE id=? AND school_id=? LIMIT 1',
+              [row.id, row.schoolId]
+            );
+            const current = currentRows?.[0];
+            passwordValid = String(current?.status ?? '').toUpperCase() === 'ACTIVE'
+              && typeof current?.passwordHash === 'string'
+              && /^\$2[aby]\$/.test(current.passwordHash)
+              && await bcrypt.compare(password, current.passwordHash);
+          }
+        }
         console.info('Authentication login checkpoint', {
           stage: 'password_compare_after', requestId: safeRequestId(diagnosticContext?.requestId) ?? null,
           passwordMatched: Boolean(passwordValid)
