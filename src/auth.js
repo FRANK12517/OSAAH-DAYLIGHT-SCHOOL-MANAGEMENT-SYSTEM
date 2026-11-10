@@ -357,19 +357,20 @@ export function createAuthService({ users = DEMO_USERS, database = null, schoolI
         }
         if (rateLimited) return;
         const phoneValues = ghanaPhoneLookupValues(normalized);
-        rows = await tx.query(`SELECT DISTINCT u.id,u.school_id AS schoolId,u.status,u.phone AS parentPhone,
-            (SELECT COUNT(DISTINCT phone_user.id) FROM users phone_user
-              WHERE REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(phone_user.phone,''),' ',''),'-',''),'(',''),')',''),'+','') IN (?,?,?)) AS phoneMatchCount
+        rows = await tx.query(`SELECT u.id,u.school_id AS schoolId,u.status,MIN(psl.telephone) AS parentPhone,
+            (SELECT COUNT(DISTINCT phone_link.parent_user_id) FROM parent_student_links phone_link
+              WHERE REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(phone_link.telephone,''),' ',''),'-',''),'(',''),')',''),'+','') IN (?,?,?)) AS phoneMatchCount
           FROM users u JOIN schools school ON school.id=u.school_id
           JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id
           JOIN parent_student_links psl ON psl.parent_user_id=u.id AND psl.link_status='ACTIVE'
           JOIN student_profiles sp ON sp.id=psl.student_id AND sp.school_id=u.school_id
           JOIN students s ON s.id=sp.student_master_id AND s.school_id=u.school_id
-          WHERE REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(u.phone,''),' ',''),'-',''),'(',''),')',''),'+','') IN (?,?,?)
+          WHERE REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(psl.telephone,''),' ',''),'-',''),'(',''),')',''),'+','') IN (?,?,?)
             AND u.school_id=? AND r.school_id=u.school_id AND r.role_key='PARENT'
             AND UPPER(COALESCE(u.status,'ACTIVE'))='ACTIVE'
             AND UPPER(COALESCE(sp.enrollment_status,'ACTIVE'))='ACTIVE'
-          AND UPPER(COALESCE(s.student_status,'ACTIVE'))='ACTIVE'`, [...phoneValues, ...phoneValues, canonicalSchoolId]);
+            AND UPPER(COALESCE(s.student_status,'ACTIVE'))='ACTIVE'
+          GROUP BY u.id,u.school_id,u.status`, [...phoneValues, ...phoneValues, canonicalSchoolId]);
       });
     } catch (error) {
       console.error('Parent database authentication query failed', {

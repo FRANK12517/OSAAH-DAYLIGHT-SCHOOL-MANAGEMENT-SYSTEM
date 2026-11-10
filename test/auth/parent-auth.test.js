@@ -14,6 +14,25 @@ test('phone normalizer accepts local and +233 formats consistently', () => {
   assert.equal(normalizeGhanaPhone('+233247293733'), '+233247293733');
 });
 
+test('parent lookup matches parent_student_links.telephone in both formats', async () => {
+  const user = { ...createConfiguredTestParent(options.schoolId), schoolId: options.schoolId, phone: TEST_PARENT_PHONE };
+  const { database } = createParentLoginDatabase({ user });
+  let lookupSql = '';
+  let lookupParams = [];
+  const originalQuery = database.query;
+  database.query = async (sql, params) => {
+    if (/FROM users u JOIN schools school/i.test(sql)) { lookupSql = sql; lookupParams = params; }
+    return originalQuery(sql, params);
+  };
+  const auth = createAuthService({ users: [], database, ...options });
+  const result = await auth.loginByPhoneFromDatabase({ phone: '+233247293733', ipAddress: 'sql-check' });
+  assert.equal(result.ok, true);
+  assert.match(lookupSql, /psl\.telephone/);
+  assert.doesNotMatch(lookupSql, /u\.phone|phone_user\.phone/);
+  assert.ok(lookupParams.includes('0247293733'));
+  assert.ok(lookupParams.includes('+233247293733'));
+});
+
 for (const phone of [localPhone, TEST_PARENT_PHONE]) {
   test(`parent phone-only login accepts ${phone.startsWith('0') ? 'local' : 'international'} phone`, async () => {
     const user = { ...createConfiguredTestParent(options.schoolId), schoolId: options.schoolId, phone: TEST_PARENT_PHONE };
