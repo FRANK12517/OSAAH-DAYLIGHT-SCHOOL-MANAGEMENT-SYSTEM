@@ -18,7 +18,7 @@ const tidbEnvironment = (overrides = {}) => ({
   ...overrides
 });
 
-function schemaDatabase({ serverVersion = '5.7.25-TiDB-v8.5.0', databaseName = 'osaahdaylightschool', missing = {}, missingIndexes = {}, missingForeignKeys = {}, unsupportedMetadata = null, failIdentity = false } = {}) {
+function schemaDatabase({ serverVersion = '5.7.25-TiDB-v8.5.0', databaseName = 'osaahdaylightschool', missing = {}, missingIndexes = {}, missingForeignKeys = {}, unsupportedMetadata = null, failIdentity = false, parentRateLimitSchema = 'bucket' } = {}) {
   const calls = [];
   const database = {
     dialect: 'tidb',
@@ -32,6 +32,12 @@ function schemaDatabase({ serverVersion = '5.7.25-TiDB-v8.5.0', databaseName = '
       ];
       if (sql.includes('information_schema.COLUMNS')) {
         const table = params[0];
+        if (table === 'parent_auth_rate_limits') {
+          const definitions = parentRateLimitSchema === 'legacy'
+            ? [['id', 'varchar(191)'], ['phone', 'varchar(50)'], ['attempts', 'int'], ['first_attempt_at', 'datetime'], ['blocked_until', 'datetime'], ['created_at', 'datetime'], ['updated_at', 'datetime']]
+            : [['bucket_hash', 'char(64)'], ['window_started_at', 'varchar(64)'], ['request_count', 'int'], ['updated_at', 'varchar(64)']];
+          return definitions.filter(([column]) => !missing[table]?.includes(column)).map(([columnName, columnType]) => ({ columnName, columnType }));
+        }
         return (TIDB_READINESS_REQUIRED_TABLE_COLUMNS[table] ?? [])
           .filter((column) => !missing[table]?.includes(column))
           .map((columnName) => ({ columnName }));
@@ -39,6 +45,14 @@ function schemaDatabase({ serverVersion = '5.7.25-TiDB-v8.5.0', databaseName = '
       if (sql.includes('information_schema.STATISTICS')) {
         if (unsupportedMetadata === 'indexes') throw new Error('metadata view unavailable');
         const table = params[0];
+        if (table === 'parent_auth_rate_limits') {
+          const definitions = parentRateLimitSchema === 'legacy'
+            ? [{ name: 'PRIMARY', columns: ['id'], unique: true }, { name: 'idx_parent_rate_limit_phone', columns: ['phone'] }, { name: 'idx_parent_rate_limit_blocked', columns: ['blocked_until'] }]
+            : [{ name: 'PRIMARY', columns: ['bucket_hash'], unique: true }, { name: 'idx_parent_auth_rate_limits_updated', columns: ['updated_at'] }];
+          return definitions.filter((index) => !missingIndexes[table]?.includes(index.name === 'PRIMARY' ? `PRIMARY(${index.columns.join(', ')})` : index.columns[0])).flatMap((index, order) => index.columns.map((columnName, columnIndex) => ({
+            indexName: index.name, nonUnique: index.unique ? 0 : 1, sequence: columnIndex + 1, columnName
+          })));
+        }
         return (TIDB_READINESS_REQUIRED_INDEXES[table] ?? []).filter((index) => !missingIndexes[table]?.includes(index.label)).flatMap((index, order) => index.columns.map((columnName, columnIndex) => ({
           indexName: index.name ?? `synthetic_${table}_${order}`,
           nonUnique: Object.hasOwn(index, 'unique') ? (index.unique ? 0 : 1) : index.name === 'PRIMARY' ? 0 : 1,
@@ -201,6 +215,14 @@ test('active phone-only Parent schema requires rate-limit storage but not dorman
   assert.equal(calls.some(({ params }) => params.includes('parent_auth_challenges')), false);
 });
 
+test('TiDB readiness accepts the complete legacy parent rate-limit schema', async () => {
+  const { database } = schemaDatabase({ parentRateLimitSchema: 'legacy' });
+  const result = await verifyTiDBTarget({ database, environment: tidbEnvironment() });
+  assert.equal(result.status, 'READY_FOR_AUTHENTICATION_TESTS');
+  assert.equal(result.schema.checks.find((check) => check.table === 'parent_auth_rate_limits').supportedLayout, 'legacy');
+  assert.equal(result.schema.indexes.checks.find((check) => check.table === 'parent_auth_rate_limits').status, 'OK');
+});
+
 test('TiDB readiness refuses to report ready when the negotiated TLS version is below policy', async () => {
   for (const tlsRows of [[
     { Variable_name: 'Ssl_version', Value: 'TLSv1.1' },
@@ -269,7 +291,7 @@ test('TiDB readiness reports missing required columns without reading account or
   const result = await verifyTiDBTarget({ database, environment: tidbEnvironment() });
   assert.equal(result.status, 'SCHEMA_CHECK_FAILED');
   assert.equal(result.code, 'REQUIRED_SCHEMA_OBJECT_MISSING');
-  assert.deepEqual(result.schema.checks.find((check) => check.table === 'parent_auth_rate_limits').missingColumns, ['request_count']);
+  assert.deepEqual(result.schema.checks.find((check) => check.table === 'parent_auth_rate_limits').missingColumns, ['complete_supported_rate_limit_layout']);
   assert.deepEqual(result.schema.checks.find((check) => check.table === 'student_profiles').missingColumns, ['student_master_id']);
   assert.ok(calls.every(({ sql }) => /^(SELECT\b|SHOW SESSION STATUS\b|SHOW CREATE TABLE\b)/i.test(sql)));
 });

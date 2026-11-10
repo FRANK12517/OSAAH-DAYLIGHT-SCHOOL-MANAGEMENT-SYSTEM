@@ -29,9 +29,11 @@ test('Parent phone-only authentication is denied before any identity lookup', as
 test('Parent database lookup failure is logged with safe correlation metadata and returns generic 503', async () => {
   const logs = [];
   let queryCalls = 0;
+  const queries = [];
   const originalError = console.error;
   console.error = (...args) => logs.push(args);
   const database = { dialect: 'tidb', supportsDurableAuthSessions: true, async query(sql) {
+    queries.push(sql);
     if (/parent_auth_rate_limits/i.test(sql)) return [{ windowStartedAt: new Date(0).toISOString(), requestCount: 0 }];
     queryCalls += 1;
     throw Object.assign(new Error("permission denied for table users; phone=0241234567 password=do-not-log"), {
@@ -47,7 +49,8 @@ test('Parent database lookup failure is logged with safe correlation metadata an
     await new Promise((resolve) => server.listen(0, resolve));
     const response = await request(server, '/api/auth/login', { portal: 'parent', phone: '0241234567' }, { 'x-request-id': 'parent-req-42' });
     assert.equal(response.status, 503);
-    assert.equal(queryCalls, 1, 'a database error must not retry with a less restrictive Parent link query');
+    assert.equal(queryCalls, 2, 'schema inspection must fail closed before Parent identity lookup');
+    assert.ok(queries.every((sql) => /information_schema\.(?:COLUMNS|STATISTICS)/i.test(sql)));
     assert.deepEqual(response.body, { error: 'Authentication service unavailable.' });
     assert.equal(response.headers['set-cookie'], undefined);
     assert.equal(logs.length, 1);
