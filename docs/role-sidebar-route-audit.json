@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-03T11:00:41.374Z",
+  "generatedAt": "2026-11-11T13:16:13.691Z",
   "part": 29,
   "baseline": {
     "source": "Part 28 release-gate report supplied with the implementation specification",
@@ -15,8 +15,8 @@
       "ASSISTANT_HEADTEACHER",
       "TEACHER"
     ],
-    "roleDestinationRecords": 245,
-    "componentTargetPasses": 245,
+    "roleDestinationRecords": 247,
+    "componentTargetPasses": 247,
     "missingComponentTargetBlockers": 0,
     "sharedRouteContracts": 0,
     "duplicateRouteBlockers": 0,
@@ -778,6 +778,19 @@
       "existingImplementationFound": true,
       "newRoute": "/admissions",
       "exactView": "admissions",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "internal-student-registration",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Internal Student Registration",
+      "oldRoute": "/admissions/register",
+      "existingImplementationFound": true,
+      "newRoute": "/admissions/register",
+      "exactView": "internal-student-registration",
       "component": "/operations-canonical.html",
       "apiDependencies": [],
       "result": "PASS"
@@ -2246,6 +2259,19 @@
       "existingImplementationFound": true,
       "newRoute": "/admissions",
       "exactView": "admissions",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "internal-student-registration",
+      "role": "ASSISTANT_HEADTEACHER",
+      "parent": null,
+      "child": "Internal Student Registration",
+      "oldRoute": "/admissions/register",
+      "existingImplementationFound": true,
+      "newRoute": "/admissions/register",
+      "exactView": "internal-student-registration",
       "component": "/operations-canonical.html",
       "apiDependencies": [],
       "result": "PASS"

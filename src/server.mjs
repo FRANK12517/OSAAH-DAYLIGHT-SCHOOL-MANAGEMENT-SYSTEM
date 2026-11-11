@@ -68,6 +68,7 @@ import { createDurableAcademicService } from './durable-academic.js';
 import { createDurablePromotionService } from './durable-promotion.js';
 import { createDurableResultBlockingService } from './durable-result-blocking.js';
 import { createFeeTypeRegistry } from './fee-types.js';
+import { createInternalStudentRegistrationService } from './internal-student-registration.js';
 const releaseMetadata = Object.freeze({
   commitSha: process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.GIT_COMMIT_SHA ?? 'unknown',
   deploymentId: process.env.VERCEL_DEPLOYMENT_ID ?? process.env.VERCEL_URL ?? 'local',
@@ -210,6 +211,7 @@ export function createApp({ auth = null, students = null, attendance = null, att
   const proprietorAuthentication = database ? createProprietorAuthenticationController({ database }) : null;
   const admissionEnrollment = database?.transaction ? createAdmissionEnrollmentService({ database }) : null;
   const existingStudentLinking = database?.query && database?.execute && database?.transaction ? createExistingStudentLinkingService({ database, schoolId: serviceSchoolId }) : null;
+  const internalStudentRegistration = database?.transaction ? createInternalStudentRegistrationService({ database }) : null;
   const durableAdmissions = database?.query && database?.execute ? createDurableAdmissionsService({ database, schoolId: serviceSchoolId }) : null;
   admissionDocumentStorage ??= process.env.BLOB_STORE_ID ? createAdmissionDocumentStorage({ provider: createVercelPrivateBlobProvider({ put: blobPut, get: blobGet, del: blobDelete }) }) : null;
   async function admissionFeeStructures(actor, application) {
@@ -567,6 +569,29 @@ export function createApp({ auth = null, students = null, attendance = null, att
       if (process.env.NODE_ENV === 'production' && !durableAcademic && (durableAcademicEndpoints.has(pathname) || pathname.startsWith('/api/subjects/'))) return json(response, { error: 'Durable academic data is unavailable; apply the required migrations and restore database connectivity before retrying.' }, 503);
       if (process.env.NODE_ENV === 'production' && pathname.startsWith('/api/examinations/promotion') && !durablePromotion) return json(response, { error: 'Durable promotion data is unavailable; apply the required migration and restore database connectivity before retrying.' }, 503);
       if (pathname === '/api/sidebar') return json(response, { user: publicUser(user), portal: user.portal, categories: visibleSidebar({ permissions: user.permissions, roleKey: user.roleKey, portal: user.portal, schoolType: user.schoolType, subscription: user.subscription, entitlements: user.entitlements, featureAvailability: user.featureAvailability }), parentCards: user.portal === 'parent' ? parentDashboardModules() : [] });
+      if (pathname === '/api/internal-student-registration/student-id' || pathname === '/api/internal-student-registration/existing-student' || pathname === '/api/internal-student-registration') {
+        if (request.method !== 'POST') return json(response, { error: 'Method not allowed.' }, 405);
+        if (!user || user.portal !== 'school') return json(response, { error: user ? 'Forbidden.' : 'UNAUTHENTICATED' }, user ? 403 : 401);
+        if (!canAccess(user, 'admissions.write')) return json(response, { error: 'Forbidden.' }, 403);
+        if (!internalStudentRegistration) return json(response, { error: 'Internal student registration persistence is unavailable.', code: 'PERSISTENCE_UNAVAILABLE' }, 503);
+        try {
+          const body = await readJson(request);
+          if (pathname === '/api/internal-student-registration/student-id') {
+            const result = await internalStudentRegistration.reserve({ actorId: user.id });
+            audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, roleId: user.roleKey, action: 'STUDENT_ID_RESERVED', entity: 'StudentIdReservation', entityId: result.permanentStudentId }));
+            return json(response, result, 201);
+          }
+          if (pathname === '/api/internal-student-registration/existing-student') {
+            const student = await internalStudentRegistration.findExistingStudent(body.permanentStudentId, user.schoolId);
+            return student ? json(response, { student }) : json(response, { error: 'Existing student was not found.', code: 'EXISTING_STUDENT_NOT_FOUND' }, 404);
+          }
+          const result = await internalStudentRegistration.register(body, { schoolId: user.schoolId, actorId: user.id });
+          audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, roleId: user.roleKey, action: 'INTERNAL_STUDENT_REGISTERED', entity: 'Student', entityId: result.student.studentId ?? result.student.id, newValue: { permanentStudentId: result.permanentStudentId, classId: result.classId, admissionType: body.admissionType, created: result.created } }));
+          return json(response, result, result.created ? 201 : 200);
+        } catch (error) {
+          return json(response, { error: error.message ?? 'Student registration failed.', code: error.code ?? 'STUDENT_REGISTRATION_FAILED' }, error.status ?? 400);
+        }
+      }
       if (pathname === '/api/school-settings' && request.method === 'GET') { if (!canAccess(user, 'settings.read')) return json(response, { error: 'Forbidden.' }, 403); try { return json(response, await schoolSettings.read(user)); } catch (error) { return json(response, { error: error.message }, error.status ?? 500); } }
       if (pathname === '/api/school-settings' && request.method === 'PATCH') { if (!(user.roleKey === 'PROPRIETOR' || user.roleKey === 'SCHOOL_ADMIN' || canAccess(user, 'settings.write'))) return json(response, { error: 'Forbidden.' }, 403); try { const previous = await schoolSettings.read(user); const saved = await schoolSettings.update(await readJson(request), user); audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, roleId: user.roleKey, action: 'SCHOOL_SETTINGS_UPDATED', entity: 'School', entityId: user.schoolId, previousValue: previous.profile, newValue: saved.profile })); return json(response, saved); } catch (error) { return json(response, { error: error.message }, error.status ?? 400); } }
       if (pathname === '/api/school-profile' && request.method === 'GET') { try { return json(response, await schoolProfile.read(user)); } catch (error) { return json(response, { error: error.message }, error.status ?? 500); } }
@@ -1374,7 +1399,11 @@ if (durableAcademic && isSampleModeEnabled(body)) {
       }
     }
     if (pathname === '/website') { response.writeHead(302, { Location: '/#public-school-website', 'Cache-Control': 'no-store' }); return response.end(); }
+<<<<<<< Updated upstream
     const pageAliases = { '/dashboard': '/index.html', '/parent-dashboard': '/index.html', '/developer/communication-setup': '/communication-setup.html', '/academics': '/academics.html', '/students': '/students.html', '/admissions': '/admissions.html', '/attendance': '/attendance-overview.html', '/examinations': '/examinations.html', '/results': '/results.html', '/promotion': '/results.html', '/fees': '/fees.html', '/fees/admission-structures': '/admission-fees.html', '/fees/scholarships': '/fees.html', '/finance': '/finance.html', '/staff': '/staff.html', '/staff/leave': '/leave.html', '/staff/professional-development': '/staff.html', '/administrator-management': '/administrator-management.html', '/staff-management': '/staff-management.html', '/settings': '/school-settings.html', '/users': '/users-and-roles.html', '/communication': '/communication.html', '/communication/messages': '/sms-messages.html', '/communication/in-app-messages': '/in-app-messages.html', '/communication/calendar': '/academic-calendar.html', '/academic-calendar': '/academic-calendar.html', '/compliance': '/compliance.html', '/documents': '/documents.html', '/privacy': '/privacy.html', '/inventory': '/inventory.html', '/assets': '/assets.html', '/procurement': '/procurement.html', '/property': '/assets.html', '/library': '/library.html', '/transport': '/transport.html', '/sporting-activities': '/sporting-activities.html', '/transport/gps': '/transport.html', '/hostel': '/hostel.html', '/welfare/health': '/welfare.html', '/welfare/discipline': '/welfare.html', '/welfare/counselling': '/welfare.html' };
+=======
+    const pageAliases = { '/developer/communication-setup': '/communication-setup.html', '/academics': '/academics.html', '/students': '/students.html', '/admissions': '/admissions.html', '/admissions/register': '/internal-registration.html', '/attendance': '/attendance-overview.html', '/examinations': '/examinations.html', '/results': '/results.html', '/promotion': '/results.html', '/fees': '/fees.html', '/fees/admission-structures': '/admission-fees.html', '/fees/scholarships': '/fees.html', '/finance': '/finance.html', '/staff': '/staff.html', '/staff/leave': '/leave.html', '/staff/professional-development': '/staff.html', '/administrator-management': '/administrator-management.html', '/staff-management': '/staff-management.html', '/settings': '/school-settings.html', '/users': '/users-and-roles.html', '/communication': '/communication.html', '/communication/messages': '/sms-messages.html', '/communication/in-app-messages': '/in-app-messages.html', '/communication/calendar': '/academic-calendar.html', '/academic-calendar': '/academic-calendar.html', '/compliance': '/compliance.html', '/documents': '/documents.html', '/privacy': '/privacy.html', '/inventory': '/inventory.html', '/assets': '/assets.html', '/procurement': '/procurement.html', '/property': '/assets.html', '/library': '/library.html', '/transport': '/transport.html', '/sporting-activities': '/sporting-activities.html', '/transport/gps': '/transport.html', '/hostel': '/hostel.html', '/welfare/health': '/welfare.html', '/welfare/discipline': '/welfare.html', '/welfare/counselling': '/welfare.html' };
+>>>>>>> Stashed changes
     Object.assign(pageAliases, { '/about-developer': '/about-developer.html', '/copyright': '/copyright.html' });
     Object.assign(pageAliases, { '/reports': '/reports.html', '/reports/academic': '/reports-academic.html', '/reports/financial': '/reports-financial.html', '/official-documents': '/official-documents.html', '/website': '/website.html', '/admissions/prospectus': '/admission-prospectus.html', '/parent/admission-prospectus': '/parent-admission-prospectus.html', '/examinations/marks': '/examinations.html', '/examinations/mock': '/mock-examinations.html', '/results/mock': '/results.html', '/academics/subjects': '/subjects.html', '/academics/subject-register': '/subject-register.html', '/welfare/shep': '/shep-activities.html', '/settings/result-signatures': '/result-signatures.html', '/fees/invoices': '/receipts.html' });
     Object.assign(pageAliases, { '/academics': '/subjects.html', '/admissions/analytics': '/admission-analytics.html', '/settings/single-school': '/single-school-panel.html', '/user-guide': '/user-guide.html', '/finance/receipts': '/finance-canonical.html' }, PROPRIETOR_PAGE_ALIASES, { '/settings/profile': '/school-profile.html' }, Object.fromEntries(Object.keys(PROPRIETOR_PAGE_ALIASES).filter((route) => route === '/finance' || route.startsWith('/finance/') || route.startsWith('/fees/')).map((route) => [route, '/finance-canonical.html'])));

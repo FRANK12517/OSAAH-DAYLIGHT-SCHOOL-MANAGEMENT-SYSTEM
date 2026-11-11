@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Student Registration | OsaaH Daylight</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/internal-registration.css">
+</head>
+<body>
+  <main class="internal-registration form-page">
+    <a class="text-button" href="/">← Dashboard</a>
+    <p class="eyebrow">OSAAH DAYLIGHT SCHOOL COMPLEX · BOGOSO</p>
+    <h1>Student Admission and Registration</h1>
+    <p>Use this single form for first-time, transfer, and existing OsaaH students. Registration assigns the student to the selected class.</p>
+    <form id="internal-registration-form" novalidate>
+      <section class="registration-section">
+        <h2>Admission category</h2>
+        <label>Category
+          <select name="admissionType" required>
+            <option value="">Select category</option>
+            <option value="FIRST_TIME">First-Time Admission</option>
+            <option value="TRANSFER">Transfer Admission</option>
+            <option value="ALREADY_ENROLLED">Existing OSAAH Student</option>
+          </select>
+        </label>
+        <label data-existing-field hidden>Existing permanent Student ID
+          <input name="existingPermanentStudentId" autocomplete="off" placeholder="OSAAH/2024/001">
+        </label>
+        <p class="muted" data-existing-field hidden>We’ll match this ID to the pupil’s name and date of birth to reuse the existing record.</p>
+      </section>
+      <section class="registration-section">
+        <h2>Pupil Information</h2>
+        <div class="registration-grid">
+          <label>1. Full name of pupil<input name="fullName" autocomplete="name" required></label>
+          <label>2. Date of birth<input name="dateOfBirth" type="date" required></label>
+          <label>3. Age<input name="age" type="number" min="0" max="120" readonly aria-describedby="age-help"><small id="age-help">Calculated from date of birth.</small></label>
+          <label>4. Gender<select name="gender" required><option value="">Select gender</option><option>Female</option><option>Male</option><option>Other</option></select></label>
+          <label>5. Nationality<input name="nationality" autocomplete="country-name" value="Ghanaian" required></label>
+          <label>6. Place of birth<input name="placeOfBirth" autocomplete="off"></label>
+          <label>7. Class<select name="classId" required><option value="">Loading classes…</option></select></label>
+          <label>8. Home address<textarea name="homeAddress" autocomplete="street-address" rows="2" required></textarea></label>
+          <label data-transfer-field hidden>Previous school<input name="previousSchool" autocomplete="organization"></label>
+        </div>
+      </section>
+      <section class="registration-section">
+        <h2>Parent/Guardian Information</h2>
+        <div class="registration-grid">
+          <label>9. Parent/Guardian full name<input name="parentName" autocomplete="name" required></label>
+          <label>10. Phone number<input name="parentPhone" type="tel" inputmode="tel" autocomplete="tel" placeholder="0241234567" required></label>
+          <label>11. Email address<input name="parentEmail" type="email" autocomplete="email"></label>
+          <label>12. Occupation<input name="occupation" autocomplete="organization-title"></label>
+          <label>13. National ID/Passport number<input name="parentNationalId" autocomplete="off"></label>
+          <label>14. Residential address<textarea name="parentAddress" autocomplete="street-address" rows="2" required></textarea></label>
+        </div>
+      </section>
+      <section class="registration-section">
+        <h2>Medical Information</h2>
+        <div class="registration-grid">
+          <label>15. Known allergies<textarea name="allergies" rows="2"></textarea></label>
+          <label>16. Medical conditions/Disabilities/Special needs<textarea name="medicalConditions" rows="2"></textarea></label>
+          <label>17. Medication currently taken<textarea name="medications" rows="2"></textarea></label>
+          <label>18. Emergency contact name<input name="emergencyContactName" autocomplete="name"></label>
+          <label>19. Emergency phone number<input name="emergencyPhone" type="tel" inputmode="tel" autocomplete="tel"></label>
+        </div>
+      </section>
+      <section class="registration-section student-id-section">
+        <h2>20. Permanent Student Identification</h2>
+        <p>Every student keeps one permanent ID. Existing OSAAH students retain their current ID.</p>
+        <div class="id-control">
+          <output id="permanent-student-id" aria-live="polite">Not generated</output>
+          <button id="generate-student-id" class="secondary-button" type="button">Generate Permanent Student ID</button>
+        </div>
+        <input name="reservationToken" type="hidden">
+        <input name="resolvedPermanentStudentId" type="hidden">
+      </section>
+      <section class="registration-section">
+        <h2>Class Assignment</h2>
+        <div class="registration-grid">
+          <label>Academic year<select name="academicYearId" required><option value="">Loading academic years…</option></select></label>
+          <label>Term<select name="termId" required><option value="">Select academic year first</option></select></label>
+        </div>
+      </section>
+      <p id="registration-status" role="status" aria-live="polite"></p>
+      <button class="primary-button" type="submit">Submit Registered Student</button>
+    </form>
+    <section id="registration-success" class="registration-success" aria-live="polite" hidden></section>
+  </main>
+  <script src="/internal-registration.js"></script>
+</body>
+</html>
