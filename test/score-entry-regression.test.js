@@ -11,6 +11,12 @@ import { SCHOOL_CLASS_CATALOGUE } from '../public/class-catalogue.js';
 const schoolId = 'sch_default_01';
 const teacher = { id: 'score-teacher', roleKey: 'TEACHER', portal: 'school', schoolId, assignedClassIds: [...CORE_LEVELS], permissions: new Set(['academics.read', 'subjects.read', 'marks.write', 'results.read']) };
 
+test('in-memory academic options show only assigned teacher classes and fail closed without assignments', () => {
+  const service = createAcademicResultsService({ schoolId });
+  assert.deepEqual(service.options({ ...teacher, assignedClassIds: ['Primary 2'] }).classes, ['Primary 2']);
+  assert.deepEqual(service.options({ ...teacher, assignedClassIds: [] }).classes, []);
+});
+
 function eligibleStudent(students, classId, surname, context = {}) {
   return students.createStudent({ firstName: 'Ama', surname, classId, academicYearId: context.academicYear ?? '2026/2027', termId: context.term ?? 'First Term' });
 }
