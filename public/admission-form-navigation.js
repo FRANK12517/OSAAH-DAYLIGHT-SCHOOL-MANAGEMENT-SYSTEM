@@ -1,10 +1,6 @@
 export function requiredAdmissionDocumentTypes({ admissionType = '', className = '' } = {}) {
-  const isStaff = ['ALREADY_ENROLLED', 'TRANSFER', 'FIRST_TIME'].includes(admissionType);
-  if (isStaff && admissionType === 'ALREADY_ENROLLED') return [];
-  const required = ['PASSPORT_PHOTOGRAPHS', 'BIRTH_CERTIFICATE_OR_GHANA_CARD', 'NHIS_CARD'];
-  if (/^(primary|basic|jhs)/i.test(String(className).trim())) required.push('LAST_ACADEMIC_REPORT');
-  if (isStaff) required.push('ADMISSION_RECEIPT');
-  return required;
+  // Attachments may support a review, but never block an application.
+  return [];
 }
 
 export function admissionClassSelection(select) {

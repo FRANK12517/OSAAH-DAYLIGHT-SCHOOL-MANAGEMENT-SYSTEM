@@ -73,6 +73,25 @@ categoryField.addEventListener('change', syncCategory);
 form.elements.dateOfBirth.addEventListener('change', updateAge);
 yearField.addEventListener('change', syncTerms);
 
+document.querySelector('#reset-registration-form').addEventListener('click', () => {
+  if (saving) return;
+  form.reset();
+  status.textContent = '';
+  success.replaceChildren();
+  success.hidden = true;
+  form.elements.reservationToken.value = '';
+  form.elements.resolvedPermanentStudentId.value = '';
+  idOutput.textContent = 'Not generated';
+  generateButton.disabled = false;
+  generateButton.textContent = 'Generate Permanent Student ID';
+  const submit = form.querySelector('[type="submit"]');
+  submit.disabled = false;
+  submit.textContent = 'Submit Registered Student';
+  syncCategory();
+  updateAge();
+  syncTerms();
+});
+
 generateButton.addEventListener('click', async () => {
   if (categoryField.value === 'ALREADY_ENROLLED') {
     const permanentStudentId = existingIdField.value.trim();
@@ -131,8 +150,10 @@ form.addEventListener('submit', async (event) => {
     const fullStudentName = [result.student.firstName, result.student.middleName, result.student.lastName].filter(Boolean).join(' ') || fullName;
     success.replaceChildren();
     const heading = document.createElement('h2'); heading.textContent = 'Registration complete';
-    const detail = document.createElement('p'); detail.textContent = `${fullStudentName} is registered in ${result.className}. Permanent Student ID: ${result.permanentStudentId}.`;
-    success.append(heading, detail);
+    const detail = document.createElement('p'); detail.textContent = `Dear ${fullStudentName}, your index number is ${result.permanentStudentId}`;
+    const instruction = document.createElement('p'); instruction.textContent = 'PLEASE WRITE AND SAVE THE NAME AND PERMANENT ID OF THE REGISTERED STUDENT OR LOOK FOR IT IN THE CLASS DATABASE.';
+    const placement = document.createElement('p'); placement.textContent = `Class placement: ${result.className}.`;
+    success.append(heading, detail, instruction, placement);
     success.hidden = false;
     status.textContent = '';
     form.reset();

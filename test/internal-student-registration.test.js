@@ -27,6 +27,18 @@ test('approved registration permission is assigned only to the four canonical sc
   assert.equal(auth.authenticate(login.token).permissions.has('admissions.write'), true);
 });
 
+test('single registration form confirms permanent index and provides a non-destructive full reset', async () => {
+  const html = await readFile(new URL('../public/internal-registration.html', import.meta.url), 'utf8');
+  const script = await readFile(new URL('../public/internal-registration.js', import.meta.url), 'utf8');
+  assert.match(html, /Use this single form for first-time, transfer, and existing OsaaH students/);
+  assert.match(html, /id="reset-registration-form"[^>]*>RESET FORM/);
+  assert.match(script, /Dear \$\{fullStudentName\}, your index number is \$\{result\.permanentStudentId\}/);
+  assert.match(script, /PLEASE WRITE AND SAVE THE NAME AND PERMANENT ID OF THE REGISTERED STUDENT OR LOOK FOR IT IN THE CLASS DATABASE\./);
+  assert.match(script, /form\.reset\(\)/);
+  assert.match(script, /reservationToken\.value = ''/);
+  assert.match(script, /if \(saving\) return/);
+});
+
 function databaseFixture() {
   const state = { sequences: new Map(), reservations: [], students: [], profiles: [], guardians: [], health: [], enrollments: [], parentAccounts: [{ id: 'parent-1', email: 'kwame@example.test', phone: '+233241234567', username: '+233241234567' }], parentLinks: [], classes: [{ id: 'class-kg1', name: 'KG1', school_id: 'school-1' }], periods: [{ academicYearId: 'year-2026', termId: 'term-1' }] };
   let tail = Promise.resolve();
