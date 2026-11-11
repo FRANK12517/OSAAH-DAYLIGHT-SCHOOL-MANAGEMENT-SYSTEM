@@ -229,7 +229,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, schoolI
         insertSql: `INSERT INTO parent_auth_rate_limits (id,phone,attempts,first_attempt_at,blocked_until,created_at,updated_at)
           VALUES (?,?,0,STR_TO_DATE(?, '${TIDB_DATETIME_FORMAT}'),STR_TO_DATE(?, '${TIDB_DATETIME_FORMAT}'),STR_TO_DATE(?, '${TIDB_DATETIME_FORMAT}'),STR_TO_DATE(?, '${TIDB_DATETIME_FORMAT}'))`,
         insertParameters: [bucket.hash, bucket.phone, timestamp, asTiDBUtcDateTime(0), timestamp, timestamp],
-        conflictSql: 'SELECT id FROM parent_auth_rate_limits WHERE id=?',
+        conflictSql: 'SELECT id FROM parent_auth_rate_limits WHERE id=? FOR UPDATE',
         conflictParameters: [bucket.hash]
       });
       const selected = await tx.query(`SELECT phone,attempts,
@@ -318,7 +318,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, schoolI
     const buckets = [{ hash: phoneBucketHash, limit: PARENT_PHONE_LOGIN_LIMIT }, { hash: ipBucketHash, limit: PARENT_PHONE_LOGIN_IP_LIMIT }].sort((a, b) => a.hash.localeCompare(b.hash));
     const limitRows = [];
     for (const bucket of buckets) {
-      await tidbInsertIfAbsent(tx, { insertSql:'INSERT INTO parent_auth_rate_limits (bucket_hash,window_started_at,request_count,updated_at) VALUES (?,?,0,?)', insertParameters:[bucket.hash,timestamp,timestamp], conflictSql:'SELECT bucket_hash FROM parent_auth_rate_limits WHERE bucket_hash=?', conflictParameters:[bucket.hash] });
+      await tidbInsertIfAbsent(tx, { insertSql:'INSERT INTO parent_auth_rate_limits (bucket_hash,window_started_at,request_count,updated_at) VALUES (?,?,0,?)', insertParameters:[bucket.hash,timestamp,timestamp], conflictSql:'SELECT bucket_hash FROM parent_auth_rate_limits WHERE bucket_hash=? FOR UPDATE', conflictParameters:[bucket.hash] });
       const limits = await tx.query('SELECT window_started_at AS windowStartedAt,request_count AS requestCount FROM parent_auth_rate_limits WHERE bucket_hash=? FOR UPDATE', [bucket.hash]);
       if (!Array.isArray(limits) || limits.length !== 1) throw new Error('Parent login rate-limit row unavailable.');
       const limitRow = limits[0];

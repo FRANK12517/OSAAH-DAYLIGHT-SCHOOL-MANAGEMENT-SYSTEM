@@ -89,7 +89,7 @@ async function createAuthSchema(database) {
   await database.execute(`CREATE TABLE user_roles (user_id VARCHAR(64) NOT NULL, role_id VARCHAR(64) NOT NULL, PRIMARY KEY(user_id, role_id))`);
   await database.execute(`CREATE TABLE role_permissions (role_id VARCHAR(64) NOT NULL, permission_id VARCHAR(64) NOT NULL)`);
   await database.execute(`CREATE TABLE permissions (id VARCHAR(64) NOT NULL PRIMARY KEY, permission_key VARCHAR(128) NOT NULL)`);
-  await database.execute(`CREATE TABLE students (id VARCHAR(64) NOT NULL PRIMARY KEY, school_id VARCHAR(64) NOT NULL, permanent_student_id VARCHAR(64) NOT NULL, student_status VARCHAR(32) NOT NULL, is_test_record BOOLEAN NOT NULL DEFAULT FALSE)`);
+  await database.execute(`CREATE TABLE students (id VARCHAR(64) NOT NULL PRIMARY KEY, school_id VARCHAR(64) NOT NULL, permanent_student_id VARCHAR(64) NOT NULL, gender VARCHAR(32), student_status VARCHAR(32) NOT NULL, is_test_record BOOLEAN NOT NULL DEFAULT FALSE)`);
   await database.execute(`CREATE TABLE student_profiles (id VARCHAR(64) NOT NULL PRIMARY KEY, school_id VARCHAR(64) NOT NULL, student_master_id VARCHAR(64) NOT NULL, student_id VARCHAR(64) NOT NULL, class_id VARCHAR(64), enrollment_status VARCHAR(32) NOT NULL)`);
   await database.execute(`CREATE TABLE parent_student_links (parent_user_id VARCHAR(64) NOT NULL, student_id VARCHAR(64) NOT NULL, telephone VARCHAR(50) NOT NULL, link_status VARCHAR(32) NOT NULL, PRIMARY KEY(parent_user_id, student_id))`);
   await database.execute(`CREATE TABLE student_enrollments (id VARCHAR(64) NOT NULL PRIMARY KEY, student_id VARCHAR(64) NOT NULL, school_id VARCHAR(64) NOT NULL, class_id VARCHAR(64), is_current BOOLEAN NOT NULL DEFAULT TRUE, enrolled_at DATETIME, enrollment_status VARCHAR(32))`);
