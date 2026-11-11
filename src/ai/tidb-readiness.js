@@ -1,3 +1,5 @@
+import { classifyParentRateLimitSchema, parentRateLimitSchemaRequirements } from '../auth/parent-rate-limits.js';
+
 export const TIDB_READINESS_DATABASE = 'osaahdaylightschool';
 export const TIDB_ISOLATION_APPROVAL_VARIABLE = 'OSAAH_TIDB_TARGET_ISOLATION_APPROVAL';
 export const TIDB_ISOLATION_APPROVAL_VALUE = 'ISOLATED_TEST_TARGET_CONFIRMED';
@@ -11,7 +13,8 @@ export const TIDB_READINESS_REQUIRED_TABLE_COLUMNS = Object.freeze({
   student_profiles: ['id', 'school_id', 'student_master_id', 'student_id', 'admission_number', 'first_name', 'surname', 'enrollment_status'],
   students: ['id', 'school_id', 'permanent_student_id', 'admission_number', 'first_name', 'last_name', 'student_status', 'is_test_record'],
   auth_sessions: ['id', 'user_id', 'school_id', 'token_hash', 'created_at', 'expires_at', 'revoked_at', 'last_used_at'],
-  parent_auth_rate_limits: ['bucket_hash', 'window_started_at', 'request_count', 'updated_at'],
+  // Supports either the historical phone limiter layout or the bucket layout.
+  parent_auth_rate_limits: [],
   classes: ['id', 'school_id', 'name'],
   academic_years: ['id', 'school_id', 'name', 'is_current'],
   terms: ['id', 'academic_year_id', 'name', 'is_current'],
@@ -29,7 +32,8 @@ export const TIDB_READINESS_REQUIRED_TABLE_COLUMNS = Object.freeze({
 });
 
 // These contracts come from schema migrations 001, 003, 026, 031, 032, 052,
-// 054, 078, and the currently untracked 082 parent-login rate-limit contract.
+// 054 and 078. Parent login rate limiting accepts either complete supported
+// TiDB table layout, validated against INFORMATION_SCHEMA below.
 // Match index columns and uniqueness rather than relying on server-generated
 // names, except for indexes whose names are explicit migration contracts.
 export const TIDB_READINESS_REQUIRED_INDEXES = Object.freeze({
@@ -56,7 +60,6 @@ export const TIDB_READINESS_REQUIRED_INDEXES = Object.freeze({
     { label: 'idx_student_enrollments_durable_scope', name: 'idx_student_enrollments_durable_scope', columns: ['school_id', 'academic_year_id', 'class_id', 'is_current', 'enrollment_status'] },
     { label: 'uq_student_enrollment_context', name: 'uq_student_enrollment_context', columns: ['school_id', 'student_id', 'academic_year_id', 'term_id', 'is_current'], unique: true }
   ],
-  parent_auth_rate_limits: [{ label: 'PRIMARY(bucket_hash)', name: 'PRIMARY', columns: ['bucket_hash'], unique: true }]
 });
 
 // Deliberately excludes user_roles.role_id and student_profiles.student_master_id:
@@ -200,14 +203,29 @@ export async function verifyTiDBTarget({ database, environment = process.env, ex
     let actualColumns;
     try {
       actualColumns = rows(await database.query(
-        'SELECT COLUMN_NAME AS columnName FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=?',
+        `SELECT COLUMN_NAME AS columnName${tableName === 'parent_auth_rate_limits' ? ',COLUMN_TYPE AS columnType' : ''} FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=?`,
         [tableName]
-      )).map((row) => String(row.columnName ?? row.COLUMN_NAME ?? '').toLowerCase()).filter(Boolean);
+      ));
     } catch {
       checks.push({ table: tableName, status: 'NOT_CHECKED', missingColumns: [] });
       return { status: 'SCHEMA_CHECK_UNVERIFIED', code: 'COLUMN_METADATA_QUERY_UNVERIFIED', database: expectedDatabase, engine: 'TiDB', serverVersion, connectionStatus: 'VERIFIED', tls, isolationApproved: true, schema: { status: 'UNVERIFIED', checks, indexes: { status: 'NOT_CHECKED', checks: [] }, foreignKeys: { status: 'NOT_CHECKED', supportLevel: 'UNVERIFIED', checks: [] } } };
     }
-    const columns = new Set(actualColumns);
+    if (tableName === 'parent_auth_rate_limits') {
+      let actualIndexes;
+      try {
+        actualIndexes = rows(await database.query(
+          'SELECT INDEX_NAME AS indexName, NON_UNIQUE AS nonUnique, SEQ_IN_INDEX AS sequence, COLUMN_NAME AS columnName FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? ORDER BY INDEX_NAME, SEQ_IN_INDEX',
+          [tableName]
+        ));
+      } catch {
+        checks.push({ table: tableName, status: 'NOT_CHECKED', missingColumns: [], supportedLayouts: Object.keys(parentRateLimitSchemaRequirements()) });
+        return { status: 'SCHEMA_CHECK_UNVERIFIED', code: 'RATE_LIMIT_INDEX_METADATA_UNVERIFIED', database: expectedDatabase, engine: 'TiDB', serverVersion, connectionStatus: 'VERIFIED', tls, isolationApproved: true, schema: { status: 'UNVERIFIED', checks, indexes: { status: 'NOT_CHECKED', checks: [] }, foreignKeys: { status: 'NOT_CHECKED', supportLevel: 'UNVERIFIED', checks: [] } } };
+      }
+      const layout = classifyParentRateLimitSchema(actualColumns, actualIndexes);
+      checks.push({ table: tableName, status: layout ? 'OK' : 'MISSING', missingColumns: layout ? [] : ['complete_supported_rate_limit_layout'], ...(layout ? { supportedLayout: layout } : { supportedLayouts: Object.keys(parentRateLimitSchemaRequirements()) }) });
+      continue;
+    }
+    const columns = new Set(actualColumns.map((row) => String(row.columnName ?? row.COLUMN_NAME ?? '').toLowerCase()).filter(Boolean));
     const missingColumns = requiredColumns.filter((column) => !columns.has(column.toLowerCase()));
     checks.push({ table: tableName, status: missingColumns.length ? 'MISSING' : 'OK', missingColumns });
   }
@@ -229,6 +247,8 @@ export async function verifyTiDBTarget({ database, environment = process.env, ex
     const missingIndexes = requirements.filter((required) => !actualIndexes.some((actual) => indexSatisfies(actual, required))).map(({ label }) => label);
     indexChecks.push({ table: tableName, status: missingIndexes.length ? 'MISSING' : 'OK', missingIndexes });
   }
+  const rateLimitCheck = checks.find((check) => check.table === 'parent_auth_rate_limits');
+  if (rateLimitCheck) indexChecks.push({ table: 'parent_auth_rate_limits', status: rateLimitCheck.status, missingIndexes: rateLimitCheck.status === 'OK' ? [] : ['complete_supported_rate_limit_index_set'] });
 
   const versionTuple = tidbVersionTuple(serverVersion);
   let foreignKeyChecks = [];
