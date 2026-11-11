@@ -66,6 +66,7 @@ jobs:
             --advertise-client-urls=http://pd:2379 --advertise-peer-urls=http://pd:2380 \
             --initial-cluster=pd=http://pd:2380
           docker run -d --name osaah-ci-tikv --network osaah-tidb-ci --network-alias tikv \
+            --ulimit nofile=200000:200000 \
             pingcap/tikv:v8.5.3 \
             --data-dir=/data/tikv --pd=pd:2379 \
             --addr=0.0.0.0:20160 --advertise-addr=tikv:20160 \
