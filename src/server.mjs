@@ -1497,8 +1497,20 @@ const orchestrator = providerEnabled ? createAIOrchestrator({ providerRegistry, 
 const aiGateway = aiEnabled ? createAIGateway({ capabilityRegistry, toolRegistry, schoolContextService, productionDataGuard, dataQualityGuard, auditLogger: aiAuditLoggerForWiring, providerRegistry, providerId, orchestrator }) : null;
 const aiConversation = aiEnabled ? createAIConversationService({ gateway: aiGateway, capabilityRegistry, toolRegistry }) : null;
 const isDirectExecution = process.argv[1] === fileURLToPath(import.meta.url);
-const configuredDatabase = await loadConfiguredDatabaseAdapter({ required: isDirectExecution || process.env.NODE_ENV === 'production' });
-if (configuredDatabase && (isDirectExecution || process.env.NODE_ENV === 'production')) await configuredDatabase.verifyReadiness();
+let configuredDatabase;
+try {
+  configuredDatabase = await loadConfiguredDatabaseAdapter({ required: isDirectExecution || process.env.NODE_ENV === 'production' });
+  if (configuredDatabase && (isDirectExecution || process.env.NODE_ENV === 'production')) await configuredDatabase.verifyReadiness();
+} catch (error) {
+  const code = /^[A-Z0-9_]{1,80}$/.test(String(error?.code ?? '')) ? error.code : 'DATABASE_INITIALIZATION_FAILED';
+  console.error('TiDB database initialization failed', { component: 'application_database', operation: 'startup', code });
+  try { await configuredDatabase?.close?.(); } catch { /* Preserve the initialization error without exposing driver details. */ }
+  configuredDatabase = {
+    async query() {
+      throw Object.assign(new Error('The configured TiDB database is unavailable.'), { code });
+    }
+  };
+}
 const app = createApp({ aiEnabled, aiPersistence, capabilityRegistry, toolRegistry, providerRegistry, providerId, aiGateway, aiConversation, database: configuredDatabase });
 const server = createServer(app);
 server.on('close', () => {
