@@ -75,7 +75,7 @@ jobs:
             -p 127.0.0.1:4000:4000 \
             pingcap/tidb:v8.5.3 \
             --store=tikv --path=pd:2379 --host=0.0.0.0 \
-            --advertise-address=osaah-ci-tidb --port=4000 --status=10080
+            --advertise-address=osaah-ci-tidb
 
       - name: Wait for TiDB SQL readiness and create disposable databases
         run: node scripts/wait-for-tidb-parent-auth.mjs
