@@ -5,12 +5,17 @@ import { createParentFeeObligationsRepository } from '../src/parent-fee-obligati
 test('parent obligation reads are authenticated, parameterized, and grouped by child', async () => {
   let seen;
   const db = { query: async (sql, params) => { seen = { sql, params }; return [
-    { studentId: 'st-1', permanentStudentId: 'PS-1', firstName: 'Ama', surname: 'Mensah', classId: 'p4', schoolId: 'school-a', obligationId: 'ob-1', feeStructureId: 'fee-1', amountMinor: 1000, status: 'PUBLISHED' },
+    { studentId: 'st-1', permanentStudentId: 'PS-1', firstName: 'Ama', surname: 'Mensah', classId: 'p4', schoolId: 'school-a', obligationId: 'ob-1', feeStructureId: 'fee-1', feeTypeName: 'Admission Fee', academicYearId: 'year-2026', academicYearName: '2026/2027 Academic Year', termId: 'term-1', termName: '1st Term', amountMinor: 1000, publishedAt: '2026-10-10 12:00:00', targetClassId: 'p4', status: 'PUBLISHED' },
     { studentId: 'st-2', permanentStudentId: 'PS-2', firstName: 'Kojo', surname: 'Mensah', classId: 'p5', schoolId: 'school-a', obligationId: null }
   ]; } };
   const result = await createParentFeeObligationsRepository(db).listForParent({ id: 'parent-1', schoolId: 'school-a', roleKey: 'PARENT', portal: 'parent' }, { status: 'PUBLISHED' });
   assert.equal(result.children.length, 2);
   assert.equal(result.children[0].obligations[0].allocation_status, 'NOT_EVALUATED');
+  assert.equal(result.children[0].obligations[0].feeTypeName, 'Admission Fee');
+  assert.equal(result.children[0].obligations[0].academicYearName, '2026/2027 Academic Year');
+  assert.equal(result.children[0].obligations[0].termName, '1st Term');
+  assert.equal(result.children[0].obligations[0].publishedAt, '2026-10-10 12:00:00');
+  assert.equal(result.children[0].obligations[0].targetClassId, 'p4');
   assert.deepEqual(result.children[1].obligations, []);
   assert.deepEqual(seen.params, ['school-a', 'parent-1', 'school-a', 'PUBLISHED']);
   assert.match(seen.sql, /parent_user_id/);
@@ -19,6 +24,10 @@ test('parent obligation reads are authenticated, parameterized, and grouped by c
   assert.doesNotMatch(seen.sql, /s\.surname/);
   assert.match(seen.sql, /link_status='ACTIVE'/);
   assert.match(seen.sql, /fo\.status='PUBLISHED'/);
+  assert.match(seen.sql, /LEFT JOIN fee_types ft ON ft\.id=fo\.fee_structure_id AND ft\.school_id=fo\.school_id/);
+  assert.match(seen.sql, /fo\.published_at AS publishedAt/);
+  assert.match(seen.sql, /academic_years ay ON ay\.id=fo\.academic_year_id AND ay\.school_id=fo\.school_id/);
+  assert.match(seen.sql, /terms tr ON tr\.id=fo\.term_id AND tr\.academic_year_id=fo\.academic_year_id/);
 });
 
 test('non-parent actors cannot read parent obligations', async () => {

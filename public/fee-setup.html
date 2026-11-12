@@ -16,13 +16,15 @@
     <label id="class-field">Class<select name="classId" required><option value="">Loading classes…</option></select></label>
     <button type="submit" disabled>Publish fee</button>
   </form>
+  <section id="published-fee-summary" class="card" aria-live="polite" hidden></section>
   <section id="fees" class="report-grid" aria-live="polite"></section>
 </main>
 <script type="module">
 import { FEE_TYPE_CATALOGUE } from '/fee-type-catalogue.js';
 import { parsePositiveGhsAmountToMinorUnits } from '/fee-amount.js';
+import { renderPublishedFeeSummary } from '/fee-publication-summary.js';
 (() => {
-  const form = document.querySelector('#publish'), status = document.querySelector('#status'), classField = document.querySelector('#class-field'), classSelect = form.elements.classId, customField = document.querySelector('#custom-fee-field'), customInput = form.elements.customFeeTypeName, submitButton = form.querySelector('[type="submit"]');
+  const form = document.querySelector('#publish'), status = document.querySelector('#status'), classField = document.querySelector('#class-field'), classSelect = form.elements.classId, customField = document.querySelector('#custom-fee-field'), customInput = form.elements.customFeeTypeName, submitButton = form.querySelector('[type="submit"]'), publishedFeeSummary = document.querySelector('#published-fee-summary');
   let ready = false, submitting = false, canPublish = false;
   const setStatus = (message, error = false) => { status.textContent = message; status.dataset.state = error ? 'error' : 'ready'; };
   const amountHelp = document.querySelector('#amount-help');
@@ -39,7 +41,7 @@ import { parsePositiveGhsAmountToMinorUnits } from '/fee-amount.js';
   const syncCustom = () => { const other = form.elements.feeStructureId.value === 'OTHER' || /(^|\b)other(\b|$)/i.test(form.elements.feeStructureId.selectedOptions[0]?.textContent ?? ''); customField.hidden = !other; customInput.required = other; if (!other) customInput.value = ''; };
   async function jsonRequest(url, options = {}) { const response = await fetch(url, { credentials: 'same-origin', cache: 'no-store', ...options }); let data = {}; try { data = await response.json(); } catch {} if (!response.ok) throw new Error(data.error || `Request failed (${response.status}).`); return data; }
   async function loadOptions() { const data = await jsonRequest('/api/fee-setup/options'); canPublish = data.canPublish === true; const feeTypes = data.feeTypes?.length ? data.feeTypes : FEE_TYPE_CATALOGUE.map(([id, name]) => ({ id, name })); fill(form.elements.academicYearId, data.academicYears || [], 'Select academic year', (item) => item.name); const terms = data.terms || []; const syncTerms = () => { const yearId = form.elements.academicYearId.value; const available = terms.filter((item) => !item.academicYearId || item.academicYearId === yearId); fill(form.elements.termId, available, yearId ? 'Select term' : 'Select academic year first', (item) => item.name); refreshSubmitState(); }; syncTerms(); form.elements.academicYearId.addEventListener('change', syncTerms); fill(form.elements.feeStructureId, feeTypes, 'Select fee type', (item) => item.name || item.feeType); fill(classSelect, data.classes || [], 'Select class', (item) => item.name); if (!data.classes?.length) classSelect.add(new Option('No classes available', '')); syncTarget(); syncCustom(); if (!canPublish) setStatus('You have read-only access to Fee Setup; publishing requires fee publication permission.', true); }
-  async function loadPublishedFees() { const data = await jsonRequest('/api/fees/obligations'); const rows = Array.isArray(data) ? data : (data.rows || data.obligations || []); document.querySelector('#fees').innerHTML = rows.map((item) => `<article class="card"><strong>${esc(item.custom_fee_type_name || item.fee_structure_id || item.feeStructureId || 'Published fee')}</strong><span>${esc(item.amount_minor ?? item.amountMinor ?? '')} pesewas</span></article>`).join('') || '<p>No published fees.</p>'; }
+  async function loadPublishedFees() { const data = await jsonRequest('/api/fees/obligations'); const rows = Array.isArray(data) ? data : (data.rows || data.obligations || []); renderPublishedFeeSummary(publishedFeeSummary, rows); document.querySelector('#fees').innerHTML = rows.map((item) => `<article class="card"><strong>${esc(item.fee_type_name || item.feeTypeName || item.custom_fee_type_name || item.fee_structure_id || item.feeStructureId || 'Published fee')}</strong><span>${esc(item.amount_minor ?? item.amountMinor ?? '')} pesewas</span></article>`).join('') || '<p>No published fees.</p>'; }
   form.elements.scope.addEventListener('change', () => { syncTarget(); refreshSubmitState(); }); form.elements.feeStructureId.addEventListener('change', () => { syncCustom(); refreshSubmitState(); });
   form.addEventListener('input', refreshSubmitState); form.addEventListener('change', refreshSubmitState);
   form.addEventListener('submit', async (event) => {
