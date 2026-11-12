@@ -13,19 +13,67 @@ function normalizedPhone(value) { try { return normalizeGhanaPhone(value); } cat
 export function createInternalStudentRegistrationService({ database, clock = () => new Date().toISOString(), idFactory = randomUUID } = {}) {
   if (!database?.transaction) fail('DATABASE_ADAPTER_REQUIRED', 'Internal registration persistence is unavailable.', 503);
 
-  async function findExistingStudent(permanentStudentId, schoolId) {
-    const id = String(permanentStudentId ?? '').trim();
-    if (!id) return null;
+  async function findExistingStudent(identity, schoolId) {
+    const lookup = typeof identity === 'string' ? { permanentStudentId: identity } : (identity ?? {});
+    const permanentStudentId = text(lookup.permanentStudentId, 128);
+    const studentId = text(lookup.studentId, 64);
+    const admissionNumber = text(lookup.admissionNumber, 128);
+    const firstName = text(lookup.firstName, 100);
+    const lastName = text(lookup.lastName, 100);
+    const dateOfBirth = text(lookup.dateOfBirth, 10);
+    let sql, params;
+    if (permanentStudentId) {
+      sql = `SELECT s.id AS studentId,s.permanent_student_id AS masterPermanentStudentId,s.admission_number AS admissionNumber,
+        s.first_name AS firstName,s.middle_name AS middleName,s.last_name AS lastName,s.date_of_birth AS dateOfBirth,
+        s.current_class_id AS currentClassId FROM students s WHERE s.school_id=? AND s.is_test_record IS NOT TRUE
+        AND (s.permanent_student_id=? OR s.admission_number=? OR EXISTS
+          (SELECT 1 FROM student_profiles sp WHERE sp.school_id=s.school_id AND sp.student_master_id=s.id AND sp.student_id=?)) LIMIT 2`;
+      params = [schoolId, permanentStudentId, permanentStudentId, permanentStudentId];
+    } else if (studentId) {
+      sql = `SELECT s.id AS studentId,s.permanent_student_id AS masterPermanentStudentId,s.admission_number AS admissionNumber,
+        s.first_name AS firstName,s.middle_name AS middleName,s.last_name AS lastName,s.date_of_birth AS dateOfBirth,
+        s.current_class_id AS currentClassId FROM students s WHERE s.school_id=? AND s.id=? AND s.is_test_record IS NOT TRUE LIMIT 2`;
+      params = [schoolId, studentId];
+    } else if (admissionNumber) {
+      sql = `SELECT s.id AS studentId,s.permanent_student_id AS masterPermanentStudentId,s.admission_number AS admissionNumber,
+        s.first_name AS firstName,s.middle_name AS middleName,s.last_name AS lastName,s.date_of_birth AS dateOfBirth,
+        s.current_class_id AS currentClassId FROM students s WHERE s.school_id=? AND s.admission_number=? AND s.is_test_record IS NOT TRUE LIMIT 2`;
+      params = [schoolId, admissionNumber];
+    } else if (firstName && lastName && dateOfBirth) {
+      sql = `SELECT s.id AS studentId,s.permanent_student_id AS masterPermanentStudentId,s.admission_number AS admissionNumber,
+        s.first_name AS firstName,s.middle_name AS middleName,s.last_name AS lastName,s.date_of_birth AS dateOfBirth,
+        s.current_class_id AS currentClassId FROM students s WHERE s.school_id=? AND s.is_test_record IS NOT TRUE
+        AND LOWER(s.first_name)=LOWER(?) AND LOWER(s.last_name)=LOWER(?) AND s.date_of_birth=? LIMIT 2`;
+      params = [schoolId, firstName, lastName, dateOfBirth];
+    } else {
+      fail('STUDENT_LOOKUP_IDENTITY_REQUIRED', 'Enter an existing Student ID, or provide the student’s full name and date of birth.', 400);
+    }
     let found;
     try {
-      found = rows(await database.query(`SELECT s.id AS studentId,s.permanent_student_id AS permanentStudentId,
-        s.first_name AS firstName,s.middle_name AS middleName,s.last_name AS lastName,s.date_of_birth AS dateOfBirth,
-        sp.id AS profileId,sp.class_id AS classId FROM students s
-        JOIN student_profiles sp ON sp.student_master_id=s.id AND sp.school_id=s.school_id
-        WHERE s.school_id=? AND s.permanent_student_id=? LIMIT 2`, [schoolId, id]));
+      found = rows(await database.query(sql, params));
     } catch { fail('STUDENT_LOOKUP_FAILED', 'Existing student details could not be checked. Please retry.', 503); }
-    if (found.length > 1) fail('STUDENT_ID_PROFILE_AMBIGUOUS', 'This student has conflicting profile records. Ask the proprietor to reconcile the record.', 409);
-    return found[0] ?? null;
+    if (found.length > 1) fail('STUDENT_IDENTITY_AMBIGUOUS', 'More than one student matches these details. Use the student’s unique ID or ask the proprietor to reconcile the records.', 409);
+    const student = found[0];
+    if (!student) return null;
+    let profiles;
+    try {
+      profiles = rows(await database.query(`SELECT id AS profileId,student_id AS profileStudentId,class_id AS profileClassId,
+        first_name AS profileFirstName,middle_name AS profileMiddleName,surname AS profileLastName,
+        date_of_birth AS profileDateOfBirth FROM student_profiles WHERE school_id=? AND student_master_id=?
+        ORDER BY updated_at DESC,id DESC LIMIT 2`, [schoolId, student.studentId]));
+    } catch { fail('STUDENT_LOOKUP_FAILED', 'Existing student details could not be checked. Please retry.', 503); }
+    const profile = profiles[0] ?? null;
+    if (student.masterPermanentStudentId && profile?.profileStudentId && String(student.masterPermanentStudentId) !== String(profile.profileStudentId)) fail('STUDENT_ID_PROFILE_CONFLICT', 'The student and profile contain different IDs. Ask the proprietor to reconcile the record.', 409);
+    return {
+      ...student,
+      permanentStudentId: student.masterPermanentStudentId ?? profile?.profileStudentId ?? (permanentStudentId && student.admissionNumber === permanentStudentId ? permanentStudentId : null),
+      profileId: profile?.profileId ?? null,
+      classId: student.currentClassId ?? profile?.profileClassId ?? null,
+      firstName: student.firstName ?? profile?.profileFirstName,
+      middleName: student.middleName ?? profile?.profileMiddleName,
+      lastName: student.lastName ?? profile?.profileLastName,
+      dateOfBirth: student.dateOfBirth ?? profile?.profileDateOfBirth
+    };
   }
 
   async function resolveExistingParent(tx, { schoolId, parentEmail, parentPhone }) {
@@ -79,7 +127,7 @@ export function createInternalStudentRegistrationService({ database, clock = () 
     const parsedDate = dateOfBirth && /^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth) ? new Date(`${dateOfBirth}T00:00:00Z`) : null;
     if (!parsedDate || Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== dateOfBirth) fail('DATE_OF_BIRTH_INVALID', 'Enter a valid date of birth.');
     const gender = requireStudentGender(input.gender);
-    const classId = String(input.classId ?? '').trim();
+    let classId = String(input.classId ?? '').trim();
     if (!classId) fail('CLASS_REQUIRED', 'Select a class.');
     const parentName = text(input.parentName, 255), parentPhoneRaw = text(input.parentPhone, 50);
     if (!parentName || !parentPhoneRaw) fail('PARENT_DETAILS_REQUIRED', 'Parent/guardian name and phone number are required.');
@@ -96,27 +144,63 @@ export function createInternalStudentRegistrationService({ database, clock = () 
     const timestamp = clock(), admissionDate = timestamp.slice(0, 10);
     try {
       return await database.transaction(async (tx) => {
-        const classRow = rows(await tx.query("SELECT id,name FROM classes WHERE id=? AND school_id=? AND status='ACTIVE' LIMIT 1 FOR UPDATE", [classId, schoolId]))[0];
-        if (!classRow || !canonicalClassId(classRow.name)) fail('CLASS_INVALID', 'Select an active school class.');
         const period = rows(await tx.query(`SELECT y.id AS academicYearId,y.name AS academicYearName,y.starts_on AS academicYearStartsOn,t.id AS termId FROM academic_years y
           JOIN terms t ON t.academic_year_id=y.id WHERE y.school_id=? AND y.id=? AND t.id=? LIMIT 1`, [schoolId, academicYearId, termId]))[0];
         if (!period) fail('ACADEMIC_PERIOD_INVALID', 'Select a valid academic year and term.');
         const academicYear = String(period.academicYearStartsOn ?? period.academicYearName ?? '').match(/\d{4}/)?.[0];
         if (!academicYear) fail('ACADEMIC_YEAR_INVALID', 'The selected academic year does not have a valid start year.', 409);
 
-        let student, profile, created = false;
+        let student, profile, created = false, isExistingStudent = false;
         let reservation = null;
         if (category === 'ALREADY_ENROLLED') {
-          const permanentStudentId = String(input.existingPermanentStudentId ?? '').trim();
-          if (!permanentStudentId) fail('EXISTING_STUDENT_ID_REQUIRED', 'Enter the existing student’s permanent ID to find and reuse their record.');
-          const matches = rows(await tx.query(`SELECT s.id AS studentId,s.permanent_student_id AS permanentStudentId,s.first_name AS firstName,
-            s.middle_name AS middleName,s.last_name AS lastName,s.date_of_birth AS dateOfBirth,s.current_class_id AS currentClassId,
-            sp.id AS profileId,sp.class_id AS profileClassId FROM students s JOIN student_profiles sp
-            ON sp.student_master_id=s.id AND sp.school_id=s.school_id WHERE s.school_id=? AND s.permanent_student_id=? FOR UPDATE`, [schoolId, permanentStudentId]));
-          if (matches.length !== 1) fail('EXISTING_STUDENT_NOT_FOUND', 'The existing permanent Student ID did not resolve to one student record.', 404);
+          const existingStudentId = String(input.existingStudentId ?? '').trim();
+          const existingPermanentStudentId = String(input.existingPermanentStudentId ?? '').trim();
+          if (!existingStudentId && !existingPermanentStudentId) fail('EXISTING_STUDENT_ID_REQUIRED', 'Find the existing student before completing registration.');
+          const matches = existingStudentId
+            ? rows(await tx.query(`SELECT id AS studentId,permanent_student_id AS permanentStudentId,admission_number AS admissionNumber,
+                first_name AS firstName,middle_name AS middleName,last_name AS lastName,date_of_birth AS dateOfBirth,
+                current_class_id AS currentClassId,gender,student_status AS studentStatus FROM students WHERE school_id=? AND id=? AND is_test_record IS NOT TRUE FOR UPDATE`, [schoolId, existingStudentId]))
+            : rows(await tx.query(`SELECT id AS studentId,permanent_student_id AS permanentStudentId,admission_number AS admissionNumber,
+                first_name AS firstName,middle_name AS middleName,last_name AS lastName,date_of_birth AS dateOfBirth,
+                current_class_id AS currentClassId,gender,student_status AS studentStatus FROM students WHERE school_id=?
+                AND (permanent_student_id=? OR admission_number=?) AND is_test_record IS NOT TRUE FOR UPDATE`, [schoolId, existingPermanentStudentId, existingPermanentStudentId]));
+          if (matches.length !== 1) fail('EXISTING_STUDENT_NOT_FOUND', 'Student ID not found. Please verify the ID number and try again.', 404);
           student = matches[0];
           if (normalizeName([student.firstName, student.middleName, student.lastName].filter(Boolean).join(' ')) !== normalizeName([firstName, middleName, lastName].filter(Boolean).join(' ')) || String(student.dateOfBirth ?? '').slice(0, 10) !== dateOfBirth) fail('EXISTING_STUDENT_IDENTITY_MISMATCH', 'The name and date of birth do not match this existing student ID.', 409);
-          profile = { id: student.profileId };
+          profile = rows(await tx.query('SELECT id,student_id AS permanentStudentId,class_id AS classId FROM student_profiles WHERE school_id=? AND student_master_id=? ORDER BY updated_at DESC,id DESC LIMIT 1 FOR UPDATE', [schoolId, student.studentId]))[0] ?? null;
+          const masterId = String(student.permanentStudentId ?? '').trim() || null;
+          const profileId = String(profile?.permanentStudentId ?? '').trim() || null;
+          if (masterId && profileId && masterId !== profileId) fail('STUDENT_ID_PROFILE_CONFLICT', 'The student and profile contain different IDs. Ask the proprietor to reconcile the record.', 409);
+          let permanentStudentId = masterId ?? profileId ?? null;
+          if (existingPermanentStudentId && permanentStudentId && existingPermanentStudentId !== permanentStudentId) fail('EXISTING_STUDENT_IDENTITY_MISMATCH', 'The entered ID does not match this student’s existing ID.', 409);
+          if (!permanentStudentId && existingPermanentStudentId && student.admissionNumber === existingPermanentStudentId) permanentStudentId = existingPermanentStudentId;
+          if (!permanentStudentId) {
+            if (String(input.existingIdChoice ?? '').toUpperCase() !== 'NO_ID') fail('EXISTING_STUDENT_ID_REQUIRED', 'Choose I DO NOT HAVE AN ID to generate an ID for this existing student.');
+            const token = String(input.reservationToken ?? '').trim();
+            if (!token) fail('STUDENT_ID_RESERVATION_REQUIRED', 'A permanent Student ID reservation is required for an existing student without an ID.');
+            reservation = rows(await tx.query('SELECT * FROM student_id_reservations WHERE reservation_token=? FOR UPDATE', [token]))[0];
+            if (!reservation || reservation.reservation_status !== 'RESERVED' || String(reservation.reserved_by) !== String(actorId)) fail('STUDENT_ID_RESERVATION_FORBIDDEN', 'This reserved Student ID is unavailable to this registration.', 409);
+            if (Number(reservation.admission_year) !== new Date(timestamp).getUTCFullYear()) fail('STUDENT_ID_YEAR_MISMATCH', 'This Student ID reservation is not from the current calendar year. Generate a new ID.', 409);
+            permanentStudentId = reservation.permanent_student_id;
+          } else if (reservation) {
+            fail('STUDENT_ID_ALREADY_EXISTS', 'This student already has an ID. The existing ID will be retained.', 409);
+          }
+          if (!masterId && permanentStudentId) await tx.execute('UPDATE students SET permanent_student_id=?,updated_at=? WHERE school_id=? AND id=? AND (permanent_student_id IS NULL OR permanent_student_id=\'\')', [permanentStudentId, timestamp, schoolId, student.studentId]);
+          if (!profile) {
+            const profileId = idFactory();
+            await tx.execute(`INSERT INTO student_profiles (id,student_master_id,student_id,school_id,admission_number,first_name,middle_name,surname,gender,date_of_birth,class_id,qr_code,enrollment_status,created_at,updated_at)
+              VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [profileId, student.studentId, permanentStudentId, schoolId, student.admissionNumber, student.firstName, student.middleName, student.lastName, student.gender ?? gender, student.dateOfBirth, student.currentClassId ?? classId, `osaah:student:${profileId}`, student.studentStatus ?? 'ACTIVE', timestamp, timestamp]);
+            profile = { id: profileId, permanentStudentId, classId: student.currentClassId ?? classId };
+          } else if (!profile.permanentStudentId) {
+            await tx.execute('UPDATE student_profiles SET student_id=?,updated_at=? WHERE school_id=? AND id=? AND (student_id IS NULL OR student_id=\'\')', [permanentStudentId, timestamp, schoolId, profile.id]);
+            profile.permanentStudentId = permanentStudentId;
+          }
+          if (reservation) await tx.execute(`UPDATE student_id_reservations SET reservation_status='CONSUMED',student_id=?,consumed_at=? WHERE id=? AND reservation_status='RESERVED'`, [student.studentId, timestamp, reservation.id]);
+          student.permanentStudentId = permanentStudentId;
+          classId = String(student.currentClassId ?? profile.classId ?? classId);
+          if (!student.currentClassId) await tx.execute('UPDATE students SET current_class_id=?,updated_at=? WHERE school_id=? AND id=? AND current_class_id IS NULL', [classId, timestamp, schoolId, student.studentId]);
+          if (!profile.classId) await tx.execute('UPDATE student_profiles SET class_id=?,updated_at=? WHERE school_id=? AND id=? AND class_id IS NULL', [classId, timestamp, schoolId, profile.id]);
+          isExistingStudent = true;
         } else {
           const token = String(input.reservationToken ?? '').trim();
           if (!token) fail('STUDENT_ID_RESERVATION_REQUIRED', 'Generate a permanent Student ID before submitting the registration.');
@@ -142,11 +226,15 @@ export function createInternalStudentRegistrationService({ database, clock = () 
           created = true;
         }
 
-        if (!created) {
+        const classRow = rows(await tx.query("SELECT id,name FROM classes WHERE id=? AND school_id=? AND status='ACTIVE' LIMIT 1 FOR UPDATE", [classId, schoolId]))[0];
+        if (!classRow || !canonicalClassId(classRow.name)) fail('CLASS_INVALID', 'Select an active school class.');
+
+        if (!created && !isExistingStudent) {
           await tx.execute(`UPDATE students SET current_class_id=?,first_name=?,middle_name=?,last_name=?,full_name=?,gender=?,date_of_birth=?,parent_guardian_name=?,parent_phone=?,student_status='ACTIVE',updated_at=? WHERE id=? AND school_id=?`, [classId, firstName, middleName, lastName, [firstName, middleName, lastName].filter(Boolean).join(' '), gender, dateOfBirth, parentName, parentPhone, timestamp, student.studentId, schoolId]);
           await tx.execute(`UPDATE student_profiles SET class_id=?,first_name=?,middle_name=?,surname=?,gender=?,date_of_birth=?,place_of_birth=?,home_address=?,nationality=?,admission_type=?,enrollment_status='ACTIVE',updated_at=? WHERE id=? AND school_id=?`, [classId, firstName, middleName, lastName, gender, dateOfBirth, text(input.placeOfBirth), homeAddress, text(input.nationality, 100) ?? 'Ghanaian', category, timestamp, profile.id, schoolId]);
         }
 
+        if (!isExistingStudent) {
         const guardian = rows(await tx.query("SELECT id FROM student_family_contacts WHERE student_id=? AND contact_type='PRIMARY_GUARDIAN' LIMIT 1 FOR UPDATE", [profile.id]))[0];
         const guardianValues = [parentName, text(input.relationship, 100) ?? 'Parent/Guardian', parentPhone, parentAddress, parentEmail, text(input.occupation), text(input.parentNationalId, 100), timestamp];
         if (guardian) await tx.execute('UPDATE student_family_contacts SET full_name=?,relationship=?,telephone=?,address=?,email=?,occupation=?,national_id=?,updated_at=? WHERE id=?', [...guardianValues, guardian.id]);
@@ -169,10 +257,11 @@ export function createInternalStudentRegistrationService({ database, clock = () 
           conflictSql: 'SELECT parent_user_id FROM parent_student_links WHERE parent_user_id=? AND student_id=?',
           conflictParameters: [existingParentId, profile.id]
         });
+        }
 
         await tx.execute('UPDATE student_enrollments SET is_current=0,enrollment_status=\'HISTORICAL\' WHERE school_id=? AND student_id=? AND is_current=1 AND (academic_year_id<>? OR term_id<>?)', [schoolId, student.studentId ?? student.id, academicYearId, termId]);
-        const current = rows(await tx.query('SELECT id FROM student_enrollments WHERE school_id=? AND student_id=? AND academic_year_id=? AND term_id=? AND is_current=1 FOR UPDATE', [schoolId, student.studentId ?? student.id, academicYearId, termId]))[0];
-        if (current) await tx.execute("UPDATE student_enrollments SET class_id=?,enrollment_status='ACTIVE',enrolled_at=? WHERE id=?", [classId, timestamp, current.id]);
+        const current = rows(await tx.query('SELECT id FROM student_enrollments WHERE school_id=? AND student_id=? AND academic_year_id=? AND term_id=? ORDER BY is_current DESC,enrolled_at DESC,id DESC LIMIT 1 FOR UPDATE', [schoolId, student.studentId ?? student.id, academicYearId, termId]))[0];
+        if (current) await tx.execute("UPDATE student_enrollments SET class_id=?,enrollment_status='ACTIVE',is_current=1,enrolled_at=? WHERE id=?", [classId, timestamp, current.id]);
         else await tx.execute(`INSERT INTO student_enrollments (id,student_id,school_id,class_id,academic_year_id,term_id,enrollment_status,is_current,enrolled_at)
           VALUES (?,?,?,?,?,?,'ACTIVE',1,?)`, [idFactory(), student.studentId ?? student.id, schoolId, classId, academicYearId, termId, timestamp]);
         return { student, permanentStudentId: student.permanentStudentId ?? student.permanent_student_id, classId, className: classRow.name, created };

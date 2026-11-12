@@ -13,6 +13,7 @@ import { createDurableRoleAccountProvisioning } from './durable-role-account-pro
 import { createAuditLog } from './audit.js';
 import { CORE_LEVELS, createStudentService } from './students.js';
 import { canonicalClassId } from './student-classes.js';
+import { displayStudentGender } from './student-gender.js';
 import { createClassDatabaseService } from './class-database.js';
 import { ACADEMIC_YEAR_OPTIONS, ATTENDANCE_METHODS, STUDENT_REASON_STATUSES, STUDENT_STATUSES, TERM_OPTIONS, createAttendanceService } from './attendance.js';
 import { createAttendanceRepository } from './attendance-repository.js';
@@ -271,6 +272,27 @@ export function createApp({ auth = null, students = null, attendance = null, att
   subjectRegister ??= createSubjectRegisterService({ subjects, staff });
   academicResults ??= createAcademicResultsService({ students, subjects, signatures, subjectRegister, schoolId: serviceSchoolId });
   classDatabase ??= createClassDatabaseService({ students, classes: CORE_LEVELS, schoolId: database ? null : serviceSchoolId });
+  async function durableClassDatabaseList(filters, actor) {
+    classDatabase.options(actor);
+    if (!database?.query) return classDatabase.list(filters, actor);
+    const academicYear = String(filters.academicYear ?? '').trim();
+    const classId = String(filters.classId ?? '').trim();
+    const search = `%${String(filters.search ?? '').trim().toLowerCase()}%`;
+    const results = await database.query(`SELECT s.permanent_student_id AS permanentStudentId,s.id AS studentId,
+      TRIM(CONCAT_WS(' ',s.first_name,s.middle_name,s.last_name)) AS studentName,s.gender AS gender,
+      s.parent_guardian_name AS parentGuardianName,s.parent_phone AS registeredParentPhone,
+      e.class_id AS classId,COALESCE(y.name,e.academic_year) AS academicYear
+      FROM student_enrollments e JOIN students s ON s.id=e.student_id AND s.school_id=e.school_id
+      LEFT JOIN academic_years y ON y.id=e.academic_year_id AND y.school_id=e.school_id
+      WHERE e.school_id=? AND e.is_current=1 AND UPPER(COALESCE(e.enrollment_status,'ACTIVE')) NOT IN ('WITHDRAWN','TRANSFERRED','COMPLETED','GRADUATED')
+      AND (?='' OR y.id=? OR y.name=? OR e.academic_year=?)
+      AND (?='' OR e.class_id=? OR EXISTS (SELECT 1 FROM classes c WHERE c.school_id=e.school_id AND c.id=e.class_id AND c.name=?))
+      AND (?='' OR LOWER(CONCAT_WS(' ',s.first_name,s.middle_name,s.last_name,s.permanent_student_id)) LIKE ?)
+      AND s.is_test_record IS NOT TRUE
+      ORDER BY s.last_name,s.first_name,s.id`, [actor.schoolId, academicYear, academicYear, academicYear, academicYear, classId, classId, classId, search, search]);
+    const assigned = actor.roleKey === 'TEACHER' ? new Set((actor.assignedClassIds ?? []).map(String)) : null;
+    return results.filter((row) => !assigned || assigned.has(String(row.classId))).map((row) => ({ ...row, gender: displayStudentGender(row.gender) }));
+  }
   sampleFixtureRepository ??= database?.query && database?.execute ? createSampleFixtureRepository({ adapter: database, schoolId: serviceSchoolId }) : null;
   const sampleResults = createSampleResultWorkflow({ students, subjects, academicResults, sampleFixtureRepository, schoolId: serviceSchoolId });
   async function normalizedSampleResultInput(input, actor) {
@@ -593,8 +615,8 @@ export function createApp({ auth = null, students = null, attendance = null, att
             return json(response, result, 201);
           }
           if (pathname === '/api/internal-student-registration/existing-student') {
-            const student = await internalStudentRegistration.findExistingStudent(body.permanentStudentId, user.schoolId);
-            return student ? json(response, { student }) : json(response, { error: 'Existing student was not found.', code: 'EXISTING_STUDENT_NOT_FOUND' }, 404);
+            const student = await internalStudentRegistration.findExistingStudent(body, user.schoolId);
+            return student ? json(response, { student }) : json(response, { error: body.permanentStudentId ? 'Student ID not found. Please verify the ID number and try again.' : 'No existing OSAAH student matched that name and date of birth. Verify the details or ask the proprietor to reconcile the record.', code: 'EXISTING_STUDENT_NOT_FOUND' }, 404);
           }
           const result = await internalStudentRegistration.register(body, { schoolId: user.schoolId, actorId: user.id });
           audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, roleId: user.roleKey, action: 'INTERNAL_STUDENT_REGISTERED', entity: 'Student', entityId: result.student.studentId ?? result.student.id, newValue: { permanentStudentId: result.permanentStudentId, classId: result.classId, admissionType: body.admissionType, created: result.created } }));
@@ -1070,7 +1092,7 @@ if (durableAcademic && isSampleModeEnabled(body)) {
         } catch (error) { return attendanceApiFailure(response, error, '/api/attendance/students/sync', user); }
       }
       if (pathname === '/api/class-database/options' && request.method === 'GET') { try { const options = classDatabase.options(user); const academicYears = database?.query ? (await feeSetupOptions(user)).academicYears.map((item) => item.name ?? item.id) : ['2024/2025', '2025/2026', '2026/2027', '2027/2028', '2028/2029']; return json(response, { ...options, academicYears: academicYears.length ? academicYears : options.academicYears }); } catch (error) { return json(response, { error: error.message }, error.status ?? 403); } }
-      if (pathname === '/api/class-database' && request.method === 'GET') { try { const query = new URL(request.url, 'http://localhost').searchParams; return json(response, { rows: classDatabase.list({ classId: query.get('classId') ?? '', academicYear: query.get('academicYear') ?? '', search: query.get('search') ?? '' }, user) }); } catch (error) { return json(response, { error: error.message }, error.status ?? 403); } }
+      if (pathname === '/api/class-database' && request.method === 'GET') { try { const query = new URL(request.url, 'http://localhost').searchParams; return json(response, { rows: await durableClassDatabaseList({ classId: query.get('classId') ?? '', academicYear: query.get('academicYear') ?? '', search: query.get('search') ?? '' }, user) }); } catch (error) { return json(response, { error: error.message }, error.status ?? 403); } }
       if (pathname === '/api/class-database/completed/options' && request.method === 'GET') { try { return json(response, classDatabase.completedOptions(user)); } catch (error) { return json(response, { error: error.message }, error.status ?? 403); } }
       if (pathname === '/api/class-database/completed' && request.method === 'GET') { try { const query = new URL(request.url, 'http://localhost').searchParams; return json(response, { rows: classDatabase.listCompleted({ completionYear: query.get('completionYear') ?? '', search: query.get('search') ?? '' }, user) }); } catch (error) { return json(response, { error: error.message }, error.status ?? 403); } }
       if (pathname === '/api/fee-setup/options' && request.method === 'GET') { if (!user) return json(response, { error: 'UNAUTHENTICATED' }, 401); try { return json(response, await feeSetupOptions(user)); } catch (error) { audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, action: 'FEE_SETUP_OPTIONS_FAILED', entity: 'FeeSetup', newValue: { code: error.code ?? 'OPTIONS_UNAVAILABLE' } })); return json(response, { error: error.status === 403 ? 'Forbidden.' : 'Unable to load Fee Setup data. Please try again.' }, error.status ?? 503); } }
