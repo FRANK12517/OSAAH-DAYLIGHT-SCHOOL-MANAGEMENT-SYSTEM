@@ -1,0 +1,60 @@
+name: Production TiDB read-only preflight
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_commit:
+        description: Full commit SHA already merged into main for this schema contract
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-tidb-read-only-preflight
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    if: github.ref == 'refs/heads/main'
+    name: Read-only TiDB connectivity and schema preflight
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    steps:
+      - name: Check out trusted main workflow source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify the requested release commit is on main
+        env:
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "${RELEASE_COMMIT}" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "release_commit must be a full 40-character commit SHA."
+            exit 1
+          fi
+          git cat-file -e "${RELEASE_COMMIT}^{commit}"
+          git merge-base --is-ancestor "${RELEASE_COMMIT}" "${GITHUB_SHA}"
+          echo "Requested release commit is present in main."
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Run secret-safe, read-only TiDB preflight
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          OSAAH_DATABASE_ADAPTER: tidb
+          TIDB_SSL_REJECT_UNAUTHORIZED: 'true'
+        run: node scripts/production-tidb-read-only-preflight.mjs
