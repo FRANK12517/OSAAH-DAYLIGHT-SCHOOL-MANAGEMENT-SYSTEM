@@ -189,6 +189,23 @@ test('Score Entry options survive production class tables without optional order
   assert.equal(calls.some((sql) => sql.includes('c.level_id')), false);
 });
 
+test('teacher academic options include only assigned classes and fail closed when none are assigned', async () => {
+  const database = fakeDatabase();
+  const originalQuery = database.query.bind(database);
+  database.query = async (sql, params = []) => {
+    if (sql.includes('FROM classes c WHERE c.school_id=?')) return [
+      { id: 'class-nursery-1', name: 'Nursery 1' },
+      { id: 'class-primary-4', name: 'Primary 4' }
+    ];
+    return originalQuery(sql, params);
+  };
+  const service = createDurableAcademicService({ database, schoolId });
+  const teacher = { ...manager, roleKey: 'TEACHER', permissions: new Set(['results.read']), assignedClassIds: ['class-primary-4'] };
+  assert.deepEqual((await service.options(teacher)).classes.map(({ id }) => id), ['class-primary-4']);
+  assert.deepEqual((await service.options({ ...teacher, assignedClassIds: [] })).classes, []);
+  assert.equal((await service.options(manager)).classes.length, 2, 'non-teacher school roles retain the school catalogue');
+});
+
 test('Teacher academic scope requires class and subject assignments while class catalog remains browseable', async () => {
   const database = fakeDatabase();
   const service = createDurableAcademicService({ database, schoolId });
