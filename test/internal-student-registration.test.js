@@ -32,7 +32,9 @@ test('single registration form confirms permanent index and provides a non-destr
   const script = await readFile(new URL('../public/internal-registration.js', import.meta.url), 'utf8');
   assert.match(html, /Use this single form for first-time, transfer, and existing OsaaH students/);
   assert.match(html, /id="reset-registration-form"[^>]*>RESET FORM/);
-  assert.match(script, /Dear \$\{fullStudentName\}, your index number is \$\{result\.permanentStudentId\}/);
+  assert.match(script, /Hi \$\{fullStudentName\}, your permanent student ID is \$\{result\.permanentStudentId\}\./);
+  assert.match(html, /IMPORTANT NOTICE[\s\S]*?For all admission categories, every registered student must have a permanent OSAAH Student ID/);
+  assert.doesNotMatch(html, /<h2>Class Assignment<\/h2>/);
   assert.match(script, /PLEASE WRITE AND SAVE THE NAME AND PERMANENT ID OF THE REGISTERED STUDENT OR LOOK FOR IT IN THE CLASS DATABASE\./);
   assert.match(script, /form\.reset\(\)/);
   assert.match(script, /reservationToken\.value = ''/);
@@ -121,6 +123,14 @@ test('permanent ID reservations serialize concurrent clicks and never reuse aban
   assert.equal(new Set(state.reservations.map((row) => row.permanent_student_id)).size, 2);
   const third = await service.reserve({ actorId: 'staff-1' });
   assert.equal(third.permanentStudentId, 'OSAAH/2026/003');
+});
+
+test('permanent ID reservation uses backend calendar year and ignores academic-year input', async () => {
+  const { database } = databaseFixture();
+  const service = createInternalStudentRegistrationService({ database, clock: () => '2026-11-12T10:00:00.000Z' });
+  const reservation = await service.reserve({ actorId: 'staff-1', year: 2027 });
+  assert.equal(reservation.admissionYear, 2026);
+  assert.equal(reservation.permanentStudentId, 'OSAAH/2026/001');
 });
 
 test('registration persists pupil, parent, health and canonical class enrollment together', async () => {

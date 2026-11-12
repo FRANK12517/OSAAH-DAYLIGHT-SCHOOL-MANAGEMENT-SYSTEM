@@ -39,8 +39,8 @@ export function createInternalStudentRegistrationService({ database, clock = () 
     return matched[0]?.id ?? null;
   }
 
-  async function reserve({ year = new Date(clock()).getUTCFullYear(), actorId }) {
-    const admissionYear = Number(year);
+  async function reserve({ actorId }) {
+    const admissionYear = new Date(clock()).getUTCFullYear();
     if (!Number.isInteger(admissionYear) || admissionYear < 2000 || admissionYear > 9999) fail('ADMISSION_YEAR_INVALID', 'A valid four-digit admission year is required.');
     if (!actorId) fail('ACTOR_REQUIRED', 'An authorized staff account is required.', 401);
     const timestamp = clock(), token = idFactory(), reservationId = idFactory();
@@ -128,7 +128,7 @@ export function createInternalStudentRegistrationService({ database, clock = () 
             fail('STUDENT_ID_RESERVATION_INCONSISTENT', 'This Student ID was already consumed but its student record is unavailable.', 409);
           }
           if (reservation.reservation_status !== 'RESERVED' || String(reservation.reserved_by) !== String(actorId)) fail('STUDENT_ID_RESERVATION_FORBIDDEN', 'This reserved Student ID is unavailable to this registration.', 409);
-          if (Number(reservation.admission_year) !== Number(academicYear)) fail('STUDENT_ID_YEAR_MISMATCH', 'Generate a new Student ID after selecting the academic year for this registration.', 409);
+          if (Number(reservation.admission_year) !== new Date(timestamp).getUTCFullYear()) fail('STUDENT_ID_YEAR_MISMATCH', 'This Student ID reservation is not from the current calendar year. Generate a new ID.', 409);
           const duplicate = rows(await tx.query(`SELECT id FROM students WHERE school_id=? AND LOWER(TRIM(CONCAT_WS(' ',first_name,middle_name,last_name)))=? AND date_of_birth=? LIMIT 1 FOR UPDATE`, [schoolId, normalizeName([firstName, middleName, lastName].filter(Boolean).join(' ')), dateOfBirth]))[0];
           if (duplicate) fail('POSSIBLE_DUPLICATE_STUDENT', 'A student with this name and date of birth already exists. Use Existing OSAAH Student and verify their permanent ID.', 409);
           const studentId = idFactory(), profileId = idFactory(), permanentStudentId = reservation.permanent_student_id;

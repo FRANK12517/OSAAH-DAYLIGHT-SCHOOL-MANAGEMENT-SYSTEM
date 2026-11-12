@@ -64,7 +64,7 @@ test('proprietor shell has one mount point and one replaceable child host', asyn
   assert.doesNotMatch(script, /frame\.removeAttribute\('src'\)/);
   assert.match(script, /frame\.contentWindow\.location\.replace\(frameUrl\)/);
   assert.match(script, /overview\.hidden = true; host\.hidden = false/);
-  assert.match(script, /if \(route === '\/'\) \{ overview\.hidden = false; host\.hidden = true/);
+  assert.match(script, /if \(\['\/', '\/dashboard', '\/parent-dashboard'\]\.includes\(route\)\) \{ overview\.hidden = false; host\.hidden = true/);
   assert.equal((script.match(/id="dashboard-overview"/g) ?? []).length, 1);
   assert.match(script, /url\.searchParams\.set\('embedded', '1'\)/);
   assert.match(script, /navigationVersion/);
