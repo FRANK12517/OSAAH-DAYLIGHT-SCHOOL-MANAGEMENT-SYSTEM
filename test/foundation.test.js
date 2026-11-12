@@ -106,44 +106,28 @@ test('student scholarships route is protected by the same registry authorization
 test('transport GPS tracking registers under Transport Management with protected route access', async () => { const module = SIDEBAR_MODULES.find((item) => item.moduleKey === 'transport.gps'); assert.equal(module.categoryId, 'transport_management'); assert.equal(module.parentModule, 'transport'); assert.equal(module.requiredPermission, 'transport.gps.view'); const transportGroup = visibleSidebar({ permissions: new Set(['transport.read', 'transport.gps.view']), roleKey: 'TRANSPORT_MANAGER', portal: 'school' }).find((group) => group.category === 'TRANSPORT MANAGEMENT'); assert.ok(transportGroup.modules.find((item) => item.moduleKey === 'transport').children.some((item) => item.moduleKey === 'transport.gps')); const auth = createAuthService(); const server = createServer(createApp({ auth })); await new Promise((resolve) => server.listen(0, resolve)); const port = server.address().port; const request = (token) => new Promise((resolve, reject) => { const req = httpRequest({ port, path: '/transport/gps', headers: { Authorization: `Bearer ${token}` } }, (res) => { res.resume(); res.on('end', () => resolve(res.statusCode)); }); req.on('error', reject); req.end(); }); const manager = auth.login({ username: 'transport@osaah.edu.gh', password: 'Transport123!', portal: 'school' }); const teacher = auth.login({ username: 'teacher@osaah.edu.gh', password: 'Teacher123!', portal: 'school' }); assert.equal(await request(manager.token), 200); assert.equal(await request(teacher.token), 403); await new Promise((resolve) => server.close(resolve)); });
 test('teacher professional development registers under Staff Management with protected route access', async () => { const module = SIDEBAR_MODULES.find((item) => item.moduleKey === 'staff.professional-development'); assert.equal(module.categoryId, 'staff_management'); assert.equal(module.parentModule, null); assert.equal(module.requiredPermission, 'staff.professional-development.view'); const staffGroup = visibleSidebar({ permissions: new Set(['staff.professional-development.view']), roleKey: 'TEACHER', portal: 'school' }).find((group) => group.category === 'STAFF MANAGEMENT'); assert.ok(staffGroup.modules.some((item) => item.moduleKey === 'staff.professional-development')); assert.equal(staffGroup.modules.some((item) => item.moduleKey === 'staff-directory'), false); const auth = createAuthService(); const server = createServer(createApp({ auth })); await new Promise((resolve) => server.listen(0, resolve)); const port = server.address().port; const request = (token) => new Promise((resolve, reject) => { const req = httpRequest({ port, path: '/staff/professional-development', headers: { Authorization: `Bearer ${token}` } }, (res) => { res.resume(); res.on('end', () => resolve(res.statusCode)); }); req.on('error', reject); req.end(); }); const teacher = auth.login({ username: 'teacher@osaah.edu.gh', password: 'Teacher123!', portal: 'school' }); const librarian = auth.login({ username: 'librarian@osaah.edu.gh', password: 'Librarian123!', portal: 'school' }); assert.equal(await request(teacher.token), 200); assert.equal(await request(librarian.token), 403); await new Promise((resolve) => server.close(resolve)); });
 
-test('login page exposes a public online admission form without weakening protected school pages', async () => {
+test('legacy public admission links redirect to protected unified registration without guest sessions', async () => {
   const server = createServer(createApp());
   await new Promise((resolve) => server.listen(0, resolve));
-  const port = server.address().port;
-  const request = (path, headers = {}) => new Promise((resolve, reject) => {
-    const req = httpRequest({ port, path, headers }, (res) => {
-      let body = '';
-      res.on('data', (chunk) => { body += chunk; });
-      res.on('end', () => resolve({ status: res.statusCode, body, headers: res.headers }));
-    });
-    req.on('error', reject);
-    req.end();
-  });
-  const admission = await request('/admissions/apply');
-  assert.equal(admission.status, 200);
-  assert.match(admission.body, /id="admission-form"/);
-  assert.match(admission.headers['set-cookie']?.[0] ?? '', /osaah_admission_session=/);
-  assert.equal((await request('/admissions')).status, 401);
-  await new Promise((resolve) => server.close(resolve));
+  try {
+    const port = server.address().port;
+    for (const path of ['/admissions/apply', '/admission-application.html', '/admissions']) {
+      const response = await fetch(`http://127.0.0.1:${port}${path}`, { redirect: 'manual' });
+      assert.equal(response.status, 308);
+      assert.equal(response.headers.get('location'), '/admissions/register');
+      assert.equal(response.headers.get('set-cookie'), null);
+    }
+  } finally { await new Promise((resolve) => { server.close(resolve); server.closeAllConnections?.(); }); }
 });
-test('direct online admission application entry creates a guest session for form continuation', async () => {
+test('legacy direct admission page cannot create guest continuation access', async () => {
   const server = createServer(createApp());
   await new Promise((resolve) => server.listen(0, resolve));
-  const port = server.address().port;
-  const request = (path, headers = {}) => new Promise((resolve, reject) => {
-    const req = httpRequest({ port, path, headers }, (res) => {
-      let body = '';
-      res.on('data', (chunk) => { body += chunk; });
-      res.on('end', () => resolve({ status: res.statusCode, body, headers: res.headers }));
-    });
-    req.on('error', reject);
-    req.end();
-  });
-  const page = await request('/admission-application.html');
-  assert.equal(page.status, 200);
-  const cookie = page.headers['set-cookie']?.[0]?.split(';', 1)[0];
-  assert.match(cookie ?? '', /^osaah_admission_session=/);
-  const quote = await request('/api/admission-fees/quote?classAppliedFor=Primary%201&academicYear=2026&term=TERM_1', { Cookie: cookie });
-  assert.notEqual(quote.status, 401, 'the public application session must survive the first Next/Continue API request');
-  await new Promise((resolve) => server.close(resolve));
+  try {
+    const port = server.address().port;
+    const page = await fetch(`http://127.0.0.1:${port}/admission-application.html`, { redirect: 'manual' });
+    assert.equal(page.status, 308);
+    assert.equal(page.headers.get('set-cookie'), null);
+    const quote = await fetch(`http://127.0.0.1:${port}/api/admission-fees/quote?classAppliedFor=Primary%201&academicYear=2026&term=TERM_1`);
+    assert.equal(quote.status, 401);
+  } finally { await new Promise((resolve) => { server.close(resolve); server.closeAllConnections?.(); }); }
 });

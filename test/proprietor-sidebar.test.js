@@ -100,6 +100,10 @@ test('embedded proprietor children never return the authenticated dashboard shel
   try {
     for (const item of PROPRIETOR_SIDEBAR_ROUTES) {
       const response = await request(item.route);
+      if (item.route === '/admissions') {
+        assert.equal(response.status, 308);
+        continue;
+      }
       assert.equal(response.status, 200, item.route);
       assert.doesNotMatch(response.body, /id="dashboard"/, `${item.moduleName} must not nest the dashboard shell`);
     }
@@ -117,7 +121,10 @@ test('every registered proprietor route is directly renderable and remains serve
   });
   try {
     const routes = [...new Set(visibleSidebar({ permissions: new Set(['*']), roleKey: 'PROPRIETOR', portal: 'school' }).flatMap((group) => group.modules.flatMap((module) => [module, ...(module.children ?? [])])).filter((module) => module.moduleKey !== 'logout').map((module) => module.route))];
-    for (const route of routes) assert.equal(await request(route), 200, `${route} should render`);
+    for (const route of routes) {
+      const status = await request(route);
+      assert.equal(status, route === '/admissions' ? 308 : 200, `${route} should render or redirect to unified registration`);
+    }
     assert.equal(await request('/finance', null), 401);
   } finally { await new Promise((resolve) => server.close(resolve)); }
 });
@@ -137,6 +144,10 @@ test('every requested proprietor component opens its mapped implementation', asy
   try {
     for (const item of PROPRIETOR_SIDEBAR_ROUTES) {
       const response = await request(item.route);
+      if (item.route === '/admissions') {
+        assert.equal(response.status, 308);
+        continue;
+      }
       assert.equal(response.status, 200, `${item.moduleName} (${item.route}) should render`);
       assert.match(response.body, /<!doctype html>/i, `${item.moduleName} should render a page, not a redirect or blank response`);
       const titleLabel = item.moduleName.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));

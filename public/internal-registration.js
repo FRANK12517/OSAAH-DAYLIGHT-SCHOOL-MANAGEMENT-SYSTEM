@@ -111,7 +111,9 @@ generateButton.addEventListener('click', async () => {
   generateButton.disabled = true;
   status.textContent = 'Reserving a permanent Student ID…';
   try {
-    const result = await request('/api/internal-student-registration/student-id', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    const selectedYear = (yearField.selectedOptions[0]?.textContent ?? '').match(/\d{4}/)?.[0];
+    if (!selectedYear) throw new Error('Select an academic year with a valid admission year before generating an ID.');
+    const result = await request('/api/internal-student-registration/student-id', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ admissionYear: selectedYear }) });
     form.elements.reservationToken.value = result.reservationToken;
     form.elements.resolvedPermanentStudentId.value = result.permanentStudentId;
     idOutput.textContent = result.permanentStudentId;

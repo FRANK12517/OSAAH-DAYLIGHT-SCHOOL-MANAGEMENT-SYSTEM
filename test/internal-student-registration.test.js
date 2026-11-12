@@ -40,7 +40,7 @@ test('single registration form confirms permanent index and provides a non-destr
 });
 
 function databaseFixture() {
-  const state = { sequences: new Map(), reservations: [], students: [], profiles: [], guardians: [], health: [], enrollments: [], parentAccounts: [{ id: 'parent-1', email: 'kwame@example.test', phone: '+233241234567', username: '+233241234567' }], parentLinks: [], classes: [{ id: 'class-kg1', name: 'KG1', school_id: 'school-1' }], periods: [{ academicYearId: 'year-2026', termId: 'term-1' }] };
+  const state = { sequences: new Map(), reservations: [], students: [], profiles: [], guardians: [], health: [], enrollments: [], parentAccounts: [{ id: 'parent-1', email: 'kwame@example.test', phone: '+233241234567', username: '+233241234567' }], parentLinks: [], classes: [{ id: 'class-kg1', name: 'KG1', school_id: 'school-1' }], periods: [{ academicYearId: 'year-2026', academicYearName: '2026/2027', academicYearStartsOn: '2026-09-01', termId: 'term-1' }] };
   let tail = Promise.resolve();
   const query = async (sql, params = []) => {
     if (sql.includes('SELECT next_sequence FROM student_id_sequences')) return [{ next_sequence: state.sequences.get(Number(params[0])) }];

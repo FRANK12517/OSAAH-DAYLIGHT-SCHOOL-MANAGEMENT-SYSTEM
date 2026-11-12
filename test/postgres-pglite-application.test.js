@@ -51,7 +51,7 @@ test('Supabase SQL Editor setup validates roles, refuses collisions and grants b
   } finally { await database.close(); }
 });
 
-test('PostgreSQL adapter runs the baseline and preserves admission plus parent Fee Hub behavior in PGlite', async () => {
+test('PGlite baseline preserves Parent Fee Hub behavior and blocks legacy enrollment', async () => {
   const database = new PGlite();
   try {
     await database.exec('CREATE ROLE anon; CREATE ROLE authenticated;');
@@ -71,20 +71,21 @@ test('PostgreSQL adapter runs the baseline and preserves admission plus parent F
       ['INSERT INTO admission_applications(id,school_id,application_number,stage,applicant_data) VALUES (?,?,?,?,?)', ['application-1', 'sch_default_01', 'APP-001', 'ACCEPTED', JSON.stringify({ studentFirstName: 'Ama', studentSurname: 'Mensah', gender: 'Female', dateOfBirth: '2018-01-02', classAssigned: 'class-1', academicYearId: 'year-2026', termId: 'term-1', parentGuardianName: 'Parent Ama', primaryGuardianPrimaryPhone: '0240000000', primaryGuardianEmail: 'parent@example.test' })]]
     ]) await adapter.execute(sql, params);
 
-    let id = 0;
-    const enrollment = createAdmissionEnrollmentService({ database: adapter, clock: () => '2026-09-13T00:00:00.000Z', idFactory: () => `generated-${++id}` });
-    const enrolled = await enrollment.enroll({ applicationId: 'application-1', actorId: 'reviewer-1' });
-    assert.equal(enrolled.created, true);
-    assert.equal(enrolled.student.permanentStudentId, 'OSAAH/2026/001');
-    const repeatedEnrollment = await enrollment.enroll({ applicationId: 'application-1', actorId: 'reviewer-1' });
-    assert.equal(repeatedEnrollment.created, false);
-    assert.equal((await adapter.query('SELECT is_test_record AS "isTestRecord" FROM students WHERE id=?', [enrolled.student.id]))[0].isTestRecord, false);
+    const enrollment = createAdmissionEnrollmentService({ database: adapter });
+    await assert.rejects(() => enrollment.enroll({ applicationId: 'application-1', actorId: 'reviewer-1' }), { code: 'LEGACY_ADMISSION_WORKFLOW_RETIRED', status: 410 });
+    assert.equal((await adapter.query('SELECT count(*)::int AS count FROM students'))[0].count, 0, 'legacy enrollment must not create an identity');
+    const enrolled = { student: { id: 'fixture-student', permanentStudentId: 'OSAAH/2026/001' }, profileId: 'fixture-profile', parentUserId: 'fixture-parent' };
+    await adapter.execute('INSERT INTO students (id,permanent_student_id,school_id,admission_number,current_class_id,first_name,middle_name,last_name,gender,date_of_birth,admission_date,admission_type,student_status,is_test_record,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [enrolled.student.id, enrolled.student.permanentStudentId, 'sch_default_01', 'ADM-001', 'class-1', 'Ama', null, 'Mensah', 'Female', '2018-01-02', '2026-09-13', 'FIRST_TIME', 'ACTIVE', false, '2026-09-13T00:00:00Z', '2026-09-13T00:00:00Z']);
+    await adapter.execute('INSERT INTO student_profiles (id,student_master_id,student_id,school_id,class_id,admission_number,admission_date,first_name,surname,gender,date_of_birth,qr_code,enrollment_status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [enrolled.profileId, enrolled.student.id, enrolled.student.permanentStudentId, 'sch_default_01', 'class-1', 'ADM-001', '2026-09-13', 'Ama', 'Mensah', 'Female', '2018-01-02', 'fixture-qr', 'ACTIVE', '2026-09-13T00:00:00Z']);
+    await adapter.execute('INSERT INTO student_enrollments (id,student_id,school_id,class_id,academic_year_id,term_id,enrollment_status,is_current,enrolled_at) VALUES (?,?,?,?,?,?,?,?,?)', ['fixture-enrollment', enrolled.student.id, 'sch_default_01', 'class-1', 'year-2026', 'term-1', 'ACTIVE', true, '2026-09-13T00:00:00Z']);
+    await adapter.execute('INSERT INTO users (id,school_id,username,email,password_hash,full_name,phone,role,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)', [enrolled.parentUserId, 'sch_default_01', '+233240000000', 'fixture-parent@example.test', 'test-hash', 'Parent Ama', '+233240000000', 'PARENT', 'ACTIVE', '2026-09-13T00:00:00Z']);
+    await adapter.execute('INSERT INTO user_roles (id,user_id,role_id,created_at) VALUES (?,?,?,?)', ['fixture-user-role', enrolled.parentUserId, 'role-parent', '2026-09-13T00:00:00Z']);
+    await adapter.execute('INSERT INTO parent_student_links (parent_user_id,student_id,permanent_student_id,telephone,relationship,relationship_type,link_status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)', [enrolled.parentUserId, enrolled.profileId, enrolled.student.permanentStudentId, '+233240000000', 'Parent', 'PARENT', 'ACTIVE', '2026-09-13T00:00:00Z', '2026-09-13T00:00:00Z']);
     const repository = createDatabaseRepository({ adapter, table: 'student_profiles', serialize: (value) => ({ id: value.id, school_id: value.schoolId }) });
     const profile = (await adapter.query('SELECT id,school_id AS "schoolId" FROM student_profiles WHERE id=?', [enrolled.profileId]))[0];
     assert.ok(await repository.replace(profile.id, profile.schoolId, profile), 'PostgreSQL rowCount must report a successful repository update');
     assert.equal(await repository.remove('missing-profile', profile.schoolId), false, 'a zero-row PostgreSQL delete remains a miss');
     assert.equal((await adapter.query('SELECT COUNT(*)::int AS count FROM parent_student_links WHERE parent_user_id=? AND student_id=? AND link_status=?', [enrolled.parentUserId, enrolled.profileId, 'ACTIVE']))[0].count, 1);
-    assert.equal((await adapter.query('SELECT new_value FROM audit_logs WHERE entity_id=?', [enrolled.student.id]))[0].new_value.applicationId, 'application-1');
     const calendar = createAcademicCalendarService({ database: adapter, schoolId: 'sch_default_01', now: () => '2026-09-13T00:00:00.000Z' });
     const calendarActor = { id: 'reviewer-1', roleKey: 'PROPRIETOR', schoolId: 'sch_default_01' };
     const event = await calendar.create({ title: 'Reopening', academicYear: '2026/2027', term: '1st Term', category: 'Reopening', startDate: '2026-09-14', endDate: '2026-09-14', allDay: true }, calendarActor);

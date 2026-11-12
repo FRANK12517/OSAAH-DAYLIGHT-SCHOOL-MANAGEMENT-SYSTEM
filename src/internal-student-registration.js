@@ -98,9 +98,11 @@ export function createInternalStudentRegistrationService({ database, clock = () 
       return await database.transaction(async (tx) => {
         const classRow = rows(await tx.query("SELECT id,name FROM classes WHERE id=? AND school_id=? AND status='ACTIVE' LIMIT 1 FOR UPDATE", [classId, schoolId]))[0];
         if (!classRow || !canonicalClassId(classRow.name)) fail('CLASS_INVALID', 'Select an active school class.');
-        const period = rows(await tx.query(`SELECT y.id AS academicYearId,t.id AS termId FROM academic_years y
+        const period = rows(await tx.query(`SELECT y.id AS academicYearId,y.name AS academicYearName,y.starts_on AS academicYearStartsOn,t.id AS termId FROM academic_years y
           JOIN terms t ON t.academic_year_id=y.id WHERE y.school_id=? AND y.id=? AND t.id=? LIMIT 1`, [schoolId, academicYearId, termId]))[0];
         if (!period) fail('ACADEMIC_PERIOD_INVALID', 'Select a valid academic year and term.');
+        const academicYear = String(period.academicYearStartsOn ?? period.academicYearName ?? '').match(/\d{4}/)?.[0];
+        if (!academicYear) fail('ACADEMIC_YEAR_INVALID', 'The selected academic year does not have a valid start year.', 409);
 
         let student, profile, created = false;
         let reservation = null;
@@ -126,6 +128,7 @@ export function createInternalStudentRegistrationService({ database, clock = () 
             fail('STUDENT_ID_RESERVATION_INCONSISTENT', 'This Student ID was already consumed but its student record is unavailable.', 409);
           }
           if (reservation.reservation_status !== 'RESERVED' || String(reservation.reserved_by) !== String(actorId)) fail('STUDENT_ID_RESERVATION_FORBIDDEN', 'This reserved Student ID is unavailable to this registration.', 409);
+          if (Number(reservation.admission_year) !== Number(academicYear)) fail('STUDENT_ID_YEAR_MISMATCH', 'Generate a new Student ID after selecting the academic year for this registration.', 409);
           const duplicate = rows(await tx.query(`SELECT id FROM students WHERE school_id=? AND LOWER(TRIM(CONCAT_WS(' ',first_name,middle_name,last_name)))=? AND date_of_birth=? LIMIT 1 FOR UPDATE`, [schoolId, normalizeName([firstName, middleName, lastName].filter(Boolean).join(' ')), dateOfBirth]))[0];
           if (duplicate) fail('POSSIBLE_DUPLICATE_STUDENT', 'A student with this name and date of birth already exists. Use Existing OSAAH Student and verify their permanent ID.', 409);
           const studentId = idFactory(), profileId = idFactory(), permanentStudentId = reservation.permanent_student_id;
