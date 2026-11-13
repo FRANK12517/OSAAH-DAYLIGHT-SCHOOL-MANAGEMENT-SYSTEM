@@ -495,13 +495,13 @@
         {
           "path": "public/index.html",
           "requiredMarkers": [
-            "app.js?v=20261103-1"
+            "app.js?v=20261112-1"
           ]
         },
         {
           "path": "public/sw.js",
           "requiredMarkers": [
-            "osaah-shell-v5"
+            "osaah-shell-v6"
           ]
         },
         {

@@ -130,6 +130,7 @@ test('workspace navigation normalizes the route inside the renderer and terminat
   assert.ok(renderStart >= 0);
   assert.ok(navigateStart > renderStart);
   const renderBody = app.slice(renderStart, navigateStart);
+  assert.match(renderBody, /\['\/', '\/dashboard', '\/parent-dashboard'\]\.includes\(route\)/);
   assert.match(renderBody, /const normalizedRoute = String\(route \|\| '\/'\)/);
   assert.match(renderBody, /url\.searchParams\.set\('route', normalizedRoute\)/);
   assert.match(renderBody, /frame\.onerror = \(error\) =>/);
@@ -150,8 +151,8 @@ test('embedded module navigation preserves exact identity, refreshes the shell, 
   assert.match(app, /setTimeout\(\(\) => failToOpen\('timeout'\), 20000\)/);
   assert.match(app, /taking too long to open/);
   assert.match(app, /clearTimeout\(Number\(dashboard\.dataset\.navigationTimer\)\)/);
-  assert.match(index, /app\.js\?v=20261103-1/);
-  assert.match(serviceWorker, /osaah-shell-v5/);
+  assert.match(index, /app\.js\?v=20261112-1/);
+  assert.match(serviceWorker, /osaah-shell-v6/);
 });
 
 test('school dashboard bootstrap consumes the server role redirect after login and session restoration', async () => {

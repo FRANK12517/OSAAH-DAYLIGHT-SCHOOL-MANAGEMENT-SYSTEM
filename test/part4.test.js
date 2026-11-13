@@ -34,13 +34,14 @@ test('Part 4 role dashboards and server-side authority matrix', async () => {
   const port = server.address().port;
   try {
     const application = await request(port, '/api/admissions', { method: 'POST', token: proprietor.token, body: { firstName: 'Yaw', surname: 'Mensah', classId: 'primary-4' } });
-    assert.equal(application.status, 201);
+    assert.equal(application.status, 410);
+    assert.equal(application.body.code, 'LEGACY_ADMISSION_WORKFLOW_RETIRED');
     assert.equal((await request(port, '/api/admissions', { token: logins.HEADTEACHER.token })).status, 200);
     assert.equal((await request(port, '/api/admissions', { token: logins.CLASSROOM_TEACHER.token })).status, 403);
 
-    const accepted = await request(port, `/api/admissions/${application.body.applicationNumber}/decision`, { method: 'POST', token: logins.HEADTEACHER.token, body: { decision: 'ACCEPTED', year: 2026 } });
-    assert.equal(accepted.status, 200);
-    assert.equal(accepted.body.permanentStudentId, 'OSAAH/2026/001');
+    const accepted = await request(port, '/api/admissions/legacy/decision', { method: 'POST', token: logins.HEADTEACHER.token, body: { decision: 'ACCEPTED', year: 2026 } });
+    assert.equal(accepted.status, 410);
+    assert.equal(accepted.body.code, 'LEGACY_ADMISSION_WORKFLOW_RETIRED');
 
     const fee = await request(port, '/api/fees/structures', { method: 'POST', token: proprietor.token, body: { type: 'TUITION', amount: 1200 } });
     assert.equal(fee.status, 201);

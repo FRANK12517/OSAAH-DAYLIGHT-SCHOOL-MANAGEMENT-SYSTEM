@@ -47,7 +47,7 @@ function renderWorkspaceRoute(dashboard, route, title, navigationKey = null, exa
   clearTimeout(Number(dashboard.dataset.navigationTimer)); dashboard.dataset.navigationTimer = '';
   setActiveSidebarRoute(dashboard, route);
   frame.onload = null; frame.onerror = null; frame.hidden = true;
-  if (route === '/') { overview.hidden = false; host.hidden = true; mountDashboardOverview(dashboard); document.title = 'OsaaH Daylight School'; return; }
+  if (['/', '/dashboard', '/parent-dashboard'].includes(route)) { overview.hidden = false; host.hidden = true; mountDashboardOverview(dashboard); document.title = 'OsaaH Daylight School'; return; }
   overview.hidden = true; host.hidden = false; status.hidden = false; status.className = 'module-status'; status.textContent = `Loading ${title}…`; frame.title = title;
   const normalizedRoute = String(route || '/').replace(/\/$/, '') || '/';
   const url = new URL(normalizedRoute, location.origin); url.searchParams.set('embedded', '1'); url.searchParams.set('route', normalizedRoute); if (navigationKey) url.searchParams.set('navigationKey', navigationKey); if (exactView) url.searchParams.set('view', exactView);

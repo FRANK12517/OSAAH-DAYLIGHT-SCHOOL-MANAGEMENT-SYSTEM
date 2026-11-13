@@ -58,6 +58,9 @@ export function createDurableFeeReader({ adapter } = {}) {
   if (!adapter?.query) throw new Error('A durable database adapter is required for persisted fee reads.');
 
   const optionalPaymentColumns = { amount: true, createdAt: true, providerReference: true };
+  const feeTypeAggregate = adapter.dialect === 'postgres'
+    ? "string_agg(DISTINCT ii.fee_type, ', ' ORDER BY ii.fee_type)"
+    : "GROUP_CONCAT(DISTINCT ii.fee_type ORDER BY ii.fee_type SEPARATOR ', ')";
 
   async function listPayments({ studentId = null, status = null } = {}, actor) {
     authorizeFinancial(actor, 'READ', 'payments');
@@ -77,7 +80,7 @@ export function createDurableFeeReader({ adapter } = {}) {
         NULL AS className,
         p.academic_year_id AS academicYear,
         p.term_id AS term,
-        (SELECT string_agg(DISTINCT ii.fee_type, ', ' ORDER BY ii.fee_type)
+        (SELECT ${feeTypeAggregate}
            FROM fee_invoice_items ii
           WHERE ii.invoice_id=i.id AND ii.school_id=p.school_id) AS feeType,
         a.student_id AS studentId,
@@ -143,7 +146,7 @@ export function createDurableFeeReader({ adapter } = {}) {
         sp.class_id AS className,
         p.academic_year_id AS academicYear,
         p.term_id AS term,
-        (SELECT string_agg(DISTINCT ii.fee_type, ', ' ORDER BY ii.fee_type)
+        (SELECT ${feeTypeAggregate}
            FROM fee_invoice_items ii
           WHERE ii.invoice_id=i.id AND ii.school_id=p.school_id) AS feeType,
         a.student_id AS studentId,
