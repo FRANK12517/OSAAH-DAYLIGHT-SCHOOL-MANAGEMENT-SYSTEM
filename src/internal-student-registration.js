@@ -185,7 +185,13 @@ export function createInternalStudentRegistrationService({ database, clock = () 
           } else if (reservation) {
             fail('STUDENT_ID_ALREADY_EXISTS', 'This student already has an ID. The existing ID will be retained.', 409);
           }
-          if (!masterId && permanentStudentId) await tx.execute('UPDATE students SET permanent_student_id=?,updated_at=? WHERE school_id=? AND id=? AND (permanent_student_id IS NULL OR permanent_student_id=\'\')', [permanentStudentId, timestamp, schoolId, student.studentId]);
+          if (!masterId && permanentStudentId) {
+            await tx.execute('UPDATE students SET permanent_student_id=?,updated_at=? WHERE school_id=? AND id=? AND (permanent_student_id IS NULL OR permanent_student_id=\'\')', [permanentStudentId, timestamp, schoolId, student.studentId]);
+            const confirmed = rows(await tx.query('SELECT permanent_student_id AS permanentStudentId FROM students WHERE school_id=? AND id=? LIMIT 1 FOR UPDATE', [schoolId, student.studentId]))[0];
+            const confirmedId = String(confirmed?.permanentStudentId ?? '').trim();
+            if (!confirmedId) fail('STUDENT_ID_PERSISTENCE_FAILED', 'The permanent Student ID could not be saved. Please retry.', 503);
+            permanentStudentId = confirmedId;
+          }
           if (!profile) {
             const profileId = idFactory();
             await tx.execute(`INSERT INTO student_profiles (id,student_master_id,student_id,school_id,admission_number,first_name,middle_name,surname,gender,date_of_birth,class_id,qr_code,enrollment_status,created_at,updated_at)

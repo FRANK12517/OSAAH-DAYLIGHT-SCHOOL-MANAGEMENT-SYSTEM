@@ -17,7 +17,12 @@ let saving = false;
 let completed = false;
 
 async function request(url, options = {}) {
-  const response = await fetch(url, { credentials: 'same-origin', ...options });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  let response;
+  try { response = await fetch(url, { credentials: 'same-origin', ...options, signal: controller.signal }); }
+  catch (error) { if (error.name === 'AbortError') throw new Error('The request timed out. Check your connection and retry.'); throw error; }
+  finally { clearTimeout(timeout); }
   const result = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(result.error ?? 'The request could not be completed.');
   return result;
@@ -109,6 +114,7 @@ document.querySelector('#reset-registration-form').addEventListener('click', () 
 });
 
 generateButton.addEventListener('click', async () => {
+  if (generateButton.disabled || saving) return;
   if (form.elements.reservationToken.value || form.elements.resolvedPermanentStudentId.value && categoryField.value === 'ALREADY_ENROLLED') {
     form.requestSubmit();
     return;
@@ -123,6 +129,7 @@ generateButton.addEventListener('click', async () => {
       : { firstName: nameParts[0], lastName: nameParts.at(-1), dateOfBirth: form.elements.dateOfBirth.value };
     if (choice === 'HAVE_ID' && !identity.permanentStudentId) { existingIdField.focus(); status.textContent = 'Enter the student’s existing ID number.'; return; }
     generateButton.disabled = true;
+    generateButton.textContent = 'Finding Student…';
     status.textContent = 'Checking existing student record…';
     try {
       const result = await request('/api/internal-student-registration/existing-student', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(identity) });
@@ -146,10 +153,12 @@ generateButton.addEventListener('click', async () => {
         form.elements.resolvedPermanentStudentId.value = reservation.permanentStudentId;
         idOutput.textContent = reservation.permanentStudentId;
       }
-      generateButton.textContent = 'Registering Student…';
-      status.textContent = 'Completing registration and Class Database enrolment…';
-      form.requestSubmit();
-    } catch (error) { form.elements.resolvedPermanentStudentId.value = ''; form.elements.reservationToken.value = ''; existingStudentIdField.value = ''; idOutput.textContent = 'Not found'; status.textContent = error.message; generateButton.disabled = false; generateButton.textContent = choice === 'HAVE_ID' ? 'Find Existing Student' : 'Find Student and Generate ID'; }
+      status.textContent = matched.permanentStudentId
+        ? `Existing permanent ID ${matched.permanentStudentId} retrieved. Submit registration when ready.`
+        : `Permanent ID ${form.elements.resolvedPermanentStudentId.value} reserved. Complete the remaining details, then submit registration.`;
+      generateButton.textContent = matched.permanentStudentId ? 'Existing Student Found' : 'ID Successfully Generated';
+    } catch (error) { form.elements.resolvedPermanentStudentId.value = ''; form.elements.reservationToken.value = ''; existingStudentIdField.value = ''; idOutput.textContent = 'Not found'; status.textContent = error.message; }
+    finally { generateButton.disabled = false; if (!form.elements.resolvedPermanentStudentId.value) generateButton.textContent = choice === 'HAVE_ID' ? 'Find Existing Student' : 'Find Student and Generate ID'; }
     return;
   }
   if (!['FIRST_TIME', 'TRANSFER'].includes(categoryField.value)) { status.textContent = 'Select an admission category first.'; categoryField.focus(); return; }
@@ -161,10 +170,10 @@ generateButton.addEventListener('click', async () => {
     form.elements.reservationToken.value = result.reservationToken;
     form.elements.resolvedPermanentStudentId.value = result.permanentStudentId;
     idOutput.textContent = result.permanentStudentId;
-    status.textContent = 'ID reserved. Completing student registration and class enrolment…';
-  } catch (error) { status.textContent = error.message; generateButton.disabled = false; generateButton.textContent = 'Generate Permanent Student ID'; return; }
-  generateButton.textContent = 'Registering Student…';
-  form.requestSubmit();
+    status.textContent = 'ID reserved. Complete the remaining details, then submit registration.';
+    generateButton.textContent = 'ID Successfully Generated';
+  } catch (error) { status.textContent = error.message; generateButton.textContent = 'Generate Permanent Student ID'; }
+  finally { generateButton.disabled = false; }
 });
 
 form.addEventListener('submit', async (event) => {
@@ -211,7 +220,12 @@ form.addEventListener('submit', async (event) => {
     idOutput.textContent = result.permanentStudentId;
     generateButton.disabled = true;
     generateButton.textContent = 'ID Successfully Generated';
-  } catch (error) { status.textContent = error.message; generateButton.disabled = false; generateButton.textContent = form.elements.reservationToken.value ? 'Retry Student Registration' : 'Generate Permanent Student ID'; }
+  } catch (error) {
+    status.textContent = error.message;
+    generateButton.disabled = false;
+    generateButton.textContent = form.elements.reservationToken.value ? 'Retry Student Registration' : 'Generate Permanent Student ID';
+    if (form.elements.reservationToken.value) idOutput.textContent = form.elements.resolvedPermanentStudentId.value;
+  }
   finally { saving = false; submit.disabled = completed; submit.textContent = completed ? 'Student Registered' : 'Submit Registered Student'; form.removeAttribute('aria-busy'); }
 });
 
