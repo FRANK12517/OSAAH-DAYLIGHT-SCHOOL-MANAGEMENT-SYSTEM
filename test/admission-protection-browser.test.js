@@ -111,7 +111,7 @@ test('authorized staff can continue through the normal workflow to the applicati
     throw new Error(`Local browser login did not reach the headteacher dashboard. Login message: ${loginError}. HTTP: ${JSON.stringify(authResponses)}. Login session cookie set: ${loginCookieSet}. Browser cookie names: ${JSON.stringify(cookieNames)}. Visible page: ${pageText.slice(0, 500)}`);
   }
   await page.getByRole('button', { name: /STUDENTS? MANAGEMENT/i }).click({ force: true });
-  await page.getByRole('link', { name: 'Admission / Admissions Workflow' }).click({ force: true });
+  await page.getByRole('link', { name: 'Student Registration' }).click({ force: true });
   await page.goto(`${base}/admissions/register?embedded=1`);
 
   const registration = page;
@@ -119,8 +119,10 @@ test('authorized staff can continue through the normal workflow to the applicati
   assert.ok(await registration.locator('select[name="admissionType"] option[value="FIRST_TIME"]').count());
   assert.ok(await registration.locator('select[name="admissionType"] option[value="TRANSFER"]').count());
   assert.ok(await registration.locator('select[name="admissionType"] option[value="ALREADY_ENROLLED"]').count());
-  assert.ok(await registration.locator('input[name="reservationToken"]').count());
-  assert.ok(await registration.getByRole('button', { name: 'Generate Permanent Student ID' }).count());
+  assert.ok(await registration.locator('input[name="registrationToken"]').count());
+  const generateId = registration.getByRole('button', { name: 'Generate Permanent Student ID' });
+  assert.ok(await generateId.count());
+  assert.equal(await generateId.isDisabled(), true);
   assert.equal(applicationWrites.length, 0, 'the unified registration page never creates a legacy application');
   assert.equal(continuationResponses.some((entry) => entry.status < 400), false, 'the obsolete application page is never served');
 });

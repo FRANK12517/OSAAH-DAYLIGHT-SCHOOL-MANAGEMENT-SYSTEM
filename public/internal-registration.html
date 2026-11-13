@@ -26,7 +26,7 @@
           <legend>Identify the existing student</legend>
           <label><input type="radio" name="existingIdChoice" value="HAVE_ID" checked> I HAVE AN ID</label>
           <label><input type="radio" name="existingIdChoice" value="NO_ID"> I DO NOT HAVE AN ID</label>
-          <label data-existing-id-entry>Enter Student ID Number
+        <label data-existing-id-entry>Enter Student ID Number
             <input name="existingPermanentStudentId" autocomplete="off" placeholder="Enter the student's existing ID">
           </label>
           <p class="muted" data-existing-id-entry>We’ll find the student in this school and preserve the existing ID.</p>
@@ -75,10 +75,11 @@
         <h2>20. Permanent Student Identification</h2>
         <p>Every student keeps one permanent ID. Existing OSAAH students retain their current ID.</p>
         <div class="id-control">
-          <output id="permanent-student-id" aria-live="polite">Not generated</output>
-          <button id="generate-student-id" class="secondary-button" type="button">Generate Permanent Student ID</button>
+          <output id="permanent-student-id" aria-live="polite">Submit and save registration first</output>
+          <button id="generate-student-id" class="secondary-button" type="button" disabled>Generate Permanent Student ID</button>
         </div>
-        <input name="reservationToken" type="hidden">
+        <p id="student-id-help" class="muted">Submit Registered Student and wait for database confirmation before generating an ID.</p>
+        <input name="registrationToken" type="hidden">
         <input name="resolvedPermanentStudentId" type="hidden">
         <input name="existingStudentId" type="hidden">
       </section>
