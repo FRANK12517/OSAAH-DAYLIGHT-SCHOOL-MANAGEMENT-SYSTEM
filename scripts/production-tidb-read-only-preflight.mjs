@@ -6,7 +6,7 @@ import { createDatabaseAdapter } from '../src/ai/tidb-database-adapter.js';
 export const PRODUCTION_DATABASE = 'osaahdaylightschool';
 export const REQUIRED_SCHEMA = Object.freeze({
   students: ['id', 'school_id', 'permanent_student_id', 'admission_number', 'current_class_id', 'first_name', 'middle_name', 'last_name', 'full_name', 'gender', 'date_of_birth', 'parent_guardian_name', 'parent_phone', 'admission_type', 'student_status', 'is_test_record'],
-  student_profiles: ['id', 'school_id', 'student_master_id', 'student_id', 'admission_number', 'first_name', 'middle_name', 'surname', 'gender', 'date_of_birth', 'class_id', 'enrollment_status', 'updated_at'],
+  student_profiles: ['id', 'school_id', 'student_master_id', 'student_id', 'permanent_student_id', 'admission_number', 'first_name', 'middle_name', 'surname', 'gender', 'date_of_birth', 'class_id', 'enrollment_status', 'updated_at'],
   student_id_sequences: ['admission_year', 'next_sequence', 'updated_at'],
   student_id_reservations: ['id', 'reservation_token', 'permanent_student_id', 'admission_year', 'sequence_number', 'reservation_status', 'student_id', 'reserved_by', 'created_at', 'consumed_at'],
   student_enrollments: ['id', 'student_id', 'school_id', 'class_id', 'academic_year_id', 'term_id', 'enrollment_status', 'is_current', 'enrolled_at'],
@@ -119,7 +119,7 @@ export async function runProductionTiDBPreflight({
     const permanentIdUniqueIndex = indexContract(indexes.map((row) => ({ tableName: row.tableName ?? row.TABLE_NAME, indexName: row.indexName ?? row.INDEX_NAME, columnName: row.columnName ?? row.COLUMN_NAME, nonUnique: row.nonUnique ?? row.NON_UNIQUE, position: row.position ?? row.SEQ_IN_INDEX })), 'students', ['school_id', 'permanent_student_id']);
     const reservationUniqueId = indexContract(indexes.map((row) => ({ tableName: row.tableName ?? row.TABLE_NAME, indexName: row.indexName ?? row.INDEX_NAME, columnName: row.columnName ?? row.COLUMN_NAME, nonUnique: row.nonUnique ?? row.NON_UNIQUE, position: row.position ?? row.SEQ_IN_INDEX })), 'student_id_reservations', ['permanent_student_id']);
     const enrollmentContextUniqueIndex = indexContract(indexes.map((row) => ({ tableName: row.tableName ?? row.TABLE_NAME, indexName: row.indexName ?? row.INDEX_NAME, columnName: row.columnName ?? row.COLUMN_NAME, nonUnique: row.nonUnique ?? row.NON_UNIQUE, position: row.position ?? row.SEQ_IN_INDEX })), 'student_enrollments', ['school_id', 'student_id', 'academic_year_id', 'term_id', 'is_current']);
-    const identityColumns = ['students.permanent_student_id', 'student_profiles.student_id', 'student_id_reservations.permanent_student_id', 'admission_applications.permanent_student_id'];
+    const identityColumns = ['students.permanent_student_id', 'student_profiles.student_id', 'student_profiles.permanent_student_id', 'student_id_reservations.permanent_student_id', 'admission_applications.permanent_student_id'];
     const invalidIdentityColumns = identityColumns.filter((key) => {
       const definition = columnDefinitions.get(key);
       return !definition || !['char', 'varchar'].includes(definition.dataType) || !Number.isFinite(definition.characterMaximumLength) || definition.characterMaximumLength < 16;

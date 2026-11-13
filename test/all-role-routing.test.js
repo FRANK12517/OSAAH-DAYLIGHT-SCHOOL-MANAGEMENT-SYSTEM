@@ -63,7 +63,7 @@ test('finance, staff, and student management children retain canonical route ide
     hr: '/staff/hr', leave: '/staff/leave', 'staff-attendance-hr': '/staff/attendance', qualifications: '/staff/qualifications-licences',
     performance: '/staff/performance', 'staff.professional-development': '/staff/professional-development',
     'qualifications-licences': '/staff/qualifications', 'ntc-records': '/staff/ntc-records', appraisals: '/staff/appraisal',
-    'hr-documents': '/staff/documents', 'student-profiles': '/students', admissions: '/admissions', 'student-search': '/students/search',
+    'hr-documents': '/staff/documents', 'student-profiles': '/students', admissions: '/admissions/register', 'student-search': '/students/search',
     'admission-prospectus': '/admissions/prospectus', 'student-directory': '/students/directory', 'admission-enquiries': '/admissions/enquiries',
     'student-ids': '/students/ids', 'admission-applications': '/admissions/applications', 'student-transfers': '/students/transfers',
     'admission-review': '/admissions/review', 'student-alumni': '/students/alumni', 'admission-offers': '/admissions/offers',

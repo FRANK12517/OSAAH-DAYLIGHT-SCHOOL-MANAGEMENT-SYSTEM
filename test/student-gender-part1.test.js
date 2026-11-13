@@ -30,7 +30,7 @@ test('canonical student gender survives Permanent Student ID allocation and prom
   const students = createStudentService();
   const male = students.createStudent({ firstName: 'Kofi', surname: 'Mensah', gender: 'M', classId: 'Primary 1', admissionYearId: '2026' });
   const female = students.createStudent({ firstName: 'Adwoa', surname: 'Mensah', gender: 'Female', classId: 'Primary 2', admissionYearId: '2026' });
-  assert.match(male.permanentStudentId, /^OSAAH\/2026\//); assert.equal(male.gender, 'Male'); assert.equal(female.gender, 'Female');
+  assert.match(male.permanentStudentId, /^OSAA\/2026\//); assert.equal(male.gender, 'Male'); assert.equal(female.gender, 'Female');
   const promoted = students.assignClass(male.id, { classId: 'Primary 2', academicYearId: '2027', termId: 'TERM_1', reason: 'PROMOTION' });
   const repeated = students.assignClass(female.id, { classId: 'Primary 2', academicYearId: '2027', termId: 'TERM_1', reason: 'REPETITION' });
   assert.equal(promoted.id, male.id); assert.equal(promoted.permanentStudentId, male.permanentStudentId); assert.equal(promoted.gender, 'Male'); assert.equal(repeated.id, female.id); assert.equal(repeated.gender, 'Female'); assert.equal(students.listStudents().filter((item) => item.permanentStudentId === male.permanentStudentId).length, 1);

@@ -125,7 +125,7 @@ test('three leadership roles share the Student Management workflow and retain se
   const prospectus = SIDEBAR_MODULES.find((item) => item.moduleKey === 'admission-prospectus');
   assert.ok(admission);
   for (const role of ['PROPRIETOR', 'HEADTEACHER', 'ASSISTANT_HEADTEACHER']) assert.ok((admission.allowedRoles ?? admission.roles).includes(role));
-  assert.equal(admission.route, '/admissions');
+  assert.equal(admission.route, '/admissions/register');
   assert.ok(prospectus);
   assert.notEqual(prospectus.route, admission.route);
 });

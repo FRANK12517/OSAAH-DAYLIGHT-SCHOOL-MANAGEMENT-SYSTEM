@@ -100,10 +100,6 @@ test('embedded proprietor children never return the authenticated dashboard shel
   try {
     for (const item of PROPRIETOR_SIDEBAR_ROUTES) {
       const response = await request(item.route);
-      if (item.route === '/admissions') {
-        assert.equal(response.status, 308);
-        continue;
-      }
       assert.equal(response.status, 200, item.route);
       assert.doesNotMatch(response.body, /id="dashboard"/, `${item.moduleName} must not nest the dashboard shell`);
     }

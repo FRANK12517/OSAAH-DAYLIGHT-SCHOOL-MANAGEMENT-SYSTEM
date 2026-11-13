@@ -27,7 +27,7 @@ function publicStudent(row, profile, enrollment) {
     id: row.id,
     schoolId: row.school_id ?? row.schoolId,
     admissionNumber: row.admission_number ?? row.admissionNumber,
-    permanentStudentId: row.permanent_student_id ?? row.permanentStudentId ?? profile?.student_id ?? null,
+    permanentStudentId: row.permanent_student_id ?? row.permanentStudentId ?? profile?.student_id ?? profile?.permanent_student_id ?? null,
     firstName: row.first_name ?? row.firstName ?? profile?.first_name ?? null,
     middleName: row.middle_name ?? row.middleName ?? null,
     lastName: row.last_name ?? row.lastName ?? profile?.surname ?? profile?.last_name ?? null,
@@ -57,7 +57,7 @@ export function createExistingStudentLinkingService({ database, schoolId, clock 
     if (firstName) { predicates.push('LOWER(s.first_name)=LOWER(?)'); params.push(firstName); }
     if (lastName) { predicates.push('LOWER(s.last_name)=LOWER(?)'); params.push(lastName); }
     if (dateOfBirth) { predicates.push('s.date_of_birth=?'); params.push(dateOfBirth); }
-    return rows(await tx.query(`SELECT s.*,sp.id AS profile_id,sp.student_id AS profile_permanent_student_id,sp.first_name AS profile_first_name,sp.last_name AS profile_last_name,sp.date_of_birth AS profile_date_of_birth FROM students s LEFT JOIN student_profiles sp ON sp.student_master_id=s.id AND sp.school_id=s.school_id WHERE s.school_id=? AND s.is_test_record IS NOT TRUE AND ${predicates.join(' AND ')} FOR UPDATE`, params));
+    return rows(await tx.query(`SELECT s.*,sp.id AS profile_id,sp.student_id AS profile_permanent_student_id,sp.permanent_student_id AS profile_legacy_permanent_student_id,sp.first_name AS profile_first_name,sp.last_name AS profile_last_name,sp.date_of_birth AS profile_date_of_birth FROM students s LEFT JOIN student_profiles sp ON sp.student_master_id=s.id AND sp.school_id=s.school_id WHERE s.school_id=? AND s.is_test_record IS NOT TRUE AND ${predicates.join(' AND ')} FOR UPDATE`, params));
   }
 
   function verifyIdentity(row, input) {
@@ -73,24 +73,28 @@ export function createExistingStudentLinkingService({ database, schoolId, clock 
     return { row, profile };
   }
 
-  async function nextPermanentStudentId(tx, yearInput, timestamp) {
+  async function nextPermanentStudentId(tx, yearInput, timestamp, studentId, actorId) {
     const year = admissionYearFor(yearInput);
     await tidbInsertIfAbsent(tx, { insertSql: 'INSERT INTO student_id_sequences (admission_year,next_sequence,updated_at) VALUES (?,?,?)', insertParameters: [year, 1, timestamp], conflictSql: 'SELECT admission_year FROM student_id_sequences WHERE admission_year=?', conflictParameters: [year] });
     const sequenceRow = rows(await tx.query('SELECT next_sequence FROM student_id_sequences WHERE admission_year=? FOR UPDATE', [year]))[0];
-    let sequence = Number(sequenceRow?.next_sequence);
-    if (!Number.isInteger(sequence) || sequence < 1) fail('STUDENT_ID_SEQUENCE_INVALID', 'Annual permanent Student ID sequence is invalid.', 409);
-    const existing = rows(await tx.query('SELECT permanent_student_id FROM students WHERE permanent_student_id LIKE ? FOR UPDATE', [`OSAAH/${year}/%`]))
-      .concat(rows(await tx.query('SELECT student_id AS permanent_student_id FROM student_profiles WHERE student_id LIKE ? FOR UPDATE', [`OSAAH/${year}/%`])))
+    if (!Number.isInteger(Number(sequenceRow?.next_sequence)) || Number(sequenceRow.next_sequence) < 1) fail('STUDENT_ID_SEQUENCE_INVALID', 'Annual permanent Student ID sequence is invalid.', 409);
+    const existing = rows(await tx.query('SELECT permanent_student_id FROM students WHERE permanent_student_id IS NOT NULL FOR UPDATE'))
+      .concat(rows(await tx.query('SELECT student_id AS permanent_student_id FROM student_profiles WHERE student_id IS NOT NULL FOR UPDATE')))
+      .concat(rows(await tx.query('SELECT permanent_student_id FROM student_profiles WHERE permanent_student_id IS NOT NULL FOR UPDATE')))
       .map((row) => String(row.permanent_student_id ?? ''));
-    const existingSequences = existing.map((id) => {
-      const match = new RegExp(`^OSAAH/${year}/(\\d+)$`).exec(id);
-      if (!match) fail('STUDENT_ID_SEQUENCE_CONFLICT', 'Existing Student IDs for this admission year need reconciliation before another ID can be issued.', 409);
-      const value = Number(match[1]);
-      if (!Number.isSafeInteger(value) || value < 1) fail('STUDENT_ID_SEQUENCE_CONFLICT', 'Existing Student IDs for this admission year need reconciliation before another ID can be issued.', 409);
-      return value;
+    const existingSequences = existing.flatMap((id) => {
+      if (!new RegExp(`^(?:OSAA|OSAAH)/${year}/`).test(id)) return [];
+      const match = /^(?:OSAA|OSAAH)\/(\d{4})\/(\d+)$/.exec(id);
+      if (!match || !Number.isSafeInteger(Number(match[2])) || Number(match[2]) < 1) fail('STUDENT_ID_SEQUENCE_CONFLICT', 'Existing Student IDs for this admission year need reconciliation before another ID can be issued.', 409);
+      return [Number(match[2])];
     });
-    sequence = Math.max(sequence, ...existingSequences.map((item) => item + 1));
-    const permanentStudentId = `OSAAH/${year}/${String(sequence).padStart(3, '0')}`;
+    const sequence = Math.max(0, ...existingSequences) + 1;
+    const permanentStudentId = `OSAA/${year}/${String(sequence).padStart(3, '0')}`;
+    const orphan = rows(await tx.query(`SELECT id FROM student_id_reservations WHERE admission_year=? AND sequence_number=?
+      AND student_id IS NULL AND reservation_status='RESERVED' LIMIT 1 FOR UPDATE`, [year, sequence]))[0];
+    if (orphan) await tx.execute(`UPDATE student_id_reservations SET permanent_student_id=?,reservation_status='CONSUMED',student_id=?,consumed_at=? WHERE id=? AND student_id IS NULL`, [permanentStudentId, studentId, timestamp, orphan.id]);
+    else await tx.execute(`INSERT INTO student_id_reservations (id,reservation_token,permanent_student_id,admission_year,sequence_number,reservation_status,student_id,reserved_by,created_at,consumed_at)
+      VALUES (?,?,?,?,?,'CONSUMED',?,?,?,?)`, [idFactory(), idFactory(), permanentStudentId, year, sequence, studentId, actorId, timestamp, timestamp]);
     await tx.execute('UPDATE student_id_sequences SET next_sequence=?,updated_at=? WHERE admission_year=?', [sequence + 1, timestamp, year]);
     return permanentStudentId;
   }
@@ -107,23 +111,26 @@ export function createExistingStudentLinkingService({ database, schoolId, clock 
       const { row, profile } = await loadStudent(tx, matched.id);
       const timestamp = clock();
       const masterId = row.permanent_student_id ? String(row.permanent_student_id).trim() : null;
-      const profileStudentId = profile?.student_id ? String(profile.student_id).trim() : null;
+      const profileIds = [profile?.student_id, profile?.permanent_student_id].filter(Boolean).map(String);
+      if (new Set(profileIds).size > 1) fail('PERMANENT_STUDENT_ID_CONFLICT', 'The student profile contains different Permanent Student IDs and requires controlled review.', 409);
+      const profileStudentId = profileIds[0] ?? null;
       if (masterId && profileStudentId && masterId !== profileStudentId) fail('PERMANENT_STUDENT_ID_CONFLICT', 'The student and profile contain different Permanent Student IDs and require controlled review.', 409);
       const establishedId = masterId ?? profileStudentId;
       if (establishedId && !isPermanentStudentId(establishedId)) fail('PERMANENT_STUDENT_ID_REVIEW_REQUIRED', 'The existing student has a malformed Permanent Student ID and requires controlled review.', 409);
       const historicalYear = text(input.historicalAdmissionYear ?? input.admissionYear ?? input.osaaAdmissionYear);
       if (!establishedId && !historicalYear) fail('HISTORICAL_ADMISSION_YEAR_REQUIRED', 'The actual historical OSAAH admission year is required before an ID can be assigned.', 409);
       if (historicalYear && (!/^\d{4}$/.test(historicalYear) || Number(historicalYear) > new Date(timestamp).getUTCFullYear())) fail('HISTORICAL_ADMISSION_YEAR_INVALID', 'The historical OSAAH admission year must be a valid year that is not in the future.', 409);
-      const permanentStudentId = establishedId ?? await nextPermanentStudentId(tx, historicalYear, timestamp);
+      const permanentStudentId = establishedId ?? await nextPermanentStudentId(tx, historicalYear, timestamp, row.id, actor.id);
       if (!establishedId || !row.permanent_student_id) await tx.execute('UPDATE students SET permanent_student_id=?,updated_at=? WHERE school_id=? AND id=? AND permanent_student_id IS NULL', [permanentStudentId, timestamp, schoolId, row.id]);
       let profileId = profile?.id ?? null;
       const createdProfile = !profileId;
       if (!profileId) {
         profileId = idFactory();
-        await tx.execute('INSERT INTO student_profiles (id,student_master_id,student_id,school_id,admission_number,first_name,last_name,date_of_birth,enrollment_status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)', [profileId, row.id, permanentStudentId, schoolId, row.admission_number, row.first_name, row.last_name, row.date_of_birth ?? null, row.student_status ?? 'ACTIVE', timestamp, timestamp]);
-      } else if (!profile.student_id) {
-        await tx.execute('UPDATE student_profiles SET student_id=?,updated_at=? WHERE school_id=? AND id=? AND student_id IS NULL', [permanentStudentId, timestamp, schoolId, profileId]);
-        profile.student_id = permanentStudentId;
+        await tx.execute('INSERT INTO student_profiles (id,student_master_id,student_id,permanent_student_id,school_id,admission_number,first_name,last_name,date_of_birth,enrollment_status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)', [profileId, row.id, permanentStudentId, permanentStudentId, schoolId, row.admission_number, row.first_name, row.last_name, row.date_of_birth ?? null, row.student_status ?? 'ACTIVE', timestamp, timestamp]);
+      } else if (!profile.student_id || !profile.permanent_student_id) {
+        await tx.execute('UPDATE student_profiles SET student_id=COALESCE(NULLIF(student_id,\'\'),?),permanent_student_id=COALESCE(NULLIF(permanent_student_id,\'\'),?),updated_at=? WHERE school_id=? AND id=?', [permanentStudentId, permanentStudentId, timestamp, schoolId, profileId]);
+        profile.student_id = profile.student_id ?? permanentStudentId;
+        profile.permanent_student_id = profile.permanent_student_id ?? permanentStudentId;
       }
       const academicYearId = text(input.academicYearId ?? input.academicYear, { optional: false });
       const classId = text(input.classId, { optional: false });
