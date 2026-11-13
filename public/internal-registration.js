@@ -11,10 +11,52 @@ const existingStudentMatch = document.querySelector('#existing-student-match');
 const classField = form.elements.classId;
 const yearField = form.elements.academicYearId;
 const termField = form.elements.termId;
+const draftStatus = document.querySelector('#registration-draft-status');
+let draftKey = null;
+const defaultAcademicYear = '2026/2027';
 let classes = [];
 let terms = [];
 let saving = false;
 let completed = false;
+let restoringDraft = false;
+
+function saveDraft() {
+  if (restoringDraft || completed || !draftKey) return;
+  try {
+    const data = Object.fromEntries(new FormData(form).entries());
+    localStorage.setItem(draftKey, JSON.stringify({ version: 1, savedAt: new Date().toISOString(), data }));
+    draftStatus.textContent = 'Draft saved on this device.';
+  } catch { draftStatus.textContent = 'Draft could not be saved on this device.'; }
+}
+
+function restoreDraft() {
+  if (!draftKey) return;
+  try {
+    const saved = JSON.parse(localStorage.getItem(draftKey) ?? 'null');
+    if (saved?.version !== 1 || !saved.data || typeof saved.data !== 'object') return;
+    restoringDraft = true;
+    if (saved.data.admissionType) categoryField.value = saved.data.admissionType;
+    if (saved.data.existingIdChoice) [...identificationChoice].forEach((item) => { item.checked = item.value === saved.data.existingIdChoice; });
+    syncCategory();
+    for (const [name, value] of Object.entries(saved.data)) {
+      if (name === 'existingIdChoice') continue;
+      const field = form.elements.namedItem(name);
+      if (field && 'value' in field) field.value = String(value ?? '');
+    }
+    if (saved.data.reservationToken) {
+      form.elements.resolvedPermanentStudentId.value = saved.data.resolvedPermanentStudentId ?? '';
+      idOutput.textContent = form.elements.resolvedPermanentStudentId.value || 'Reservation ready to recover';
+      generateButton.textContent = 'ID Successfully Generated';
+    }
+    if (form.elements.existingStudentId.value) {
+      existingStudentMatch.textContent = 'Recovered existing student selection. Verify the student identity before submitting.';
+      existingStudentMatch.hidden = false;
+    }
+    updateAge();
+    draftStatus.textContent = 'Recovered an incomplete registration draft from this device. Generate or verify the permanent ID, then submit.';
+  } catch { draftStatus.textContent = 'A saved draft could not be restored.'; }
+  finally { restoringDraft = false; }
+}
 
 async function request(url, options = {}) {
   const controller = new AbortController();
@@ -75,22 +117,49 @@ function updateAge() {
 async function loadOptions() {
   try {
     const options = await request('/api/admission-workflow/options');
+    try {
+      const session = await request('/api/sidebar');
+      if (session.user?.id) draftKey = `osaah.internal-registration.draft.v1.${encodeURIComponent(session.user.id)}`;
+    } catch { draftStatus.textContent = 'Draft recovery is unavailable until your staff session can be verified.'; }
     classes = options.classes ?? [];
     classField.replaceChildren(new Option('Select class', ''));
     for (const item of classes) classField.add(new Option(item.name, item.id));
     const years = options.academicYears ?? [];
     terms = options.terms ?? [];
+    const savedYear = yearField.value;
+    yearField.replaceChildren(new Option('Select academic year', ''));
+    for (const item of years) yearField.add(new Option(item.name ?? item.id, item.id));
+    const year2026 = years.find((item) => item.name === defaultAcademicYear || item.id === defaultAcademicYear);
     const current = years.find((item) => item.isCurrent === true || item.isCurrent === 1);
-    if (current) yearField.value = String(current.id);
-    const currentTerm = terms.find((term) => String(term.academicYearId ?? '') === String(yearField.value) && (term.isCurrent === true || term.isCurrent === 1));
-    if (currentTerm) termField.value = String(currentTerm.id);
+    yearField.value = [savedYear, year2026?.id, current?.id].find((id) => id && years.some((item) => String(item.id) === String(id))) ?? '';
+    const refreshTerms = () => {
+      const priorTerm = termField.value;
+      const yearTerms = terms.filter((term) => String(term.academicYearId ?? '') === String(yearField.value));
+      termField.replaceChildren(new Option(yearField.value ? 'No terms configured for this academic year' : 'Select academic year first', ''));
+      for (const canonical of ['1st Term', '2nd Term', '3rd Term']) {
+        const configured = yearTerms.find((term) => normalizeTerm(term.name) === canonical);
+        if (configured) termField.add(new Option(canonical, configured.id));
+      }
+      if (yearTerms.length) termField.value = yearTerms.some((term) => String(term.id) === String(priorTerm)) ? priorTerm : yearTerms.find((term) => term.isCurrent === true || term.isCurrent === 1)?.id ?? '';
+    };
+    yearField.onchange = () => { refreshTerms(); saveDraft(); };
+    refreshTerms();
     if (!classes.length) status.textContent = 'No active school classes are available. Ask an administrator to check the class setup.';
+    restoreDraft();
+    refreshTerms();
   } catch (error) { status.textContent = `Unable to load school classes and academic periods: ${error.message}`; }
+}
+
+function normalizeTerm(value) {
+  const normalized = String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+  return ({ '1st term': '1st Term', 'first term': '1st Term', 'term 1': '1st Term', '2nd term': '2nd Term', 'second term': '2nd Term', 'term 2': '2nd Term', '3rd term': '3rd Term', 'third term': '3rd Term', 'term 3': '3rd Term' })[normalized] ?? normalized;
 }
 
 categoryField.addEventListener('change', () => { if (!completed) syncCategory(); });
 identificationChoice.forEach((radio) => radio.addEventListener('change', () => { if (!completed) syncExistingIdChoice(); }));
 form.elements.dateOfBirth.addEventListener('change', updateAge);
+form.addEventListener('input', saveDraft);
+form.addEventListener('change', saveDraft);
 
 document.querySelector('#reset-registration-form').addEventListener('click', () => {
   if (saving) return;
@@ -102,6 +171,7 @@ document.querySelector('#reset-registration-form').addEventListener('click', () 
   form.elements.reservationToken.value = '';
   form.elements.resolvedPermanentStudentId.value = '';
   existingStudentIdField.value = '';
+  if (draftKey) localStorage.removeItem(draftKey);
   idOutput.textContent = 'Not generated';
   generateButton.disabled = false;
   generateButton.textContent = 'Generate Permanent Student ID';
@@ -116,7 +186,19 @@ document.querySelector('#reset-registration-form').addEventListener('click', () 
 generateButton.addEventListener('click', async () => {
   if (generateButton.disabled || saving) return;
   if (form.elements.reservationToken.value || form.elements.resolvedPermanentStudentId.value && categoryField.value === 'ALREADY_ENROLLED') {
-    form.requestSubmit();
+    status.textContent = form.elements.resolvedPermanentStudentId.value
+      ? `Permanent ID ${form.elements.resolvedPermanentStudentId.value} is already reserved or assigned. Complete the form and submit registration.`
+      : 'A prior ID request can be retried using the same reservation. Select Generate again to recover it.';
+    if (!form.elements.reservationToken.value) return;
+    generateButton.disabled = true;
+    generateButton.textContent = 'Checking Reservation…';
+    try {
+      const reservation = await request('/api/internal-student-registration/student-id', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reservationToken: form.elements.reservationToken.value }) });
+      form.elements.resolvedPermanentStudentId.value = reservation.permanentStudentId;
+      idOutput.textContent = reservation.permanentStudentId;
+      status.textContent = `Permanent ID ${reservation.permanentStudentId} confirmed. Complete the form and submit registration.`;
+    } catch (error) { status.textContent = error.message; }
+    finally { generateButton.disabled = false; generateButton.textContent = form.elements.resolvedPermanentStudentId.value ? 'ID Successfully Generated' : 'Retry ID Generation'; }
     return;
   }
   if (!form.reportValidity()) return;
@@ -148,10 +230,14 @@ generateButton.addEventListener('click', async () => {
       if (choice === 'NO_ID' && !matched.permanentStudentId) {
         generateButton.textContent = 'Generating ID…';
         status.textContent = 'Existing student found. Generating a permanent OSAAH ID for the current calendar year…';
-        const reservation = await request('/api/internal-student-registration/student-id', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+        const reservationToken = crypto.randomUUID();
+        form.elements.reservationToken.value = reservationToken;
+        saveDraft();
+        const reservation = await request('/api/internal-student-registration/student-id', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reservationToken }) });
         form.elements.reservationToken.value = reservation.reservationToken;
         form.elements.resolvedPermanentStudentId.value = reservation.permanentStudentId;
         idOutput.textContent = reservation.permanentStudentId;
+        saveDraft();
       }
       status.textContent = matched.permanentStudentId
         ? `Existing permanent ID ${matched.permanentStudentId} retrieved. Submit registration when ready.`
@@ -166,13 +252,17 @@ generateButton.addEventListener('click', async () => {
   generateButton.textContent = 'Generating ID…';
   status.textContent = 'Generating a permanent Student ID for the current calendar year…';
   try {
-    const result = await request('/api/internal-student-registration/student-id', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+    const reservationToken = crypto.randomUUID();
+    form.elements.reservationToken.value = reservationToken;
+    saveDraft();
+    const result = await request('/api/internal-student-registration/student-id', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reservationToken }) });
     form.elements.reservationToken.value = result.reservationToken;
     form.elements.resolvedPermanentStudentId.value = result.permanentStudentId;
     idOutput.textContent = result.permanentStudentId;
+    saveDraft();
     status.textContent = 'ID reserved. Complete the remaining details, then submit registration.';
     generateButton.textContent = 'ID Successfully Generated';
-  } catch (error) { status.textContent = error.message; generateButton.textContent = 'Generate Permanent Student ID'; }
+  } catch (error) { status.textContent = error.message; generateButton.textContent = 'Retry ID Generation'; }
   finally { generateButton.disabled = false; }
 });
 
@@ -185,6 +275,7 @@ form.addEventListener('submit', async (event) => {
   if (!['FIRST_TIME', 'TRANSFER', 'ALREADY_ENROLLED'].includes(categoryField.value)) { status.textContent = 'Select an admission category.'; return; }
   if (categoryField.value === 'ALREADY_ENROLLED' && !existingStudentIdField.value) { status.textContent = 'Find and verify the existing student record before submitting.'; return; }
   if (categoryField.value !== 'ALREADY_ENROLLED' && !form.elements.reservationToken.value) { status.textContent = 'Generate and reserve the permanent Student ID before submitting.'; return; }
+  if (!yearField.value || !termField.value) { status.textContent = 'Select an academic year and one valid term before submitting.'; (yearField.value ? termField : yearField).focus(); return; }
 
   const fullName = form.elements.fullName.value.trim().replace(/\s+/g, ' ');
   const nameParts = fullName.split(' ');
@@ -215,6 +306,7 @@ form.addEventListener('submit', async (event) => {
     success.hidden = false;
     status.textContent = '';
     completed = true;
+    if (draftKey) localStorage.removeItem(draftKey);
     form.reset();
     syncCategory(); updateAge(); loadOptions();
     idOutput.textContent = result.permanentStudentId;
