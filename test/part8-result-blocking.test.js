@@ -69,3 +69,13 @@ test('class blocks remain effective after individual unblock and cannot be remov
   await service.unblockResults({ academicYear: '2026/2027', term: 'First Term', classId: 'Primary 1', studentId: 'student-1' }, head);
   assert.equal((await service.blockFor({ academicYear: '2026/2027', term: 'First Term', classId: 'Primary 1', studentId: 'student-1' })).scope, 'CLASS');
 });
+
+test('result block status is loaded from durable storage and remains class and teacher scoped', async () => {
+  const db = database();
+  const service = createDurableResultBlockingService({ database: db, schoolId: 'school-1', idFactory: () => 'status-block' });
+  await service.blockResults({ academicYear: '2026/2027', term: 'First Term', classId: 'Primary 1', reason: 'Term review' }, head);
+  assert.deepEqual(await service.getStatus({ academicYear: '2026/2027', term: 'First Term', classId: 'Primary 1', studentId: 'student-1' }, teacher), { status: 'BLOCKED', scope: 'CLASS' });
+  assert.deepEqual(await service.getStatus({ academicYear: '2026/2027', term: 'First Term', classId: 'Primary 2', studentId: 'student-1' }, head), { status: 'UNBLOCKED', scope: null });
+  await assert.rejects(() => service.getStatus({ academicYear: '2026/2027', term: 'First Term', classId: 'Primary 2', studentId: 'student-1' }, teacher), /outside your assignment/);
+  await assert.rejects(() => service.getStatus({ academicYear: '2026/2027', term: 'First Term', classId: 'Primary 1', studentId: 'student-1' }, { roleKey: 'PARENT', schoolId: 'school-1' }), /Forbidden/);
+});
