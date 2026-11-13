@@ -167,8 +167,10 @@ export function createInternalStudentRegistrationService({ database, clock = () 
         let sequence = maximum + 1;
         if (!Number.isSafeInteger(sequence) || sequence < 1) fail('STUDENT_ID_SEQUENCE_INVALID', 'Annual permanent Student ID sequence is invalid.', 409);
         const permanentStudentId = `OSAA/${admissionYear}/${String(sequence).padStart(3, '0')}`;
-        const idCollision = rows(await tx.query('SELECT id FROM students WHERE school_id=? AND permanent_student_id=? FOR UPDATE', [schoolId, permanentStudentId]));
-        if (idCollision.length) fail('STUDENT_ID_SEQUENCE_CONFLICT', 'The next Student ID is already in use. Ask an administrator to reconcile the annual sequence.', 409);
+        const idCollision = rows(await tx.query('SELECT id FROM students WHERE permanent_student_id=? FOR UPDATE', [permanentStudentId]));
+        const profileCollision = rows(await tx.query('SELECT student_master_id AS studentId FROM student_profiles WHERE student_id=? OR permanent_student_id=? FOR UPDATE', [permanentStudentId, permanentStudentId]));
+        if (idCollision.some((row) => String(row.id) !== String(studentId)) || profileCollision.some((row) => String(row.studentId) !== String(studentId))) fail('STUDENT_ID_ASSIGNMENT_CONFLICT', 'This permanent ID is already assigned to another student record.', 409);
+        if (idCollision.length || profileCollision.length) fail('STUDENT_ID_SEQUENCE_CONFLICT', 'The next Student ID is already in use. Ask an administrator to reconcile the annual sequence.', 409);
         const matchingReservation = rows(await tx.query(`SELECT id FROM student_id_reservations
           WHERE admission_year=? AND sequence_number=? AND student_id IS NULL AND reservation_status='RESERVED' LIMIT 1 FOR UPDATE`, [admissionYear, sequence]))[0];
         if (matchingReservation) {
@@ -259,6 +261,11 @@ export function createInternalStudentRegistrationService({ database, clock = () 
                 AND (permanent_student_id=? OR admission_number=? OR EXISTS (SELECT 1 FROM student_profiles sp WHERE sp.school_id=students.school_id AND sp.student_master_id=students.id AND (sp.student_id=? OR sp.permanent_student_id=?))) AND is_test_record IS NOT TRUE FOR UPDATE`, [schoolId, existingPermanentStudentId, existingPermanentStudentId, existingPermanentStudentId, existingPermanentStudentId]));
           if (matches.length !== 1) fail('EXISTING_STUDENT_NOT_FOUND', 'Student ID not found. Please verify the ID number and try again.', 404);
           student = matches[0];
+          if (existingPermanentStudentId) {
+            const owner = rows(await tx.query('SELECT id FROM students WHERE permanent_student_id=? FOR UPDATE', [existingPermanentStudentId]));
+            const profileOwner = rows(await tx.query('SELECT student_master_id AS studentId FROM student_profiles WHERE student_id=? OR permanent_student_id=? FOR UPDATE', [existingPermanentStudentId, existingPermanentStudentId]));
+            if (owner.some((row) => String(row.id) !== String(student.studentId)) || profileOwner.some((row) => String(row.studentId) !== String(student.studentId))) fail('EXISTING_STUDENT_IDENTITY_MISMATCH', 'This permanent ID is already assigned to another student record.', 409);
+          }
           if (normalizeName([student.firstName, student.middleName, student.lastName].filter(Boolean).join(' ')) !== normalizeName([firstName, middleName, lastName].filter(Boolean).join(' ')) || String(student.dateOfBirth ?? '').slice(0, 10) !== dateOfBirth) fail('EXISTING_STUDENT_IDENTITY_MISMATCH', 'The name and date of birth do not match this existing student ID.', 409);
           profile = rows(await tx.query('SELECT id,student_id AS permanentStudentId,permanent_student_id AS legacyPermanentStudentId,class_id AS classId FROM student_profiles WHERE school_id=? AND student_master_id=? ORDER BY updated_at DESC,id DESC LIMIT 1 FOR UPDATE', [schoolId, student.studentId]))[0] ?? null;
           const masterId = String(student.permanentStudentId ?? '').trim() || null;

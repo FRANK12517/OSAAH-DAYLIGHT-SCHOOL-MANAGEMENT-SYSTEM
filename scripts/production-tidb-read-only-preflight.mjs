@@ -109,6 +109,8 @@ export async function runProductionTiDBPreflight({
     const tables = await database.query('SELECT TABLE_NAME AS tableName FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE()');
     const columns = await database.query('SELECT TABLE_NAME AS tableName,COLUMN_NAME AS columnName,DATA_TYPE AS dataType,CHARACTER_MAXIMUM_LENGTH AS characterMaximumLength FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE()');
     const indexes = await database.query('SELECT TABLE_NAME AS tableName,INDEX_NAME AS indexName,COLUMN_NAME AS columnName,NON_UNIQUE AS nonUnique,SEQ_IN_INDEX AS position FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE()');
+    const duplicateIds = await database.query(`SELECT permanent_student_id AS permanentStudentId,COUNT(*) AS duplicateCount FROM students
+      WHERE permanent_student_id IS NOT NULL AND permanent_student_id<>'' GROUP BY permanent_student_id HAVING COUNT(*)>1 LIMIT 20`);
     const foreignKeys = await database.query(`SELECT TABLE_NAME AS tableName,COLUMN_NAME AS columnName,REFERENCED_TABLE_NAME AS referencedTable,REFERENCED_COLUMN_NAME AS referencedColumn FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA=DATABASE() AND REFERENCED_TABLE_NAME IS NOT NULL AND TABLE_NAME IN (${Object.keys(REQUIRED_SCHEMA).map(() => '?').join(',')})`, Object.keys(REQUIRED_SCHEMA));
     const tableSet = new Set(tables.map((row) => String(row.tableName ?? row.TABLE_NAME).toLowerCase()));
     const columnKey = (row) => `${String(row.tableName ?? row.TABLE_NAME).toLowerCase()}.${String(row.columnName ?? row.COLUMN_NAME).toLowerCase()}`;
@@ -117,6 +119,7 @@ export async function runProductionTiDBPreflight({
     const missingTables = Object.keys(REQUIRED_SCHEMA).filter((table) => !tableSet.has(table));
     const missingColumns = Object.entries(REQUIRED_SCHEMA).flatMap(([table, required]) => required.filter((column) => !columnSet.has(`${table}.${column}`)).map((column) => `${table}.${column}`));
     const permanentIdUniqueIndex = indexContract(indexes.map((row) => ({ tableName: row.tableName ?? row.TABLE_NAME, indexName: row.indexName ?? row.INDEX_NAME, columnName: row.columnName ?? row.COLUMN_NAME, nonUnique: row.nonUnique ?? row.NON_UNIQUE, position: row.position ?? row.SEQ_IN_INDEX })), 'students', ['school_id', 'permanent_student_id']);
+    const globalPermanentIdUniqueIndex = indexContract(indexes.map((row) => ({ tableName: row.tableName ?? row.TABLE_NAME, indexName: row.indexName ?? row.INDEX_NAME, columnName: row.columnName ?? row.COLUMN_NAME, nonUnique: row.nonUnique ?? row.NON_UNIQUE, position: row.position ?? row.SEQ_IN_INDEX })), 'students', ['permanent_student_id']);
     const reservationUniqueId = indexContract(indexes.map((row) => ({ tableName: row.tableName ?? row.TABLE_NAME, indexName: row.indexName ?? row.INDEX_NAME, columnName: row.columnName ?? row.COLUMN_NAME, nonUnique: row.nonUnique ?? row.NON_UNIQUE, position: row.position ?? row.SEQ_IN_INDEX })), 'student_id_reservations', ['permanent_student_id']);
     const enrollmentContextUniqueIndex = indexContract(indexes.map((row) => ({ tableName: row.tableName ?? row.TABLE_NAME, indexName: row.indexName ?? row.INDEX_NAME, columnName: row.columnName ?? row.COLUMN_NAME, nonUnique: row.nonUnique ?? row.NON_UNIQUE, position: row.position ?? row.SEQ_IN_INDEX })), 'student_enrollments', ['school_id', 'student_id', 'academic_year_id', 'term_id', 'is_current']);
     const identityColumns = ['students.permanent_student_id', 'student_profiles.student_id', 'student_profiles.permanent_student_id', 'student_id_reservations.permanent_student_id', 'admission_applications.permanent_student_id'];
@@ -127,15 +130,17 @@ export async function runProductionTiDBPreflight({
     const observedRelationships = foreignKeys.map((row) => ({ table: String(row.tableName ?? row.TABLE_NAME), column: String(row.columnName ?? row.COLUMN_NAME), referencedTable: String(row.referencedTable ?? row.REFERENCED_TABLE_NAME), referencedColumn: String(row.referencedColumn ?? row.REFERENCED_COLUMN_NAME) }));
     const relationshipSet = new Set(observedRelationships.map((item) => `${item.table.toLowerCase()}.${item.column.toLowerCase()}->${item.referencedTable.toLowerCase()}.${item.referencedColumn.toLowerCase()}`));
     const missingRelationships = REQUIRED_RELATIONSHIPS.map(([table, column, referencedTable, referencedColumn]) => `${table}.${column}->${referencedTable}.${referencedColumn}`).filter((relationship) => !relationshipSet.has(relationship.toLowerCase()));
-    const schemaReady = missingTables.length === 0 && missingColumns.length === 0 && invalidIdentityColumns.length === 0 && missingRelationships.length === 0 && permanentIdUniqueIndex && reservationUniqueId && enrollmentContextUniqueIndex;
+    const duplicatePermanentIds = duplicateIds.map((row) => ({ duplicateCount: Number(row.duplicateCount ?? row.DUPLICATECOUNT ?? row.duplicate_count ?? 0) }));
+    const schemaReady = missingTables.length === 0 && missingColumns.length === 0 && invalidIdentityColumns.length === 0 && missingRelationships.length === 0 && permanentIdUniqueIndex && globalPermanentIdUniqueIndex && reservationUniqueId && enrollmentContextUniqueIndex && duplicatePermanentIds.length === 0;
     const ok = databaseMatches && tidbIdentified && schemaReady;
     const result = {
       ok,
       mode: 'READ_ONLY_TIDB_PREFLIGHT',
       stage: 'complete',
+      releaseCommit: String(environment.GITHUB_SHA ?? environment.OSAAH_RELEASE_COMMIT ?? '').trim() || null,
       targetDatabase: PRODUCTION_DATABASE,
       connectivity: { dnsResolved: true, tcpConnected: true, authenticated: true, databaseMatches, tidbIdentified },
-      schema: { ready: schemaReady, missingTables, missingColumns, invalidIdentityColumns, missingRelationships, requiredIndexes: { permanentIdUniqueIndex, reservationUniqueId, enrollmentContextUniqueIndex }, requiredTableCount: Object.keys(REQUIRED_SCHEMA).length, observedRelationships },
+      schema: { ready: schemaReady, missingTables, missingColumns, invalidIdentityColumns, missingRelationships, duplicatePermanentIds, duplicatePermanentIdCount: duplicatePermanentIds.length, requiredIndexes: { permanentIdUniqueIndex, globalPermanentIdUniqueIndex, reservationUniqueId, enrollmentContextUniqueIndex }, requiredTableCount: Object.keys(REQUIRED_SCHEMA).length, observedRelationships },
       writesPerformed: false
     };
     write(result);

@@ -5,13 +5,14 @@ import { PRODUCTION_DATABASE, REQUIRED_RELATIONSHIPS, REQUIRED_SCHEMA, runProduc
 
 const connectionString = 'mysql://readonly:never-print-this@tidb.example.test:4000/osaahdaylightschool';
 
-function databaseFixture({ omitColumn = null, accessDenied = false, missingRelationship = null } = {}) {
+function databaseFixture({ omitColumn = null, accessDenied = false, missingRelationship = null, duplicateIds = [] } = {}) {
   const columns = Object.entries(REQUIRED_SCHEMA).flatMap(([tableName, names]) => names.filter((columnName) => `${tableName}.${columnName}` !== omitColumn).map((columnName) => ({ tableName, columnName, dataType: ['permanent_student_id', 'student_id'].includes(columnName) ? 'varchar' : 'varchar', characterMaximumLength: 100 })));
   const tables = Object.keys(REQUIRED_SCHEMA).map((tableName) => ({ tableName }));
   const relationships = REQUIRED_RELATIONSHIPS.filter((item) => item.join('.') !== missingRelationship).map(([tableName, columnName, referencedTable, referencedColumn]) => ({ tableName, columnName, referencedTable, referencedColumn }));
   const indexes = [
     { tableName: 'students', indexName: 'uq_students_school_permanent_id', columnName: 'school_id', nonUnique: 0, position: 1 },
     { tableName: 'students', indexName: 'uq_students_school_permanent_id', columnName: 'permanent_student_id', nonUnique: 0, position: 2 },
+    { tableName: 'students', indexName: 'uq_students_permanent_student_id_global', columnName: 'permanent_student_id', nonUnique: 0, position: 1 },
     { tableName: 'student_id_reservations', indexName: 'uq_student_id_reservation_permanent', columnName: 'permanent_student_id', nonUnique: 0, position: 1 },
     ...['school_id', 'student_id', 'academic_year_id', 'term_id', 'is_current'].map((columnName, position) => ({ tableName: 'student_enrollments', indexName: 'uq_student_enrollment_context', columnName, nonUnique: 0, position: position + 1 }))
   ];
@@ -25,6 +26,7 @@ function databaseFixture({ omitColumn = null, accessDenied = false, missingRelat
       if (sql.includes('information_schema.TABLES')) return tables;
       if (sql.includes('information_schema.COLUMNS')) return columns;
       if (sql.includes('information_schema.STATISTICS')) return indexes;
+      if (sql.includes('GROUP BY permanent_student_id HAVING COUNT(*)>1')) return duplicateIds;
       if (sql.includes('information_schema.KEY_COLUMN_USAGE')) return relationships;
       throw new Error('Unexpected query.');
     },
@@ -56,6 +58,8 @@ test('read-only TiDB preflight verifies target, connectivity, registration schem
   assert.equal(result.schema.ready, true);
   assert.equal(result.schema.observedRelationships.length, REQUIRED_RELATIONSHIPS.length);
   assert.equal(result.schema.requiredIndexes.enrollmentContextUniqueIndex, true);
+  assert.equal(result.schema.requiredIndexes.globalPermanentIdUniqueIndex, true);
+  assert.equal(result.schema.duplicatePermanentIdCount, 0);
   assert.equal(result.writesPerformed, false);
   assert.ok(fixture.statements.every((sql) => /^\s*SELECT\b/i.test(sql)));
 });
@@ -101,6 +105,15 @@ test('preflight identifies missing referential constraints', async () => {
   const result = await runProductionTiDBPreflight(dependencies(fixture));
   assert.equal(result.ok, false);
   assert.deepEqual(result.schema.missingRelationships, ['student_enrollments.student_id->students.id']);
+});
+
+test('preflight blocks global permanent ID uniqueness when existing student duplicates exist', async () => {
+  const fixture = databaseFixture({ duplicateIds: [{ permanentStudentId: 'redacted-id', duplicateCount: 2 }] });
+  const result = await runProductionTiDBPreflight(dependencies(fixture));
+  assert.equal(result.ok, false);
+  assert.equal(result.schema.ready, false);
+  assert.equal(result.schema.duplicatePermanentIdCount, 1);
+  assert.doesNotMatch(JSON.stringify(result), /redacted-id/);
 });
 
 test('Production preflight workflow uses protected main environment and never emits the connection string', async () => {

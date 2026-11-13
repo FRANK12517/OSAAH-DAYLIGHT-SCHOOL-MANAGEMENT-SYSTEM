@@ -29,6 +29,7 @@ test('canonical Class Database and Fee Hub migration is additive and non-duplica
   assert.ok((sql.match(/DECIMAL\(/g) ?? []).length >= 10);
   assert.match(sql, /UNIQUE KEY uq_student_fee_account/);
   assert.match(sql, /UNIQUE KEY uq_fee_receipt_payment/);
+  assert.match(sql, /CREATE UNIQUE INDEX IF NOT EXISTS uq_students_permanent_student_id_global\s+ON students \(permanent_student_id\)/);
   assert.match(sql, /CREATE OR REPLACE VIEW vw_class_database/);
   assert.match(sql, /CREATE OR REPLACE VIEW vw_completed_class_database/);
 });
