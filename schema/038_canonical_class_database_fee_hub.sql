@@ -18,6 +18,8 @@ UPDATE students SET full_name = TRIM(CONCAT_WS(' ', first_name, middle_name, las
 WHERE full_name IS NULL OR full_name = '';
 CREATE UNIQUE INDEX IF NOT EXISTS uq_students_school_permanent_id
   ON students (school_id, permanent_student_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_students_permanent_student_id_global
+  ON students (permanent_student_id);
 CREATE INDEX IF NOT EXISTS idx_students_school_name
   ON students (school_id, full_name);
 CREATE INDEX IF NOT EXISTS idx_students_school_parent_phone

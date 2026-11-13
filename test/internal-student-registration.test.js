@@ -34,6 +34,11 @@ test('registration must save first and only then expose permanent ID generation'
   assert.match(html, /Use this single form for first-time, transfer, and existing OsaaH students/);
   assert.match(html, /id="reset-registration-form"[^>]*>RESET FORM/);
   assert.match(html, /Submit and save registration first/);
+  assert.equal((html.match(/type="submit"/g) ?? []).length, 1);
+  const submitter = html.match(/<button class="primary-button" type="submit">([^<]+)<\/button>/)?.[1];
+  assert.equal(submitter, 'Submit Registered Student');
+  assert.match(html, /<button class="primary-button" type="submit">Submit Registered Student<\/button>[\s\S]*?id="generate-student-id"/);
+  assert.doesNotMatch(html.slice(html.indexOf('<h2>IMPORTANT NOTICE</h2>'), html.indexOf('</form>')), /type="submit"/);
   assert.match(html, /id="generate-student-id"[^>]*disabled/);
   assert.match(script, /registeredStudentId = result\.studentId/);
   assert.match(script, /body: JSON\.stringify\(\{ studentId: registeredStudentId \}\)/);
@@ -59,6 +64,7 @@ function databaseFixture() {
   let tail = Promise.resolve();
   const query = async (sql, params = []) => {
     if (sql.includes('SELECT next_sequence FROM student_id_sequences')) return [{ next_sequence: state.sequences.get(Number(params[0])) }];
+    if (sql.includes("SELECT id FROM student_id_reservations WHERE student_id=? AND reservation_status='CONSUMED'")) return state.reservations.filter((row) => row.student_id === params[0] && row.reservation_status === 'CONSUMED').map((row) => ({ id: row.id }));
     if (sql.includes('SELECT admission_year FROM student_id_sequences')) return state.sequences.has(Number(params[0])) ? [{ admission_year: Number(params[0]) }] : [];
     if (sql.includes('SELECT s.id AS studentId,s.school_id AS schoolId,s.permanent_student_id AS permanentStudentId') && sql.includes('LEFT JOIN student_profiles')) { const student = state.students.find((row) => row.id === params[0] && row.school_id === params[1]); if (!student) return []; return state.profiles.filter((profile) => profile.school_id === params[1] && profile.student_master_id === student.id).map((profile) => ({ studentId: student.id, schoolId: student.school_id, permanentStudentId: student.permanent_student_id, firstName: student.first_name, middleName: student.middle_name, lastName: student.last_name, admissionNumber: student.admission_number, profileId: profile.id, profileStudentId: profile.student_id, profileLegacyPermanentStudentId: profile.permanent_student_id })); }
     if (sql.includes('SELECT id AS studentId,school_id AS schoolId,permanent_student_id AS permanentStudentId') && sql.includes('admission_number=?')) { const student = state.students.find((row) => row.school_id === params[0] && row.admission_number === params[1]); return student ? [{ studentId: student.id, schoolId: student.school_id, permanentStudentId: student.permanent_student_id, firstName: student.first_name, middleName: student.middle_name, lastName: student.last_name, dateOfBirth: student.date_of_birth, parentPhone: student.parent_phone, classId: student.current_class_id }] : []; }
@@ -72,6 +78,8 @@ function databaseFixture() {
     if (sql.includes('SELECT student_id AS permanentStudentId,permanent_student_id AS legacyPermanentStudentId FROM student_profiles')) return state.profiles.filter((row) => row.school_id === params[0] && (row.student_id || row.permanent_student_id)).map((row) => ({ permanentStudentId: row.student_id, legacyPermanentStudentId: row.permanent_student_id }));
     if (sql.includes('SELECT permanent_student_id AS legacyPermanentStudentId FROM student_profiles') && sql.includes('permanent_student_id IS NOT NULL')) return state.profiles.filter((row) => row.school_id === params[0] && row.permanent_student_id).map((row) => ({ legacyPermanentStudentId: row.permanent_student_id }));
     if (sql.includes('SELECT id FROM students WHERE school_id=? AND permanent_student_id=?')) return state.students.filter((row) => row.school_id === params[0] && row.permanent_student_id === params[1]).map((row) => ({ id: row.id }));
+    if (sql.includes('SELECT id FROM students WHERE permanent_student_id=?')) return state.students.filter((row) => row.permanent_student_id === params[0]).map((row) => ({ id: row.id }));
+    if (sql.includes('SELECT student_master_id AS studentId FROM student_profiles WHERE student_id=? OR permanent_student_id=?')) return state.profiles.filter((row) => row.student_id === params[0] || row.permanent_student_id === params[1]).map((row) => ({ studentId: row.student_master_id }));
     if (sql.includes('SELECT id FROM student_id_reservations') && sql.includes('sequence_number=?')) return state.reservations.filter((row) => row.admission_year === Number(params[0]) && row.sequence_number === Number(params[1]) && row.student_id == null && row.reservation_status === 'RESERVED').map((row) => ({ id: row.id }));
     if (sql.includes('SELECT s.permanent_student_id AS permanentStudentId,sp.student_id AS profileStudentId')) { const student = state.students.find((row) => row.school_id === params[0] && row.id === params[1]), profile = state.profiles.find((row) => row.school_id === params[0] && row.student_master_id === params[1] && row.id === params[2]); return student && profile ? [{ permanentStudentId: student.permanent_student_id, profileStudentId: profile.student_id, profileLegacyPermanentStudentId: profile.permanent_student_id }] : []; }
     if (sql.includes('SELECT permanent_student_id FROM students WHERE permanent_student_id LIKE')) return state.students.filter((row) => String(row.permanent_student_id ?? '').startsWith(String(params[0]).replace('%', ''))).map((row) => ({ permanent_student_id: row.permanent_student_id }));

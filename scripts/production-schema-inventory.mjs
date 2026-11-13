@@ -42,6 +42,7 @@ const requiredIndexes = [
   ['student_id_reservations', 'PRIMARY', ['id'], 0],
   ['student_id_reservations', 'uq_student_id_reservation_token', ['reservation_token'], 0],
   ['student_id_reservations', 'uq_student_id_reservation_permanent', ['permanent_student_id'], 0],
+  ['students', 'uq_students_permanent_student_id_global', ['permanent_student_id'], 0],
   ['student_id_reservations', 'uq_student_id_reservation_sequence', ['admission_year', 'sequence_number'], 0],
   ['student_id_reservations', 'idx_student_id_reservation_status', ['reservation_status', 'admission_year'], 1]
 ];
