@@ -3,11 +3,13 @@ import { normalizeGhanaPhone } from './ghana-phone.js';
 import { requireStudentGender } from './student-gender.js';
 import { canonicalClassId } from './student-classes.js';
 import { tidbInsertIfAbsent } from './tidb-conflict.js';
+import { ghanaPhoneLookupValues } from './utils/normalize-phone.js';
 
 const rows = (value) => Array.isArray(value) ? value : [];
 const fail = (code, message, status = 400) => { throw Object.assign(new Error(message), { code, status }); };
 const text = (value, max = 255) => { const result = String(value ?? '').trim(); return result ? result.slice(0, max) : null; };
 const normalizeName = (value) => String(value ?? '').trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+const canonicalTerm = (value) => ({ '1st term': '1st Term', 'first term': '1st Term', 'term 1': '1st Term', '2nd term': '2nd Term', 'second term': '2nd Term', 'term 2': '2nd Term', '3rd term': '3rd Term', 'third term': '3rd Term', 'term 3': '3rd Term' })[String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ')] ?? null;
 function normalizedPhone(value) { try { return normalizeGhanaPhone(value); } catch { return null; } }
 
 export function createInternalStudentRegistrationService({ database, clock = () => new Date().toISOString(), idFactory = randomUUID } = {}) {
@@ -76,7 +78,7 @@ export function createInternalStudentRegistrationService({ database, clock = () 
     };
   }
 
-  async function resolveExistingParent(tx, { schoolId, parentEmail, parentPhone }) {
+  async function resolveExistingParent(tx, { schoolId, parentEmail, parentPhone, timestamp }) {
     const candidates = rows(await tx.query(`SELECT DISTINCT u.id,u.email,u.phone,u.username FROM users u
       JOIN user_roles ur ON ur.user_id=u.id
       JOIN roles r ON r.id=ur.role_id AND r.school_id=u.school_id AND r.role_key='PARENT'
@@ -84,18 +86,40 @@ export function createInternalStudentRegistrationService({ database, clock = () 
     const matched = candidates.filter((item) => (parentEmail && String(item.email ?? '').trim().toLowerCase() === parentEmail.toLowerCase())
       || normalizedPhone(item.phone) === parentPhone || String(item.username ?? '') === parentPhone);
     if (matched.length > 1) fail('PARENT_IDENTITY_AMBIGUOUS', 'More than one parent account matches these contact details. Reconcile the parent accounts before linking the student.', 409);
-    return matched[0]?.id ?? null;
+    if (matched[0]) return matched[0].id;
+    const role = rows(await tx.query("SELECT id FROM roles WHERE school_id=? AND role_key='PARENT' LIMIT 1 FOR UPDATE", [schoolId]))[0];
+    if (!role) fail('PARENT_ROLE_NOT_CONFIGURED', 'Parent Portal access is not configured for this school. Ask an administrator to configure the Parent role before completing registration.', 503);
+    const parentUserId = idFactory();
+    await tx.execute(`INSERT INTO users (id,school_id,username,email,phone,password_hash,status,created_at,updated_at)
+      VALUES (?,?,?,?,?,NULL,'ACTIVE',?,?)`, [parentUserId, schoolId, parentPhone, parentEmail, parentPhone, timestamp, timestamp]);
+    await tx.execute('INSERT INTO user_roles (id,user_id,role_id,created_at) VALUES (?,?,?,?)', [idFactory(), parentUserId, role.id, timestamp]);
+    return parentUserId;
   }
 
-  async function reserve({ actorId }) {
+  async function reserve({ actorId, reservationToken: requestedToken } = {}) {
     const admissionYear = new Date(clock()).getUTCFullYear();
     if (!Number.isInteger(admissionYear) || admissionYear < 2000 || admissionYear > 9999) fail('ADMISSION_YEAR_INVALID', 'A valid four-digit admission year is required.');
     if (!actorId) fail('ACTOR_REQUIRED', 'An authorized staff account is required.', 401);
-    const timestamp = clock(), token = idFactory(), reservationId = idFactory();
+    if (requestedToken != null && !/^[A-Za-z0-9-]{1,64}$/.test(String(requestedToken))) fail('STUDENT_ID_RESERVATION_TOKEN_INVALID', 'The ID request could not be verified. Please retry.');
+    const timestamp = clock(), token = String(requestedToken ?? idFactory()), reservationId = idFactory();
     try {
       return await database.transaction(async (tx) => {
+        if (requestedToken) {
+          const existing = rows(await tx.query('SELECT * FROM student_id_reservations WHERE reservation_token=? FOR UPDATE', [token]))[0];
+          if (existing) {
+            if (String(existing.reserved_by) !== String(actorId)) fail('STUDENT_ID_RESERVATION_FORBIDDEN', 'This reserved Student ID is unavailable to this registration.', 409);
+            return { permanentStudentId: existing.permanent_student_id, reservationToken: token, admissionYear: Number(existing.admission_year), status: existing.reservation_status };
+          }
+        }
         await tidbInsertIfAbsent(tx, { insertSql: 'INSERT INTO student_id_sequences (admission_year,next_sequence,updated_at) VALUES (?,?,?)', insertParameters: [admissionYear, 1, timestamp], conflictSql: 'SELECT admission_year FROM student_id_sequences WHERE admission_year=?', conflictParameters: [admissionYear] });
         const sequenceRow = rows(await tx.query('SELECT next_sequence FROM student_id_sequences WHERE admission_year=? FOR UPDATE', [admissionYear]))[0];
+        if (requestedToken) {
+          const existing = rows(await tx.query('SELECT * FROM student_id_reservations WHERE reservation_token=? FOR UPDATE', [token]))[0];
+          if (existing) {
+            if (String(existing.reserved_by) !== String(actorId)) fail('STUDENT_ID_RESERVATION_FORBIDDEN', 'This reserved Student ID is unavailable to this registration.', 409);
+            return { permanentStudentId: existing.permanent_student_id, reservationToken: token, admissionYear: Number(existing.admission_year), status: existing.reservation_status };
+          }
+        }
         let sequence = Number(sequenceRow?.next_sequence);
         if (!Number.isSafeInteger(sequence) || sequence < 1) fail('STUDENT_ID_SEQUENCE_INVALID', 'Annual permanent Student ID sequence is invalid.', 409);
         const alreadyIssued = rows(await tx.query('SELECT permanent_student_id FROM students WHERE permanent_student_id LIKE ? FOR UPDATE', [`OSAAH/${admissionYear}/%`])).map((row) => String(row.permanent_student_id ?? ''));
@@ -140,13 +164,18 @@ export function createInternalStudentRegistrationService({ database, clock = () 
     const emergencyPhoneRaw = text(input.emergencyPhone, 50);
     const emergencyPhone = emergencyPhoneRaw ? normalizeGhanaPhone(emergencyPhoneRaw) : null;
     const academicYearId = text(input.academicYearId, 64), termId = text(input.termId, 64);
-    if (!academicYearId || !termId) fail('ACADEMIC_PERIOD_REQUIRED', 'Select the academic year and term for class registration.');
+    if (!academicYearId || !termId) fail('ACADEMIC_PERIOD_REQUIRED', 'Select the academic year and one term for class registration.');
     const timestamp = clock(), admissionDate = timestamp.slice(0, 10);
     try {
       return await database.transaction(async (tx) => {
-        const period = rows(await tx.query(`SELECT y.id AS academicYearId,y.name AS academicYearName,y.starts_on AS academicYearStartsOn,t.id AS termId FROM academic_years y
+        const registrationYear = new Date(timestamp).getUTCFullYear();
+        await tidbInsertIfAbsent(tx, { insertSql: 'INSERT INTO student_id_sequences (admission_year,next_sequence,updated_at) VALUES (?,?,?)', insertParameters: [registrationYear, 1, timestamp], conflictSql: 'SELECT admission_year FROM student_id_sequences WHERE admission_year=?', conflictParameters: [registrationYear] });
+        const registrationLock = rows(await tx.query('SELECT admission_year FROM student_id_sequences WHERE admission_year=? FOR UPDATE', [registrationYear]))[0];
+        if (!registrationLock) fail('STUDENT_REGISTRATION_LOCK_UNAVAILABLE', 'Student registration is temporarily unavailable. Please retry.', 503);
+        const period = rows(await tx.query(`SELECT y.id AS academicYearId,y.name AS academicYearName,y.starts_on AS academicYearStartsOn,t.id AS termId,t.name AS termName FROM academic_years y
           JOIN terms t ON t.academic_year_id=y.id WHERE y.school_id=? AND y.id=? AND t.id=? LIMIT 1`, [schoolId, academicYearId, termId]))[0];
         if (!period) fail('ACADEMIC_PERIOD_INVALID', 'Select a valid academic year and term.');
+        if (!canonicalTerm(period.termName)) fail('ACADEMIC_TERM_INVALID', 'Choose 1st Term, 2nd Term, or 3rd Term.');
         const academicYear = String(period.academicYearStartsOn ?? period.academicYearName ?? '').match(/\d{4}/)?.[0];
         if (!academicYear) fail('ACADEMIC_YEAR_INVALID', 'The selected academic year does not have a valid start year.', 409);
 
@@ -219,7 +248,15 @@ export function createInternalStudentRegistrationService({ database, clock = () 
           }
           if (reservation.reservation_status !== 'RESERVED' || String(reservation.reserved_by) !== String(actorId)) fail('STUDENT_ID_RESERVATION_FORBIDDEN', 'This reserved Student ID is unavailable to this registration.', 409);
           if (Number(reservation.admission_year) !== new Date(timestamp).getUTCFullYear()) fail('STUDENT_ID_YEAR_MISMATCH', 'This Student ID reservation is not from the current calendar year. Generate a new ID.', 409);
-          const duplicate = rows(await tx.query(`SELECT id FROM students WHERE school_id=? AND LOWER(TRIM(CONCAT_WS(' ',first_name,middle_name,last_name)))=? AND date_of_birth=? LIMIT 1 FOR UPDATE`, [schoolId, normalizeName([firstName, middleName, lastName].filter(Boolean).join(' ')), dateOfBirth]))[0];
+          const duplicatePhones = [...new Set(ghanaPhoneLookupValues(parentPhone).map((value) => value.replace(/\D/g, '')))];
+          const duplicatePhoneSlots = duplicatePhones.map(() => '?').join(',');
+          const duplicate = rows(await tx.query(`SELECT s.id FROM students s WHERE s.school_id=?
+            AND LOWER(TRIM(CONCAT_WS(' ',s.first_name,s.middle_name,s.last_name)))=? AND s.date_of_birth=?
+            AND (REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(s.parent_phone,''),' ',''),'-',''),'(',''),')',''),'+','') IN (${duplicatePhoneSlots})
+              OR EXISTS (SELECT 1 FROM student_profiles sp JOIN student_family_contacts fc ON fc.student_id=sp.id
+                WHERE sp.school_id=s.school_id AND sp.student_master_id=s.id AND fc.contact_type='PRIMARY_GUARDIAN'
+                AND REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(fc.telephone,''),' ',''),'-',''),'(',''),')',''),'+','') IN (${duplicatePhoneSlots})))
+            LIMIT 1 FOR UPDATE`, [schoolId, normalizeName([firstName, middleName, lastName].filter(Boolean).join(' ')), dateOfBirth, ...duplicatePhones, ...duplicatePhones]))[0];
           if (duplicate) fail('POSSIBLE_DUPLICATE_STUDENT', 'A student with this name and date of birth already exists. Use Existing OSAAH Student and verify their permanent ID.', 409);
           const studentId = idFactory(), profileId = idFactory(), permanentStudentId = reservation.permanent_student_id;
           await tx.execute(`INSERT INTO students (id,permanent_student_id,school_id,admission_number,current_class_id,first_name,middle_name,last_name,full_name,gender,date_of_birth,parent_guardian_name,parent_phone,admission_date,admission_type,student_status,is_test_record,created_at,updated_at)
@@ -256,7 +293,7 @@ export function createInternalStudentRegistrationService({ database, clock = () 
         if (health) await tx.execute('UPDATE student_health_records SET allergies=?,conditions=?,medications=?,emergency_notes=?,updated_at=? WHERE student_id=?', [...healthValues, profile.id]);
         else await tx.execute('INSERT INTO student_health_records (student_id,allergies,conditions,medications,emergency_notes,created_at,updated_at) VALUES (?,?,?,?,?,?,?)', [profile.id, ...healthValues, timestamp]);
 
-        const existingParentId = await resolveExistingParent(tx, { schoolId, parentEmail, parentPhone });
+        const existingParentId = await resolveExistingParent(tx, { schoolId, parentEmail, parentPhone, timestamp });
         if (existingParentId) await tidbInsertIfAbsent(tx, {
           insertSql: 'INSERT INTO parent_student_links (parent_user_id,student_id,permanent_student_id,telephone,relationship,relationship_type,link_status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)',
           insertParameters: [existingParentId, profile.id, student.permanentStudentId ?? student.permanent_student_id, parentPhone, text(input.relationship, 100) ?? 'Parent/Guardian', text(input.relationship, 100) ?? 'GUARDIAN', 'ACTIVE', timestamp, timestamp],

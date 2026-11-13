@@ -37,6 +37,11 @@ test('single registration form confirms permanent index and provides a non-destr
   assert.match(html, /I HAVE AN ID/);
   assert.match(html, /I DO NOT HAVE AN ID/);
   assert.match(html, /Enter Student ID Number/);
+  assert.match(html, /name="academicYearId" required/);
+  assert.match(html, /name="termId" required/);
+  assert.match(script, /localStorage\.setItem\(draftKey/);
+  assert.match(script, /localStorage\.removeItem\(draftKey\)/);
+  assert.match(script, /Select an academic year and one valid term/);
   assert.doesNotMatch(html, /<h2>Class Assignment<\/h2>/);
   assert.match(script, /PLEASE WRITE AND SAVE THE NAME AND PERMANENT ID OF THE REGISTERED STUDENT OR LOOK FOR IT IN THE CLASS DATABASE\./);
   assert.match(script, /form\.reset\(\)/);
@@ -45,10 +50,11 @@ test('single registration form confirms permanent index and provides a non-destr
 });
 
 function databaseFixture() {
-  const state = { sequences: new Map(), reservations: [], students: [], profiles: [], guardians: [], health: [], enrollments: [], parentAccounts: [{ id: 'parent-1', email: 'kwame@example.test', phone: '+233241234567', username: '+233241234567' }], parentLinks: [], classes: [{ id: 'class-kg1', name: 'KG1', school_id: 'school-1' }], periods: [{ academicYearId: 'year-2026', academicYearName: '2026/2027', academicYearStartsOn: '2026-09-01', termId: 'term-1' }] };
+  const state = { sequences: new Map(), reservations: [], students: [], profiles: [], guardians: [], health: [], enrollments: [], parentAccounts: [{ id: 'parent-1', email: 'kwame@example.test', phone: '+233241234567', username: '+233241234567' }], parentLinks: [], roles: [{ id: 'role-parent', school_id: 'school-1', role_key: 'PARENT' }], userRoles: [], classes: [{ id: 'class-kg1', name: 'KG1', school_id: 'school-1' }], periods: [{ academicYearId: 'year-2026', academicYearName: '2026/2027', academicYearStartsOn: '2026-09-01', termId: 'term-1', termName: '1st Term' }] };
   let tail = Promise.resolve();
   const query = async (sql, params = []) => {
     if (sql.includes('SELECT next_sequence FROM student_id_sequences')) return [{ next_sequence: state.sequences.get(Number(params[0])) }];
+    if (sql.includes('SELECT admission_year FROM student_id_sequences')) return state.sequences.has(Number(params[0])) ? [{ admission_year: Number(params[0]) }] : [];
     if (sql.includes('SELECT permanent_student_id FROM students WHERE permanent_student_id LIKE')) return state.students.filter((row) => String(row.permanent_student_id ?? '').startsWith(String(params[0]).replace('%', ''))).map((row) => ({ permanent_student_id: row.permanent_student_id }));
     if (sql.includes('SELECT student_id FROM student_profiles WHERE student_id LIKE')) return state.profiles.filter((row) => String(row.student_id ?? '').startsWith(String(params[0]).replace('%', ''))).map((row) => ({ student_id: row.student_id }));
     if (sql.includes('SELECT permanent_student_id FROM student_id_reservations')) return state.reservations.filter((row) => row.admission_year === Number(params[0])).map((row) => ({ permanent_student_id: row.permanent_student_id }));
@@ -61,7 +67,7 @@ function databaseFixture() {
     if (sql.includes('SELECT id AS studentId,permanent_student_id AS permanentStudentId,first_name AS firstName,last_name AS lastName FROM students WHERE id=')) return state.students.filter((row) => row.id === params[0] && row.school_id === params[1]).map((row) => ({ studentId: row.id, permanentStudentId: row.permanent_student_id, firstName: row.first_name, lastName: row.last_name }));
     if (sql.includes('SELECT id,name FROM classes')) return state.classes.filter((row) => row.id === params[0] && row.school_id === params[1]);
     if (sql.includes('SELECT y.id AS academicYearId')) return state.periods.filter((row) => row.academicYearId === params[1] && row.termId === params[2]);
-    if (sql.includes('SELECT id FROM students WHERE school_id=? AND LOWER')) return state.students.filter((row) => row.school_id === params[0] && row.full_name.toLocaleLowerCase() === params[1] && row.date_of_birth === params[2]).map((row) => ({ id: row.id }));
+    if (sql.includes('SELECT s.id FROM students s WHERE s.school_id=?')) { const phoneCount = (params.length - 3) / 2, phones = params.slice(3, 3 + phoneCount); return state.students.filter((row) => row.school_id === params[0] && row.full_name.toLocaleLowerCase() === params[1] && row.date_of_birth === params[2] && phones.includes(String(row.parent_phone ?? '').replace(/\D/g, ''))).map((row) => ({ id: row.id })); }
     if (sql.includes('SELECT s.id AS studentId,s.permanent_student_id AS permanentStudentId,s.first_name AS firstName')) {
       return state.students.filter((row) => row.school_id === params[0] && row.permanent_student_id === params[1]).map((row) => {
         const profile = state.profiles.find((item) => item.student_master_id === row.id);
@@ -78,6 +84,7 @@ function databaseFixture() {
     if (sql.includes('SELECT id FROM student_family_contacts')) return state.guardians.filter((row) => row.student_id === params[0] && row.contact_type === 'PRIMARY_GUARDIAN');
     if (sql.includes('SELECT student_id FROM student_health_records')) return state.health.filter((row) => row.student_id === params[0]).map((row) => ({ student_id: row.student_id }));
     if (sql.includes('SELECT DISTINCT u.id,u.email,u.phone,u.username FROM users u')) return state.parentAccounts;
+    if (sql.includes("SELECT id FROM roles WHERE school_id=? AND role_key='PARENT'")) return state.roles.filter((role) => role.school_id === params[0] && role.role_key === 'PARENT');
     if (sql.includes('SELECT parent_user_id FROM parent_student_links')) return state.parentLinks.filter((row) => row.parent_user_id === params[0] && row.student_id === params[1]).map((row) => ({ parent_user_id: row.parent_user_id }));
     if (sql.includes('SELECT id FROM student_enrollments')) return state.enrollments.filter((row) => row.school_id === params[0] && row.student_id === params[1] && row.academic_year_id === params[2] && row.term_id === params[3] && row.is_current === 1).map((row) => ({ id: row.id }));
     throw new Error(`Unexpected query: ${sql}`);
@@ -88,6 +95,8 @@ function databaseFixture() {
     if (sql.startsWith('INSERT INTO student_id_sequences')) { state.sequences.set(Number(params[0]), 1); return; }
     if (sql.startsWith('UPDATE student_id_sequences')) { state.sequences.set(Number(params[2]), Number(params[0])); return; }
     if (sql.startsWith('INSERT INTO student_id_reservations')) { state.reservations.push({ id: params[0], reservation_token: params[1], permanent_student_id: params[2], admission_year: params[3], sequence_number: params[4], reservation_status: 'RESERVED', reserved_by: params[5], created_at: params[6] }); return; }
+    if (sql.startsWith('INSERT INTO users ')) { state.parentAccounts.push({ id: params[0], school_id: params[1], username: params[2], email: params[3], phone: params[4], status: 'ACTIVE' }); return; }
+    if (sql.startsWith('INSERT INTO user_roles ')) { state.userRoles.push({ id: params[0], user_id: params[1], role_id: params[2], created_at: params[3] }); return; }
     if (sql.startsWith('INSERT INTO students ')) { state.students.push({ id: params[0], permanent_student_id: params[1], school_id: params[2], admission_number: params[3], current_class_id: params[4], first_name: params[5], middle_name: params[6], last_name: params[7], full_name: params[8], gender: params[9], date_of_birth: params[10], parent_guardian_name: params[11], parent_phone: params[12], admission_type: params[14], student_status: params[15] }); return; }
     if (sql.startsWith('INSERT INTO student_profiles')) { state.profiles.push({ id: params[0], student_master_id: params[1], student_id: params[2], school_id: params[3], class_id: params[5], first_name: params[7], middle_name: params[8], surname: params[9], date_of_birth: params[11], home_address: params[13], previous_school: params[15] }); return; }
     if (sql.startsWith('UPDATE student_id_reservations')) { const row = state.reservations.find((item) => item.id === params[2]); Object.assign(row, { reservation_status: 'CONSUMED', student_id: params[0], consumed_at: params[1] }); return; }
@@ -143,6 +152,75 @@ test('permanent ID reservation uses backend calendar year and ignores academic-y
   const reservation = await service.reserve({ actorId: 'staff-1', year: 2027 });
   assert.equal(reservation.admissionYear, 2026);
   assert.equal(reservation.permanentStudentId, 'OSAAH/2026/001');
+});
+
+test('permanent ID reservation retries return the same ID without consuming another sequence', async () => {
+  const { database, state } = databaseFixture();
+  const service = createInternalStudentRegistrationService({ database, clock: () => '2026-11-12T10:00:00.000Z', idFactory: (() => { let n = 0; return () => `id-${++n}`; })() });
+  const [first, retry] = await Promise.all([
+    service.reserve({ actorId: 'staff-1', reservationToken: 'stable-request-1' }),
+    service.reserve({ actorId: 'staff-1', reservationToken: 'stable-request-1' })
+  ]);
+  assert.equal(first.permanentStudentId, retry.permanentStudentId);
+  assert.equal(state.reservations.length, 1);
+  assert.equal(state.sequences.get(2026), 2);
+  await assert.rejects(() => service.reserve({ actorId: 'staff-2', reservationToken: 'stable-request-1' }), { code: 'STUDENT_ID_RESERVATION_FORBIDDEN' });
+  assert.equal(state.sequences.get(2026), 2);
+});
+
+test('registration rejects unsupported terms before creating student records', async () => {
+  const { database, state } = databaseFixture();
+  state.periods[0].termName = 'Summer Term';
+  const service = createInternalStudentRegistrationService({ database, clock: () => '2026-11-12T10:00:00.000Z' });
+  const reservation = await service.reserve({ actorId: 'staff-1' });
+  await assert.rejects(() => service.register(input({ reservationToken: reservation.reservationToken }), { schoolId: 'school-1', actorId: 'staff-1' }), { code: 'ACADEMIC_TERM_INVALID' });
+  assert.equal(state.students.length, 0);
+});
+
+test('duplicate child checks require matching name, birth date, and parent phone', async () => {
+  const { database, state } = databaseFixture();
+  const service = createInternalStudentRegistrationService({ database, clock: () => '2026-11-12T10:00:00.000Z', idFactory: (() => { let n = 0; return () => `id-${++n}`; })() });
+  const firstReservation = await service.reserve({ actorId: 'staff-1' });
+  await service.register(input({ reservationToken: firstReservation.reservationToken }), { schoolId: 'school-1', actorId: 'staff-1' });
+  state.students[0].parent_phone = '0241234567';
+  const duplicateReservation = await service.reserve({ actorId: 'staff-1' });
+  await assert.rejects(() => service.register(input({ reservationToken: duplicateReservation.reservationToken }), { schoolId: 'school-1', actorId: 'staff-1' }), { code: 'POSSIBLE_DUPLICATE_STUDENT' });
+  const separateChildReservation = await service.reserve({ actorId: 'staff-1' });
+  const separateChild = await service.register(input({ parentPhone: '0201234567', reservationToken: separateChildReservation.reservationToken }), { schoolId: 'school-1', actorId: 'staff-1' });
+  assert.equal(separateChild.created, true);
+  assert.equal(state.students.length, 2);
+});
+
+test('simultaneous matching registrations serialize and create only one student', async () => {
+  const { database, state } = databaseFixture();
+  const service = createInternalStudentRegistrationService({ database, clock: () => '2026-11-12T10:00:00.000Z', idFactory: (() => { let n = 0; return () => `id-${++n}`; })() });
+  const [firstReservation, secondReservation] = await Promise.all([
+    service.reserve({ actorId: 'staff-1' }),
+    service.reserve({ actorId: 'staff-1' })
+  ]);
+  const outcomes = await Promise.allSettled([
+    service.register(input({ reservationToken: firstReservation.reservationToken }), { schoolId: 'school-1', actorId: 'staff-1' }),
+    service.register(input({ reservationToken: secondReservation.reservationToken }), { schoolId: 'school-1', actorId: 'staff-1' })
+  ]);
+  assert.equal(outcomes.filter((item) => item.status === 'fulfilled').length, 1);
+  assert.equal(outcomes.filter((item) => item.status === 'rejected' && item.reason.code === 'POSSIBLE_DUPLICATE_STUDENT').length, 1);
+  assert.equal(state.students.length, 1);
+});
+
+test('new parent contact is linked to a school-scoped phone-only Parent Portal account', async () => {
+  const { database, state } = databaseFixture();
+  state.parentAccounts = [];
+  const service = createInternalStudentRegistrationService({ database, clock: () => '2026-11-12T10:00:00.000Z', idFactory: (() => { let n = 0; return () => `id-${++n}`; })() });
+  const reservation = await service.reserve({ actorId: 'staff-1' });
+  const result = await service.register(input({ reservationToken: reservation.reservationToken }), { schoolId: 'school-1', actorId: 'staff-1' });
+  const parent = state.parentAccounts[0];
+  assert.equal(result.created, true);
+  assert.equal(parent.username, '+233241234567');
+  assert.equal(parent.phone, '+233241234567');
+  assert.equal(state.userRoles[0].user_id, parent.id);
+  assert.equal(state.userRoles[0].role_id, 'role-parent');
+  assert.equal(state.parentLinks[0].parent_user_id, parent.id);
+  assert.equal(state.parentLinks[0].telephone, '+233241234567');
 });
 
 test('registration persists pupil, parent, health and canonical class enrollment together', async () => {

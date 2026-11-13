@@ -610,7 +610,7 @@ export function createApp({ auth = null, students = null, attendance = null, att
         try {
           const body = await readJson(request);
           if (pathname === '/api/internal-student-registration/student-id') {
-            const result = await internalStudentRegistration.reserve({ year: body.admissionYear, actorId: user.id });
+            const result = await internalStudentRegistration.reserve({ year: body.admissionYear, reservationToken: body.reservationToken, actorId: user.id });
             audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, roleId: user.roleKey, action: 'STUDENT_ID_RESERVED', entity: 'StudentIdReservation', entityId: result.permanentStudentId }));
             return json(response, result, 201);
           }
