@@ -2,7 +2,9 @@ const form = document.querySelector('#internal-registration-form');
 const status = document.querySelector('#registration-status');
 const success = document.querySelector('#registration-success');
 const idOutput = document.querySelector('#permanent-student-id');
-const submitButton = form.querySelector('[type="submit"]');
+const idHelp = document.querySelector('#student-id-help');
+const submitButton = form.querySelector('#submit-registration');
+const generateButton = form.querySelector('#generate-student-id');
 const categoryField = form.elements.admissionType;
 const existingIdField = form.elements.existingPermanentStudentId;
 const existingStudentIdField = form.elements.existingStudentId;
@@ -80,22 +82,29 @@ function showRegistrationSaved(student, className) {
   success.replaceChildren();
   const heading = document.createElement('h2'); heading.textContent = 'Submitted Successfully';
   const detail = document.createElement('p'); detail.textContent = `${fullStudentName || 'Student'} is saved in the school database.`;
-  const placement = document.createElement('p'); placement.textContent = student.permanentStudentId ? `Permanent Student ID: ${student.permanentStudentId}.` : className ? `Class placement: ${className}. The same button will now generate the permanent ID.` : 'The same button will now generate the permanent ID.';
+  const placement = document.createElement('p'); placement.textContent = student.permanentStudentId ? `Permanent Student ID: ${student.permanentStudentId}.` : className ? `Class placement: ${className}. Generate the permanent ID to complete registration.` : 'Generate the permanent ID to complete registration.';
   success.append(heading, detail, placement);
   success.hidden = false;
   completed = true;
   registeredStudentId = student.studentId ?? student.id ?? registeredStudentId;
   if (student.permanentStudentId) {
     form.elements.resolvedPermanentStudentId.value = student.permanentStudentId;
-    idOutput.textContent = student.permanentStudentId;
+    idOutput.textContent = `Permanent Student ID: ${student.permanentStudentId}`;
     idOutput.hidden = false;
     submitButton.disabled = true;
-    submitButton.textContent = 'Registration Complete';
+    submitButton.textContent = 'Registration Saved';
+    generateButton.disabled = true;
+    generateButton.textContent = 'Permanent Student ID Assigned';
+    idHelp.hidden = true;
   } else {
     idOutput.textContent = '';
     idOutput.hidden = true;
-    submitButton.disabled = false;
-    submitButton.textContent = 'Generate Permanent Student ID';
+    submitButton.disabled = true;
+    submitButton.textContent = 'Registration Saved';
+    generateButton.disabled = false;
+    generateButton.textContent = 'Generate Permanent Student ID';
+    idHelp.textContent = 'Registration saved. Generate the Permanent Student ID.';
+    idHelp.hidden = false;
   }
   saveDraft();
   form.querySelectorAll('input, select, textarea').forEach((field) => { field.disabled = true; });
@@ -108,28 +117,30 @@ async function recoverRegisteredStudent() {
     draftStatus.textContent = 'Submitted Successfully. Registration confirmed in the school database.';
     status.textContent = '';
   } catch (error) {
-    completed = true;
-    form.querySelectorAll('input, select, textarea').forEach((field) => { field.disabled = true; });
+    registeredStudentId = null;
+    completed = false;
+    generateButton.disabled = true;
+    generateButton.textContent = 'Generate Permanent Student ID';
     submitButton.disabled = false;
-    submitButton.textContent = 'Retry Permanent ID Generation';
-    idOutput.textContent = '';
-    idOutput.hidden = true;
-    status.textContent = `Saved registration status could not be checked: ${error.message}`;
+    submitButton.textContent = 'Submit Registered Student';
+    draftStatus.textContent = `Saved registration could not be confirmed: ${error.message}`;
+    status.textContent = 'Retry the registration submission. The saved registration token prevents duplicate student creation.';
   }
 }
 
 async function generatePermanentStudentId() {
-  if (saving || !registeredStudentId || form.elements.resolvedPermanentStudentId.value) return;
+  if (saving || !completed || !registeredStudentId || form.elements.resolvedPermanentStudentId.value) return;
   saving = true;
-  submitButton.disabled = true;
-  submitButton.textContent = 'Generating Permanent ID...';
+  generateButton.disabled = true;
+  generateButton.textContent = 'Generating Permanent ID...';
   form.setAttribute('aria-busy', 'true');
   status.textContent = 'Registration is saved. Generating its Permanent Student ID...';
+  idHelp.textContent = 'Generating Permanent Student ID...';
   try {
     const result = await request('/api/internal-student-registration/student-id', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ studentId: registeredStudentId }) });
     if (!result.permanentStudentId) throw new Error('The database did not confirm a Permanent Student ID. Retry using this button.');
     form.elements.resolvedPermanentStudentId.value = result.permanentStudentId;
-    idOutput.textContent = result.permanentStudentId;
+    idOutput.textContent = `Permanent Student ID: ${result.permanentStudentId}`;
     idOutput.hidden = false;
     success.replaceChildren();
     const heading = document.createElement('h2'); heading.textContent = 'Submitted Successfully';
@@ -138,17 +149,20 @@ async function generatePermanentStudentId() {
     success.append(heading, detail, placement);
     success.hidden = false;
     status.textContent = `Permanent Student ID ${result.permanentStudentId} is saved to this student record.`;
-    submitButton.textContent = 'Registration Complete';
+    submitButton.textContent = 'Registration Saved';
+    generateButton.textContent = 'Registration Complete';
+    idHelp.hidden = true;
     saveDraft();
   } catch (error) {
     status.textContent = error.message;
-    idOutput.textContent = 'Registration is saved. The Permanent Student ID can be retried.';
-    idOutput.hidden = false;
-    submitButton.disabled = false;
-    submitButton.textContent = 'Retry Permanent ID Generation';
+    idOutput.hidden = true;
+    generateButton.disabled = false;
+    generateButton.textContent = 'Retry Permanent ID Generation';
+    idHelp.hidden = false;
+    idHelp.textContent = 'Registration is saved. Permanent Student ID generation failed. Use the button to retry.';
   } finally {
     saving = false;
-    submitButton.disabled = Boolean(form.elements.resolvedPermanentStudentId.value);
+    generateButton.disabled = Boolean(form.elements.resolvedPermanentStudentId.value);
     form.removeAttribute('aria-busy');
   }
 }
@@ -171,7 +185,11 @@ function syncCategory() {
   idOutput.textContent = '';
   idOutput.hidden = true;
   submitButton.disabled = false;
-  submitButton.textContent = 'Submit and Save Registration';
+  submitButton.textContent = 'Submit Registered Student';
+  generateButton.disabled = true;
+  generateButton.textContent = 'Generate Permanent Student ID';
+  idHelp.hidden = false;
+  idHelp.textContent = 'Submit and save registration first.';
 }
 
 function syncExistingIdChoice() {
@@ -186,7 +204,11 @@ function syncExistingIdChoice() {
   idOutput.textContent = '';
   idOutput.hidden = true;
   submitButton.disabled = false;
-  submitButton.textContent = 'Submit and Save Registration';
+  submitButton.textContent = 'Submit Registered Student';
+  generateButton.disabled = true;
+  generateButton.textContent = 'Generate Permanent Student ID';
+  idHelp.hidden = false;
+  idHelp.textContent = 'Submit and save registration first.';
 }
 
 function updateAge() {
@@ -261,7 +283,11 @@ document.querySelector('#reset-registration-form').addEventListener('click', () 
   idOutput.textContent = '';
   idOutput.hidden = true;
   submitButton.disabled = false;
-  submitButton.textContent = 'Submit and Save Registration';
+  submitButton.textContent = 'Submit Registered Student';
+  generateButton.disabled = true;
+  generateButton.textContent = 'Generate Permanent Student ID';
+  idHelp.hidden = false;
+  idHelp.textContent = 'Submit and save registration first.';
   syncCategory();
   updateAge();
   loadOptions();
@@ -271,7 +297,7 @@ form.addEventListener('submit', async (event) => {
   event.preventDefault();
   if (saving) return;
   if (completed) {
-    await generatePermanentStudentId();
+    status.textContent = 'Registration is already saved. Use Generate Permanent Student ID to continue.';
     return;
   }
   status.textContent = '';
@@ -314,25 +340,24 @@ form.addEventListener('submit', async (event) => {
   submitButton.textContent = 'Submitting...';
   form.setAttribute('aria-busy', 'true');
   status.textContent = 'Saving the student profile, health details, parent contact, and class assignment…';
-  let generateIdAfterSave = false;
   try {
     const result = await request('/api/internal-student-registration', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     registeredStudentId = result.studentId ?? result.student.studentId ?? result.student.id;
     if (!registeredStudentId) throw new Error('The database response did not include the saved student identifier. Retry or ask an administrator to verify the registration.');
     showRegistrationSaved({ ...result.student, studentId: registeredStudentId, permanentStudentId: result.permanentStudentId }, result.className);
-    status.textContent = result.permanentStudentId ? `Submitted Successfully. Existing permanent ID ${result.permanentStudentId} was retained.` : 'Submitted Successfully. Registration and class placement are confirmed. Generating the Permanent Student ID now.';
-    generateIdAfterSave = !result.permanentStudentId;
+    status.textContent = result.permanentStudentId ? `Submitted Successfully. Existing permanent ID ${result.permanentStudentId} was retained.` : 'Submitted Successfully. Registration and class placement are confirmed. Generate the Permanent Student ID to complete registration.';
   } catch (error) {
     status.textContent = error.message;
   }
   finally {
     saving = false;
-    submitButton.disabled = Boolean(form.elements.resolvedPermanentStudentId.value);
-    submitButton.textContent = form.elements.resolvedPermanentStudentId.value ? 'Registration Complete' : completed ? 'Generate Permanent Student ID' : 'Submit and Save Registration';
+    submitButton.disabled = completed;
+    submitButton.textContent = completed ? 'Registration Saved' : 'Submit Registered Student';
     form.removeAttribute('aria-busy');
   }
-  if (generateIdAfterSave) await generatePermanentStudentId();
 });
+
+generateButton.addEventListener('click', () => { void generatePermanentStudentId(); });
 
 syncCategory();
 loadOptions();
