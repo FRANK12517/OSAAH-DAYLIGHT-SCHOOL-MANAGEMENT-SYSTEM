@@ -120,9 +120,10 @@ test('authorized staff can continue through the normal workflow to the applicati
   assert.ok(await registration.locator('select[name="admissionType"] option[value="TRANSFER"]').count());
   assert.ok(await registration.locator('select[name="admissionType"] option[value="ALREADY_ENROLLED"]').count());
   assert.ok(await registration.locator('input[name="registrationToken"]').count());
-  const generateId = registration.getByRole('button', { name: 'Generate Permanent Student ID' });
-  assert.ok(await generateId.count());
-  assert.equal(await generateId.isDisabled(), true);
+  const submitAndGenerate = registration.getByRole('button', { name: 'Submit, Save and Generate Permanent Student ID' });
+  assert.equal(await submitAndGenerate.count(), 1, 'Section 20 exposes one authoritative save and ID action');
+  assert.equal(await submitAndGenerate.isDisabled(), false, 'registration can be submitted before an ID exists');
+  assert.equal(await registration.getByRole('button', { name: 'Generate Permanent Student ID' }).count(), 0);
   assert.equal(applicationWrites.length, 0, 'the unified registration page never creates a legacy application');
   assert.equal(continuationResponses.some((entry) => entry.status < 400), false, 'the obsolete application page is never served');
 });
