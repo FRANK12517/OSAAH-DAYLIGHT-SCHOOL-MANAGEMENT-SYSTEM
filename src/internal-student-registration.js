@@ -154,10 +154,16 @@ export function createInternalStudentRegistrationService({ database, clock = () 
           return { studentId, permanentStudentId: existing, created: false };
         }
 
+        const roster = rows(await tx.query(`SELECT e.id AS enrollmentId,e.class_id AS classId,c.name AS className
+          FROM student_enrollments e JOIN classes c ON c.id=e.class_id AND c.school_id=e.school_id
+          WHERE e.school_id=? AND e.student_id=? AND e.is_current=1 AND e.enrollment_status='ACTIVE'
+          ORDER BY e.enrolled_at DESC,e.id DESC LIMIT 1 FOR UPDATE`, [schoolId, studentId]))[0];
+        if (!roster) fail('STUDENT_ROSTER_SYNC_REQUIRED', 'The saved registration has no active class roster placement. Retry registration before generating the permanent ID.', 409);
+
         const committed = rows(await tx.query(`SELECT permanent_student_id AS permanentStudentId FROM students
-          WHERE school_id=? AND permanent_student_id IS NOT NULL AND permanent_student_id<>'' FOR UPDATE`, [schoolId]));
+          WHERE permanent_student_id IS NOT NULL AND permanent_student_id<>'' FOR UPDATE`));
         const profileIds = rows(await tx.query(`SELECT student_id AS permanentStudentId,permanent_student_id AS legacyPermanentStudentId FROM student_profiles
-          WHERE school_id=? AND (student_id IS NOT NULL AND student_id<>'' OR permanent_student_id IS NOT NULL AND permanent_student_id<>'') FOR UPDATE`, [schoolId]));
+          WHERE student_id IS NOT NULL AND student_id<>'' OR permanent_student_id IS NOT NULL AND permanent_student_id<>'' FOR UPDATE`));
         const validNumbers = [...committed, ...profileIds.flatMap((row) => [row.permanentStudentId, row.legacyPermanentStudentId].filter(Boolean).map((permanentStudentId) => ({ permanentStudentId })))].flatMap((row) => {
           const match = /^(?:OSAA|OSAAH)\/(\d{4})\/(\d+)$/.exec(String(row.permanentStudentId ?? ''));
           if (!match) return [];
