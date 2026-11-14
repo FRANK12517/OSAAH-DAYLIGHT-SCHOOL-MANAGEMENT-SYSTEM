@@ -49,10 +49,7 @@ jobs:
         shell: bash
         env:
           RELEASE_REF: ${{ inputs.release_ref }}
-        run: |
-          test "$(git rev-parse HEAD^{commit})" = "$RELEASE_REF"
-          git fetch --no-tags origin main
-          git merge-base --is-ancestor origin/main "$RELEASE_REF"
+        run: node scripts/verify-migration-085-release.mjs
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
