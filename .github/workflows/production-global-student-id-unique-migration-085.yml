@@ -12,7 +12,27 @@ name: Production global student ID uniqueness migration 085
         default: DRY_RUN_ONLY
         type: string
       backup_confirmation:
-        description: For apply only, enter BACKUP_CONFIRMED after verifying a recent recoverable backup
+        description: Enter BACKUP_CONFIRMED after verifying the current recoverable TiDB Cloud backup
+        required: false
+        type: string
+      backup_cluster:
+        description: Confirmed TiDB Cloud backup cluster name
+        required: false
+        type: string
+      backup_status:
+        description: Confirmed backup status
+        required: false
+        type: string
+      backup_restore_available:
+        description: Confirm that restore is available for this backup
+        required: false
+        type: string
+      backup_completed_at:
+        description: Confirmed backup completion time in UTC
+        required: false
+        type: string
+      backup_expires_at:
+        description: Confirmed backup expiration time in UTC
         required: false
         type: string
 permissions:
@@ -36,10 +56,24 @@ jobs:
         shell: bash
         env:
           RELEASE_REF: ${{ inputs.release_ref }}
+          BACKUP_CLUSTER: ${{ inputs.backup_cluster }}
+          BACKUP_STATUS: ${{ inputs.backup_status }}
+          BACKUP_RESTORE_AVAILABLE: ${{ inputs.backup_restore_available }}
+          BACKUP_COMPLETED_AT: ${{ inputs.backup_completed_at }}
+          BACKUP_EXPIRES_AT: ${{ inputs.backup_expires_at }}
         run: |
           [[ "$RELEASE_REF" =~ ^[0-9a-f]{40}$ ]] || { echo 'release_ref must be a full lowercase 40-character SHA.'; exit 1; }
-          test "$EXECUTION_TOKEN" = 'DRY_RUN_ONLY' || test "$EXECUTION_TOKEN" = 'APPLY_GLOBAL_STUDENT_ID_UNIQUE_085' || { echo 'Invalid Migration 085 execution token.'; exit 1; }
-          if [ "$EXECUTION_TOKEN" = 'APPLY_GLOBAL_STUDENT_ID_UNIQUE_085' ]; then test "$BACKUP_CONFIRMATION" = 'BACKUP_CONFIRMED' || { echo 'A recent recoverable backup confirmation is required for apply.'; exit 1; }; fi
+          test "$EXECUTION_TOKEN" = 'DRY_RUN_ONLY' || test "$EXECUTION_TOKEN" = 'INITIALIZE_MIGRATION_METADATA_ONLY' || test "$EXECUTION_TOKEN" = 'APPLY_GLOBAL_STUDENT_ID_UNIQUE_085' || { echo 'Invalid Migration 085 execution token.'; exit 1; }
+          if [ "$EXECUTION_TOKEN" = 'INITIALIZE_MIGRATION_METADATA_ONLY' ] || [ "$EXECUTION_TOKEN" = 'APPLY_GLOBAL_STUDENT_ID_UNIQUE_085' ]; then
+            test "$BACKUP_CONFIRMATION" = 'BACKUP_CONFIRMED' || { echo 'A current recoverable backup confirmation is required for production writes.'; exit 1; }
+            test "$BACKUP_CLUSTER" = 'osaahdaylightschool' || { echo 'Backup cluster does not match the canonical database.'; exit 1; }
+            test "$BACKUP_STATUS" = 'Succeeded' || { echo 'The confirmed backup must have Succeeded.'; exit 1; }
+            test "$BACKUP_RESTORE_AVAILABLE" = 'true' || { echo 'The confirmed backup must be restorable.'; exit 1; }
+            completed_at="$(date -u -d "$BACKUP_COMPLETED_AT" +%s)" || { echo 'Invalid backup completion time.'; exit 1; }
+            expires_at="$(date -u -d "$BACKUP_EXPIRES_AT" +%s)" || { echo 'Invalid backup expiry time.'; exit 1; }
+            now="$(date -u +%s)"
+            test "$completed_at" -le "$now" && test "$now" -lt "$expires_at" || { echo 'The confirmed backup is not within its retention window.'; exit 1; }
+          fi
       - name: Check out reviewed release
         uses: actions/checkout@v4
         with:
@@ -72,6 +106,17 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: test -n "${DATABASE_URL:-}" || { echo 'Protected DATABASE_URL is unavailable.'; exit 1; }
+      - name: Initialize only existing platform migration metadata
+        if: ${{ inputs.execution_token == 'INITIALIZE_MIGRATION_METADATA_ONLY' }}
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          BACKUP_CONFIRMATION: ${{ inputs.backup_confirmation }}
+          BACKUP_CLUSTER: ${{ inputs.backup_cluster }}
+          BACKUP_STATUS: ${{ inputs.backup_status }}
+          BACKUP_RESTORE_AVAILABLE: ${{ inputs.backup_restore_available }}
+          BACKUP_COMPLETED_AT: ${{ inputs.backup_completed_at }}
+          BACKUP_EXPIRES_AT: ${{ inputs.backup_expires_at }}
+        run: node .migration-085-verifier/scripts/production-migration-metadata-initialize.mjs
       - name: Run read-only duplicate and index preflight
         if: ${{ inputs.execution_token == 'DRY_RUN_ONLY' }}
         env:
