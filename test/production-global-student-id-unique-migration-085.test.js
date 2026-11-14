@@ -63,7 +63,7 @@ test('Migration 085 apply requires an exact token and recent backup confirmation
 test('Migration 085 production workflow is exact-main, protected, duplicate-gated and scoped to 085', async () => {
   const workflow = await readFile(new URL('../.github/workflows/production-global-student-id-unique-migration-085.yml', import.meta.url), 'utf8');
   assert.match(workflow, /environment: production/);
-  assert.match(workflow, /git merge-base --is-ancestor origin\/main/);
+  assert.match(workflow, /node scripts\/verify-migration-085-release\.mjs/);
   assert.match(workflow, /APPLY_GLOBAL_STUDENT_ID_UNIQUE_085/);
   assert.match(workflow, /BACKUP_CONFIRMED/);
   assert.match(workflow, /production-global-student-id-unique-migrate-085\.mjs dry-run/);
