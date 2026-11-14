@@ -62,6 +62,9 @@ test('read-only TiDB preflight verifies target, connectivity, registration schem
   assert.equal(result.schema.duplicatePermanentIdCount, 0);
   assert.equal(result.writesPerformed, false);
   assert.ok(fixture.statements.every((sql) => /^\s*SELECT\b/i.test(sql)));
+  const duplicateQuery = fixture.statements.find((sql) => sql.includes('GROUP BY permanent_student_id HAVING COUNT(*)>1'));
+  assert.match(duplicateQuery, /WHERE permanent_student_id IS NOT NULL/);
+  assert.doesNotMatch(duplicateQuery, /permanent_student_id<>''/);
 });
 
 test('preflight reports DNS and network stages without attempting database authentication', async () => {

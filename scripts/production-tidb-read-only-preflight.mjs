@@ -110,7 +110,7 @@ export async function runProductionTiDBPreflight({
     const columns = await database.query('SELECT TABLE_NAME AS tableName,COLUMN_NAME AS columnName,DATA_TYPE AS dataType,CHARACTER_MAXIMUM_LENGTH AS characterMaximumLength FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE()');
     const indexes = await database.query('SELECT TABLE_NAME AS tableName,INDEX_NAME AS indexName,COLUMN_NAME AS columnName,NON_UNIQUE AS nonUnique,SEQ_IN_INDEX AS position FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE()');
     const duplicateIds = await database.query(`SELECT permanent_student_id AS permanentStudentId,COUNT(*) AS duplicateCount FROM students
-      WHERE permanent_student_id IS NOT NULL AND permanent_student_id<>'' GROUP BY permanent_student_id HAVING COUNT(*)>1 LIMIT 20`);
+      WHERE permanent_student_id IS NOT NULL GROUP BY permanent_student_id HAVING COUNT(*)>1 LIMIT 20`);
     const foreignKeys = await database.query(`SELECT TABLE_NAME AS tableName,COLUMN_NAME AS columnName,REFERENCED_TABLE_NAME AS referencedTable,REFERENCED_COLUMN_NAME AS referencedColumn FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA=DATABASE() AND REFERENCED_TABLE_NAME IS NOT NULL AND TABLE_NAME IN (${Object.keys(REQUIRED_SCHEMA).map(() => '?').join(',')})`, Object.keys(REQUIRED_SCHEMA));
     const tableSet = new Set(tables.map((row) => String(row.tableName ?? row.TABLE_NAME).toLowerCase()));
     const columnKey = (row) => `${String(row.tableName ?? row.TABLE_NAME).toLowerCase()}.${String(row.columnName ?? row.COLUMN_NAME).toLowerCase()}`;

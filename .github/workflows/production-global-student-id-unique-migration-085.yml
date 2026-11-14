@@ -1,0 +1,81 @@
+name: Production global student ID uniqueness migration 085
+"on":
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Exact reviewed release commit SHA containing Migration 085
+        required: true
+        type: string
+      execution_token:
+        description: DRY_RUN_ONLY is read-only; apply requires explicit authorization
+        required: true
+        default: DRY_RUN_ONLY
+        type: string
+      backup_confirmation:
+        description: For apply only, enter BACKUP_CONFIRMED after verifying a recent recoverable backup
+        required: false
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: production-global-student-id-unique-migration-085
+  cancel-in-progress: false
+jobs:
+  migrate:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    env:
+      OSAAH_DATABASE_ADAPTER: tidb
+      TIDB_SSL_REJECT_UNAUTHORIZED: 'true'
+      EXECUTION_TOKEN: ${{ inputs.execution_token }}
+      BACKUP_CONFIRMATION: ${{ inputs.backup_confirmation }}
+    steps:
+      - name: Validate exact release and execution inputs
+        shell: bash
+        env:
+          RELEASE_REF: ${{ inputs.release_ref }}
+        run: |
+          [[ "$RELEASE_REF" =~ ^[0-9a-f]{40}$ ]] || { echo 'release_ref must be a full lowercase 40-character SHA.'; exit 1; }
+          test "$EXECUTION_TOKEN" = 'DRY_RUN_ONLY' || test "$EXECUTION_TOKEN" = 'APPLY_GLOBAL_STUDENT_ID_UNIQUE_085' || { echo 'Invalid Migration 085 execution token.'; exit 1; }
+          if [ "$EXECUTION_TOKEN" = 'APPLY_GLOBAL_STUDENT_ID_UNIQUE_085' ]; then test "$BACKUP_CONFIRMATION" = 'BACKUP_CONFIRMED' || { echo 'A recent recoverable backup confirmation is required for apply.'; exit 1; }; fi
+      - name: Check out reviewed release
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_ref }}
+          fetch-depth: 0
+      - name: Verify release commit is on protected main
+        shell: bash
+        env:
+          RELEASE_REF: ${{ inputs.release_ref }}
+        run: |
+          test "$(git rev-parse HEAD^{commit})" = "$RELEASE_REF"
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor origin/main "$RELEASE_REF"
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Run Migration 085 safety tests
+        env:
+          DATABASE_URL: ''
+          OSAAH_DATABASE_ADAPTER_MODULE: ''
+        run: node --test test/production-global-student-id-unique-migration-085.test.js test/migration-runner.test.js
+      - name: Confirm protected TiDB secret is available
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: test -n "${DATABASE_URL:-}" || { echo 'Protected DATABASE_URL is unavailable.'; exit 1; }
+      - name: Run read-only duplicate and index preflight
+        if: ${{ inputs.execution_token == 'DRY_RUN_ONLY' }}
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: node scripts/production-global-student-id-unique-migrate-085.mjs dry-run
+      - name: Apply only Migration 085 after duplicate preflight
+        if: ${{ inputs.execution_token == 'APPLY_GLOBAL_STUDENT_ID_UNIQUE_085' }}
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: node scripts/production-global-student-id-unique-migrate-085.mjs apply
