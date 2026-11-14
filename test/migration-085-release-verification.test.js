@@ -37,7 +37,8 @@ test('Migration 085 workflow retains exact-main execution, Production approval, 
   assert.match(workflow, /if: github\.ref == 'refs\/heads\/main'/);
   assert.match(workflow, /environment: production/);
   assert.match(workflow, /fetch-depth: 0/);
-  assert.match(workflow, /node scripts\/verify-migration-085-release\.mjs/);
+  assert.match(workflow, /name: Check out release verification tool[\s\S]*?ref: \$\{\{ github\.sha \}\}[\s\S]*?path: \.migration-085-verifier[\s\S]*?persist-credentials: false/);
+  assert.match(workflow, /node \.migration-085-verifier\/scripts\/verify-migration-085-release\.mjs/);
   assert.match(workflow, /execution_token == 'DRY_RUN_ONLY'[\s\S]*production-global-student-id-unique-migrate-085\.mjs dry-run/);
   assert.match(workflow, /execution_token == 'APPLY_GLOBAL_STUDENT_ID_UNIQUE_085'[\s\S]*production-global-student-id-unique-migrate-085\.mjs apply/);
   assert.doesNotMatch(workflow, /merge-base --is-ancestor origin\/main/);
