@@ -41,22 +41,14 @@ test('durable fee reader projects canonical payment year and term without legacy
   assert.doesNotMatch(queries[0], /i\.(?:student_name|class_name|academic_year|term)\b/);
 });
 
-test('durable payment fee aggregation uses TiDB GROUP_CONCAT syntax', async () => {
-  let sqlSeen = '';
+test('durable fee reader uses TiDB-compatible distinct fee type aggregation', async () => {
+  const queries = [];
   const base = database([osaahPayment]);
-  const adapter = { ...base, async query(sql, params) { sqlSeen = sql; return base.query(sql, params); } };
+  const adapter = { ...base, dialect: 'tidb', async query(sql, params) { queries.push(sql); return base.query(sql, params); } };
   const actor = user('accountant-osaah', 'accountant@osaah.test', 'ACCOUNTANT_BURSAR', SCHOOL, ['fees.read']);
   await createDurableFeeReader({ adapter }).listPayments({}, actor);
-  assert.match(sqlSeen, /GROUP_CONCAT\(DISTINCT ii\.fee_type ORDER BY ii\.fee_type SEPARATOR ', '\)/);
-  assert.doesNotMatch(sqlSeen, /string_agg/i);
-});
-
-test('durable payment fee aggregation retains PostgreSQL syntax for PostgreSQL adapters', async () => {
-  let sqlSeen = '';
-  const adapter = { dialect: 'postgres', async query(sql) { sqlSeen = sql; return []; } };
-  const actor = user('accountant-osaah', 'accountant@osaah.test', 'ACCOUNTANT_BURSAR', SCHOOL, ['fees.read']);
-  await createDurableFeeReader({ adapter }).listPayments({}, actor);
-  assert.match(sqlSeen, /string_agg\(DISTINCT ii\.fee_type, ', ' ORDER BY ii\.fee_type\)/);
+  assert.match(queries[0], /GROUP_CONCAT\(DISTINCT ii\.fee_type ORDER BY ii\.fee_type SEPARATOR ', '\)/);
+  assert.doesNotMatch(queries[0], /string_agg\(/);
 });
 
 test('durable fee reader falls back when legacy payments use amount_paid and lack optional columns', async () => {

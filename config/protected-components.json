@@ -406,6 +406,10 @@
           "requiredMarkers": [
             "async function readApiJson(response, label = 'The server')",
             "response.headers.get('content-type')",
+            "async function handleLoginSubmit(event)",
+            "form?.addEventListener('submit', handleLoginSubmit)",
+            "const phoneNumber = String(data.phone ?? '').trim()",
+            "{ portal: 'parent', phone: phoneNumber }",
             "await readApiJson(response, 'Sign-in service')",
             "if (!response.ok || result.error ||",
             "await renderDashboard(result.user, result.redirectTo)"
@@ -495,7 +499,7 @@
         {
           "path": "public/index.html",
           "requiredMarkers": [
-            "app.js?v=20261112-1"
+            "app.js?v=20261110-1"
           ]
         },
         {

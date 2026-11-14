@@ -44,11 +44,25 @@ test('login response parser masks malformed and empty JSON errors', async () => 
 });
 
 test('login submits a dashboard only after a successful response with a user', () => {
-  const submitStart = appSource.indexOf("form.addEventListener('submit'");
+  const submitStart = appSource.indexOf('async function handleLoginSubmit(event)');
   const submitEnd = appSource.indexOf("restoreSession();", submitStart);
   const submitHandler = appSource.slice(submitStart, submitEnd);
 
   assert.match(submitHandler, /await readApiJson\(response, 'Sign-in service'\)/);
   assert.match(submitHandler, /if \(!response\.ok \|\| result\.error \|\| !result\.user\)/);
   assert.ok(submitHandler.indexOf('if (!response.ok') < submitHandler.indexOf('await renderDashboard(result.user, result.redirectTo)'));
+});
+
+test('Parent Portal form submits trimmed phone JSON to the shared auth endpoint', () => {
+  const submitStart = appSource.indexOf('async function handleLoginSubmit(event)');
+  const submitEnd = appSource.indexOf("restoreSession();", submitStart);
+  const submitHandler = appSource.slice(submitStart, submitEnd);
+
+  assert.match(appSource, /form\?\.addEventListener\('submit', handleLoginSubmit\)/);
+  assert.match(submitHandler, /const phoneNumber = String\(data\.phone \?\? ''\)\.trim\(\)/);
+  assert.match(submitHandler, /\{ portal: 'parent', phone: phoneNumber \}/);
+  assert.match(submitHandler, /const endpoint = '\/api\/auth\/login'/);
+  assert.match(submitHandler, /method: 'POST'/);
+  assert.match(submitHandler, /Parent auth request initiated for phone ending:/);
+  assert.match(submitHandler, /response\.status >= 500/);
 });
