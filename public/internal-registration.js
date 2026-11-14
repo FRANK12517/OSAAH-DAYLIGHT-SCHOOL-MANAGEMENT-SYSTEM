@@ -78,7 +78,7 @@ async function request(url, options = {}) {
 function showRegistrationSaved(student, className) {
   const fullStudentName = [student.firstName, student.middleName, student.lastName].filter(Boolean).join(' ');
   success.replaceChildren();
-  const heading = document.createElement('h2'); heading.textContent = 'Registration saved';
+  const heading = document.createElement('h2'); heading.textContent = 'Submitted Successfully';
   const detail = document.createElement('p'); detail.textContent = `${fullStudentName || 'Student'} is saved in the school database.`;
   const placement = document.createElement('p'); placement.textContent = className ? `Class placement: ${className}.` : 'Generate the permanent ID below when ready.';
   success.append(heading, detail, placement);
@@ -105,7 +105,7 @@ async function recoverRegisteredStudent() {
   try {
     const student = await request(`/api/internal-student-registration/student-id?studentId=${encodeURIComponent(registeredStudentId)}`);
     showRegistrationSaved(student, null);
-    draftStatus.textContent = 'Recovered registration and confirmed it in the school database.';
+    draftStatus.textContent = 'Submitted Successfully. Registration confirmed in the school database.';
     status.textContent = '';
   } catch (error) {
     completed = true;
@@ -226,7 +226,7 @@ document.querySelector('#reset-registration-form').addEventListener('click', () 
   generateButton.textContent = 'Generate Permanent Student ID';
   const submit = form.querySelector('[type="submit"]');
   submit.disabled = false;
-  submit.textContent = 'Submit Registered Student';
+  submit.textContent = 'Submit and Save Registration';
   syncCategory();
   updateAge();
   loadOptions();
@@ -293,7 +293,7 @@ form.addEventListener('submit', async (event) => {
   saving = true;
   const submit = form.querySelector('[type="submit"]');
   submit.disabled = true;
-  submit.textContent = 'Registering student…';
+  submit.textContent = 'Submitting...';
   form.setAttribute('aria-busy', 'true');
   status.textContent = 'Saving the student profile, health details, parent contact, and class assignment…';
   try {
@@ -301,13 +301,13 @@ form.addEventListener('submit', async (event) => {
     registeredStudentId = result.studentId ?? result.student.studentId ?? result.student.id;
     if (!registeredStudentId) throw new Error('The database response did not include the saved student identifier. Retry or ask an administrator to verify the registration.');
     showRegistrationSaved({ ...result.student, studentId: registeredStudentId, permanentStudentId: result.permanentStudentId }, result.className);
-    status.textContent = result.permanentStudentId ? `Registration saved. Existing permanent ID ${result.permanentStudentId} was retained.` : 'Registration saved and confirmed. Generate the permanent Student ID when ready.';
+    status.textContent = result.permanentStudentId ? `Submitted Successfully. Existing permanent ID ${result.permanentStudentId} was retained.` : 'Submitted Successfully. Registration and class placement are confirmed. Generate the permanent Student ID when ready.';
   } catch (error) {
     status.textContent = error.message;
     generateButton.disabled = !registeredStudentId;
     generateButton.textContent = registeredStudentId ? 'Generate Permanent Student ID' : 'Generate Permanent Student ID';
   }
-  finally { saving = false; submit.disabled = completed; submit.textContent = completed ? 'Student Registered' : 'Submit Registered Student'; form.removeAttribute('aria-busy'); }
+  finally { saving = false; submit.disabled = completed; submit.textContent = completed ? 'Submitted Successfully' : 'Submit and Save Registration'; form.removeAttribute('aria-busy'); }
 });
 
 syncCategory();
