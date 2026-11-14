@@ -8,18 +8,23 @@ import { runGlobalStudentIdUniqueMigration085 } from '../scripts/production-glob
 const sql = await readFile(new URL('../schema/085_global_student_id_unique.sql', import.meta.url), 'utf8');
 const checksum = createHash('sha256').update(sql).digest('hex');
 
-function fixture({ duplicates = 0, hasIndex = false } = {}) {
+function fixture({ duplicates = 0, hasIndex = false, nullIds = 0, emptyIds = 0, malformedIds = 0, columnType = 'varchar(100)', partitionCount = 0, equivalentIndexes = [] } = {}) {
   const storage = { applied: [], baselines: [{ id: 'baseline-085', canonicalDatabase: 'osaahdaylightschool', repositoryCommit: 'a'.repeat(40), schemaFingerprint: 'b'.repeat(64), workflowProvenance: 'test', reconciliationMigration: '049_production_schema_reconciliation.sql', baselineType: 'HISTORICAL_BASELINE', historicalMigrationsExecuted: 0 }], dialect: 'tidb' };
   const memory = createInMemoryMigrationAdapter(storage);
   const adapter = {
     ...memory,
     dialect: 'tidb',
+    async verifyReadiness() { return { ready: true, engine: 'TiDB', database: 'osaahdaylightschool', serverVersion: '5.7.25-TiDB-v8.5.0' }; },
     async query(statement) {
       if (statement.includes('SELECT DATABASE()')) return [{ databaseName: 'osaahdaylightschool' }];
+      if (statement.includes('information_schema.TABLES') && statement.includes('ENGINE AS engine')) return [{ engine: 'InnoDB', tableCollation: 'utf8mb4_bin' }];
       if (statement.includes('information_schema.TABLES')) return [{ tableName: 'students' }, { tableName: 'schema_migrations' }];
-      if (statement.includes('information_schema.COLUMNS')) return [{ columnName: 'permanent_student_id' }];
-      if (statement.includes('duplicateGroupCount')) return [{ duplicateGroupCount: duplicates }];
-      if (statement.includes('information_schema.STATISTICS')) return hasIndex ? [{ indexName: 'uq_students_permanent_student_id_global', nonUnique: 0, columnName: 'permanent_student_id', sequence: 1 }] : [];
+      if (statement.includes('information_schema.COLUMNS')) return [{ columnName: 'permanent_student_id', dataType: 'varchar', columnType, nullable: 'YES', maxLength: Number(columnType.match(/\((\d+)\)/)?.[1] ?? 100), characterSet: 'utf8mb4', collationName: 'utf8mb4_bin' }];
+      if (statement.includes('duplicateGroupCount')) return [{ duplicateGroupCount: duplicates, duplicateRowCount: duplicates * 2 }];
+      if (statement.includes('totalStudentCount')) return [{ totalStudentCount: 100, nullIdCount: nullIds, emptyIdCount: emptyIds, malformedIdCount: malformedIds }];
+      if (statement.includes('PARTITION_NAME')) return [{ partitionCount }];
+      if (statement.includes('information_schema.STATISTICS')) return [...(hasIndex ? [{ indexName: 'uq_students_permanent_student_id_global', nonUnique: 0, columnName: 'permanent_student_id', sequence: 1, subPart: null }] : []), ...equivalentIndexes.map((indexName) => ({ indexName, nonUnique: 0, columnName: 'permanent_student_id', sequence: 1, subPart: null }))];
+      if (statement.startsWith('EXPLAIN')) return [{ id: 1, table: 'students', key: 'uq_students_permanent_student_id_global', type: 'const' }];
       if (statement.includes('WHERE version=?')) return storage.applied.filter((row) => row.version === 85);
       throw new Error(`Unexpected fixture query: ${statement}`);
     },
@@ -40,6 +45,27 @@ test('Migration 085 dry-run verifies the target, schema, duplicates and plans on
   assert.equal(result.productionWrites, 'NONE');
   assert.deepEqual(result.plan.pending.map((item) => item.version), [85]);
   assert.equal(result.preflight.duplicateGroupCount, 0);
+  assert.equal(result.preflight.engine, 'TiDB');
+  assert.equal(result.preflight.permanentIdColumn.maxLength, 100);
+  assert.equal(result.preflight.indexCompatibility.estimatedMaximumKeyBytes, 400);
+  assert.equal(result.preflight.nullIdCount, 0);
+  assert.equal(result.preflight.emptyIdCount, 0);
+  assert.equal(result.preflight.malformedIdCount, 0);
+});
+
+test('Migration 085 blocks duplicate IDs and unsafe index compatibility states', async (t) => {
+  await t.test('duplicate count includes duplicate group summary and no student values', async () => {
+    const { adapter } = fixture({ duplicates: 2 });
+    await assert.rejects(() => runGlobalStudentIdUniqueMigration085({ adapter }), (error) => error.code === 'MIGRATION_085_DUPLICATE_IDS' && error.details.duplicateGroupCount === 2 && error.details.duplicateRowCount === 4);
+  });
+  await t.test('equivalent unique index under a different name blocks redundant creation', async () => {
+    const { adapter } = fixture({ equivalentIndexes: ['legacy_global_student_id'] });
+    await assert.rejects(() => runGlobalStudentIdUniqueMigration085({ adapter }), { code: 'MIGRATION_085_EQUIVALENT_INDEX_EXISTS' });
+  });
+  for (const options of [{ columnType: 'varchar(1000)' }, { partitionCount: 1 }]) {
+    const { adapter } = fixture(options);
+    await assert.rejects(() => runGlobalStudentIdUniqueMigration085({ adapter }), { code: 'MIGRATION_085_INDEX_INCOMPATIBLE' });
+  }
 });
 
 test('Migration 085 blocks existing duplicate IDs without writing', async () => {

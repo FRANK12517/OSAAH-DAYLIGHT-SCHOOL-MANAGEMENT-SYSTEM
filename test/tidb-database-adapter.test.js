@@ -80,6 +80,32 @@ test('TiDB database adapter exposes the durable persistence contract', async () 
   assert.equal(typeof adapter.recordBaseline, 'function');
 });
 
+test('TiDB metadata bootstrap performs only the established idempotent platform DDL and lock-row upsert', async () => {
+  const statements = [];
+  const adapter = createDatabaseAdapter({
+    environment: { DATABASE_URL: 'mysql://user:password@example.test:4000/osaahdaylightschool' },
+    poolFactory: () => ({
+      async query(sql) { statements.push(sql); return [[], []]; },
+      async execute(sql) { statements.push(sql); return [{ affectedRows: 0 }, []]; },
+      async end() {}
+    })
+  });
+  try {
+    await adapter.ensureMetadata({ create: true });
+    assert.deepEqual(statements.map((sql) => sql.match(/^(CREATE TABLE IF NOT EXISTS [a-z_]+|INSERT INTO [a-z_]+)/)?.[1]), [
+      'CREATE TABLE IF NOT EXISTS schema_migrations',
+      'CREATE TABLE IF NOT EXISTS schema_migration_lock',
+      'INSERT INTO schema_migration_lock',
+      'CREATE TABLE IF NOT EXISTS schema_baselines',
+      'CREATE TABLE IF NOT EXISTS schema_migration_runs'
+    ]);
+    assert.match(statements[2], /ON DUPLICATE KEY UPDATE lock_id = lock_id/);
+    assert.match(statements[4], /state ENUM\('RUNNING','FAILED','COMPLETED'\)/);
+    assert.equal(statements.some((sql) => /\b(students|parents|guardians|student_enrollments|admission_applications)\b/i.test(sql)), false);
+    assert.equal(statements.some((sql) => /^\s*(UPDATE|DELETE|ALTER|DROP|TRUNCATE)\b/i.test(sql)), false);
+  } finally { await adapter.close(); }
+});
+
 test('readiness verifies the TiDB identity and durable authentication schema', async () => {
   const adapter = createDatabaseAdapter({
     environment: { DATABASE_URL: 'mysql://user:password@example.test:4000/osaahdaylightschool' },
