@@ -1,0 +1,209 @@
+import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import test from 'node:test';
+import { chromium } from 'playwright';
+
+const registrationPage = pathToFileURL(fileURLToPath(new URL('../public/internal-registration.html', import.meta.url))).href;
+
+async function launchBrowser(t) {
+  const executablePath = [
+    process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
+    chromium.executablePath(),
+    process.env.ProgramFiles ? `${process.env.ProgramFiles}\\Google\\Chrome\\Application\\chrome.exe` : null,
+    process.env['ProgramFiles(x86)'] ? `${process.env['ProgramFiles(x86)']}\\Microsoft\\Edge\\Application\\msedge.exe` : null,
+    '/usr/bin/chromium'
+  ].find((candidate) => candidate && existsSync(candidate));
+  const browser = await chromium.launch({ headless: true, executablePath, args: ['--no-sandbox', '--allow-file-access-from-files'] });
+  t.after(() => browser.close());
+  return browser;
+}
+
+async function installApiFixture(page) {
+  const setup = () => {
+    window.__registrationCalls = 0;
+    window.__idCalls = 0;
+    window.fetch = async (input, options = {}) => {
+      const url = new URL(input, location.href);
+      const pathname = url.pathname.replace(/^\/[A-Za-z]:/, '');
+      const key = '__registration_test_record';
+      const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+      if (pathname === '/api/admission-workflow/options') return json({ classes: [{ id: 'class-1', name: 'Primary 1' }], academicYears: [{ id: 'year-1', name: '2026/2027' }], terms: [{ id: 'term-1', academicYearId: 'year-1', name: '1st Term' }] });
+      if (pathname === '/api/sidebar') return json({ user: { id: 'browser-test-user' } });
+      if (pathname === '/api/internal-student-registration/existing-student') return json({ student: { studentId: 'existing-1', firstName: 'Ama', lastName: 'Mensah', permanentStudentId: 'OSAA/2025/004' } });
+      if (pathname === '/api/internal-student-registration' && options.method === 'POST') {
+        window.__registrationCalls += 1;
+        if (localStorage.getItem('__registration_test_mode') === 'offline') throw new TypeError('Failed to fetch');
+        if (localStorage.getItem('__registration_test_mode') === 'server-error') return json({ error: 'Duplicate admission number exists.' }, 409);
+        if (localStorage.getItem('__registration_test_mode') === 'missing-id') return json({ success: true }, 200);
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        const payload = JSON.parse(options.body);
+        const existing = localStorage.getItem('__registration_test_mode') === 'existing';
+        const record = { studentId: existing ? 'existing-1' : 'saved-1', firstName: 'Ama', lastName: 'Mensah', permanentStudentId: existing ? 'OSAA/2025/004' : null };
+        localStorage.setItem(key, JSON.stringify(record));
+        return json({ studentId: record.studentId, student: record, permanentStudentId: record.permanentStudentId, className: 'Primary 1' }, 201);
+      }
+      if (pathname === '/api/internal-student-registration/student-id' && (!options.method || options.method === 'GET')) return json(JSON.parse(localStorage.getItem(key) || 'null') || { error: 'Saved registration not found.' }, localStorage.getItem(key) ? 200 : 404);
+      if (pathname === '/api/internal-student-registration/student-id' && options.method === 'POST') {
+        window.__idCalls += 1;
+        const record = JSON.parse(localStorage.getItem(key) || 'null');
+        if (!record) return json({ error: 'Saved registration not found.' }, 404);
+        record.permanentStudentId ||= 'OSAA/2026/001';
+        localStorage.setItem(key, JSON.stringify(record));
+        return json({ studentId: record.studentId, permanentStudentId: record.permanentStudentId, created: true }, 201);
+      }
+      return json({ error: `Unexpected request: ${pathname}` }, 404);
+    };
+  };
+  await page.evaluate(setup);
+}
+
+async function loadRegistrationPage(page, html, css, script) {
+  if (page.url() === 'about:blank') await page.goto(registrationPage);
+  else await page.reload();
+  const pageHtml = html
+    .replace('<link rel="stylesheet" href="/styles.css">', '')
+    .replace('<link rel="stylesheet" href="/internal-registration.css">', `<style>${css}</style>`)
+    .replace('<script src="/internal-registration.js"></script>', '');
+  await page.setContent(pageHtml);
+  await installApiFixture(page);
+  await page.addScriptTag({ content: script });
+}
+
+async function fillValidRegistration(page, { firstName = 'Ama', lastName = 'Mensah', gender = 'Female' } = {}) {
+  await page.locator('select[name="classId"]').selectOption('class-1');
+  await page.locator('select[name="academicYearId"]').selectOption('year-1');
+  await page.locator('select[name="termId"]').selectOption('term-1');
+  await page.locator('input[name="fullName"]').fill(`${firstName} ${lastName}`);
+  await page.locator('input[name="dateOfBirth"]').fill('2018-01-02');
+  await page.locator('select[name="gender"]').selectOption(gender);
+  await page.locator('textarea[name="homeAddress"]').fill('1 Fixture Road');
+  await page.locator('input[name="parentName"]').fill(`${firstName} Guardian`);
+  await page.locator('input[name="parentPhone"]').fill('0540652824');
+  await page.locator('textarea[name="parentAddress"]').fill('1 Fixture Road');
+}
+
+test('Section 20 submits, recovers, preserves existing IDs and reports failures at 360px', { timeout: 120_000 }, async (t) => {
+  const browser = await launchBrowser(t);
+  const context = await browser.newContext({ viewport: { width: 360, height: 800 } });
+  const page = await context.newPage();
+  const [html, css, script] = await Promise.all([
+    readFile(new URL('../public/internal-registration.html', import.meta.url), 'utf8'),
+    readFile(new URL('../public/internal-registration.css', import.meta.url), 'utf8'),
+    readFile(new URL('../public/internal-registration.js', import.meta.url), 'utf8')
+  ]);
+  await loadRegistrationPage(page, html, css, script);
+  const browserErrors = [];
+  const onConsole = (message) => { if (message.type() === 'error') browserErrors.push(message.text()); };
+  const onPageError = (error) => browserErrors.push(error.message);
+  page.on('console', onConsole);
+  page.on('pageerror', onPageError);
+  try { await page.waitForFunction(() => document.querySelector('select[name="classId"] option[value="class-1"]'), null, { timeout: 5000 }); }
+  catch (error) { throw new Error(`Fixture options were not loaded. Browser errors: ${JSON.stringify(browserErrors)}. Status: ${await page.locator('#registration-status').innerText()}`, { cause: error }); }
+
+  const submit = page.locator('#submit-registration');
+  const generate = page.locator('#generate-student-id');
+  assert.equal(await page.evaluate(() => innerWidth), 360);
+  assert.equal(await page.getByRole('button', { name: 'Submit', exact: true }).count(), 1);
+  assert.equal(await generate.isDisabled(), true);
+  await submit.scrollIntoViewIfNeeded();
+  assert.equal(await submit.evaluate((button) => {
+    const rect = button.getBoundingClientRect();
+    return document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2) === button;
+  }), true, 'the Submit button receives the hit test at its center');
+
+  await submit.click();
+  const invalidStatus = page.locator('#registration-status');
+  assert.match(await invalidStatus.innerText(), /Category .*Please select/i);
+  assert.equal(await invalidStatus.evaluate((node) => getComputedStyle(node).color), 'rgb(166, 27, 27)');
+  assert.equal(await generate.isDisabled(), true);
+  assert.equal(await page.evaluate(() => window.__registrationCalls), 0);
+
+  await page.locator('select[name="admissionType"]').selectOption('FIRST_TIME');
+  await fillValidRegistration(page);
+  await submit.click();
+  await page.waitForFunction(() => document.querySelector('#submit-registration')?.textContent === 'Submitting…');
+  assert.equal(await submit.isDisabled(), true);
+  assert.equal(await generate.isDisabled(), true);
+  await submit.evaluate((button) => button.form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+  assert.equal(await page.evaluate(() => window.__registrationCalls), 1, 'a second submit event does not duplicate the in-flight save');
+  await page.waitForFunction(() => document.querySelector('#registration-status')?.textContent === '✅ Submitted successfully');
+  assert.equal(await generate.isDisabled(), false);
+  assert.equal(await page.locator('#student-id-help').isVisible(), false, 'the pre-save hint is removed after server confirmation');
+
+  await generate.click();
+  await page.waitForFunction(() => !document.querySelector('#permanent-student-id')?.hidden);
+  assert.equal((await page.locator('#permanent-student-id').innerText()).trim(), 'Permanent Student ID: OSAA/2026/001');
+  assert.equal(await generate.isDisabled(), true);
+  assert.match(await page.evaluate(() => localStorage.getItem('osaah.internal-registration.draft.v1.browser-test-user') || ''), /saved-1/);
+  page.off('console', onConsole);
+  page.off('pageerror', onPageError);
+  await loadRegistrationPage(page, html, css, script);
+  page.on('console', onConsole);
+  page.on('pageerror', onPageError);
+  try { await page.waitForFunction(() => document.querySelector('#generate-student-id')?.textContent === 'Permanent Student ID Assigned', null, { timeout: 5000 }); }
+  catch (error) { throw new Error(`Reload did not restore the assigned ID. Draft status: ${await page.locator('#registration-draft-status').innerText()}; button: ${await generate.innerText()}; draft: ${await page.evaluate(() => localStorage.getItem('osaah.internal-registration.draft.v1.browser-test-user'))}`, { cause: error }); }
+  assert.equal(await generate.isDisabled(), true);
+  assert.equal((await page.locator('#permanent-student-id').innerText()).trim(), 'Permanent Student ID: OSAA/2026/001');
+
+  await page.evaluate(() => { localStorage.clear(); localStorage.setItem('__registration_test_mode', 'existing'); });
+  page.off('console', onConsole);
+  page.off('pageerror', onPageError);
+  await loadRegistrationPage(page, html, css, script);
+  page.on('console', onConsole);
+  page.on('pageerror', onPageError);
+  await page.waitForFunction(() => document.querySelector('select[name="classId"] option[value="class-1"]'), null, { timeout: 5000 });
+  await page.locator('select[name="admissionType"]').selectOption('ALREADY_ENROLLED');
+  await page.locator('input[name="existingPermanentStudentId"]').fill('OSAA/2025/004');
+  await fillValidRegistration(page);
+  await page.locator('#submit-registration').click();
+  await page.waitForFunction(() => document.querySelector('#registration-status')?.textContent === '✅ Submitted successfully');
+  assert.equal(await page.locator('#permanent-student-id').innerText(), 'Permanent Student ID: OSAA/2025/004');
+  assert.equal(await page.locator('#generate-student-id').isDisabled(), true);
+  assert.equal(await page.evaluate(() => window.__idCalls), 0, 'an existing ID is retained without requesting a new ID');
+
+  await page.evaluate(() => { localStorage.clear(); localStorage.setItem('__registration_test_mode', 'offline'); });
+  page.off('console', onConsole);
+  page.off('pageerror', onPageError);
+  await loadRegistrationPage(page, html, css, script);
+  page.on('console', onConsole);
+  page.on('pageerror', onPageError);
+  await page.waitForFunction(() => document.querySelector('select[name="classId"] option[value="class-1"]'), null, { timeout: 5000 });
+  await page.locator('select[name="admissionType"]').selectOption('FIRST_TIME');
+  await fillValidRegistration(page, { firstName: 'Kofi', gender: 'Male' });
+  await page.locator('#submit-registration').click();
+  await page.waitForFunction(() => document.querySelector('#registration-status')?.classList.contains('status-error'));
+  assert.match(await page.locator('#registration-status').innerText(), /Failed to fetch/i);
+  assert.equal(await page.locator('#generate-student-id').isDisabled(), true);
+  assert.equal(await page.locator('#submit-registration').isDisabled(), false);
+
+  await page.evaluate(() => { localStorage.clear(); localStorage.setItem('__registration_test_mode', 'server-error'); });
+  page.off('console', onConsole);
+  page.off('pageerror', onPageError);
+  await loadRegistrationPage(page, html, css, script);
+  page.on('console', onConsole);
+  page.on('pageerror', onPageError);
+  await page.waitForFunction(() => document.querySelector('select[name="classId"] option[value="class-1"]'), null, { timeout: 5000 });
+  await page.locator('select[name="admissionType"]').selectOption('FIRST_TIME');
+  await fillValidRegistration(page, { firstName: 'Esi', gender: 'Female' });
+  await page.locator('#submit-registration').click();
+  await page.waitForFunction(() => document.querySelector('#registration-status')?.textContent.includes('Duplicate admission number exists.'));
+  assert.equal(await page.locator('#registration-status').evaluate((node) => getComputedStyle(node).color), 'rgb(166, 27, 27)');
+  assert.equal(await page.locator('#generate-student-id').isDisabled(), true);
+
+  await page.evaluate(() => { localStorage.clear(); localStorage.setItem('__registration_test_mode', 'missing-id'); });
+  page.off('console', onConsole);
+  page.off('pageerror', onPageError);
+  await loadRegistrationPage(page, html, css, script);
+  page.on('console', onConsole);
+  page.on('pageerror', onPageError);
+  await page.waitForFunction(() => document.querySelector('select[name="classId"] option[value="class-1"]'), null, { timeout: 5000 });
+  await page.locator('select[name="admissionType"]').selectOption('FIRST_TIME');
+  await fillValidRegistration(page, { firstName: 'Yaw', gender: 'Male' });
+  await page.locator('#submit-registration').click();
+  await page.waitForFunction(() => document.querySelector('#registration-status')?.textContent.includes('success without a saved student record or ID'));
+  assert.equal(await page.locator('#generate-student-id').isDisabled(), true, 'a 2xx response without a student ID does not unlock ID generation');
+  assert.deepEqual(browserErrors, [], `Browser console/page errors: ${JSON.stringify(browserErrors)}`);
+  await context.close();
+});

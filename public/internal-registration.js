@@ -23,6 +23,12 @@ let completed = false;
 let restoringDraft = false;
 let registeredStudentId = null;
 
+function setStatus(message, kind = '') {
+  status.textContent = message;
+  status.classList.toggle('status-error', kind === 'error');
+  status.classList.toggle('status-success', kind === 'success');
+}
+
 function saveDraft() {
   if (restoringDraft || !draftKey) return;
   try {
@@ -72,8 +78,10 @@ async function request(url, options = {}) {
   try { response = await fetch(url, { credentials: 'same-origin', ...options, signal: controller.signal }); }
   catch (error) { if (error.name === 'AbortError') throw new Error('The request timed out. Check your connection and retry.'); throw error; }
   finally { clearTimeout(timeout); }
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(result.error ?? 'The request could not be completed.');
+  const responseText = await response.text();
+  let result = {};
+  try { result = responseText ? JSON.parse(responseText) : {}; } catch { /* Keep the HTTP status for non-JSON server responses. */ }
+  if (!response.ok) throw new Error(result.error ?? result.message ?? `Request failed (HTTP ${response.status}).`);
   return result;
 }
 
@@ -92,7 +100,7 @@ function showRegistrationSaved(student, className) {
     idOutput.textContent = `Permanent Student ID: ${student.permanentStudentId}`;
     idOutput.hidden = false;
     submitButton.disabled = true;
-    submitButton.textContent = 'Registration Saved';
+    submitButton.textContent = 'Submit';
     generateButton.disabled = true;
     generateButton.textContent = 'Permanent Student ID Assigned';
     idHelp.hidden = true;
@@ -100,12 +108,12 @@ function showRegistrationSaved(student, className) {
     idOutput.textContent = '';
     idOutput.hidden = true;
     submitButton.disabled = true;
-    submitButton.textContent = 'Registration Saved';
+    submitButton.textContent = 'Submit';
     generateButton.disabled = false;
     generateButton.textContent = 'Generate Permanent Student ID';
-    idHelp.textContent = 'Registration saved. Generate the Permanent Student ID.';
-    idHelp.hidden = false;
+    idHelp.hidden = true;
   }
+  setStatus('✅ Submitted successfully', 'success');
   saveDraft();
   form.querySelectorAll('input, select, textarea').forEach((field) => { field.disabled = true; });
 }
@@ -115,16 +123,16 @@ async function recoverRegisteredStudent() {
     const student = await request(`/api/internal-student-registration/student-id?studentId=${encodeURIComponent(registeredStudentId)}`);
     showRegistrationSaved(student, null);
     draftStatus.textContent = 'Submitted Successfully. Registration confirmed in the school database.';
-    status.textContent = '';
+    setStatus('✅ Submitted successfully', 'success');
   } catch (error) {
     registeredStudentId = null;
     completed = false;
     generateButton.disabled = true;
     generateButton.textContent = 'Generate Permanent Student ID';
     submitButton.disabled = false;
-    submitButton.textContent = 'Submit Registered Student';
+    submitButton.textContent = 'Submit';
     draftStatus.textContent = `Saved registration could not be confirmed: ${error.message}`;
-    status.textContent = 'Retry the registration submission. The saved registration token prevents duplicate student creation.';
+    setStatus(`Saved registration could not be confirmed: ${error.message}. Retry the submission; its saved registration token prevents duplicate student creation.`, 'error');
   }
 }
 
@@ -134,7 +142,7 @@ async function generatePermanentStudentId() {
   generateButton.disabled = true;
   generateButton.textContent = 'Generating Permanent ID...';
   form.setAttribute('aria-busy', 'true');
-  status.textContent = 'Registration is saved. Generating its Permanent Student ID...';
+  setStatus('Registration is saved. Generating its Permanent Student ID...');
   idHelp.textContent = 'Generating Permanent Student ID...';
   try {
     const result = await request('/api/internal-student-registration/student-id', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ studentId: registeredStudentId }) });
@@ -148,13 +156,13 @@ async function generatePermanentStudentId() {
     const placement = document.createElement('p'); placement.textContent = `Permanent Student ID: ${result.permanentStudentId}.`;
     success.append(heading, detail, placement);
     success.hidden = false;
-    status.textContent = `Permanent Student ID ${result.permanentStudentId} is saved to this student record.`;
-    submitButton.textContent = 'Registration Saved';
+    setStatus(`Permanent Student ID ${result.permanentStudentId} is saved to this student record.`, 'success');
+    submitButton.textContent = 'Submit';
     generateButton.textContent = 'Registration Complete';
     idHelp.hidden = true;
     saveDraft();
   } catch (error) {
-    status.textContent = error.message;
+    setStatus(error.message, 'error');
     idOutput.hidden = true;
     generateButton.disabled = false;
     generateButton.textContent = 'Retry Permanent ID Generation';
@@ -185,7 +193,7 @@ function syncCategory() {
   idOutput.textContent = '';
   idOutput.hidden = true;
   submitButton.disabled = false;
-  submitButton.textContent = 'Submit Registered Student';
+  submitButton.textContent = 'Submit';
   generateButton.disabled = true;
   generateButton.textContent = 'Generate Permanent Student ID';
   idHelp.hidden = false;
@@ -204,7 +212,7 @@ function syncExistingIdChoice() {
   idOutput.textContent = '';
   idOutput.hidden = true;
   submitButton.disabled = false;
-  submitButton.textContent = 'Submit Registered Student';
+  submitButton.textContent = 'Submit';
   generateButton.disabled = true;
   generateButton.textContent = 'Generate Permanent Student ID';
   idHelp.hidden = false;
@@ -250,10 +258,10 @@ async function loadOptions() {
     };
     yearField.onchange = () => { refreshTerms(); saveDraft(); };
     refreshTerms();
-    if (!classes.length) status.textContent = 'No active school classes are available. Ask an administrator to check the class setup.';
+    if (!classes.length) setStatus('No active school classes are available. Ask an administrator to check the class setup.', 'error');
     restoreDraft();
     refreshTerms();
-  } catch (error) { status.textContent = `Unable to load school classes and academic periods: ${error.message}`; }
+  } catch (error) { setStatus(`Unable to load school classes and academic periods: ${error.message}`, 'error'); }
 }
 
 function normalizeTerm(value) {
@@ -273,7 +281,7 @@ document.querySelector('#reset-registration-form').addEventListener('click', () 
   registeredStudentId = null;
   form.querySelectorAll('input, select, textarea').forEach((field) => { field.disabled = false; });
   form.reset();
-  status.textContent = '';
+  setStatus('');
   success.replaceChildren();
   success.hidden = true;
   form.elements.registrationToken.value = '';
@@ -283,7 +291,7 @@ document.querySelector('#reset-registration-form').addEventListener('click', () 
   idOutput.textContent = '';
   idOutput.hidden = true;
   submitButton.disabled = false;
-  submitButton.textContent = 'Submit Registered Student';
+  submitButton.textContent = 'Submit';
   generateButton.disabled = true;
   generateButton.textContent = 'Generate Permanent Student ID';
   idHelp.hidden = false;
@@ -297,18 +305,24 @@ form.addEventListener('submit', async (event) => {
   event.preventDefault();
   if (saving) return;
   if (completed) {
-    status.textContent = 'Registration is already saved. Use Generate Permanent Student ID to continue.';
+    setStatus('Registration is already saved. Use Generate Permanent Student ID to continue.');
     return;
   }
-  status.textContent = '';
+  setStatus('');
   success.hidden = true;
-  if (!form.reportValidity()) return;
-  if (!['FIRST_TIME', 'TRANSFER', 'ALREADY_ENROLLED'].includes(categoryField.value)) { status.textContent = 'Select an admission category.'; return; }
-  if (!yearField.value || !termField.value) { status.textContent = 'Select an academic year and one valid term before submitting.'; (yearField.value ? termField : yearField).focus(); return; }
+  if (!form.reportValidity()) {
+    const invalid = form.querySelector(':invalid');
+    const label = invalid?.labels?.[0]?.textContent?.trim().replace(/\s+/g, ' ') ?? 'Form';
+    setStatus(`${label}: ${invalid?.validationMessage || 'Please correct this field before submitting.'}`, 'error');
+    invalid?.focus();
+    return;
+  }
+  if (!['FIRST_TIME', 'TRANSFER', 'ALREADY_ENROLLED'].includes(categoryField.value)) { setStatus('Select an admission category.', 'error'); categoryField.focus(); return; }
+  if (!yearField.value || !termField.value) { setStatus('Select an academic year and one valid term before submitting.', 'error'); (yearField.value ? termField : yearField).focus(); return; }
 
   const fullName = form.elements.fullName.value.trim().replace(/\s+/g, ' ');
   const nameParts = fullName.split(' ');
-  if (nameParts.length < 2) { status.textContent = 'Enter the pupil’s first and last name.'; form.elements.fullName.focus(); return; }
+  if (nameParts.length < 2) { setStatus('Enter the pupil’s first and last name.', 'error'); form.elements.fullName.focus(); return; }
   const data = new FormData(form);
   const payload = Object.fromEntries(data.entries());
   Object.assign(payload, {
@@ -317,9 +331,18 @@ form.addEventListener('submit', async (event) => {
     existingStudentId: existingStudentIdField.value,
     existingIdChoice: identificationChoice.value
   });
+  const suppliedId = identificationChoice.value === 'HAVE_ID' ? existingIdField.value.trim() : '';
+  if (categoryField.value === 'ALREADY_ENROLLED' && !payload.existingStudentId && identificationChoice.value === 'HAVE_ID' && !suppliedId) {
+    setStatus('Enter the existing Student ID before submitting.', 'error');
+    existingIdField.focus();
+    return;
+  }
+
+  saving = true;
+  submitButton.disabled = true;
+  submitButton.textContent = 'Submitting…';
+  form.setAttribute('aria-busy', 'true');
   if (categoryField.value === 'ALREADY_ENROLLED' && !payload.existingStudentId) {
-    const suppliedId = identificationChoice.value === 'HAVE_ID' ? existingIdField.value.trim() : '';
-    if (identificationChoice.value === 'HAVE_ID' && !suppliedId) { status.textContent = 'Enter the existing Student ID before submitting.'; existingIdField.focus(); return; }
     try {
       const identity = suppliedId
         ? { permanentStudentId: suppliedId }
@@ -330,29 +353,35 @@ form.addEventListener('submit', async (event) => {
       existingStudentIdField.value = match.student.studentId;
       existingStudentMatch.textContent = `Matched existing student: ${[match.student.firstName, match.student.middleName, match.student.lastName].filter(Boolean).join(' ')} · ${match.student.permanentStudentId ? `ID ${match.student.permanentStudentId}` : 'No permanent ID recorded'}.`;
       existingStudentMatch.hidden = false;
-    } catch (error) { status.textContent = error.message; return; }
+    } catch (error) {
+      saving = false;
+      submitButton.disabled = false;
+      submitButton.textContent = 'Submit';
+      form.removeAttribute('aria-busy');
+      setStatus(error.message, 'error');
+      return;
+    }
   }
   if (categoryField.value !== 'ALREADY_ENROLLED' && !form.elements.registrationToken.value) form.elements.registrationToken.value = crypto.randomUUID();
   payload.registrationToken = form.elements.registrationToken.value;
   saveDraft();
-  saving = true;
-  submitButton.disabled = true;
-  submitButton.textContent = 'Submitting...';
-  form.setAttribute('aria-busy', 'true');
-  status.textContent = 'Saving the student profile, health details, parent contact, and class assignment…';
+  setStatus('Saving the student profile, health details, parent contact, and class assignment…');
   try {
     const result = await request('/api/internal-student-registration', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-    registeredStudentId = result.studentId ?? result.student.studentId ?? result.student.id;
-    if (!registeredStudentId) throw new Error('The database response did not include the saved student identifier. Retry or ask an administrator to verify the registration.');
-    showRegistrationSaved({ ...result.student, studentId: registeredStudentId, permanentStudentId: result.permanentStudentId }, result.className);
-    status.textContent = result.permanentStudentId ? `Submitted Successfully. Existing permanent ID ${result.permanentStudentId} was retained.` : 'Submitted Successfully. Registration and class placement are confirmed. Generate the Permanent Student ID to complete registration.';
+    const student = result.student && typeof result.student === 'object' ? result.student : {};
+    registeredStudentId = student.studentId ?? student.id ?? result.studentId ?? null;
+    if (!registeredStudentId) throw new Error('The server returned success without a saved student record or ID. The registration has not been confirmed; check with an administrator before retrying.');
+    showRegistrationSaved({ ...student, studentId: registeredStudentId, permanentStudentId: result.permanentStudentId ?? student.permanentStudentId }, result.className);
   } catch (error) {
-    status.textContent = error.message;
+    completed = false;
+    registeredStudentId = null;
+    generateButton.disabled = true;
+    setStatus(error.message || 'The registration could not be submitted. Please retry.', 'error');
   }
   finally {
     saving = false;
     submitButton.disabled = completed;
-    submitButton.textContent = completed ? 'Registration Saved' : 'Submit Registered Student';
+    submitButton.textContent = 'Submit';
     form.removeAttribute('aria-busy');
   }
 });

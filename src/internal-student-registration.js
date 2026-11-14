@@ -134,7 +134,7 @@ export function createInternalStudentRegistrationService({ database, clock = () 
     const timestamp = clock(), admissionYear = new Date(timestamp).getUTCFullYear();
     try {
       await registeredStudent(studentId, schoolId);
-      return await transactionWithRetry(async (tx) => {
+      const assignAttempt = () => transactionWithRetry(async (tx) => {
         await tidbInsertIfAbsent(tx, { insertSql: 'INSERT INTO student_id_sequences (admission_year,next_sequence,updated_at) VALUES (?,?,?)', insertParameters: [admissionYear, 1, timestamp], conflictSql: 'SELECT admission_year FROM student_id_sequences WHERE admission_year=?', conflictParameters: [admissionYear] });
         const sequenceRow = rows(await tx.query('SELECT next_sequence FROM student_id_sequences WHERE admission_year=? FOR UPDATE', [admissionYear]))[0];
         if (!sequenceRow) fail('STUDENT_ID_SEQUENCE_UNAVAILABLE', 'Permanent Student ID generation is temporarily unavailable. Please retry.', 503);
@@ -196,6 +196,15 @@ export function createInternalStudentRegistrationService({ database, clock = () 
         await tx.execute('UPDATE student_id_sequences SET next_sequence=?,updated_at=? WHERE admission_year=?', [sequence + 1, timestamp, admissionYear]);
         return { studentId, permanentStudentId, created: true };
       });
+      let collisionRetries = 0;
+      while (true) {
+        try { return await assignAttempt(); }
+        catch (error) {
+          const collision = ['STUDENT_ID_ASSIGNMENT_CONFLICT', 'STUDENT_ID_SEQUENCE_CONFLICT', 'ER_DUP_ENTRY', '1062'].includes(error?.code);
+          if (!collision || collisionRetries >= 2) throw error;
+          collisionRetries += 1;
+        }
+      }
     } catch (error) { if (error?.status) throw error; if (error?.code === 'ER_DUP_ENTRY' || error?.code === '1062') fail('STUDENT_ID_ASSIGNMENT_CONFLICT', 'Another request assigned this Student ID. Reload the student and retry.', 409); throw Object.assign(new Error('Permanent Student ID generation failed. The saved registration remains available; retry the ID request.'), { code: 'STUDENT_ID_ASSIGNMENT_FAILED', status: 503, cause: error }); }
   }
 

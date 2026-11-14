@@ -35,7 +35,7 @@ test('Section 20 saves registration before enabling its separate permanent ID ac
   assert.match(html, /id="reset-registration-form"[^>]*>RESET FORM/);
   assert.equal((html.match(/type="submit"/g) ?? []).length, 1);
   const submitter = html.match(/<button id="submit-registration" class="primary-button" type="submit">([^<]+)<\/button>/)?.[1];
-  assert.equal(submitter, 'Submit Registered Student');
+  assert.equal(submitter, 'Submit');
   const sectionStart = html.indexOf('<section class="registration-section student-id-section">');
   const sectionEnd = html.indexOf('</section>', sectionStart);
   const section20 = html.slice(sectionStart, sectionEnd);
@@ -44,7 +44,7 @@ test('Section 20 saves registration before enabling its separate permanent ID ac
   assert.match(html, /id="student-id-help" class="muted">Submit and save registration first\.<\/p>/);
   assert.match(section20, /id="permanent-student-id"[^>]*hidden/);
   assert.match(script, /const generateButton = form\.querySelector\('#generate-student-id'\)/);
-  assert.match(script, /registeredStudentId = result\.studentId/);
+  assert.match(script, /registeredStudentId = student\.studentId \?\? student\.id \?\? result\.studentId/);
   assert.match(script, /body: JSON\.stringify\(\{ studentId: registeredStudentId \}\)/);
   assert.doesNotMatch(script, /reservationToken/);
   assert.match(html, /IMPORTANT NOTICE[\s\S]*?For all admission categories, every registered student must have a permanent OSAAH Student ID/);
@@ -58,7 +58,10 @@ test('Section 20 saves registration before enabling its separate permanent ID ac
   assert.match(script, /Select an academic year and one valid term/);
   assert.doesNotMatch(html, /<h2>Class Assignment<\/h2>/);
   assert.match(script, /Submitted Successfully/);
-  assert.match(script, /submitButton\.textContent = 'Submitting\.\.\.'/);
+  assert.match(script, /submitButton\.textContent = 'Submitting…'/);
+  assert.match(script, /if \(!form\.reportValidity\(\)\)[\s\S]*?setStatus\(`\$\{label\}: \$\{invalid\?\.validationMessage/);
+  assert.match(script, /setStatus\('✅ Submitted successfully', 'success'\)/);
+  assert.match(html, /id="registration-status" role="status" aria-live="polite"/);
   assert.match(script, /if \(saving \|\| !completed \|\| !registeredStudentId \|\| form\.elements\.resolvedPermanentStudentId\.value\) return/);
   assert.match(script, /generateButton\.addEventListener\('click', \(\) => \{ void generatePermanentStudentId\(\); \}\)/);
   assert.doesNotMatch(script, /generateIdAfterSave/);
@@ -217,6 +220,23 @@ test('saved registration receives the first database ID and repeated generation 
   assert.equal(state.parentLinks[0].permanent_student_id, assigned.permanentStudentId);
   assert.equal(state.reservations.length, 1);
   assert.equal(state.reservations[0].reservation_status, 'CONSUMED');
+});
+
+test('permanent ID assignment retries a sequence collision before returning an ID', async () => {
+  const { database, state } = databaseFixture();
+  const service = createInternalStudentRegistrationService({ database, clock: () => '2026-11-12T10:00:00.000Z', idFactory: (() => { let n = 0; return () => `collision-id-${++n}`; })() });
+  const saved = await saveRegistration(service, { registrationToken: 'registration-token-collision' });
+  const transaction = database.transaction;
+  let attempts = 0;
+  database.transaction = async (work) => {
+    attempts += 1;
+    if (attempts === 1) throw Object.assign(new Error('sequence collision'), { code: 'STUDENT_ID_SEQUENCE_CONFLICT', status: 409 });
+    return transaction(work);
+  };
+  const assigned = await service.assignPermanentId({ studentId: saved.studentId, schoolId: 'school-1', actorId: 'staff-1' });
+  assert.equal(attempts, 2);
+  assert.equal(assigned.permanentStudentId, 'OSAA/2026/001');
+  assert.equal(state.students[0].permanent_student_id, assigned.permanentStudentId);
 });
 
 test('abandoned reservations and stale counters do not skip unused committed numbers', async () => {
