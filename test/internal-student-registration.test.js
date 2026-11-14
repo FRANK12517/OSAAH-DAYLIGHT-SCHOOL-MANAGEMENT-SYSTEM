@@ -35,14 +35,14 @@ test('Section 20 uses one button to save registration and generate its permanent
   assert.match(html, /id="reset-registration-form"[^>]*>RESET FORM/);
   assert.equal((html.match(/type="submit"/g) ?? []).length, 1);
   const submitter = html.match(/<button class="primary-button" type="submit">([^<]+)<\/button>/)?.[1];
-  assert.equal(submitter, 'Submit, Save and Generate Permanent Student ID');
+  assert.equal(submitter, 'Submit and Save Registration');
   const sectionStart = html.indexOf('<section class="registration-section student-id-section">');
   const sectionEnd = html.indexOf('</section>', sectionStart);
   const section20 = html.slice(sectionStart, sectionEnd);
   assert.equal((section20.match(/<button\b/g) ?? []).length, 1);
   assert.doesNotMatch(html, /generate-student-id|Submit and save registration first/);
   assert.match(section20, /id="permanent-student-id"[^>]*hidden/);
-  assert.match(section20, /One action saves the registration, then generates its Permanent Student ID/);
+  assert.match(section20, /Submit and save registration with this button\. After the database confirms the save, the same button generates or retries the Permanent Student ID/);
   assert.match(script, /registeredStudentId = result\.studentId/);
   assert.match(script, /body: JSON\.stringify\(\{ studentId: registeredStudentId \}\)/);
   assert.doesNotMatch(script, /reservationToken/);
