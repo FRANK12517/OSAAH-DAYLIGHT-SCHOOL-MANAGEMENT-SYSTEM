@@ -28,18 +28,21 @@ test('canonical student registration navigation is unique and restricted to lead
   assert.equal(auth.authenticate(login.token).permissions.has('admissions.write'), true);
 });
 
-test('registration must save first and only then expose permanent ID generation', async () => {
+test('Section 20 uses one button to save registration and generate its permanent ID', async () => {
   const html = await readFile(new URL('../public/internal-registration.html', import.meta.url), 'utf8');
   const script = await readFile(new URL('../public/internal-registration.js', import.meta.url), 'utf8');
   assert.match(html, /Use this single form for first-time, transfer, and existing OsaaH students/);
   assert.match(html, /id="reset-registration-form"[^>]*>RESET FORM/);
-  assert.match(html, /Submit and save registration first/);
   assert.equal((html.match(/type="submit"/g) ?? []).length, 1);
   const submitter = html.match(/<button class="primary-button" type="submit">([^<]+)<\/button>/)?.[1];
-  assert.equal(submitter, 'Submit and Save Registration');
-  assert.match(html, /<button class="primary-button" type="submit">Submit and Save Registration<\/button>[\s\S]*?id="generate-student-id"/);
-  assert.doesNotMatch(html.slice(html.indexOf('<h2>IMPORTANT NOTICE</h2>'), html.indexOf('</form>')), /type="submit"/);
-  assert.match(html, /id="generate-student-id"[^>]*disabled/);
+  assert.equal(submitter, 'Submit, Save and Generate Permanent Student ID');
+  const sectionStart = html.indexOf('<section class="registration-section student-id-section">');
+  const sectionEnd = html.indexOf('</section>', sectionStart);
+  const section20 = html.slice(sectionStart, sectionEnd);
+  assert.equal((section20.match(/<button\b/g) ?? []).length, 1);
+  assert.doesNotMatch(html, /generate-student-id|Submit and save registration first/);
+  assert.match(section20, /id="permanent-student-id"[^>]*hidden/);
+  assert.match(section20, /One action saves the registration, then generates its Permanent Student ID/);
   assert.match(script, /registeredStudentId = result\.studentId/);
   assert.match(script, /body: JSON\.stringify\(\{ studentId: registeredStudentId \}\)/);
   assert.doesNotMatch(script, /reservationToken/);
@@ -54,8 +57,12 @@ test('registration must save first and only then expose permanent ID generation'
   assert.match(script, /Select an academic year and one valid term/);
   assert.doesNotMatch(html, /<h2>Class Assignment<\/h2>/);
   assert.match(script, /Submitted Successfully/);
-  assert.match(script, /submit\.textContent = 'Submitting\.\.\.'/);
-  assert.match(script, /submit\.textContent = completed \? 'Submitted Successfully' : 'Submit and Save Registration'/);
+  assert.match(script, /submitButton\.textContent = 'Submitting\.\.\.'/);
+  assert.match(script, /if \(completed\) \{\s*await generatePermanentStudentId\(\);/);
+  assert.match(script, /if \(generateIdAfterSave\) await generatePermanentStudentId\(\)/);
+  assert.match(script, /async function generatePermanentStudentId\(\)/);
+  assert.match(script, /Retry Permanent ID Generation/);
+  assert.doesNotMatch(script, /generateButton|#generate-student-id/);
   assert.match(script, /form\.reset\(\)/);
   assert.match(script, /registrationToken\.value = ''/);
   assert.match(script, /if \(saving\) return/);
