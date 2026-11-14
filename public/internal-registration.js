@@ -171,7 +171,7 @@ function syncCategory() {
   idOutput.textContent = '';
   idOutput.hidden = true;
   submitButton.disabled = false;
-  submitButton.textContent = 'Submit, Save and Generate Permanent Student ID';
+  submitButton.textContent = 'Submit and Save Registration';
 }
 
 function syncExistingIdChoice() {
@@ -186,7 +186,7 @@ function syncExistingIdChoice() {
   idOutput.textContent = '';
   idOutput.hidden = true;
   submitButton.disabled = false;
-  submitButton.textContent = 'Submit, Save and Generate Permanent Student ID';
+  submitButton.textContent = 'Submit and Save Registration';
 }
 
 function updateAge() {
@@ -261,7 +261,7 @@ document.querySelector('#reset-registration-form').addEventListener('click', () 
   idOutput.textContent = '';
   idOutput.hidden = true;
   submitButton.disabled = false;
-  submitButton.textContent = 'Submit, Save and Generate Permanent Student ID';
+  submitButton.textContent = 'Submit and Save Registration';
   syncCategory();
   updateAge();
   loadOptions();
@@ -328,7 +328,7 @@ form.addEventListener('submit', async (event) => {
   finally {
     saving = false;
     submitButton.disabled = Boolean(form.elements.resolvedPermanentStudentId.value);
-    submitButton.textContent = form.elements.resolvedPermanentStudentId.value ? 'Registration Complete' : completed ? 'Generate Permanent Student ID' : 'Submit, Save and Generate Permanent Student ID';
+    submitButton.textContent = form.elements.resolvedPermanentStudentId.value ? 'Registration Complete' : completed ? 'Generate Permanent Student ID' : 'Submit and Save Registration';
     form.removeAttribute('aria-busy');
   }
   if (generateIdAfterSave) await generatePermanentStudentId();
