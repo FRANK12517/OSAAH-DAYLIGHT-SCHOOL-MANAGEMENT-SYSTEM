@@ -17,7 +17,8 @@ const expectedTables = [
 ];
 const migrationDefinitions = [
   { version: 40, name: '040_fee_structures_v2.sql', file: new URL('../schema/040_fee_structures_v2.sql', import.meta.url) },
-  { version: 84, name: '084_internal_student_registration.sql', file: new URL('../schema/084_internal_student_registration.sql', import.meta.url) }
+  { version: 84, name: '084_internal_student_registration.sql', file: new URL('../schema/084_internal_student_registration.sql', import.meta.url) },
+  { version: 85, name: '085_global_student_id_unique.sql', file: new URL('../schema/085_global_student_id_unique.sql', import.meta.url) }
 ];
 const requiredColumns = {
   fee_structures_v2: ['id', 'school_id', 'academic_year_id', 'term_id', 'class_id', 'fee_type', 'description', 'amount', 'mandatory', 'status', 'published_by', 'published_at', 'created_by', 'created_at', 'updated_by', 'updated_at'],
