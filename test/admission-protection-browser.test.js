@@ -53,7 +53,7 @@ async function startBrowser(t) {
   return browser;
 }
 
-test('authorized staff can continue through the normal workflow to the application page', { timeout: 120_000 }, async (t) => {
+test('authorized staff can save a registration before generating its permanent ID', { timeout: 120_000 }, async (t) => {
   const fixture = createBrowserTestAuth();
   const base = await startServer(t, fixture.auth);
   const browser = await startBrowser(t);
@@ -110,20 +110,108 @@ test('authorized staff can continue through the normal workflow to the applicati
     const cookieNames = (await page.context().cookies()).map((cookie) => cookie.name);
     throw new Error(`Local browser login did not reach the headteacher dashboard. Login message: ${loginError}. HTTP: ${JSON.stringify(authResponses)}. Login session cookie set: ${loginCookieSet}. Browser cookie names: ${JSON.stringify(cookieNames)}. Visible page: ${pageText.slice(0, 500)}`);
   }
+  const registrationPayloads = [];
+  const idRequests = [];
+  let releaseSave;
+  const saveGate = new Promise((resolve) => { releaseSave = resolve; });
+  let releaseId;
+  const idGate = new Promise((resolve) => { releaseId = resolve; });
+  await page.route('**/api/admission-workflow/options', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      classes: [{ id: 'class-fixture-1', name: 'Primary 1' }],
+      academicYears: [{ id: 'year-fixture-2026', name: '2026/2027', startsOn: '2026-09-01', isCurrent: true }],
+      terms: [{ id: 'term-fixture-1', academicYearId: 'year-fixture-2026', name: '1st Term' }]
+    })
+  }));
+  await page.route('**/api/internal-student-registration', async (route) => {
+    registrationPayloads.push(route.request().postDataJSON());
+    await saveGate;
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        studentId: 'fixture-saved-student-1',
+        student: { studentId: 'fixture-saved-student-1', firstName: 'Ama', lastName: 'Mensah', permanentStudentId: null },
+        permanentStudentId: null,
+        classId: 'class-fixture-1',
+        className: 'Primary 1'
+      })
+    });
+  });
+  await page.route('**/api/internal-student-registration/student-id*', async (route) => {
+    if (route.request().method() === 'GET') return route.continue();
+    idRequests.push(route.request().postDataJSON());
+    if (idRequests.length === 1) {
+      return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'Temporary ID service failure.' }) });
+    }
+    await idGate;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ studentId: 'fixture-saved-student-1', permanentStudentId: 'OSAA/2026/777', created: true })
+    });
+  });
   await page.getByRole('button', { name: /STUDENTS? MANAGEMENT/i }).click({ force: true });
   await page.getByRole('link', { name: 'Student Registration' }).click({ force: true });
   await page.goto(`${base}/admissions/register?embedded=1`);
 
   const registration = page;
   await registration.getByRole('heading', { name: 'Student Admission and Registration' }).waitFor();
+  await registration.waitForFunction(() => document.querySelector('select[name="classId"] option[value="class-fixture-1"]') !== null);
   assert.ok(await registration.locator('select[name="admissionType"] option[value="FIRST_TIME"]').count());
   assert.ok(await registration.locator('select[name="admissionType"] option[value="TRANSFER"]').count());
   assert.ok(await registration.locator('select[name="admissionType"] option[value="ALREADY_ENROLLED"]').count());
+  await registration.locator('select[name="admissionType"]').selectOption('FIRST_TIME');
+  assert.equal(await registration.locator('select[name="admissionType"]').inputValue(), 'FIRST_TIME');
   assert.ok(await registration.locator('input[name="registrationToken"]').count());
-  const submitAndSave = registration.getByRole('button', { name: 'Submit and Save Registration', exact: true });
-  assert.equal(await submitAndSave.count(), 1, 'Section 20 exposes one authoritative registration submit action');
-  assert.equal(await submitAndSave.isDisabled(), false, 'registration can be submitted before an ID exists');
-  assert.equal(await registration.getByRole('button', { name: 'Generate Permanent Student ID', exact: true }).count(), 0);
+  const submitRegistration = registration.locator('#submit-registration');
+  const generateId = registration.locator('#generate-student-id');
+  assert.equal(await registration.getByRole('button', { name: 'Submit Registered Student', exact: true }).count(), 1, 'Section 20 exposes one registration submit action');
+  assert.equal(await submitRegistration.isDisabled(), false, 'registration can be submitted before an ID exists');
+  assert.equal(await registration.getByRole('button', { name: 'Generate Permanent Student ID', exact: true }).count(), 1, 'Section 20 exposes the separate ID generation action');
+  assert.equal(await generateId.isDisabled(), true, 'ID generation remains locked before registration is saved');
+
+  await registration.locator('select[name="classId"]').selectOption('class-fixture-1');
+  await registration.locator('select[name="academicYearId"]').selectOption('year-fixture-2026');
+  await registration.locator('select[name="termId"]').selectOption('term-fixture-1');
+  await registration.locator('input[name="fullName"]').fill('Ama Mensah');
+  await registration.locator('input[name="dateOfBirth"]').fill('2018-01-02');
+  await registration.locator('select[name="gender"]').selectOption('Female');
+  await registration.locator('textarea[name="homeAddress"]').fill('1 Fixture Road');
+  await registration.locator('input[name="parentName"]').fill('Ama Guardian');
+  await registration.locator('input[name="parentPhone"]').fill('0540652824');
+  await registration.locator('textarea[name="parentAddress"]').fill('1 Fixture Road');
+
+  const saveRequest = submitRegistration.click();
+  await registration.waitForFunction(() => document.querySelector('#submit-registration')?.textContent === 'Submitting...');
+  assert.equal(await submitRegistration.isDisabled(), true, 'the save action is disabled while persistence is pending');
+  assert.equal(registrationPayloads.length, 1);
+  assert.equal(registrationPayloads[0].admissionType, 'FIRST_TIME');
+  assert.equal(await generateId.isDisabled(), true, 'ID generation remains disabled until save confirmation');
+  releaseSave();
+  await saveRequest;
+  await registration.getByRole('heading', { name: 'Submitted Successfully' }).waitFor();
+  assert.equal(await submitRegistration.isDisabled(), true, 'the committed registration cannot be submitted twice');
+  assert.equal(await generateId.isDisabled(), false, 'database-confirmed registration unlocks ID generation');
+  assert.equal(idRequests.length, 0, 'saving a registration does not automatically run ID generation');
+
+  await generateId.click();
+  await registration.waitForFunction(() => document.querySelector('#generate-student-id')?.textContent === 'Retry Permanent ID Generation');
+  assert.equal(await generateId.isDisabled(), false, 'failed ID generation leaves a safe retry available');
+  assert.equal(registrationPayloads.length, 1, 'ID failure does not submit another registration');
+
+  const generateRequest = generateId.click();
+  await registration.waitForFunction(() => document.querySelector('#generate-student-id')?.textContent === 'Generating Permanent ID...');
+  assert.equal(await generateId.isDisabled(), true, 'the ID action is disabled while allocation is pending');
+  releaseId();
+  await generateRequest;
+  await registration.locator('#permanent-student-id').waitFor({ state: 'visible' });
+  assert.equal((await registration.locator('#permanent-student-id').textContent()).trim(), 'Permanent Student ID: OSAA/2026/777');
+  assert.equal(await generateId.isDisabled(), true, 'successful ID assignment disables further generation');
+  assert.equal(idRequests.length, 2, 'the same saved student ID request is retried safely');
+  assert.ok(idRequests.every((payload) => payload.studentId === 'fixture-saved-student-1'));
   assert.equal(applicationWrites.length, 0, 'the unified registration page never creates a legacy application');
   assert.equal(continuationResponses.some((entry) => entry.status < 400), false, 'the obsolete application page is never served');
 });
