@@ -36,8 +36,8 @@ test('registration must save first and only then expose permanent ID generation'
   assert.match(html, /Submit and save registration first/);
   assert.equal((html.match(/type="submit"/g) ?? []).length, 1);
   const submitter = html.match(/<button class="primary-button" type="submit">([^<]+)<\/button>/)?.[1];
-  assert.equal(submitter, 'Submit Registered Student');
-  assert.match(html, /<button class="primary-button" type="submit">Submit Registered Student<\/button>[\s\S]*?id="generate-student-id"/);
+  assert.equal(submitter, 'Submit and Save Registration');
+  assert.match(html, /<button class="primary-button" type="submit">Submit and Save Registration<\/button>[\s\S]*?id="generate-student-id"/);
   assert.doesNotMatch(html.slice(html.indexOf('<h2>IMPORTANT NOTICE</h2>'), html.indexOf('</form>')), /type="submit"/);
   assert.match(html, /id="generate-student-id"[^>]*disabled/);
   assert.match(script, /registeredStudentId = result\.studentId/);

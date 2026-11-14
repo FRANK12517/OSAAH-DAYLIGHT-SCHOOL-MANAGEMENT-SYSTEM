@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 const migration = new URL('../schema/038_canonical_class_database_fee_hub.sql', import.meta.url);
+const globalStudentIdMigration = new URL('../schema/085_global_student_id_unique.sql', import.meta.url);
 
 test('canonical Class Database and Fee Hub migration is additive and non-duplicating', async () => {
   const sql = await readFile(migration, 'utf8');
@@ -29,9 +30,15 @@ test('canonical Class Database and Fee Hub migration is additive and non-duplica
   assert.ok((sql.match(/DECIMAL\(/g) ?? []).length >= 10);
   assert.match(sql, /UNIQUE KEY uq_student_fee_account/);
   assert.match(sql, /UNIQUE KEY uq_fee_receipt_payment/);
-  assert.match(sql, /CREATE UNIQUE INDEX IF NOT EXISTS uq_students_permanent_student_id_global\s+ON students \(permanent_student_id\)/);
+  assert.doesNotMatch(sql, /uq_students_permanent_student_id_global/);
   assert.match(sql, /CREATE OR REPLACE VIEW vw_class_database/);
   assert.match(sql, /CREATE OR REPLACE VIEW vw_completed_class_database/);
+});
+
+test('global permanent student ID uniqueness is added in a forward migration', async () => {
+  const sql = await readFile(globalStudentIdMigration, 'utf8');
+  assert.match(sql, /CREATE UNIQUE INDEX IF NOT EXISTS uq_students_permanent_student_id_global\s+ON students \(permanent_student_id\)/);
+  assert.doesNotMatch(sql, /\bDROP\s+(TABLE|COLUMN|DATABASE)\b/i);
 });
 
 test('canonical financial schema preserves historical payment and receipt state', async () => {
