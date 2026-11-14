@@ -140,8 +140,11 @@ test('authorized staff can save a registration before generating its permanent I
       status: 201,
       contentType: 'application/json',
       body: JSON.stringify({
+        success: true,
+        found: false,
+        idStatus: 'PENDING_GENERATION',
         studentId: 'fixture-saved-student-1',
-        student: { studentId: 'fixture-saved-student-1', firstName: 'Ama', lastName: 'Mensah', permanentStudentId: permanentId },
+        student: { id: 'fixture-saved-student-1', studentId: 'fixture-saved-student-1', firstName: 'Ama', lastName: 'Mensah', permanentStudentId: permanentId },
         permanentStudentId: permanentId,
         classId: 'class-fixture-1',
         className: 'Primary 1'

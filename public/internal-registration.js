@@ -7,6 +7,7 @@ const submitButton = form.querySelector('#submit-registration');
 const generateButton = form.querySelector('#generate-student-id');
 const categoryField = form.elements.admissionType;
 const existingIdField = form.elements.existingPermanentStudentId;
+const existingIdError = document.querySelector('#existing-id-error');
 const existingStudentIdField = form.elements.existingStudentId;
 const identificationChoice = form.elements.existingIdChoice;
 const existingStudentMatch = document.querySelector('#existing-student-match');
@@ -27,6 +28,17 @@ function setStatus(message, kind = '') {
   status.textContent = message;
   status.classList.toggle('status-error', kind === 'error');
   status.classList.toggle('status-success', kind === 'success');
+  if (message) {
+    status.scrollIntoView({ block: 'nearest' });
+    status.focus({ preventScroll: true });
+  }
+}
+
+function setExistingIdError(message = '') {
+  existingIdError.textContent = message;
+  existingIdError.hidden = !message;
+  if (message) existingIdField.setAttribute('aria-invalid', 'true');
+  else existingIdField.removeAttribute('aria-invalid');
 }
 
 function saveDraft() {
@@ -50,7 +62,8 @@ function restoreDraft() {
     if (![1, 2].includes(saved?.version) || !saved.data || typeof saved.data !== 'object') return;
     restoringDraft = true;
     if (saved.data.admissionType) categoryField.value = saved.data.admissionType;
-    if (saved.data.existingIdChoice) [...identificationChoice].forEach((item) => { item.checked = item.value === saved.data.existingIdChoice; });
+    const savedIdChoice = ['NO_ID', 'HAVE_ID'].includes(saved.data.existingIdChoice) ? saved.data.existingIdChoice : 'NO_ID';
+    [...identificationChoice].forEach((item) => { item.checked = item.value === savedIdChoice; });
     syncCategory();
     for (const [name, value] of Object.entries(saved.data)) {
       if (name === 'existingIdChoice') continue;
@@ -60,7 +73,7 @@ function restoreDraft() {
     registeredStudentId = saved.registeredStudentId ?? null;
     form.elements.registrationToken.value ||= saved.data.registrationToken ?? '';
     if (!registeredStudentId) form.elements.resolvedPermanentStudentId.value = '';
-    if (form.elements.existingStudentId.value) {
+    if (identificationChoice.value === 'HAVE_ID' && form.elements.existingStudentId.value) {
       existingStudentMatch.textContent = 'Recovered existing student selection. Verify the student identity before submitting.';
       existingStudentMatch.hidden = false;
     }
@@ -85,17 +98,17 @@ async function request(url, options = {}) {
   return result;
 }
 
-function showRegistrationSaved(student, className) {
+function showRegistrationSaved(student, className, idStatus = student.permanentStudentId ? 'EXISTING' : 'PENDING_GENERATION', found = false) {
   const fullStudentName = [student.firstName, student.middleName, student.lastName].filter(Boolean).join(' ');
   success.replaceChildren();
   const heading = document.createElement('h2'); heading.textContent = 'Submitted Successfully';
-  const detail = document.createElement('p'); detail.textContent = `${fullStudentName || 'Student'} is saved in the school database.`;
+  const detail = document.createElement('p'); detail.textContent = found ? `${fullStudentName || 'Student'} matched an existing school record.` : `${fullStudentName || 'Student'} is saved in the school database.`;
   const placement = document.createElement('p'); placement.textContent = student.permanentStudentId ? `Permanent Student ID: ${student.permanentStudentId}.` : className ? `Class placement: ${className}. Generate the permanent ID to complete registration.` : 'Generate the permanent ID to complete registration.';
   success.append(heading, detail, placement);
   success.hidden = false;
   completed = true;
   registeredStudentId = student.studentId ?? student.id ?? registeredStudentId;
-  if (student.permanentStudentId) {
+  if (idStatus === 'EXISTING' && student.permanentStudentId) {
     form.elements.resolvedPermanentStudentId.value = student.permanentStudentId;
     idOutput.textContent = `Permanent Student ID: ${student.permanentStudentId}`;
     idOutput.hidden = false;
@@ -121,7 +134,7 @@ function showRegistrationSaved(student, className) {
 async function recoverRegisteredStudent() {
   try {
     const student = await request(`/api/internal-student-registration/student-id?studentId=${encodeURIComponent(registeredStudentId)}`);
-    showRegistrationSaved(student, null);
+    showRegistrationSaved(student, null, student.permanentStudentId ? 'EXISTING' : 'PENDING_GENERATION', true);
     draftStatus.textContent = 'Submitted Successfully. Registration confirmed in the school database.';
     setStatus('✅ Submitted successfully', 'success');
   } catch (error) {
@@ -183,6 +196,7 @@ function syncCategory() {
   document.querySelectorAll('[data-existing-no-id]').forEach((element) => { element.hidden = !existing || identificationChoice.value !== 'NO_ID'; });
   document.querySelectorAll('[data-transfer-field]').forEach((element) => { element.hidden = !transfer; });
   existingIdField.required = existing && identificationChoice.value === 'HAVE_ID';
+  setExistingIdError('');
   form.elements.previousSchool.required = transfer;
   form.elements.resolvedPermanentStudentId.value = '';
   existingIdField.value = '';
@@ -204,6 +218,9 @@ function syncExistingIdChoice() {
   document.querySelectorAll('[data-existing-id-entry]').forEach((element) => { element.hidden = categoryField.value !== 'ALREADY_ENROLLED' || identificationChoice.value !== 'HAVE_ID'; });
   document.querySelectorAll('[data-existing-no-id]').forEach((element) => { element.hidden = categoryField.value !== 'ALREADY_ENROLLED' || identificationChoice.value !== 'NO_ID'; });
   existingIdField.required = categoryField.value === 'ALREADY_ENROLLED' && identificationChoice.value === 'HAVE_ID';
+  setExistingIdError('');
+  status.textContent = '';
+  status.classList.remove('status-error', 'status-success');
   form.elements.resolvedPermanentStudentId.value = '';
   existingIdField.value = '';
   existingStudentIdField.value = '';
@@ -272,6 +289,7 @@ function normalizeTerm(value) {
 categoryField.addEventListener('change', () => { if (!completed) syncCategory(); });
 identificationChoice.forEach((radio) => radio.addEventListener('change', () => { if (!completed) syncExistingIdChoice(); }));
 form.elements.dateOfBirth.addEventListener('change', updateAge);
+existingIdField.addEventListener('input', () => { if (existingIdField.value.trim()) setExistingIdError(''); });
 form.addEventListener('input', saveDraft);
 form.addEventListener('change', saveDraft);
 
@@ -282,6 +300,7 @@ document.querySelector('#reset-registration-form').addEventListener('click', () 
   form.querySelectorAll('input, select, textarea').forEach((field) => { field.disabled = false; });
   form.reset();
   setStatus('');
+  setExistingIdError('');
   success.replaceChildren();
   success.hidden = true;
   form.elements.registrationToken.value = '';
@@ -310,49 +329,53 @@ form.addEventListener('submit', async (event) => {
   }
   setStatus('');
   success.hidden = true;
+  if (categoryField.value === 'ALREADY_ENROLLED' && identificationChoice.value === 'HAVE_ID' && !existingIdField.value.trim()) {
+    const message = 'Enter the existing Student ID before submitting.';
+    setExistingIdError(message);
+    setStatus(message, 'error');
+    return;
+  }
   if (!form.reportValidity()) {
     const invalid = form.querySelector(':invalid');
     const label = invalid?.labels?.[0]?.textContent?.trim().replace(/\s+/g, ' ') ?? 'Form';
     setStatus(`${label}: ${invalid?.validationMessage || 'Please correct this field before submitting.'}`, 'error');
-    invalid?.focus();
     return;
   }
-  if (!['FIRST_TIME', 'TRANSFER', 'ALREADY_ENROLLED'].includes(categoryField.value)) { setStatus('Select an admission category.', 'error'); categoryField.focus(); return; }
-  if (!yearField.value || !termField.value) { setStatus('Select an academic year and one valid term before submitting.', 'error'); (yearField.value ? termField : yearField).focus(); return; }
+  if (!['FIRST_TIME', 'TRANSFER', 'ALREADY_ENROLLED'].includes(categoryField.value)) { setStatus('Select an admission category.', 'error'); return; }
+  if (!yearField.value || !termField.value) { setStatus('Select an academic year and one valid term before submitting.', 'error'); return; }
 
   const fullName = form.elements.fullName.value.trim().replace(/\s+/g, ' ');
   const nameParts = fullName.split(' ');
-  if (nameParts.length < 2) { setStatus('Enter the pupil’s first and last name.', 'error'); form.elements.fullName.focus(); return; }
+  if (nameParts.length < 2) { setStatus('Enter the pupil’s first and last name.', 'error'); return; }
   const data = new FormData(form);
-  const payload = Object.fromEntries(data.entries());
+  const payload = Object.fromEntries([...data.entries()].map(([key, value]) => [key, String(value).trim() || null]));
+  const suppliedId = categoryField.value === 'ALREADY_ENROLLED' && identificationChoice.value === 'HAVE_ID' ? existingIdField.value.trim() : null;
   Object.assign(payload, {
     firstName: nameParts[0], middleName: nameParts.length > 2 ? nameParts.slice(1, -1).join(' ') : '', lastName: nameParts.at(-1),
-    existingPermanentStudentId: form.elements.resolvedPermanentStudentId.value || form.elements.existingPermanentStudentId.value.trim(),
-    existingStudentId: existingStudentIdField.value,
+    existingPermanentStudentId: suppliedId,
+    existingStudentId: categoryField.value === 'ALREADY_ENROLLED' && identificationChoice.value === 'HAVE_ID' ? existingStudentIdField.value || null : null,
     existingIdChoice: identificationChoice.value
   });
-  const suppliedId = identificationChoice.value === 'HAVE_ID' ? existingIdField.value.trim() : '';
-  if (categoryField.value === 'ALREADY_ENROLLED' && !payload.existingStudentId && identificationChoice.value === 'HAVE_ID' && !suppliedId) {
-    setStatus('Enter the existing Student ID before submitting.', 'error');
-    existingIdField.focus();
-    return;
-  }
 
   saving = true;
   submitButton.disabled = true;
   submitButton.textContent = 'Submitting…';
   form.setAttribute('aria-busy', 'true');
-  if (categoryField.value === 'ALREADY_ENROLLED' && !payload.existingStudentId) {
+  if (categoryField.value === 'ALREADY_ENROLLED' && identificationChoice.value === 'HAVE_ID') {
     try {
-      const identity = suppliedId
-        ? { permanentStudentId: suppliedId }
-        : { firstName: nameParts[0], lastName: nameParts.at(-1), dateOfBirth: form.elements.dateOfBirth.value };
-      const match = await request('/api/internal-student-registration/existing-student', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(identity) });
-      payload.existingStudentId = match.student.studentId;
-      if (!payload.existingPermanentStudentId) payload.existingPermanentStudentId = match.student.permanentStudentId ?? '';
-      existingStudentIdField.value = match.student.studentId;
-      existingStudentMatch.textContent = `Matched existing student: ${[match.student.firstName, match.student.middleName, match.student.lastName].filter(Boolean).join(' ')} · ${match.student.permanentStudentId ? `ID ${match.student.permanentStudentId}` : 'No permanent ID recorded'}.`;
-      existingStudentMatch.hidden = false;
+      const match = await request('/api/internal-student-registration/existing-student', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ permanentStudentId: suppliedId }) });
+      if (match.found) {
+        const matchedStudentId = match.student?.id ?? match.student?.studentId;
+        if (!matchedStudentId) throw new Error('The existing student lookup returned no student record ID. Please retry.');
+        payload.existingStudentId = matchedStudentId;
+        existingStudentIdField.value = matchedStudentId;
+        existingStudentMatch.textContent = `Matched existing student: ${[match.student.firstName, match.student.middleName, match.student.lastName].filter(Boolean).join(' ')} · ID ${match.student.permanentStudentId ?? suppliedId}.`;
+        existingStudentMatch.hidden = false;
+      } else {
+        payload.existingStudentId = null;
+        existingStudentMatch.hidden = true;
+        existingStudentMatch.textContent = '';
+      }
     } catch (error) {
       saving = false;
       submitButton.disabled = false;
@@ -369,9 +392,12 @@ form.addEventListener('submit', async (event) => {
   try {
     const result = await request('/api/internal-student-registration', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     const student = result.student && typeof result.student === 'object' ? result.student : {};
-    registeredStudentId = student.studentId ?? student.id ?? result.studentId ?? null;
+    registeredStudentId = student.id ?? student.studentId ?? result.studentId ?? null;
     if (!registeredStudentId) throw new Error('The server returned success without a saved student record or ID. The registration has not been confirmed; check with an administrator before retrying.');
-    showRegistrationSaved({ ...student, studentId: registeredStudentId, permanentStudentId: result.permanentStudentId ?? student.permanentStudentId }, result.className);
+    if (result.success !== true || !['PENDING_GENERATION', 'EXISTING'].includes(result.idStatus)) throw new Error('The server did not confirm a completed registration. Please retry.');
+    const permanentStudentId = result.permanentStudentId ?? student.permanentStudentId ?? null;
+    if ((result.idStatus === 'EXISTING') !== Boolean(permanentStudentId)) throw new Error('The server returned inconsistent permanent ID status. Ask an administrator to review the saved record.');
+    showRegistrationSaved({ ...student, id: registeredStudentId, studentId: registeredStudentId, permanentStudentId }, result.className, result.idStatus, result.found === true);
   } catch (error) {
     completed = false;
     registeredStudentId = null;

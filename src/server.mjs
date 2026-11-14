@@ -620,7 +620,7 @@ export function createApp({ auth = null, students = null, attendance = null, att
           const body = await readJson(request);
           if (pathname === '/api/internal-student-registration/existing-student') {
             const student = await internalStudentRegistration.findExistingStudent(body, user.schoolId);
-            return student ? json(response, { student }) : json(response, { error: body.permanentStudentId ? 'Student ID not found. Please verify the ID number and try again.' : 'No existing OSAAH student matched that name and date of birth. Verify the details or ask the proprietor to reconcile the record.', code: 'EXISTING_STUDENT_NOT_FOUND' }, 404);
+            return json(response, { found: Boolean(student), student: student ? { ...student, id: student.studentId } : null });
           }
           const result = await internalStudentRegistration.register(body, { schoolId: user.schoolId, actorId: user.id });
           audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, roleId: user.roleKey, action: 'INTERNAL_STUDENT_REGISTERED', entity: 'Student', entityId: result.student.studentId ?? result.student.id, newValue: { permanentStudentId: result.permanentStudentId, classId: result.classId, admissionType: body.admissionType, created: result.created } }));

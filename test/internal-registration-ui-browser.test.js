@@ -24,6 +24,8 @@ async function installApiFixture(page) {
   const setup = () => {
     window.__registrationCalls = 0;
     window.__idCalls = 0;
+    window.__lookupCalls = 0;
+    window.__registrationPayloads = [];
     window.fetch = async (input, options = {}) => {
       const url = new URL(input, location.href);
       const pathname = url.pathname.replace(/^\/[A-Za-z]:/, '');
@@ -31,18 +33,26 @@ async function installApiFixture(page) {
       const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
       if (pathname === '/api/admission-workflow/options') return json({ classes: [{ id: 'class-1', name: 'Primary 1' }], academicYears: [{ id: 'year-1', name: '2026/2027' }], terms: [{ id: 'term-1', academicYearId: 'year-1', name: '1st Term' }] });
       if (pathname === '/api/sidebar') return json({ user: { id: 'browser-test-user' } });
-      if (pathname === '/api/internal-student-registration/existing-student') return json({ student: { studentId: 'existing-1', firstName: 'Ama', lastName: 'Mensah', permanentStudentId: 'OSAA/2025/004' } });
+      if (pathname === '/api/internal-student-registration/existing-student') {
+        window.__lookupCalls += 1;
+        const existing = ['existing', 'existing-id'].includes(localStorage.getItem('__registration_test_mode'));
+        return json(existing ? { found: true, student: { id: 'existing-1', studentId: 'existing-1', firstName: 'Ama', lastName: 'Mensah', permanentStudentId: 'OSAA/2025/004' } } : { found: false, student: null });
+      }
       if (pathname === '/api/internal-student-registration' && options.method === 'POST') {
         window.__registrationCalls += 1;
+        window.__registrationPayloads.push(JSON.parse(options.body));
         if (localStorage.getItem('__registration_test_mode') === 'offline') throw new TypeError('Failed to fetch');
         if (localStorage.getItem('__registration_test_mode') === 'server-error') return json({ error: 'Duplicate admission number exists.' }, 409);
         if (localStorage.getItem('__registration_test_mode') === 'missing-id') return json({ success: true }, 200);
+        if (localStorage.getItem('__registration_test_mode') === 'unknown-id') return json({ error: 'EXISTING_ID_NOT_FOUND: No student record has that permanent ID. Check the ID and try again.', code: 'EXISTING_ID_NOT_FOUND' }, 404);
         await new Promise((resolve) => setTimeout(resolve, 300));
         const payload = JSON.parse(options.body);
-        const existing = localStorage.getItem('__registration_test_mode') === 'existing';
-        const record = { studentId: existing ? 'existing-1' : 'saved-1', firstName: 'Ama', lastName: 'Mensah', permanentStudentId: existing ? 'OSAA/2025/004' : null };
+        const mode = localStorage.getItem('__registration_test_mode');
+        const existing = ['existing', 'existing-id', 'existing-no-id', 'existing-id-by-name'].includes(mode);
+        const permanentStudentId = ['existing', 'existing-id', 'existing-id-by-name'].includes(mode) ? 'OSAA/2025/004' : null;
+        const record = { id: existing ? 'existing-1' : 'saved-1', studentId: existing ? 'existing-1' : 'saved-1', firstName: 'Ama', lastName: 'Mensah', permanentStudentId };
         localStorage.setItem(key, JSON.stringify(record));
-        return json({ studentId: record.studentId, student: record, permanentStudentId: record.permanentStudentId, className: 'Primary 1' }, 201);
+        return json({ success: true, found: existing, studentId: record.studentId, student: record, permanentStudentId: record.permanentStudentId, idStatus: permanentStudentId ? 'EXISTING' : 'PENDING_GENERATION', className: 'Primary 1' }, 201);
       }
       if (pathname === '/api/internal-student-registration/student-id' && (!options.method || options.method === 'GET')) return json(JSON.parse(localStorage.getItem(key) || 'null') || { error: 'Saved registration not found.' }, localStorage.getItem(key) ? 200 : 404);
       if (pathname === '/api/internal-student-registration/student-id' && options.method === 'POST') {
@@ -59,7 +69,7 @@ async function installApiFixture(page) {
   await page.evaluate(setup);
 }
 
-async function loadRegistrationPage(page, html, css, script) {
+async function loadRegistrationPage(page, html, css, script, savedDraft = null) {
   if (page.url() === 'about:blank') await page.goto(registrationPage);
   else await page.reload();
   const pageHtml = html
@@ -68,6 +78,7 @@ async function loadRegistrationPage(page, html, css, script) {
     .replace('<script src="/internal-registration.js"></script>', '');
   await page.setContent(pageHtml);
   await installApiFixture(page);
+  if (savedDraft) await page.evaluate((draft) => localStorage.setItem('osaah.internal-registration.draft.v1.browser-test-user', JSON.stringify(draft)), savedDraft);
   await page.addScriptTag({ content: script });
 }
 
@@ -105,9 +116,10 @@ test('Section 20 submits, recovers, preserves existing IDs and reports failures 
   const submit = page.locator('#submit-registration');
   const generate = page.locator('#generate-student-id');
   assert.equal(await page.evaluate(() => innerWidth), 360);
+  assert.equal(await page.locator('input[name="existingIdChoice"][value="NO_ID"]').isChecked(), true);
   assert.equal(await page.getByRole('button', { name: 'Submit', exact: true }).count(), 1);
   assert.equal(await generate.isDisabled(), true);
-  await submit.scrollIntoViewIfNeeded();
+  await submit.evaluate((button) => button.scrollIntoView({ block: 'center', behavior: 'instant' }));
   assert.equal(await submit.evaluate((button) => {
     const rect = button.getBoundingClientRect();
     return document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2) === button;
@@ -135,7 +147,6 @@ test('Section 20 submits, recovers, preserves existing IDs and reports failures 
   await generate.click();
   await page.waitForFunction(() => !document.querySelector('#permanent-student-id')?.hidden);
   assert.equal((await page.locator('#permanent-student-id').innerText()).trim(), 'Permanent Student ID: OSAA/2026/001');
-  assert.equal(await generate.isDisabled(), true);
   assert.match(await page.evaluate(() => localStorage.getItem('osaah.internal-registration.draft.v1.browser-test-user') || ''), /saved-1/);
   page.off('console', onConsole);
   page.off('pageerror', onPageError);
@@ -146,6 +157,9 @@ test('Section 20 submits, recovers, preserves existing IDs and reports failures 
   catch (error) { throw new Error(`Reload did not restore the assigned ID. Draft status: ${await page.locator('#registration-draft-status').innerText()}; button: ${await generate.innerText()}; draft: ${await page.evaluate(() => localStorage.getItem('osaah.internal-registration.draft.v1.browser-test-user'))}`, { cause: error }); }
   assert.equal(await generate.isDisabled(), true);
   assert.equal((await page.locator('#permanent-student-id').innerText()).trim(), 'Permanent Student ID: OSAA/2026/001');
+  await page.locator('#reset-registration-form').click();
+  assert.equal(await page.locator('input[name="existingIdChoice"][value="NO_ID"]').isChecked(), true, 'reset restores the no-ID default');
+  assert.equal(await generate.isDisabled(), true);
 
   await page.evaluate(() => { localStorage.clear(); localStorage.setItem('__registration_test_mode', 'existing'); });
   page.off('console', onConsole);
@@ -155,6 +169,7 @@ test('Section 20 submits, recovers, preserves existing IDs and reports failures 
   page.on('pageerror', onPageError);
   await page.waitForFunction(() => document.querySelector('select[name="classId"] option[value="class-1"]'), null, { timeout: 5000 });
   await page.locator('select[name="admissionType"]').selectOption('ALREADY_ENROLLED');
+  await page.locator('input[name="existingIdChoice"][value="HAVE_ID"]').check();
   await page.locator('input[name="existingPermanentStudentId"]').fill('OSAA/2025/004');
   await fillValidRegistration(page);
   await page.locator('#submit-registration').click();
@@ -205,5 +220,107 @@ test('Section 20 submits, recovers, preserves existing IDs and reports failures 
   await page.waitForFunction(() => document.querySelector('#registration-status')?.textContent.includes('success without a saved student record or ID'));
   assert.equal(await page.locator('#generate-student-id').isDisabled(), true, 'a 2xx response without a student ID does not unlock ID generation');
   assert.deepEqual(browserErrors, [], `Browser console/page errors: ${JSON.stringify(browserErrors)}`);
+  await context.close();
+});
+
+test('no-ID registration uses one transactional submit; existing matches and entered-ID errors are explicit', { timeout: 120_000 }, async (t) => {
+  const browser = await launchBrowser(t);
+  const context = await browser.newContext({ viewport: { width: 360, height: 800 } });
+  const page = await context.newPage();
+  const [html, css, script] = await Promise.all([
+    readFile(new URL('../public/internal-registration.html', import.meta.url), 'utf8'),
+    readFile(new URL('../public/internal-registration.css', import.meta.url), 'utf8'),
+    readFile(new URL('../public/internal-registration.js', import.meta.url), 'utf8')
+  ]);
+  await loadRegistrationPage(page, html, css, script);
+  const submit = page.locator('#submit-registration');
+  const idField = page.locator('input[name="existingPermanentStudentId"]');
+  const noId = page.locator('input[name="existingIdChoice"][value="NO_ID"]');
+  const haveId = page.locator('input[name="existingIdChoice"][value="HAVE_ID"]');
+  const status = page.locator('#registration-status');
+  await page.waitForFunction(() => document.querySelector('select[name="classId"] option[value="class-1"]'), null, { timeout: 5000 });
+  assert.equal(await noId.isChecked(), true, 'fresh form defaults to no ID');
+  assert.equal(await idField.isHidden(), true, 'the ID field is hidden until I HAVE AN ID is selected');
+
+  await page.locator('select[name="admissionType"]').selectOption('ALREADY_ENROLLED');
+  await noId.check();
+  assert.equal(await idField.isHidden(), true);
+  assert.equal(await idField.evaluate((input) => input.required), false);
+  await fillValidRegistration(page);
+  await page.evaluate(() => localStorage.setItem('__registration_test_mode', 'existing-no-id'));
+  await submit.click();
+  await page.waitForFunction(() => document.querySelector('#registration-status')?.textContent === '✅ Submitted successfully');
+  assert.equal(await page.evaluate(() => window.__lookupCalls), 0, 'the no-ID path skips the separate student lookup');
+  assert.equal(await page.evaluate(() => window.__registrationCalls), 1);
+  assert.equal(await page.evaluate(() => window.__registrationPayloads[0].existingStudentId), null);
+  assert.equal(await page.evaluate(() => window.__registrationPayloads[0].existingPermanentStudentId), null);
+  assert.equal(await page.locator('#generate-student-id').isDisabled(), false, 'a matched student without an ID can receive one');
+
+  await page.locator('#reset-registration-form').click();
+  await page.locator('select[name="admissionType"]').selectOption('ALREADY_ENROLLED');
+  await noId.check();
+  await fillValidRegistration(page);
+  await page.evaluate(() => localStorage.setItem('__registration_test_mode', 'existing-id-by-name'));
+  await submit.click();
+  await page.waitForFunction(() => document.querySelector('#registration-status')?.textContent === '✅ Submitted successfully');
+  assert.equal((await page.locator('#permanent-student-id').innerText()).trim(), 'Permanent Student ID: OSAA/2025/004');
+  assert.equal(await page.locator('#generate-student-id').isDisabled(), true, 'an existing ID is returned without generation');
+  assert.equal(await page.evaluate(() => window.__lookupCalls), 0);
+
+  await page.locator('#reset-registration-form').click();
+  await page.evaluate(() => { window.__lookupCalls = 0; window.__registrationCalls = 0; });
+  await page.locator('select[name="admissionType"]').selectOption('ALREADY_ENROLLED');
+  await haveId.check();
+  assert.equal(await idField.isVisible(), true);
+  assert.equal(await idField.evaluate((input) => input.required), true);
+  await fillValidRegistration(page);
+  await submit.click();
+  assert.match(await page.locator('#existing-id-error').innerText(), /Enter the existing Student ID/);
+  assert.equal(await idField.getAttribute('aria-invalid'), 'true');
+  assert.equal(await page.evaluate(() => window.__lookupCalls), 0, 'blank ID blocks all requests');
+  assert.equal(await page.evaluate(() => window.__registrationCalls), 0);
+
+  await idField.fill('OSAA/2026/999');
+  assert.equal(await page.locator('#existing-id-error').isHidden(), true, 'editing the ID clears the inline validation error');
+  await page.evaluate(() => localStorage.setItem('__registration_test_mode', 'unknown-id'));
+  await submit.click();
+  await page.waitForFunction(() => document.querySelector('#registration-status')?.textContent.includes('EXISTING_ID_NOT_FOUND'));
+  assert.equal(await page.evaluate(() => window.__lookupCalls), 1, 'only I HAVE AN ID calls the lookup endpoint');
+  assert.equal(await page.evaluate(() => window.__registrationCalls), 1, 'the transactional submit returns the authoritative 404');
+  assert.equal(await status.evaluate((node) => getComputedStyle(node).color), 'rgb(166, 27, 27)');
+  assert.equal(await status.evaluate((node) => document.activeElement === node), true, 'outcome status receives focus');
+  assert.equal(await page.locator('#generate-student-id').isDisabled(), true);
+
+  await page.locator('input[name="existingIdChoice"][value="NO_ID"]').check();
+  assert.equal(await idField.isHidden(), true);
+  assert.equal(await idField.evaluate((input) => input.required), false);
+  assert.equal(await page.locator('#existing-id-error').isHidden(), true, 'switching choices clears the inline error');
+  await page.locator('#reset-registration-form').click();
+  assert.equal(await noId.isChecked(), true, 'Reset Form restores no-ID default');
+  assert.equal(await idField.isHidden(), true);
+  await context.close();
+});
+
+test('a saved ID choice is restored, while Reset Form returns to NO_ID', { timeout: 120_000 }, async (t) => {
+  const browser = await launchBrowser(t);
+  const context = await browser.newContext({ viewport: { width: 360, height: 800 } });
+  const page = await context.newPage();
+  const [html, css, script] = await Promise.all([
+    readFile(new URL('../public/internal-registration.html', import.meta.url), 'utf8'),
+    readFile(new URL('../public/internal-registration.css', import.meta.url), 'utf8'),
+    readFile(new URL('../public/internal-registration.js', import.meta.url), 'utf8')
+  ]);
+  await loadRegistrationPage(page, html, css, script, { version: 2, data: { admissionType: 'ALREADY_ENROLLED' } });
+  await page.waitForFunction(() => document.querySelector('input[name="existingIdChoice"][value="NO_ID"]')?.checked);
+  assert.equal(await page.locator('input[name="existingIdChoice"][value="NO_ID"]').isChecked(), true, 'draft without a choice uses the NO_ID default');
+  await loadRegistrationPage(page, html, css, script, { version: 2, data: { admissionType: 'ALREADY_ENROLLED', existingIdChoice: 'HAVE_ID' } });
+  await page.waitForFunction(() => document.querySelector('input[name="existingIdChoice"][value="HAVE_ID"]')?.checked);
+  const idField = page.locator('input[name="existingPermanentStudentId"]');
+  assert.equal(await idField.isVisible(), true);
+  assert.equal(await idField.evaluate((input) => input.required), true);
+  await page.locator('#reset-registration-form').click();
+  assert.equal(await page.locator('input[name="existingIdChoice"][value="NO_ID"]').isChecked(), true);
+  assert.equal(await idField.isHidden(), true);
+  assert.equal(await idField.evaluate((input) => input.required), false);
   await context.close();
 });
