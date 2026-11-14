@@ -97,9 +97,7 @@ function requiredDocumentTypes() {
 function updateDocumentRequirementNote() {
   if (!documentRequirementNote) return;
   const required = requiredDocumentTypes();
-  documentRequirementNote.textContent = admissionTypeField.value === 'ALREADY_ENROLLED'
-    ? 'Supporting documents and the admission receipt are optional for this Already-Enrolled application.'
-    : `Required for this application: ${required.map((type) => type.replaceAll('_', ' ').toLowerCase()).join(', ')}.`;
+  documentRequirementNote.textContent = 'Supporting documents are optional. You may submit the application without uploading files.';
 }
 function missingRequiredDocuments({ uploadedOnly = false } = {}) {
   return requiredDocumentTypes().filter((type) => {

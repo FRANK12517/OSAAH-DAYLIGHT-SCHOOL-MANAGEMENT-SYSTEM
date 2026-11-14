@@ -1,0 +1,118 @@
+name: Isolated TiDB Parent auth integration
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/tidb-parent-auth-integration.yml'
+      - 'src/auth.js'
+      - 'src/auth/parent-rate-limits.js'
+      - 'src/auth/parent-auth-service.js'
+      - 'src/admission-enrollment.js'
+      - 'src/parent-authorization.js'
+      - 'test/tidb-parent-rate-limits.integration.test.js'
+      - 'scripts/wait-for-tidb-parent-auth.mjs'
+      - 'package.json'
+      - 'package-lock.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: isolated-tidb-parent-auth-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tidb-parent-auth:
+    name: TiDB v8.5.3 legacy limiter integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      CI: 'true'
+      TIDB_TEST_HOST: 127.0.0.1
+      TIDB_TEST_PORT: '4000'
+      TIDB_TEST_USER: osaah_ci_parent
+      TIDB_TEST_PASSWORD: disposable-ci-password-only
+      TIDB_TEST_BOOTSTRAP_USER: root
+      TIDB_TEST_BOOTSTRAP_PASSWORD: ''
+      TIDB_TEST_DATABASE: osaah_parent_auth_test
+      OSAAH_DATABASE_ADAPTER: tidb
+      OSAAH_TIDB_PARENT_LIMIT_INTEGRATION_APPROVAL: DISPOSABLE_TIDB_V8_5_3_CI_DATABASE_APPROVED
+
+    steps:
+      - name: Check out PR
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Create isolated TiDB network
+        run: docker network create osaah-tidb-ci
+
+      - name: Start official TiDB v8.5.3 components
+        shell: bash
+        run: |
+          docker run -d --name osaah-ci-pd --network osaah-tidb-ci --network-alias pd \
+            pingcap/pd:v8.5.3 \
+            --name=pd --data-dir=/data/pd \
+            --client-urls=http://0.0.0.0:2379 --peer-urls=http://0.0.0.0:2380 \
+            --advertise-client-urls=http://pd:2379 --advertise-peer-urls=http://pd:2380 \
+            --initial-cluster=pd=http://pd:2380
+          docker run -d --name osaah-ci-tikv --network osaah-tidb-ci --network-alias tikv \
+            --ulimit nofile=200000:200000 \
+            pingcap/tikv:v8.5.3 \
+            --data-dir=/data/tikv --pd=pd:2379 \
+            --addr=0.0.0.0:20160 --advertise-addr=tikv:20160 \
+            --status-addr=0.0.0.0:20180
+          docker run -d --name osaah-ci-tidb --network osaah-tidb-ci \
+            -p 127.0.0.1:4000:4000 \
+            pingcap/tidb:v8.5.3 \
+            --store=tikv --path=pd:2379 --host=0.0.0.0 \
+            --advertise-address=osaah-ci-tidb
+
+      - name: Wait for TiDB SQL readiness and create disposable databases
+        run: node scripts/wait-for-tidb-parent-auth.mjs
+
+      - name: Run real TiDB rate-limit and Parent auth integration tests
+        run: node --test --test-concurrency=1 test/tidb-parent-rate-limits.integration.test.js
+
+      - name: Run existing school, Proprietor, session, RBAC, and Parent regressions
+        run: npm run test:auth-regression
+
+      - name: Run complete project test suite with isolated TiDB available
+        run: npm test
+
+      - name: Record TiDB CI evidence
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '## Isolated TiDB Parent authentication integration'
+            echo
+            echo '- Target database: `osaah_parent_auth_test` plus isolated bucket-layout fixture `osaah_parent_auth_bucket_test`'
+            echo '- Production database: not configured or accessed'
+            echo '- Migration 082: not applied; no migration ledger created'
+            echo
+            echo 'The preceding integration step prints the server-reported TiDB version, transaction isolation, schema detection, and test results.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Show TiDB logs on failure
+        if: failure()
+        run: |
+          docker logs osaah-ci-tidb || true
+          docker logs osaah-ci-tikv || true
+          docker logs osaah-ci-pd || true
+
+      - name: Stop and remove disposable TiDB containers/network
+        if: always()
+        shell: bash
+        run: |
+          docker rm -f osaah-ci-tidb osaah-ci-tikv osaah-ci-pd 2>/dev/null || true
+          docker network rm osaah-tidb-ci 2>/dev/null || true

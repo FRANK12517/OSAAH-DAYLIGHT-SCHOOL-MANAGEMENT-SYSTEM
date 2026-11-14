@@ -13,6 +13,7 @@ import { createDurableRoleAccountProvisioning } from './durable-role-account-pro
 import { createAuditLog } from './audit.js';
 import { CORE_LEVELS, createStudentService } from './students.js';
 import { canonicalClassId } from './student-classes.js';
+import { displayStudentGender } from './student-gender.js';
 import { createClassDatabaseService } from './class-database.js';
 import { ACADEMIC_YEAR_OPTIONS, ATTENDANCE_METHODS, STUDENT_REASON_STATUSES, STUDENT_STATUSES, TERM_OPTIONS, createAttendanceService } from './attendance.js';
 import { createAttendanceRepository } from './attendance-repository.js';
@@ -68,6 +69,7 @@ import { createDurableAcademicService } from './durable-academic.js';
 import { createDurablePromotionService } from './durable-promotion.js';
 import { createDurableResultBlockingService } from './durable-result-blocking.js';
 import { createFeeTypeRegistry } from './fee-types.js';
+import { createInternalStudentRegistrationService } from './internal-student-registration.js';
 const releaseMetadata = Object.freeze({
   commitSha: process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.GIT_COMMIT_SHA ?? 'unknown',
   deploymentId: process.env.VERCEL_DEPLOYMENT_ID ?? process.env.VERCEL_URL ?? 'local',
@@ -210,6 +212,7 @@ export function createApp({ auth = null, students = null, attendance = null, att
   const proprietorAuthentication = database ? createProprietorAuthenticationController({ database }) : null;
   const admissionEnrollment = database?.transaction ? createAdmissionEnrollmentService({ database }) : null;
   const existingStudentLinking = database?.query && database?.execute && database?.transaction ? createExistingStudentLinkingService({ database, schoolId: serviceSchoolId }) : null;
+  const internalStudentRegistration = database?.transaction ? createInternalStudentRegistrationService({ database }) : null;
   const durableAdmissions = database?.query && database?.execute ? createDurableAdmissionsService({ database, schoolId: serviceSchoolId }) : null;
   admissionDocumentStorage ??= process.env.BLOB_STORE_ID ? createAdmissionDocumentStorage({ provider: createVercelPrivateBlobProvider({ put: blobPut, get: blobGet, del: blobDelete }) }) : null;
   async function admissionFeeStructures(actor, application) {
@@ -269,6 +272,27 @@ export function createApp({ auth = null, students = null, attendance = null, att
   subjectRegister ??= createSubjectRegisterService({ subjects, staff });
   academicResults ??= createAcademicResultsService({ students, subjects, signatures, subjectRegister, schoolId: serviceSchoolId });
   classDatabase ??= createClassDatabaseService({ students, classes: CORE_LEVELS, schoolId: database ? null : serviceSchoolId });
+  async function durableClassDatabaseList(filters, actor) {
+    classDatabase.options(actor);
+    if (!database?.query) return classDatabase.list(filters, actor);
+    const academicYear = String(filters.academicYear ?? '').trim();
+    const classId = String(filters.classId ?? '').trim();
+    const search = `%${String(filters.search ?? '').trim().toLowerCase()}%`;
+    const results = await database.query(`SELECT s.permanent_student_id AS permanentStudentId,s.id AS studentId,
+      TRIM(CONCAT_WS(' ',s.first_name,s.middle_name,s.last_name)) AS studentName,s.gender AS gender,
+      s.parent_guardian_name AS parentGuardianName,s.parent_phone AS registeredParentPhone,
+      e.class_id AS classId,COALESCE(y.name,e.academic_year) AS academicYear
+      FROM student_enrollments e JOIN students s ON s.id=e.student_id AND s.school_id=e.school_id
+      LEFT JOIN academic_years y ON y.id=e.academic_year_id AND y.school_id=e.school_id
+      WHERE e.school_id=? AND e.is_current=1 AND UPPER(COALESCE(e.enrollment_status,'ACTIVE')) NOT IN ('WITHDRAWN','TRANSFERRED','COMPLETED','GRADUATED')
+      AND (?='' OR y.id=? OR y.name=? OR e.academic_year=?)
+      AND (?='' OR e.class_id=? OR EXISTS (SELECT 1 FROM classes c WHERE c.school_id=e.school_id AND c.id=e.class_id AND c.name=?))
+      AND (?='' OR LOWER(CONCAT_WS(' ',s.first_name,s.middle_name,s.last_name,s.permanent_student_id)) LIKE ?)
+      AND s.is_test_record IS NOT TRUE
+      ORDER BY s.last_name,s.first_name,s.id`, [actor.schoolId, academicYear, academicYear, academicYear, academicYear, classId, classId, classId, search, search]);
+    const assigned = actor.roleKey === 'TEACHER' ? new Set((actor.assignedClassIds ?? []).map(String)) : null;
+    return results.filter((row) => !assigned || assigned.has(String(row.classId))).map((row) => ({ ...row, gender: displayStudentGender(row.gender) }));
+  }
   sampleFixtureRepository ??= database?.query && database?.execute ? createSampleFixtureRepository({ adapter: database, schoolId: serviceSchoolId }) : null;
   const sampleResults = createSampleResultWorkflow({ students, subjects, academicResults, sampleFixtureRepository, schoolId: serviceSchoolId });
   async function normalizedSampleResultInput(input, actor) {
@@ -377,6 +401,17 @@ export function createApp({ auth = null, students = null, attendance = null, att
   function dispatchAnnouncement(body, actor) { if (body.confirm !== true) throw Object.assign(new Error('Explicit bulk-send confirmation is required.'), { status: 400 }); const links = announcementRecipients(body, actor); const emergency = Boolean(body.emergency); const title = emergency ? 'Emergency notice' : String(body.title ?? 'School announcement'); const message = emergency ? `URGENT — ${branding.schoolName}: ${String(body.message ?? '').trim()}` : String(body.message ?? '').trim(); if (!message) throw new Error('Announcement message is required.'); links.forEach((link) => { const key = `ANNOUNCEMENT:${body.idempotencyKey ?? `${title}:${message}`}:${link.parentId}:${link.permanentStudentId}`; if (body.channel !== 'SMS') communication.notify({ type: emergency ? 'EMERGENCY' : 'ANNOUNCEMENT', category: emergency ? 'EMERGENCY' : 'ANNOUNCEMENT', recipientId: link.parentId, studentId: link.studentId, permanentStudentId: link.permanentStudentId, studentName: link.studentName, title, body: message }, { userId: actor.id }); if (body.channel !== 'IN_APP' && link.telephone) { const queued = communicationEngine.enqueue({ channel: 'SMS', recipient: link.telephone, payload: { body: message, priority: emergency ? 'HIGH' : 'NORMAL' }, idempotencyKey: key }, { id: actor.id, schoolId: actor.schoolId }); communicationEngine.process(queued.id, actor).catch(() => {}); } }); return { queuedRecipients: links.length, channel: body.channel ?? 'BOTH', emergency, confirmed: true }; }
   return async function handle(request, response) {
     const pathname = new URL(request.url, 'http://localhost').pathname;
+    if (['/admissions', '/admissions/apply', '/admission-application.html', '/admissions.html'].includes(pathname)) {
+      response.writeHead(308, { Location: '/admissions/register', 'Cache-Control': 'no-store' });
+      return response.end();
+    }
+    const legacyAdmissionWrite = (pathname === '/api/admission-applications' && request.method === 'POST')
+      || (pathname.startsWith('/api/admission-applications/') && (['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method) || /\/(update|submit|review|enroll|offer-acceptance|documents)(\/|$)/.test(pathname)))
+      || (pathname === '/api/public/admission-workflow/options' && request.method !== 'GET')
+      || (pathname === '/api/students' && request.method === 'POST')
+      || (pathname === '/api/students/link-existing' && request.method === 'POST')
+      || (pathname.startsWith('/api/admissions') && request.method !== 'GET');
+    if (legacyAdmissionWrite) return json(response, { error: 'This admission workflow has been retired. Use /admissions/register.', code: 'LEGACY_ADMISSION_WORKFLOW_RETIRED', registrationUrl: '/admissions/register' }, 410);
     if (pathname === '/api/health' && request.method === 'GET') {
       const startedAt = Date.now();
       const health = await checkAuthenticationDatabaseHealth(database);
@@ -567,6 +602,34 @@ export function createApp({ auth = null, students = null, attendance = null, att
       if (process.env.NODE_ENV === 'production' && !durableAcademic && (durableAcademicEndpoints.has(pathname) || pathname.startsWith('/api/subjects/'))) return json(response, { error: 'Durable academic data is unavailable; apply the required migrations and restore database connectivity before retrying.' }, 503);
       if (process.env.NODE_ENV === 'production' && pathname.startsWith('/api/examinations/promotion') && !durablePromotion) return json(response, { error: 'Durable promotion data is unavailable; apply the required migration and restore database connectivity before retrying.' }, 503);
       if (pathname === '/api/sidebar') return json(response, { user: publicUser(user), portal: user.portal, categories: visibleSidebar({ permissions: user.permissions, roleKey: user.roleKey, portal: user.portal, schoolType: user.schoolType, subscription: user.subscription, entitlements: user.entitlements, featureAvailability: user.featureAvailability }), parentCards: user.portal === 'parent' ? parentDashboardModules() : [] });
+      if (pathname === '/api/internal-student-registration/student-id' || pathname === '/api/internal-student-registration/existing-student' || pathname === '/api/internal-student-registration') {
+        if (pathname !== '/api/internal-student-registration/student-id' && request.method !== 'POST') return json(response, { error: 'Method not allowed.' }, 405);
+        if (pathname === '/api/internal-student-registration/student-id' && !['GET', 'POST'].includes(request.method)) return json(response, { error: 'Method not allowed.' }, 405);
+        if (!user || user.portal !== 'school') return json(response, { error: user ? 'Forbidden.' : 'UNAUTHENTICATED' }, user ? 403 : 401);
+        if (!canAccess(user, 'admissions.write')) return json(response, { error: 'Forbidden.' }, 403);
+        if (!internalStudentRegistration) return json(response, { error: 'Internal student registration persistence is unavailable.', code: 'PERSISTENCE_UNAVAILABLE' }, 503);
+        try {
+          if (pathname === '/api/internal-student-registration/student-id') {
+            const studentId = new URL(request.url, 'http://localhost').searchParams.get('studentId');
+            if (request.method === 'GET') return json(response, await internalStudentRegistration.getRegisteredStudent({ studentId, schoolId: user.schoolId }));
+            const body = await readJson(request);
+            const result = await internalStudentRegistration.assignPermanentId({ studentId: body.studentId, schoolId: user.schoolId, actorId: user.id });
+            audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, roleId: user.roleKey, action: result.created ? 'STUDENT_ID_ASSIGNED' : 'STUDENT_ID_RETRIEVED', entity: 'Student', entityId: result.studentId, newValue: { permanentStudentId: result.permanentStudentId } }));
+            return json(response, result, result.created ? 201 : 200);
+          }
+          const body = await readJson(request);
+          if (pathname === '/api/internal-student-registration/existing-student') {
+            const student = await internalStudentRegistration.findExistingStudent(body, user.schoolId);
+            return student ? json(response, { student }) : json(response, { error: body.permanentStudentId ? 'Student ID not found. Please verify the ID number and try again.' : 'No existing OSAAH student matched that name and date of birth. Verify the details or ask the proprietor to reconcile the record.', code: 'EXISTING_STUDENT_NOT_FOUND' }, 404);
+          }
+          const result = await internalStudentRegistration.register(body, { schoolId: user.schoolId, actorId: user.id });
+          audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, roleId: user.roleKey, action: 'INTERNAL_STUDENT_REGISTERED', entity: 'Student', entityId: result.student.studentId ?? result.student.id, newValue: { permanentStudentId: result.permanentStudentId, classId: result.classId, admissionType: body.admissionType, created: result.created } }));
+          return json(response, result, result.created ? 201 : 200);
+        } catch (error) {
+          if ((error.status ?? 400) >= 500) console.error('Internal student registration request failed', { operation: pathname.endsWith('/student-id') ? request.method === 'GET' ? 'student_id_lookup' : 'student_id_assignment' : pathname.endsWith('/existing-student') ? 'existing_student_lookup' : 'student_registration', code: error.code ?? 'UNCLASSIFIED', dbCode: error.cause?.code ?? null, errno: error.cause?.errno ?? null, sqlState: error.cause?.sqlState ?? null, errorType: error.cause?.name ?? error.name ?? 'Error' });
+          return json(response, { error: error.message ?? 'Student registration failed.', code: error.code ?? 'STUDENT_REGISTRATION_FAILED' }, error.status ?? 400);
+        }
+      }
       if (pathname === '/api/school-settings' && request.method === 'GET') { if (!canAccess(user, 'settings.read')) return json(response, { error: 'Forbidden.' }, 403); try { return json(response, await schoolSettings.read(user)); } catch (error) { return json(response, { error: error.message }, error.status ?? 500); } }
       if (pathname === '/api/school-settings' && request.method === 'PATCH') { if (!(user.roleKey === 'PROPRIETOR' || user.roleKey === 'SCHOOL_ADMIN' || canAccess(user, 'settings.write'))) return json(response, { error: 'Forbidden.' }, 403); try { const previous = await schoolSettings.read(user); const saved = await schoolSettings.update(await readJson(request), user); audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, roleId: user.roleKey, action: 'SCHOOL_SETTINGS_UPDATED', entity: 'School', entityId: user.schoolId, previousValue: previous.profile, newValue: saved.profile })); return json(response, saved); } catch (error) { return json(response, { error: error.message }, error.status ?? 400); } }
       if (pathname === '/api/school-profile' && request.method === 'GET') { try { return json(response, await schoolProfile.read(user)); } catch (error) { return json(response, { error: error.message }, error.status ?? 500); } }
@@ -730,8 +793,7 @@ export function createApp({ auth = null, students = null, attendance = null, att
               database.query('SELECT t.id,t.academic_year_id AS academicYearId,t.name FROM terms t JOIN academic_years y ON y.id=t.academic_year_id WHERE y.school_id=? ORDER BY t.starts_on,t.id', [user.schoolId])
             ]);
           }
-          if (!academicYears.length) academicYears = ACADEMIC_YEAR_OPTIONS.map((name) => ({ id: name, name }));
-          if (!terms.length) terms = TERM_OPTIONS.map((name) => ({ id: name, name, academicYearId: null }));
+          if (!database?.query) return json(response, { error: 'Database-backed admission options are unavailable.', code: 'PERSISTENCE_UNAVAILABLE' }, 503);
           academicYears = academicYears.map((item) => ({ ...item, admissionYear: String(item.name ?? item.id).match(/^\d{4}/)?.[0] ?? null }));
           return json(response, { classes, academicYears, terms, documentStorageAvailable: Boolean(admissionDocumentStorage) });
         } catch (error) { return json(response, { error: 'Unable to load admission options.' }, error.status ?? 503); }
@@ -805,9 +867,10 @@ if (durableAcademic && isSampleModeEnabled(body)) {
       if (pathname === '/api/transcripts/view' && request.method === 'GET') { if (user.portal !== 'parent' && !['HEADTEACHER', 'ASSISTANT_HEADTEACHER', 'PROPRIETOR'].includes(user.roleKey)) return json(response, { error: 'Forbidden.' }, 403); try { return json(response, transcripts.getForStudent(new URL(request.url, 'http://localhost').searchParams.get('permanentStudentId'), user)); } catch (error) { return json(response, { error: error.message }, 403); } }
       if (pathname === '/api/transcripts/verify' && request.method === 'GET') { const query = new URL(request.url, 'http://localhost').searchParams; return json(response, transcripts.verify(query.get('reference'), query.get('token'))); }
       if (pathname.startsWith('/api/transcripts/') && pathname.endsWith('/pdf') && request.method === 'GET') { if (user.portal !== 'parent' && !['HEADTEACHER', 'ASSISTANT_HEADTEACHER', 'PROPRIETOR'].includes(user.roleKey)) return json(response, { error: 'Forbidden.' }, 403); try { const query = new URL(request.url, 'http://localhost').searchParams; const file = await transcripts.pdf(pathname.split('/')[3], query.get('version') ?? 1, user); response.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Disposition': `inline; filename="${file.filename}"` }); response.end(file.content); return; } catch (error) { return json(response, { error: error.message }, 403); } }
+      if (pathname === '/api/academic/results/block-status' && request.method === 'GET') { if (!['TEACHER', 'PROPRIETOR', 'HEADTEACHER', 'ACCOUNTANT_BURSAR'].includes(user.roleKey)) return json(response, { error: 'Forbidden.' }, 403); try { const query = Object.fromEntries(new URL(request.url, 'http://localhost').searchParams); const resultType = String(query.resultType ?? 'TERMINAL').toUpperCase() === 'MOCK' ? 'MOCK' : 'TERMINAL'; if (user.roleKey === 'TEACHER' && !user.assignedClassIds?.map(String).includes(String(query.classId ?? ''))) return json(response, { error: 'Class is outside your assignment.' }, 403); if (!canAccess(user, resultType === 'MOCK' ? 'mock.results.read' : 'results.read') && !canAccess(user, resultType === 'MOCK' ? 'mock.results.generate' : 'results.generate')) return json(response, { error: 'Forbidden.' }, 403); const input = { ...query, resultType, studentId: query.studentId || null }; const status = resultBlocking?.getStatus ? await resultBlocking.getStatus(input, user) : { status: academicResults.blockFor?.(input)?.status === 'BLOCKED' ? 'BLOCKED' : 'UNBLOCKED' }; return json(response, status); } catch (error) { return json(response, { error: error.message }, error.status ?? 403); } }
       if (pathname === '/api/academic/results/blocks' && request.method === 'GET') { if (!['PROPRIETOR', 'HEADTEACHER', 'ACCOUNTANT_BURSAR'].includes(user.roleKey)) return json(response, { error: 'Forbidden.' }, 403); try { return json(response, { blocks: resultBlocking ? await resultBlocking.listBlocks(Object.fromEntries(new URL(request.url, 'http://localhost').searchParams), user) : academicResults.listBlocks(Object.fromEntries(new URL(request.url, 'http://localhost').searchParams), user) }); } catch (error) { return json(response, { error: error.message }, 403); } }
-      if (pathname === '/api/academic/results/blocks' && request.method === 'POST') { if (!['TEACHER', 'HEADTEACHER', 'ACCOUNTANT_BURSAR'].includes(user.roleKey)) return json(response, { error: 'Forbidden.' }, 403); try { const result = resultBlocking ? await resultBlocking.blockResults(await readJson(request), user) : academicResults.blockResults(await readJson(request), user); audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, action: 'RESULTS_BLOCKED', entity: 'AcademicResultBlock', entityId: result.id, newValue: result })); return json(response, result, 201); } catch (error) { return json(response, { error: error.message, code: error.code }, error.status ?? (error.message === 'Forbidden.' ? 403 : 400)); } }
-      if (pathname === '/api/academic/results/unblock' && request.method === 'POST') { if (!['PROPRIETOR', 'HEADTEACHER'].includes(user.roleKey)) return json(response, { error: 'Forbidden.' }, 403); try { const body = await readJson(request); const result = resultBlocking?.unblockResults ? await resultBlocking.unblockResults(body, user) : academicResults.unblockResults(body, user); audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, action: 'RESULTS_UNBLOCKED', entity: 'AcademicResultBlock', entityId: result.id, newValue: result })); return json(response, result); } catch (error) { return json(response, { error: error.message }, error.status ?? (error.message === 'Forbidden.' ? 403 : 400)); } }
+      if (pathname === '/api/academic/results/blocks' && request.method === 'POST') { if (!['TEACHER', 'HEADTEACHER', 'ACCOUNTANT_BURSAR'].includes(user.roleKey)) return json(response, { error: 'Forbidden.' }, 403); try { const body = await readJson(request); const affectedStudents = body.studentId ? 1 : (durableAcademic ? (await durableAcademic.resultStudents({ ...body, resultType: body.resultType ?? 'TERMINAL' }, user)).length : 0); const result = resultBlocking ? await resultBlocking.blockResults(body, user) : academicResults.blockResults(body, user); audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, action: 'RESULTS_BLOCKED', entity: 'AcademicResultBlock', entityId: result.id, newValue: result })); return json(response, { ...result, affectedStudents }, 201); } catch (error) { return json(response, { error: error.message, code: error.code }, error.status ?? (error.message === 'Forbidden.' ? 403 : 400)); } }
+      if (pathname === '/api/academic/results/unblock' && request.method === 'POST') { if (!['PROPRIETOR', 'HEADTEACHER'].includes(user.roleKey)) return json(response, { error: 'Forbidden.' }, 403); try { const body = await readJson(request); const affectedStudents = body.studentId ? 1 : (durableAcademic ? (await durableAcademic.resultStudents({ ...body, resultType: body.resultType ?? 'TERMINAL' }, user)).length : 0); const result = resultBlocking?.unblockResults ? await resultBlocking.unblockResults(body, user) : academicResults.unblockResults(body, user); audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, action: 'RESULTS_UNBLOCKED', entity: 'AcademicResultBlock', entityId: result.id, newValue: result })); return json(response, { ...result, affectedStudents }); } catch (error) { return json(response, { error: error.message }, error.status ?? (error.message === 'Forbidden.' ? 403 : 400)); } }
       if (pathname === '/api/academic/results/unblock-requests' && request.method === 'GET') { if (!['PROPRIETOR', 'HEADTEACHER'].includes(user.roleKey)) return json(response, { error: 'Forbidden.' }, 403); try { return json(response, { requests: resultBlocking ? await resultBlocking.listUnblockRequests(Object.fromEntries(new URL(request.url, 'http://localhost').searchParams), user) : academicResults.listUnblockRequests(Object.fromEntries(new URL(request.url, 'http://localhost').searchParams), user) }); } catch (error) { return json(response, { error: error.message }, 403); } }
       if (pathname === '/api/academic/results/unblock-requests' && request.method === 'POST') { if (!['TEACHER', 'ACCOUNTANT_BURSAR', 'HEADTEACHER'].includes(user.roleKey)) return json(response, { error: 'Forbidden.' }, 403); try { const result = resultBlocking ? await resultBlocking.requestUnblock(await readJson(request), user) : academicResults.requestUnblock(await readJson(request), user); audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, action: 'RESULTS_UNBLOCK_REQUESTED', entity: 'AcademicResultUnblockRequest', entityId: result.id, newValue: result })); return json(response, result, 201); } catch (error) { return json(response, { error: error.message }, error.message === 'Forbidden.' ? 403 : 400); } }
       if (pathname.startsWith('/api/academic/results/unblock-requests/') && request.method === 'POST') { if (user.roleKey !== 'HEADTEACHER') return json(response, { error: 'Forbidden.' }, 403); try { const result = resultBlocking ? await resultBlocking.decideUnblock(pathname.split('/').filter(Boolean).at(-1), (await readJson(request)).decision, user) : academicResults.decideUnblock(pathname.split('/').filter(Boolean).at(-1), (await readJson(request)).decision, user); audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, action: `RESULTS_UNBLOCK_${result.status}`, entity: 'AcademicResultUnblockRequest', entityId: result.id, newValue: result })); return json(response, result); } catch (error) { return json(response, { error: error.message }, error.message === 'Forbidden.' ? 403 : 400); } }
@@ -1035,7 +1098,7 @@ if (durableAcademic && isSampleModeEnabled(body)) {
         } catch (error) { return attendanceApiFailure(response, error, '/api/attendance/students/sync', user); }
       }
       if (pathname === '/api/class-database/options' && request.method === 'GET') { try { const options = classDatabase.options(user); const academicYears = database?.query ? (await feeSetupOptions(user)).academicYears.map((item) => item.name ?? item.id) : ['2024/2025', '2025/2026', '2026/2027', '2027/2028', '2028/2029']; return json(response, { ...options, academicYears: academicYears.length ? academicYears : options.academicYears }); } catch (error) { return json(response, { error: error.message }, error.status ?? 403); } }
-      if (pathname === '/api/class-database' && request.method === 'GET') { try { const query = new URL(request.url, 'http://localhost').searchParams; return json(response, { rows: classDatabase.list({ classId: query.get('classId') ?? '', academicYear: query.get('academicYear') ?? '', search: query.get('search') ?? '' }, user) }); } catch (error) { return json(response, { error: error.message }, error.status ?? 403); } }
+      if (pathname === '/api/class-database' && request.method === 'GET') { try { const query = new URL(request.url, 'http://localhost').searchParams; return json(response, { rows: await durableClassDatabaseList({ classId: query.get('classId') ?? '', academicYear: query.get('academicYear') ?? '', search: query.get('search') ?? '' }, user) }); } catch (error) { return json(response, { error: error.message }, error.status ?? 403); } }
       if (pathname === '/api/class-database/completed/options' && request.method === 'GET') { try { return json(response, classDatabase.completedOptions(user)); } catch (error) { return json(response, { error: error.message }, error.status ?? 403); } }
       if (pathname === '/api/class-database/completed' && request.method === 'GET') { try { const query = new URL(request.url, 'http://localhost').searchParams; return json(response, { rows: classDatabase.listCompleted({ completionYear: query.get('completionYear') ?? '', search: query.get('search') ?? '' }, user) }); } catch (error) { return json(response, { error: error.message }, error.status ?? 403); } }
       if (pathname === '/api/fee-setup/options' && request.method === 'GET') { if (!user) return json(response, { error: 'UNAUTHENTICATED' }, 401); try { return json(response, await feeSetupOptions(user)); } catch (error) { audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, action: 'FEE_SETUP_OPTIONS_FAILED', entity: 'FeeSetup', newValue: { code: error.code ?? 'OPTIONS_UNAVAILABLE' } })); return json(response, { error: error.status === 403 ? 'Forbidden.' : 'Unable to load Fee Setup data. Please try again.' }, error.status ?? 503); } }
@@ -1374,7 +1437,7 @@ if (durableAcademic && isSampleModeEnabled(body)) {
       }
     }
     if (pathname === '/website') { response.writeHead(302, { Location: '/#public-school-website', 'Cache-Control': 'no-store' }); return response.end(); }
-    const pageAliases = { '/dashboard': '/index.html', '/parent-dashboard': '/index.html', '/developer/communication-setup': '/communication-setup.html', '/academics': '/academics.html', '/students': '/students.html', '/admissions': '/admissions.html', '/attendance': '/attendance-overview.html', '/examinations': '/examinations.html', '/results': '/results.html', '/promotion': '/results.html', '/fees': '/fees.html', '/fees/admission-structures': '/admission-fees.html', '/fees/scholarships': '/fees.html', '/finance': '/finance.html', '/staff': '/staff.html', '/staff/leave': '/leave.html', '/staff/professional-development': '/staff.html', '/administrator-management': '/administrator-management.html', '/staff-management': '/staff-management.html', '/settings': '/school-settings.html', '/users': '/users-and-roles.html', '/communication': '/communication.html', '/communication/messages': '/sms-messages.html', '/communication/in-app-messages': '/in-app-messages.html', '/communication/calendar': '/academic-calendar.html', '/academic-calendar': '/academic-calendar.html', '/compliance': '/compliance.html', '/documents': '/documents.html', '/privacy': '/privacy.html', '/inventory': '/inventory.html', '/assets': '/assets.html', '/procurement': '/procurement.html', '/property': '/assets.html', '/library': '/library.html', '/transport': '/transport.html', '/sporting-activities': '/sporting-activities.html', '/transport/gps': '/transport.html', '/hostel': '/hostel.html', '/welfare/health': '/welfare.html', '/welfare/discipline': '/welfare.html', '/welfare/counselling': '/welfare.html' };
+    const pageAliases = { '/dashboard': '/index.html', '/parent-dashboard': '/index.html', '/developer/communication-setup': '/communication-setup.html', '/academics': '/academics.html', '/students': '/students.html', '/admissions': '/internal-registration.html', '/admissions/register': '/internal-registration.html', '/attendance': '/attendance-overview.html', '/examinations': '/examinations.html', '/results': '/results.html', '/promotion': '/results.html', '/fees': '/fees.html', '/fees/admission-structures': '/admission-fees.html', '/fees/scholarships': '/fees.html', '/finance': '/finance.html', '/staff': '/staff.html', '/staff/leave': '/leave.html', '/staff/professional-development': '/staff.html', '/administrator-management': '/administrator-management.html', '/staff-management': '/staff-management.html', '/settings': '/school-settings.html', '/users': '/users-and-roles.html', '/communication': '/communication.html', '/communication/messages': '/sms-messages.html', '/communication/in-app-messages': '/in-app-messages.html', '/communication/calendar': '/academic-calendar.html', '/academic-calendar': '/academic-calendar.html', '/compliance': '/compliance.html', '/documents': '/documents.html', '/privacy': '/privacy.html', '/inventory': '/inventory.html', '/assets': '/assets.html', '/procurement': '/procurement.html', '/property': '/assets.html', '/library': '/library.html', '/transport': '/transport.html', '/sporting-activities': '/sporting-activities.html', '/transport/gps': '/transport.html', '/hostel': '/hostel.html', '/welfare/health': '/welfare.html', '/welfare/discipline': '/welfare.html', '/welfare/counselling': '/welfare.html' };
     Object.assign(pageAliases, { '/about-developer': '/about-developer.html', '/copyright': '/copyright.html' });
     Object.assign(pageAliases, { '/reports': '/reports.html', '/reports/academic': '/reports-academic.html', '/reports/financial': '/reports-financial.html', '/official-documents': '/official-documents.html', '/website': '/website.html', '/admissions/prospectus': '/admission-prospectus.html', '/parent/admission-prospectus': '/parent-admission-prospectus.html', '/examinations/marks': '/examinations.html', '/examinations/mock': '/mock-examinations.html', '/results/mock': '/results.html', '/academics/subjects': '/subjects.html', '/academics/subject-register': '/subject-register.html', '/welfare/shep': '/shep-activities.html', '/settings/result-signatures': '/result-signatures.html', '/fees/invoices': '/receipts.html' });
     Object.assign(pageAliases, { '/academics': '/subjects.html', '/admissions/analytics': '/admission-analytics.html', '/settings/single-school': '/single-school-panel.html', '/user-guide': '/user-guide.html', '/finance/receipts': '/finance-canonical.html' }, PROPRIETOR_PAGE_ALIASES, { '/settings/profile': '/school-profile.html' }, Object.fromEntries(Object.keys(PROPRIETOR_PAGE_ALIASES).filter((route) => route === '/finance' || route.startsWith('/finance/') || route.startsWith('/fees/')).map((route) => [route, '/finance-canonical.html'])));
@@ -1422,7 +1485,7 @@ if (durableAcademic && isSampleModeEnabled(body)) {
       protectedUser = user;
     }
     let publicAdmissionCookie = null;
-    const publicAdmissionPage = pathname === '/admissions/apply' || pathname === '/admission-application.html';
+    const publicAdmissionPage = false;
     if (publicAdmissionPage) {
       const user = await auth.authenticateAsync(readCookie(request, 'osaah_session') ?? bearer(request));
       const isAuthorizedStaff = user?.portal === 'school'
@@ -1443,7 +1506,7 @@ if (durableAcademic && isSampleModeEnabled(body)) {
     }
     const fallbackPage = modulePageFallbacks.find(([prefix]) => pathname.startsWith(prefix))?.[1];
     const shellNavigation = ['school', 'parent'].includes(protectedUser?.portal) && request.headers['sec-fetch-mode'] === 'navigate' && new URL(request.url, 'http://localhost').searchParams.get('embedded') !== '1';
-    const file = pathname === '/' || shellNavigation ? '/index.html' : pathname === '/admissions/apply' ? '/admission-application.html' : pageAliases[pathname] ?? fallbackPage ?? pathname;
+    const file = pathname === '/' || shellNavigation ? '/index.html' : pageAliases[pathname] ?? fallbackPage ?? pathname;
     try {
       let body = await readFile(join(root, file));
       const requestedNavigationKey = new URL(request.url, 'http://localhost').searchParams.get('navigationKey');
@@ -1472,8 +1535,20 @@ const orchestrator = providerEnabled ? createAIOrchestrator({ providerRegistry, 
 const aiGateway = aiEnabled ? createAIGateway({ capabilityRegistry, toolRegistry, schoolContextService, productionDataGuard, dataQualityGuard, auditLogger: aiAuditLoggerForWiring, providerRegistry, providerId, orchestrator }) : null;
 const aiConversation = aiEnabled ? createAIConversationService({ gateway: aiGateway, capabilityRegistry, toolRegistry }) : null;
 const isDirectExecution = process.argv[1] === fileURLToPath(import.meta.url);
-const configuredDatabase = await loadConfiguredDatabaseAdapter({ required: isDirectExecution || process.env.NODE_ENV === 'production' });
-if (configuredDatabase && (isDirectExecution || process.env.NODE_ENV === 'production')) await configuredDatabase.verifyReadiness();
+let configuredDatabase;
+try {
+  configuredDatabase = await loadConfiguredDatabaseAdapter({ required: isDirectExecution || process.env.NODE_ENV === 'production' });
+  if (configuredDatabase && (isDirectExecution || process.env.NODE_ENV === 'production')) await configuredDatabase.verifyReadiness();
+} catch (error) {
+  const code = /^[A-Z0-9_]{1,80}$/.test(String(error?.code ?? '')) ? error.code : 'DATABASE_INITIALIZATION_FAILED';
+  console.error('TiDB database initialization failed', { component: 'application_database', operation: 'startup', code });
+  try { await configuredDatabase?.close?.(); } catch { /* Preserve the initialization error without exposing driver details. */ }
+  configuredDatabase = {
+    async query() {
+      throw Object.assign(new Error('The configured TiDB database is unavailable.'), { code });
+    }
+  };
+}
 const app = createApp({ aiEnabled, aiPersistence, capabilityRegistry, toolRegistry, providerRegistry, providerId, aiGateway, aiConversation, database: configuredDatabase });
 const server = createServer(app);
 server.on('close', () => {

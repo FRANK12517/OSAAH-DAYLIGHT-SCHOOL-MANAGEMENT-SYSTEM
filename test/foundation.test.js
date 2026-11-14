@@ -44,7 +44,7 @@ test('student creation generates a permanent unique ID and rejects duplicate adm
 test('student history preserves identity across class assignment and links multiple parents', () => { const service = createStudentService(); const student = service.createStudent({ firstName: 'Esi', surname: 'Owusu' }); service.assignClass(student.id, { classId: 'primary-5', academicYearId: '2026' }); service.assignClass(student.id, { classId: 'jhs-1', academicYearId: '2027', reason: 'PROMOTION' }); service.linkParent(student.id, { parentId: 'parent-1', relationship: 'Mother', telephone: '0240000000' }); const links = service.linkParent(student.id, { parentId: 'parent-2', relationship: 'Father' }); const record = service.getStudent(student.id); assert.equal(record.id, student.id); assert.equal(record.history.length, 2); assert.equal(links.length, 2); });
 test('student search supports parent phone and assigned-student RBAC', () => { const service = createStudentService(); const assigned = service.createStudent({ firstName: 'Yaw', surname: 'Boateng', family: [{ telephone: '0241111111' }] }); service.createStudent({ firstName: 'Akua', surname: 'Darko', family: [{ telephone: '0242222222' }] }); assert.equal(service.search('0241111111', { roleKey: 'TEACHER', assignedStudentIds: [assigned.id] }).length, 1); assert.equal(service.search('0242222222', { roleKey: 'TEACHER', assignedStudentIds: [assigned.id] }).length, 0); });
 test('admissions workflow enforces order and generates offer and enrollment documents', () => { const service = createStudentService(); const application = service.createAdmission({ applicantName: 'Adwoa' }); let current = application; for (const stage of ADMISSION_STAGES.slice(1)) current = service.advanceAdmission(application.applicationNumber, stage); assert.equal(current.stage, 'CLASS_ASSIGNMENT'); assert.equal(current.admissionLetter, `ADMISSION-OFFER-${application.applicationNumber}`); assert.equal(current.enrollmentConfirmation, `ENROLLMENT-${application.applicationNumber}`); assert.throws(() => service.advanceAdmission(application.applicationNumber, 'ENROLLMENT'), /Invalid admission transition/); });
-test('existing leadership roles see Admissions only with the matching permission', () => { for (const roleKey of ['PROPRIETOR', 'HEADTEACHER', 'ASSISTANT_HEADTEACHER']) { const modules = visibleSidebar({ permissions: new Set(['admissions.read']), roleKey, portal: 'school' }).flatMap((group) => group.modules); assert.ok(modules.some((module) => module.moduleKey === 'admissions'), `${roleKey} should see Admissions`); } const teacher = visibleSidebar({ permissions: new Set(['students.read']), roleKey: 'TEACHER', portal: 'school' }).flatMap((group) => group.modules); assert.equal(teacher.some((module) => module.moduleKey === 'admissions'), false); });
+test('leadership roles see the single Student Registration route only with write permission', () => { for (const roleKey of ['PROPRIETOR', 'HEADTEACHER', 'ASSISTANT_HEADTEACHER']) { const readOnly = visibleSidebar({ permissions: new Set(['admissions.read']), roleKey, portal: 'school' }).flatMap((group) => group.modules); assert.equal(readOnly.some((module) => module.moduleKey === 'admissions'), false); const modules = visibleSidebar({ permissions: new Set(['admissions.write']), roleKey, portal: 'school' }).flatMap((group) => group.modules); assert.equal(modules.filter((module) => module.route === '/admissions/register').length, 1, `${roleKey} should see one Student Registration route`); } const teacher = visibleSidebar({ permissions: new Set(['students.read']), roleKey: 'TEACHER', portal: 'school' }).flatMap((group) => group.modules); assert.equal(teacher.some((module) => module.moduleKey === 'admissions'), false); });
 test('attendance records support statuses, methods, summaries, and duplicate protection', () => { const service = createAttendanceService(); const actor = { userId: 'teacher-1' }; assert.ok(STUDENT_STATUSES.includes('LATE')); assert.ok(ATTENDANCE_METHODS.includes('QR_CODE')); service.saveStudentAttendance({ date: '2026-09-02', classId: 'primary-4', studentId: 'student-1', status: 'PRESENT', method: 'QR_CODE' }, actor); service.saveStudentAttendance({ date: '2026-09-02', classId: 'primary-4', studentId: 'student-2', status: 'LATE' }, actor); assert.equal(service.summary({ date: '2026-09-02', classId: 'primary-4' }).attendancePercentage, 100); assert.throws(() => service.saveStudentAttendance({ date: '2026-09-02', classId: 'primary-4', studentId: 'student-1', status: 'ABSENT' }, actor), /already recorded/); });
 test('attendance corrections and offline sync reject stale overwrites', () => { const service = createAttendanceService(); const actor = { userId: 'teacher-1' }; const entry = { date: '2026-09-02', studentId: 'student-1', status: 'PRESENT' }; const current = service.saveStudentAttendance(entry, actor); service.saveStudentAttendance({ ...entry, status: 'LATE' }, actor, { correction: true, expectedVersion: current.version }); assert.throws(() => service.saveStudentAttendance({ ...entry, status: 'ABSENT' }, actor, { correction: false, expectedVersion: 1 }), /already recorded/); assert.throws(() => service.saveStudentAttendance({ ...entry, status: 'ABSENT' }, actor, { correction: true, expectedVersion: 1 }), /newer/); });
 test('examinations calculate weighted marks and configurable grades', () => { const service = createExaminationService(); assert.equal(service.calculateMarks(85, 50).weightedMarks, 42.5); assert.equal(service.calculateMarks(85, 100).grade, 'A'); service.setGradingSystem('custom', [{ min: 90, grade: 'Distinction', remark: 'Outstanding' }, { min: 0, grade: 'Pass', remark: 'Pass' }]); assert.equal(service.calculateMarks(92, 100, 'custom').grade, 'Distinction'); assert.equal(DEFAULT_GRADING.length, 5); });
@@ -106,44 +106,28 @@ test('student scholarships route is protected by the same registry authorization
 test('transport GPS tracking registers under Transport Management with protected route access', async () => { const module = SIDEBAR_MODULES.find((item) => item.moduleKey === 'transport.gps'); assert.equal(module.categoryId, 'transport_management'); assert.equal(module.parentModule, 'transport'); assert.equal(module.requiredPermission, 'transport.gps.view'); const transportGroup = visibleSidebar({ permissions: new Set(['transport.read', 'transport.gps.view']), roleKey: 'TRANSPORT_MANAGER', portal: 'school' }).find((group) => group.category === 'TRANSPORT MANAGEMENT'); assert.ok(transportGroup.modules.find((item) => item.moduleKey === 'transport').children.some((item) => item.moduleKey === 'transport.gps')); const auth = createAuthService(); const server = createServer(createApp({ auth })); await new Promise((resolve) => server.listen(0, resolve)); const port = server.address().port; const request = (token) => new Promise((resolve, reject) => { const req = httpRequest({ port, path: '/transport/gps', headers: { Authorization: `Bearer ${token}` } }, (res) => { res.resume(); res.on('end', () => resolve(res.statusCode)); }); req.on('error', reject); req.end(); }); const manager = auth.login({ username: 'transport@osaah.edu.gh', password: 'Transport123!', portal: 'school' }); const teacher = auth.login({ username: 'teacher@osaah.edu.gh', password: 'Teacher123!', portal: 'school' }); assert.equal(await request(manager.token), 200); assert.equal(await request(teacher.token), 403); await new Promise((resolve) => server.close(resolve)); });
 test('teacher professional development registers under Staff Management with protected route access', async () => { const module = SIDEBAR_MODULES.find((item) => item.moduleKey === 'staff.professional-development'); assert.equal(module.categoryId, 'staff_management'); assert.equal(module.parentModule, null); assert.equal(module.requiredPermission, 'staff.professional-development.view'); const staffGroup = visibleSidebar({ permissions: new Set(['staff.professional-development.view']), roleKey: 'TEACHER', portal: 'school' }).find((group) => group.category === 'STAFF MANAGEMENT'); assert.ok(staffGroup.modules.some((item) => item.moduleKey === 'staff.professional-development')); assert.equal(staffGroup.modules.some((item) => item.moduleKey === 'staff-directory'), false); const auth = createAuthService(); const server = createServer(createApp({ auth })); await new Promise((resolve) => server.listen(0, resolve)); const port = server.address().port; const request = (token) => new Promise((resolve, reject) => { const req = httpRequest({ port, path: '/staff/professional-development', headers: { Authorization: `Bearer ${token}` } }, (res) => { res.resume(); res.on('end', () => resolve(res.statusCode)); }); req.on('error', reject); req.end(); }); const teacher = auth.login({ username: 'teacher@osaah.edu.gh', password: 'Teacher123!', portal: 'school' }); const librarian = auth.login({ username: 'librarian@osaah.edu.gh', password: 'Librarian123!', portal: 'school' }); assert.equal(await request(teacher.token), 200); assert.equal(await request(librarian.token), 403); await new Promise((resolve) => server.close(resolve)); });
 
-test('login page exposes a public online admission form without weakening protected school pages', async () => {
+test('legacy public admission links redirect to protected unified registration without guest sessions', async () => {
   const server = createServer(createApp());
   await new Promise((resolve) => server.listen(0, resolve));
-  const port = server.address().port;
-  const request = (path, headers = {}) => new Promise((resolve, reject) => {
-    const req = httpRequest({ port, path, headers }, (res) => {
-      let body = '';
-      res.on('data', (chunk) => { body += chunk; });
-      res.on('end', () => resolve({ status: res.statusCode, body, headers: res.headers }));
-    });
-    req.on('error', reject);
-    req.end();
-  });
-  const admission = await request('/admissions/apply');
-  assert.equal(admission.status, 200);
-  assert.match(admission.body, /id="admission-form"/);
-  assert.match(admission.headers['set-cookie']?.[0] ?? '', /osaah_admission_session=/);
-  assert.equal((await request('/admissions')).status, 401);
-  await new Promise((resolve) => server.close(resolve));
+  try {
+    const port = server.address().port;
+    for (const path of ['/admissions/apply', '/admission-application.html', '/admissions']) {
+      const response = await fetch(`http://127.0.0.1:${port}${path}`, { redirect: 'manual' });
+      assert.equal(response.status, 308);
+      assert.equal(response.headers.get('location'), '/admissions/register');
+      assert.equal(response.headers.get('set-cookie'), null);
+    }
+  } finally { await new Promise((resolve) => { server.close(resolve); server.closeAllConnections?.(); }); }
 });
-test('direct online admission application entry creates a guest session for form continuation', async () => {
+test('legacy direct admission page cannot create guest continuation access', async () => {
   const server = createServer(createApp());
   await new Promise((resolve) => server.listen(0, resolve));
-  const port = server.address().port;
-  const request = (path, headers = {}) => new Promise((resolve, reject) => {
-    const req = httpRequest({ port, path, headers }, (res) => {
-      let body = '';
-      res.on('data', (chunk) => { body += chunk; });
-      res.on('end', () => resolve({ status: res.statusCode, body, headers: res.headers }));
-    });
-    req.on('error', reject);
-    req.end();
-  });
-  const page = await request('/admission-application.html');
-  assert.equal(page.status, 200);
-  const cookie = page.headers['set-cookie']?.[0]?.split(';', 1)[0];
-  assert.match(cookie ?? '', /^osaah_admission_session=/);
-  const quote = await request('/api/admission-fees/quote?classAppliedFor=Primary%201&academicYear=2026&term=TERM_1', { Cookie: cookie });
-  assert.notEqual(quote.status, 401, 'the public application session must survive the first Next/Continue API request');
-  await new Promise((resolve) => server.close(resolve));
+  try {
+    const port = server.address().port;
+    const page = await fetch(`http://127.0.0.1:${port}/admission-application.html`, { redirect: 'manual' });
+    assert.equal(page.status, 308);
+    assert.equal(page.headers.get('set-cookie'), null);
+    const quote = await fetch(`http://127.0.0.1:${port}/api/admission-fees/quote?classAppliedFor=Primary%201&academicYear=2026&term=TERM_1`);
+    assert.equal(quote.status, 401);
+  } finally { await new Promise((resolve) => { server.close(resolve); server.closeAllConnections?.(); }); }
 });

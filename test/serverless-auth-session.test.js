@@ -54,6 +54,14 @@ test('signed proprietor session survives a different serverless instance', async
     const cookie = `osaah_session=${login.token}`;
     for (const module of PROPRIETOR_SIDEBAR_ROUTES) {
       const shell = await request(server, module.route, { cookie, headers: { 'Sec-Fetch-Mode': 'navigate' } });
+      if (module.route === '/admissions') {
+        assert.equal(shell.status, 308, 'Admissions must redirect to the unified registration route');
+        assert.equal(shell.headers.location, '/admissions/register');
+        const embedded = await request(server, `${module.route}?embedded=1`, { cookie, headers: { 'Sec-Fetch-Mode': 'navigate' } });
+        assert.equal(embedded.status, 308);
+        assert.equal(embedded.headers.location, '/admissions/register');
+        continue;
+      }
       assert.equal(shell.status, 200, `${module.moduleName} should retain the cross-instance session`);
       assert.match(shell.body, /id="dashboard"/, `${module.moduleName} direct navigation should retain the school shell`);
       const embedded = await request(server, `${module.route}?embedded=1`, { cookie, headers: { 'Sec-Fetch-Mode': 'navigate' } });

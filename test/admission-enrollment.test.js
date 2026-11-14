@@ -79,91 +79,12 @@ function concurrentEnrollmentAdapter() {
   return { api, state };
 }
 
-test('accepted admission atomically creates the master, profile, enrollment and parent link once', async () => {
-  const { api, state } = adapter(); let next = 0;
-  const service = createAdmissionEnrollmentService({ database: api, clock: () => '2026-09-13T00:00:00.000Z', idFactory: () => `uuid-${++next}` });
-  const first = await service.enroll({ applicationId: 'app-1', applicationNumber: 'APP-1', actorId: 'reviewer-1' });
-  assert.equal(first.student.id, 'STD-000001');
-  assert.equal(first.student.permanentStudentId, 'OSAAH/2026/001');
-  assert.equal(state.students.length, 1);
-  assert.equal(state.students[0].is_test_record, false);
-  assert.ok(state.calls.some(([kind, sql]) => kind === 'execute' && sql.startsWith('INSERT INTO student_id_sequences')));
-  assert.deepEqual(state.profiles[0], { id: 'uuid-1', student_master_id: 'STD-000001', student_id: 'OSAAH/2026/001' });
-  const profileInsert = state.calls.find(([kind, sql]) => kind === 'execute' && sql.startsWith('INSERT INTO student_profiles '))[1];
-  assert.doesNotMatch(profileInsert, /permanent_student_id/);
-  assert.equal(state.enrollments[0].student_id, 'STD-000001');
-  assert.deepEqual(state.links[0], { parent_user_id: 'parent-1', student_id: 'uuid-1', permanent_student_id: 'OSAAH/2026/001' });
-  assert.equal(state.audits.length, 1);
-  const retried = await service.enroll({ applicationId: 'app-1', applicationNumber: 'APP-1', actorId: 'reviewer-1' });
-  assert.equal(retried.created, false);
-  assert.equal(state.students.length, 1);
-  assert.equal(state.sequence, 2);
-});
-
-test('a forced midway failure rolls back every enrollment record and hides database details', async () => {
-  const { api, state } = adapter({ failOn: 'INSERT INTO student_enrollments' });
-  const service = createAdmissionEnrollmentService({ database: api, idFactory: () => 'uuid' });
-  await assert.rejects(() => service.enroll({ applicationId: 'app-1' }), (error) => error.code === 'ENROLLMENT_FAILED' && !error.message.includes('private'));
-  assert.deepEqual([state.students.length, state.profiles.length, state.enrollments.length, state.links.length], [0, 0, 0, 0]);
-  assert.equal(state.application.student_id, null);
-  assert.equal(state.sequence, 1);
-});
-
-test('pending and rejected applications never receive a student identifier', async () => {
-  for (const status of ['PENDING', 'REJECTED']) {
-    const row = application(); row.status = status; const { api, state } = adapter({ initialApplication: row });
-    const service = createAdmissionEnrollmentService({ database: api });
-    await assert.rejects(() => service.enroll({ applicationId: row.id }), { code: 'APPLICATION_NOT_ELIGIBLE' });
-    assert.equal(state.students.length, 0);
-  }
-});
-
-test('concurrent admissions serialize annual sequence allocation without duplicate permanent IDs', async () => {
-  const { api, state } = concurrentEnrollmentAdapter(); let next = 0;
-  const service = createAdmissionEnrollmentService({ database: api, clock: () => '2026-09-13T00:00:00.000Z', idFactory: () => `concurrent-${++next}` });
-  const [first, second] = await Promise.all([
-    service.enroll({ applicationId: 'app-1', applicationNumber: 'APP-1', actorId: 'headteacher-1' }),
-    service.enroll({ applicationId: 'app-2', applicationNumber: 'APP-2', actorId: 'assistant-1' })
-  ]);
-  assert.deepEqual(new Set([first.student.permanentStudentId, second.student.permanentStudentId]), new Set(['OSAAH/2026/001', 'OSAAH/2026/002']));
-  assert.equal(new Set(state.students.map((item) => item.permanent_student_id)).size, 2);
-  assert.equal(state.enrollments.length, 2);
-  assert.equal(state.sequence, 3);
-});
-
-test('permanent Student ID allocation advances past legacy four-digit IDs when the counter is stale', async () => {
-  const { api, state } = adapter(); state.existingIds = ['OSAAH/2026/0007']; state.sequence = 1;
+test('legacy enrollment service cannot create students outside unified registration', async () => {
+  const { api, state } = adapter();
   const service = createAdmissionEnrollmentService({ database: api });
-  const result = await service.enroll({ applicationId: 'app-1' });
-  assert.equal(result.student.permanentStudentId, 'OSAAH/2026/008');
-  assert.equal(state.sequence, 9);
-});
-
-test('admission enrollment fails closed on malformed stored IDs during sequence recovery', async () => {
-  const { api, state } = adapter(); state.existingIds = ['OSAAH/2026/not-a-sequence'];
-  const service = createAdmissionEnrollmentService({ database: api });
-  await assert.rejects(() => service.enroll({ applicationId: 'app-1' }), { code: 'STUDENT_ID_SEQUENCE_CONFLICT' });
+  await assert.rejects(() => service.enroll({ applicationId: 'app-1' }), { code: 'LEGACY_ADMISSION_WORKFLOW_RETIRED', status: 410 });
   assert.equal(state.students.length, 0);
-  assert.equal(state.sequence, 1);
-});
-
-test('admission type chooses the authoritative permanent Student ID year', async () => {
-  const historical = application(); historical.applicant_data = JSON.stringify({ studentFirstName: 'Ama', studentSurname: 'Mensah', gender: 'Female', dateOfBirth: '2018-01-02', primaryGuardianPrimaryPhone: '0240000000', admissionType: 'ALREADY_ENROLLED', historicalAdmissionYear: '2019' });
-  const enrolled = adapter({ initialApplication: historical });
-  const service = createAdmissionEnrollmentService({ database: enrolled.api, clock: () => '2026-09-13T00:00:00.000Z' });
-  assert.equal((await service.enroll({ applicationId: 'app-1' })).student.permanentStudentId, 'OSAAH/2019/001');
-  const transfer = application(); transfer.applicant_data = JSON.stringify({ studentFirstName: 'Ama', studentSurname: 'Mensah', gender: 'Female', dateOfBirth: '2018-01-02', primaryGuardianPrimaryPhone: '0240000000', admissionType: 'TRANSFER', admissionYear: '2026' });
-  const transferService = createAdmissionEnrollmentService({ database: adapter({ initialApplication: transfer }).api, clock: () => '2026-09-13T00:00:00.000Z' });
-  assert.equal((await transferService.enroll({ applicationId: 'app-1' })).student.permanentStudentId, 'OSAAH/2026/001');
-  const missingHistoricalYear = application(); missingHistoricalYear.applicant_data = JSON.stringify({ studentFirstName: 'Ama', studentSurname: 'Mensah', gender: 'Female', dateOfBirth: '2018-01-02', primaryGuardianPrimaryPhone: '0240000000', admissionType: 'ALREADY_ENROLLED' });
-  const missingHistoricalYearService = createAdmissionEnrollmentService({ database: adapter({ initialApplication: missingHistoricalYear }).api, clock: () => '2026-09-13T00:00:00.000Z' });
-  await assert.rejects(() => missingHistoricalYearService.enroll({ applicationId: 'app-1' }), { code: 'HISTORICAL_ADMISSION_YEAR_REQUIRED' });
-});
-
-test('transfer admission-year overrides must match the actual OSAAH admission event', async () => {
-  const transfer = application(); transfer.applicant_data = JSON.stringify({ studentFirstName: 'Ama', studentSurname: 'Mensah', gender: 'Female', dateOfBirth: '2018-01-02', primaryGuardianPrimaryPhone: '0240000000', admissionType: 'TRANSFER', admissionYear: '2019' });
-  const service = createAdmissionEnrollmentService({ database: adapter({ initialApplication: transfer }).api, clock: () => '2026-09-13T00:00:00.000Z' });
-  await assert.rejects(() => service.enroll({ applicationId: 'app-1' }), { code: 'ADMISSION_YEAR_NOT_AUTHORIZED' });
+  assert.equal(state.application.student_id, null);
 });
 
 test('parent portal resolution requires an active parent/profile authorization link', async () => {

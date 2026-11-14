@@ -99,17 +99,11 @@ test('canonical class option IDs are submitted as the class name expected by bot
   assert.match(application, /Object\.assign\(data, admissionClassSelection\(classField\)\)/);
 });
 
-test('admission type controls the client guidance without changing server-side document enforcement', () => {
+test('admission attachments are optional across categories while upload remains available', () => {
   assert.deepEqual(requiredAdmissionDocumentTypes({ admissionType: 'ALREADY_ENROLLED', className: 'Primary 4' }), []);
-  assert.deepEqual(requiredAdmissionDocumentTypes({ admissionType: 'TRANSFER', className: 'Primary 4' }), [
-    'PASSPORT_PHOTOGRAPHS', 'BIRTH_CERTIFICATE_OR_GHANA_CARD', 'NHIS_CARD', 'LAST_ACADEMIC_REPORT', 'ADMISSION_RECEIPT',
-  ]);
-  assert.deepEqual(requiredAdmissionDocumentTypes({ admissionType: 'FIRST_TIME', className: 'Nursery 1' }), [
-    'PASSPORT_PHOTOGRAPHS', 'BIRTH_CERTIFICATE_OR_GHANA_CARD', 'NHIS_CARD', 'ADMISSION_RECEIPT',
-  ]);
-  assert.deepEqual(requiredAdmissionDocumentTypes({ className: 'JHS 1' }), [
-    'PASSPORT_PHOTOGRAPHS', 'BIRTH_CERTIFICATE_OR_GHANA_CARD', 'NHIS_CARD', 'LAST_ACADEMIC_REPORT',
-  ]);
+  assert.deepEqual(requiredAdmissionDocumentTypes({ admissionType: 'TRANSFER', className: 'Primary 4' }), []);
+  assert.deepEqual(requiredAdmissionDocumentTypes({ admissionType: 'FIRST_TIME', className: 'Nursery 1' }), []);
+  assert.deepEqual(requiredAdmissionDocumentTypes({ className: 'JHS 1' }), []);
   assert.match(application, /missingRequiredDocuments\(\{ uploadedOnly: true \}\)/);
   assert.match(application, /\/submit/);
   assert.match(application, /await uploadSelectedDocuments\(\)/);
@@ -131,7 +125,7 @@ test('three leadership roles share the Student Management workflow and retain se
   const prospectus = SIDEBAR_MODULES.find((item) => item.moduleKey === 'admission-prospectus');
   assert.ok(admission);
   for (const role of ['PROPRIETOR', 'HEADTEACHER', 'ASSISTANT_HEADTEACHER']) assert.ok((admission.allowedRoles ?? admission.roles).includes(role));
-  assert.equal(admission.route, '/admissions');
+  assert.equal(admission.route, '/admissions/register');
   assert.ok(prospectus);
   assert.notEqual(prospectus.route, admission.route);
 });

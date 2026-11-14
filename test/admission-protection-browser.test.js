@@ -111,70 +111,28 @@ test('authorized staff can continue through the normal workflow to the applicati
     throw new Error(`Local browser login did not reach the headteacher dashboard. Login message: ${loginError}. HTTP: ${JSON.stringify(authResponses)}. Login session cookie set: ${loginCookieSet}. Browser cookie names: ${JSON.stringify(cookieNames)}. Visible page: ${pageText.slice(0, 500)}`);
   }
   await page.getByRole('button', { name: /STUDENTS? MANAGEMENT/i }).click({ force: true });
-  await page.getByRole('link', { name: 'Admission / Admissions Workflow' }).click({ force: true });
+  await page.getByRole('link', { name: 'Student Registration' }).click({ force: true });
+  await page.goto(`${base}/admissions/register?embedded=1`);
 
-  const admission = page.frameLocator('#module-frame');
-  await admission.getByRole('heading', { name: 'Admissions and Registration' }).waitFor();
-  const nextButton = admission.getByRole('button', { name: 'Next', exact: true });
-  await nextButton.waitFor({ state: 'visible' });
-  assert.equal(await nextButton.isEnabled(), true, 'Next is available on the new enquiry form');
-  assert.ok(await admission.getByRole('option', { name: 'Basic 2' }).count());
-  assert.ok(await admission.getByRole('option', { name: 'Transfer from another school' }).count());
-  assert.ok(await admission.getByRole('option', { name: 'First-time applicant' }).count());
-  assert.ok(await admission.getByRole('option', { name: 'Already enrolled at OsaaH' }).count());
-
-  const enquiryUrl = page.url();
-  await nextButton.click({ force: true });
-  assert.equal(page.url(), enquiryUrl, 'invalid required fields keep the user on the enquiry form');
-  assert.equal(applicationWrites.length, 0, 'required enquiry fields prevent progression');
-
-  const category = admission.locator('select[name="admissionType"]');
-  await category.selectOption('FIRST_TIME');
-  await admission.locator('[name="applicantName"]').fill('Synthetic Browser Candidate');
-  await admission.locator('[name="parentPhone"]').fill('0241234567');
-  await admission.locator('[name="classId"]').selectOption({ label: 'Basic 2' });
-  const academicYearValue = await admission.locator('[name="academicYear"] option').nth(1).getAttribute('value');
-  assert.ok(academicYearValue);
-  await admission.locator('[name="academicYear"]').selectOption(academicYearValue);
-  await admission.locator('[name="term"]').selectOption({ label: '1st Term' });
-  await admission.locator('[name="parentPhone"]').fill('invalid-phone');
-  await nextButton.click({ force: true });
-  await admission.getByText('Enter a valid Ghanaian mobile number', { exact: false }).waitFor();
-  assert.equal(applicationWrites.length, 0, 'invalid phone data does not create an application');
-
-  await admission.locator('[name="parentPhone"]').fill('0241234567');
-  await nextButton.click({ force: true });
-  const applicationForm = page.frameLocator('#module-frame');
-  await applicationForm.getByRole('heading', { name: 'OFFICIAL ADMISSION FORM' }).waitFor();
-  await applicationForm.locator('#form-status').filter({ hasText: /^Draft APP-/ }).waitFor();
-  assert.equal(applicationWrites.length, 1, 'the normal UI sends one authorized enquiry request');
-  assert.equal(applicationWrites[0].method, 'POST');
-  assert.equal(applicationWrites[0].payload.admissionType, 'FIRST_TIME');
-  assert.equal(applicationWrites[0].payload.classAppliedFor, 'Basic 2');
-  assert.equal(await applicationForm.locator('[name="studentFirstName"]').inputValue(), 'Synthetic Browser');
-  assert.equal(await applicationForm.locator('[name="studentSurname"]').inputValue(), 'Candidate');
-  assert.equal(await applicationForm.locator('[name="primaryGuardianPrimaryPhone"]').inputValue(), '+233241234567');
-  assert.equal(continuationResponses.at(-1)?.status, 200, 'the authenticated staff session can fetch the application page');
-  assert.match(continuationResponses.at(-1)?.url ?? '', /applicationNumber=APP-/);
-  assert.match(continuationResponses.at(-1)?.url ?? '', /step=2/);
+  const registration = page;
+  await registration.getByRole('heading', { name: 'Student Admission and Registration' }).waitFor();
+  assert.ok(await registration.locator('select[name="admissionType"] option[value="FIRST_TIME"]').count());
+  assert.ok(await registration.locator('select[name="admissionType"] option[value="TRANSFER"]').count());
+  assert.ok(await registration.locator('select[name="admissionType"] option[value="ALREADY_ENROLLED"]').count());
+  assert.ok(await registration.locator('input[name="registrationToken"]').count());
+  const generateId = registration.getByRole('button', { name: 'Generate Permanent Student ID' });
+  assert.ok(await generateId.count());
+  assert.equal(await generateId.isDisabled(), true);
+  assert.equal(applicationWrites.length, 0, 'the unified registration page never creates a legacy application');
+  assert.equal(continuationResponses.some((entry) => entry.status < 400), false, 'the obsolete application page is never served');
 });
-
-test('public application renders with its scoped admission session and has no application writes on load', { timeout: 120_000 }, async (t) => {
-  const base = await startServer(t);
-  const browser = await startBrowser(t);
-  const context = await browser.newContext();
-  const page = await context.newPage();
-  const writes = { POST: 0, PATCH: 0 };
-  page.on('request', (request) => {
-    const url = new URL(request.url());
-    if (url.pathname === '/api/admission-applications' && request.method() === 'POST') writes.POST += 1;
-    if (url.pathname.endsWith('/update') && request.method() === 'PATCH') writes.PATCH += 1;
-  });
-
-  await page.goto(`${base}/admission-application.html`);
-  await page.locator('#admission-form').waitFor();
-  const admissionCookie = (await page.context().cookies()).find((cookie) => cookie.name === 'osaah_admission_session');
-  assert.ok(admissionCookie, 'public form receives its scoped admission session');
-  assert.ok(await page.getByRole('heading', { name: 'OFFICIAL ADMISSION FORM' }).count());
-  assert.deepEqual(writes, { POST: 0, PATCH: 0 }, 'incomplete applications do not reach the API');
+test('public legacy application URL redirects to staff registration without guest session creation', async () => {
+  const server = createServer(createApp());
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/admission-application.html`, { redirect: 'manual' });
+    assert.equal(response.status, 308);
+    assert.equal(response.headers.get('location'), '/admissions/register');
+    assert.equal(response.headers.get('set-cookie'), null);
+  } finally { await new Promise((resolve) => server.close(resolve)); }
 });

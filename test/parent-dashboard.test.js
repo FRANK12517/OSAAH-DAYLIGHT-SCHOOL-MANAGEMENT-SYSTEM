@@ -465,6 +465,43 @@ test('Parent cannot request an unlinked Permanent Student ID', async () => {
   await assert.rejects(() => service.loadRecord(actor(), { permanentStudentId: 'OSAAH/2026/9999', recordType: 'student-summary' }), (error) => error.status === 403 && error.code === 'PARENT_STUDENT_FORBIDDEN');
 });
 
+test('Parent published-result access honors the persisted block and still requires publication', async () => {
+  const base = dependencies();
+  let blocked = true;
+  let publicationStatus = 'PUBLISHED';
+  let publicationReads = 0;
+  const service = createParentDashboardService({
+    ...base,
+    cards: [...cards, { moduleKey: 'parent-results', moduleName: 'Published Results', route: '#results' }],
+    admissionEnrollment: { ...base.admissionEnrollment, parentEnrolledInClass: async () => true },
+    durableAcademic: {
+      options: async () => ({
+        academicYears: [{ id: 'year-2026', name: '2026/2027', isCurrent: true }],
+        terms: [{ id: 'term-1', name: '1st Term', academicYearId: 'year-2026' }],
+        classes: [{ id: 'class-primary-1', name: 'Primary 1' }]
+      }),
+      publicationFor: async () => { publicationReads += 1; return publicationStatus ? { status: publicationStatus } : null; },
+      result: async () => ({ studentId: child.id, classId: child.classId, result: 'published result' })
+    },
+    academicResults: { publicationFor: () => null, result: () => null },
+    resultBlocking: {
+      assertReadable: async (input, selectedActor) => {
+        assert.equal(selectedActor.id, 'parent-1');
+        assert.equal(input.studentId, child.id);
+        if (blocked) throw Object.assign(new Error('Blocked.'), { status: 403, code: 'PARENT_RESULT_BLOCKED' });
+      }
+    }
+  });
+  const query = { permanentStudentId: child.permanentStudentId, recordType: 'published-results', academicYear: 'year-2026', classId: child.classId, term: 'term-1' };
+  await assert.rejects(() => service.loadRecord(actor(), query), (error) => error.status === 403 && error.code === 'PARENT_RESULT_BLOCKED');
+  assert.equal(publicationReads, 0);
+  blocked = false;
+  const visible = await service.loadRecord(actor(), query);
+  assert.equal(visible.result.result, 'published result');
+  publicationStatus = null;
+  await assert.rejects(() => service.loadRecord(actor(), query), (error) => error.status === 404 && error.code === 'PARENT_RESULT_NOT_PUBLISHED');
+});
+
 test('academic terms cannot be mixed across years and unsupported record types do not fabricate data', async () => {
   const service = createParentDashboardService(dependencies({ attendance: { summary: () => ({ records: [] }) } }));
   await assert.rejects(() => service.loadRecord(actor(), {

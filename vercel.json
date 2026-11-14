@@ -2,7 +2,9 @@
   "version": 2,
   "builds": [
     { "src": "public/index.html", "use": "@vercel/static" },
+    { "src": "public/*.js", "use": "@vercel/static" },
     { "src": "public/**/*.js", "use": "@vercel/static" },
+    { "src": "public/*.css", "use": "@vercel/static" },
     { "src": "public/**/*.css", "use": "@vercel/static" },
     { "src": "public/**/*.webmanifest", "use": "@vercel/static" },
     { "src": "public/**/*.png", "use": "@vercel/static" },

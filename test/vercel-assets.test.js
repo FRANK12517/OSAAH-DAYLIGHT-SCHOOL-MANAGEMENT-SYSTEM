@@ -12,7 +12,9 @@ test('Vercel bundles public assets and the configured AI adapter with the server
   const staticGlobs = config.builds.filter((build) => build.use === '@vercel/static').map((build) => build.src);
   assert.deepEqual(staticGlobs, [
     'public/index.html',
+    'public/*.js',
     'public/**/*.js',
+    'public/*.css',
     'public/**/*.css',
     'public/**/*.webmanifest',
     'public/**/*.png',
@@ -50,6 +52,8 @@ test('public logo and gallery assets are served as image files', async () => {
       ['/assets/osaah-daylight-school-complex-logo.png', 'image/png'],
       ['/assets/login-gallery/01-school-pride.jpg', 'image/jpeg'],
       ['/assets/login-gallery/08-school-community-event.png', 'image/png'],
+      ['/internal-registration.css', 'text/css; charset=utf-8'],
+      ['/internal-registration.js', 'text/javascript; charset=utf-8'],
       ['/sw.js', 'text/javascript; charset=utf-8']
     ]) {
       const response = await get(path);

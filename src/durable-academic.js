@@ -104,9 +104,13 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
         classes = await database.query('SELECT c.id,c.name,c.display_order AS displayOrder,l.name AS levelName FROM classes c JOIN levels l ON l.id=c.level_id WHERE l.school_id=? ORDER BY c.display_order,c.id', [schoolId]);
       }
     }
-    // The selector is a catalogue for browsing. Record reads and writes are
-    // scoped separately by assertClassScope and subject assignment checks.
-    const allowedClasses = rows(classes);
+    // Teachers only need class options for their own assignments. Returning
+    // the whole school catalogue made the first (Nursery 1) option the UI
+    // default even when the teacher was assigned elsewhere. Keep the same
+    // scope enforced by assertClassScope; an empty assignment grants no class.
+    const teacherScoped = actor?.roleKey === 'TEACHER' && !authorized(actor, 'academics.manage');
+    const assignedClassIds = new Set((actor?.assignedClassIds ?? []).map(String));
+    const allowedClasses = rows(classes).filter((item) => !teacherScoped || assignedClassIds.has(String(item.id)));
     return { academicYears: rows(academicYears), terms: rows(terms), classes: allowedClasses, mockTypes: [...MOCK_TYPES] };
   }
 

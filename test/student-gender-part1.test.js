@@ -30,7 +30,7 @@ test('canonical student gender survives Permanent Student ID allocation and prom
   const students = createStudentService();
   const male = students.createStudent({ firstName: 'Kofi', surname: 'Mensah', gender: 'M', classId: 'Primary 1', admissionYearId: '2026' });
   const female = students.createStudent({ firstName: 'Adwoa', surname: 'Mensah', gender: 'Female', classId: 'Primary 2', admissionYearId: '2026' });
-  assert.match(male.permanentStudentId, /^OSAAH\/2026\//); assert.equal(male.gender, 'Male'); assert.equal(female.gender, 'Female');
+  assert.match(male.permanentStudentId, /^OSAA\/2026\//); assert.equal(male.gender, 'Male'); assert.equal(female.gender, 'Female');
   const promoted = students.assignClass(male.id, { classId: 'Primary 2', academicYearId: '2027', termId: 'TERM_1', reason: 'PROMOTION' });
   const repeated = students.assignClass(female.id, { classId: 'Primary 2', academicYearId: '2027', termId: 'TERM_1', reason: 'REPETITION' });
   assert.equal(promoted.id, male.id); assert.equal(promoted.permanentStudentId, male.permanentStudentId); assert.equal(promoted.gender, 'Male'); assert.equal(repeated.id, female.id); assert.equal(repeated.gender, 'Female'); assert.equal(students.listStudents().filter((item) => item.permanentStudentId === male.permanentStudentId).length, 1);
@@ -46,10 +46,10 @@ test('Class Database autopulls canonical gender and does not guess missing legac
   assert.equal(maleRow.gender, 'Male'); assert.equal(maleRow.parentGuardianName, 'Kwame Mensah'); assert.equal(missingRow.gender, 'Not Recorded');
 });
 
-test('gender normalization contract and existing schema/enrollment path remain canonical', () => {
+test('gender normalization contract and authoritative registration schema remain canonical', () => {
   assert.equal(normalizeStudentGender('M'), 'Male'); assert.equal(normalizeStudentGender('F'), 'Female'); assert.equal(normalizeStudentGender('unknown'), null); assert.equal(displayStudentGender(null), 'Not Recorded'); assert.throws(() => requireStudentGender(''), /Male or Female/);
-  const enrollment = fs.readFileSync(new URL('../src/admission-enrollment.js', import.meta.url), 'utf8'); const studentSchema = fs.readFileSync(new URL('../schema/003_students_admissions.sql', import.meta.url), 'utf8');
-  assert.match(enrollment, /requireStudentGender/); assert.match(enrollment, /students \([^)]*gender/); assert.match(enrollment, /student_profiles \([^)]*gender/); assert.match(studentSchema, /student_profiles[^\n]*gender/i);
+  const registration = fs.readFileSync(new URL('../src/internal-student-registration.js', import.meta.url), 'utf8'); const studentSchema = fs.readFileSync(new URL('../schema/003_students_admissions.sql', import.meta.url), 'utf8');
+  assert.match(registration, /requireStudentGender/); assert.match(registration, /INSERT INTO students \([^)]*gender/s); assert.match(registration, /INSERT INTO student_profiles \([^)]*gender/s); assert.match(studentSchema, /student_profiles[^\n]*gender/i);
 });
 
 test('admission UI already exposes one required Male/Female selector', () => {

@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Student Registration | OsaaH Daylight</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/internal-registration.css">
+</head>
+<body>
+  <main class="internal-registration form-page">
+    <h1>Student Admission and Registration</h1>
+    <p>Use this single form for first-time, transfer, and existing OsaaH students. Registration assigns the student to the selected class.</p>
+    <form id="internal-registration-form" novalidate>
+      <section class="registration-section">
+        <h2>Admission category</h2>
+        <label>Category
+          <select name="admissionType" required>
+            <option value="">Select category</option>
+            <option value="FIRST_TIME">First-Time Admission</option>
+            <option value="TRANSFER">Transfer Admission</option>
+            <option value="ALREADY_ENROLLED">Existing OSAAH Student</option>
+          </select>
+        </label>
+        <fieldset data-existing-field hidden>
+          <legend>Identify the existing student</legend>
+          <label><input type="radio" name="existingIdChoice" value="HAVE_ID" checked> I HAVE AN ID</label>
+          <label><input type="radio" name="existingIdChoice" value="NO_ID"> I DO NOT HAVE AN ID</label>
+        <label data-existing-id-entry>Enter Student ID Number
+            <input name="existingPermanentStudentId" autocomplete="off" placeholder="Enter the student's existing ID">
+          </label>
+          <p class="muted" data-existing-id-entry>We’ll find the student in this school and preserve the existing ID.</p>
+          <p class="muted" data-existing-no-id hidden>The student will be matched by full name and date of birth. If they already have an ID, it will be retained.</p>
+          <p id="existing-student-match" role="status" aria-live="polite" hidden></p>
+        </fieldset>
+      </section>
+      <section class="registration-section">
+        <h2>Pupil Information</h2>
+        <div class="registration-grid">
+          <label>1. Full name of pupil<input name="fullName" autocomplete="name" required></label>
+          <label>2. Date of birth<input name="dateOfBirth" type="date" required></label>
+          <label>3. Age<input name="age" type="number" min="0" max="120" readonly aria-describedby="age-help"><small id="age-help">Calculated from date of birth.</small></label>
+          <label>4. Gender<select name="gender" required><option value="">Select gender</option><option>Female</option><option>Male</option><option>Other</option></select></label>
+          <label>5. Nationality<input name="nationality" autocomplete="country-name" value="Ghanaian" required></label>
+          <label>6. Place of birth<input name="placeOfBirth" autocomplete="off"></label>
+          <label>7. Class<select name="classId" required><option value="">Loading classes…</option></select></label>
+          <label>Academic year<select name="academicYearId" required><option value="">Loading academic years…</option></select></label>
+          <label>Term<select name="termId" required><option value="">Select academic year first</option></select></label>
+          <label>8. Home address<textarea name="homeAddress" autocomplete="street-address" rows="2" required></textarea></label>
+          <label data-transfer-field hidden>Previous school<input name="previousSchool" autocomplete="organization"></label>
+        </div>
+      </section>
+      <section class="registration-section">
+        <h2>Parent/Guardian Information</h2>
+        <div class="registration-grid">
+          <label>9. Parent/Guardian full name<input name="parentName" autocomplete="name" required></label>
+          <label>10. Phone number<input name="parentPhone" type="tel" inputmode="tel" autocomplete="tel" placeholder="0241234567" required></label>
+          <label>11. Email address<input name="parentEmail" type="email" autocomplete="email"></label>
+          <label>12. Occupation<input name="occupation" autocomplete="organization-title"></label>
+          <label>13. National ID/Passport number<input name="parentNationalId" autocomplete="off"></label>
+          <label>14. Residential address<textarea name="parentAddress" autocomplete="street-address" rows="2" required></textarea></label>
+        </div>
+      </section>
+      <section class="registration-section">
+        <h2>Medical Information</h2>
+        <div class="registration-grid">
+          <label>15. Known allergies<textarea name="allergies" rows="2"></textarea></label>
+          <label>16. Medical conditions/Disabilities/Special needs<textarea name="medicalConditions" rows="2"></textarea></label>
+          <label>17. Medication currently taken<textarea name="medications" rows="2"></textarea></label>
+          <label>18. Emergency contact name<input name="emergencyContactName" autocomplete="name"></label>
+          <label>19. Emergency phone number<input name="emergencyPhone" type="tel" inputmode="tel" autocomplete="tel"></label>
+        </div>
+      </section>
+      <section class="registration-section student-id-section">
+        <h2>20. Permanent Student Identification</h2>
+        <p>Every student keeps one permanent ID. Existing OSAAH students retain their current ID.</p>
+        <div class="id-control">
+          <output id="permanent-student-id" aria-live="polite">Submit and save registration first</output>
+          <button class="primary-button" type="submit">Submit and Save Registration</button>
+          <button id="generate-student-id" class="secondary-button" type="button" disabled>Generate Permanent Student ID</button>
+        </div>
+        <p id="student-id-help" class="muted">Submit and save this registration. ID generation unlocks after the database confirms it.</p>
+        <input name="registrationToken" type="hidden">
+        <input name="resolvedPermanentStudentId" type="hidden">
+        <input name="existingStudentId" type="hidden">
+      </section>
+      <section class="registration-section">
+        <h2>IMPORTANT NOTICE</h2>
+        <p>For all admission categories, every registered student must have a permanent OSAAH Student ID. Students with existing IDs retain their IDs, while students without IDs receive a permanent ID generated by the system.</p>
+      </section>
+      <p id="registration-draft-status" class="muted" role="status" aria-live="polite">Registration draft recovery is ready.</p>
+      <p id="registration-status" role="status" aria-live="polite"></p>
+    </form>
+    <section id="registration-success" class="registration-success" aria-live="polite" hidden></section>
+    <button id="reset-registration-form" class="secondary-button" type="button">RESET FORM</button>
+  </main>
+  <script src="/internal-registration.js"></script>
+</body>
+</html>

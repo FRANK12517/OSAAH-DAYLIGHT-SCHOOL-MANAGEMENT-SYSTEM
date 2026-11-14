@@ -111,7 +111,7 @@ test('admission form endpoints enforce parent and fee authority server-side', as
   try {
     assert.equal(await request('/api/admission-fees', { token: 'parent' }), 200);
     assert.equal(await request('/api/admission-fees', { token: 'teacher' }), 403);
-    assert.equal(await request('/api/admission-applications', { method: 'POST', token: 'teacher', body: {} }), 403);
+    assert.equal(await request('/api/admission-applications', { method: 'POST', token: 'teacher', body: {} }), 410);
     assert.equal(await request('/api/admission-analytics', { token: 'proprietor' }), 200);
     assert.equal(await request('/api/admission-analytics', { token: 'parent' }), 403);
     assert.equal(await request('/api/admission-analytics', { token: 'teacher' }), 403);

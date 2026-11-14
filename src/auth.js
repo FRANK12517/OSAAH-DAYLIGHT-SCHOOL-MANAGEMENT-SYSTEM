@@ -6,6 +6,7 @@ import { ROLE_KEYS } from './roles.js';
 import { createDurableAdministratorCredentialReset } from './durable-administrator-credential-reset.js';
 import { createDurableCredentialManagement, generatedPassword, passwordMeetsPolicy } from './durable-credential-management.js';
 import { tidbInsertIfAbsent } from './tidb-conflict.js';
+import { inspectParentRateLimitSchema } from './auth/parent-rate-limits.js';
 
 const SESSION_TTL_MS = 30 * 60 * 1000;
 const RESET_TTL_MS = 15 * 60 * 1000;
@@ -16,6 +17,8 @@ const PARENT_GENERIC_LOGIN_ERROR = 'Unable to sign in. Check the phone number or
 const PARENT_PHONE_LOGIN_LIMIT = 3;
 const PARENT_PHONE_LOGIN_IP_LIMIT = 10;
 const PARENT_PHONE_LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const PARENT_RATE_LIMIT_SCHEMA_CACHE_MS = 60 * 1000;
+const TIDB_DATETIME_FORMAT = '%Y-%m-%d %H:%i:%s.%f';
 const POSTGRES_DIAGNOSTIC_FIELDS = Object.freeze(['schema', 'table', 'column', 'constraint', 'routine']);
 const AUTH_SESSION_DIAGNOSTICS = process.env.OSAAH_AUTH_SESSION_DIAGNOSTICS === '1';
 const AUTH_PROCESS_INSTANCE_ID = randomUUID();
@@ -108,6 +111,16 @@ function addStaffAttendanceRoleGrants(user) { if (['HEADTEACHER', 'ASSISTANT_HEA
 
 function passwordHash(password, salt = randomBytes(16).toString('hex')) { return `${salt}:${scryptSync(password, salt, 32).toString('hex')}`; }
 function passwordMatches(password, stored) { const [salt, expected] = stored.split(':'); const actual = scryptSync(password, salt, 32); return timingSafeEqual(actual, Buffer.from(expected, 'hex')); }
+function asTiDBUtcDateTime(milliseconds) { return new Date(Math.ceil(milliseconds / 1000) * 1000).toISOString().replace('T', ' ').replace('Z', '000'); }
+function parseTiDBUtcDateTime(value) {
+  if (value instanceof Date) return value.getTime();
+  if (typeof value !== 'string' || !value.trim()) return NaN;
+  const valueText = value.trim();
+  const normalized = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(valueText)
+    ? `${valueText.replace(' ', 'T').slice(0, 23)}Z`
+    : valueText;
+  return Date.parse(normalized);
+}
 export const DEMO_USERS = [
   { id: 'user-proprietor-1', username: 'proprietor@osaah.edu.gh', passwordHash: passwordHash('Synthetic-Proprietor-Test-Only-2026!', 'proprietor-salt'), portal: 'school', roleKey: 'PROPRIETOR', schoolId: 'school-osaah-daylight', permissions: new Set(['*']) },
   { id: 'user-teacher-1', username: 'teacher@osaah.edu.gh', passwordHash: passwordHash('Teacher123!', 'teacher-salt'), portal: 'school', roleKey: 'TEACHER', schoolId: 'school-osaah-daylight', permissions: new Set(['students.read', 'academics.read', 'attendance.read', 'attendance.write', 'examinations.read', 'marks.write', 'results.read', 'results.generate', 'results.print', 'mock.scores.read', 'mock.scores.write', 'mock.results.read', 'mock.results.generate', 'leave.read', 'leave.write', 'staff.professional-development.view', 'communication.read', 'messages.read', 'messages.write', 'discipline.read', 'discipline.write', 'property.request', 'shep_activities.view', 'shep_activities.create', 'shep_activities.update', 'shep_activities.manage_participants', 'shep_activities.record_screening', 'shep_activities.create_referral', 'shep_activities.manage_followup', 'shep_activities.generate_reports']), assignedStudentIds: ['student-1'], assignedParentIds: ['user-parent-1'] },
@@ -142,6 +155,21 @@ export function createAuthService({ users = DEMO_USERS, database = null, schoolI
   const durableSessionStore = Boolean(database?.supportsDurableAuthSessions && database?.query && database?.execute);
   const tokenHash = (token) => createHash('sha256').update(String(token)).digest('hex');
   const fingerprint = (value) => value ? createHash('sha256').update(String(value)).digest('hex').slice(0, 20) : null;
+  let parentRateLimitSchemaCache = null;
+  let parentRateLimitSchemaPromise = null;
+  async function parentRateLimitSchema(tx) {
+    if (parentRateLimitSchemaCache && now() < parentRateLimitSchemaCache.expiresAt) return parentRateLimitSchemaCache.schema;
+    if (!parentRateLimitSchemaPromise) {
+      const pending = inspectParentRateLimitSchema(tx).then((schema) => {
+        parentRateLimitSchemaCache = { schema, expiresAt: now() + PARENT_RATE_LIMIT_SCHEMA_CACHE_MS };
+        return schema;
+      });
+      parentRateLimitSchemaPromise = pending;
+    }
+    const pending = parentRateLimitSchemaPromise;
+    try { return await pending; }
+    finally { if (parentRateLimitSchemaPromise === pending) parentRateLimitSchemaPromise = null; }
+  }
   function databaseTargetFingerprint() {
     const dialect = ['tidb', 'postgres', 'mysql'].includes(database?.dialect) ? database.dialect : 'unknown';
     const candidateUrl = dialect === 'postgres'
@@ -187,6 +215,123 @@ export function createAuthService({ users = DEMO_USERS, database = null, schoolI
     });
   };
   const nowIso = () => new Date(now()).toISOString();
+  async function takeLegacyParentLoginRateLimits(tx, { phoneBucketHash, ipBucketHash, ipBucketTag, normalizedPhone }) {
+    const nowMs = now();
+    const timestamp = asTiDBUtcDateTime(nowMs);
+    const phoneValues = [...new Set(ghanaPhoneLookupValues(normalizedPhone))];
+    const buckets = [
+      { hash: phoneBucketHash, kind: 'phone', phone: normalizedPhone, limit: PARENT_PHONE_LOGIN_LIMIT },
+      { hash: ipBucketHash, kind: 'ip', phone: ipBucketTag, limit: PARENT_PHONE_LOGIN_IP_LIMIT }
+    ].sort((left, right) => left.hash.localeCompare(right.hash));
+    const states = [];
+    for (const bucket of buckets) {
+      await tidbInsertIfAbsent(tx, {
+        insertSql: `INSERT INTO parent_auth_rate_limits (id,phone,attempts,first_attempt_at,blocked_until,created_at,updated_at)
+          VALUES (?,?,0,STR_TO_DATE(?, '${TIDB_DATETIME_FORMAT}'),STR_TO_DATE(?, '${TIDB_DATETIME_FORMAT}'),STR_TO_DATE(?, '${TIDB_DATETIME_FORMAT}'),STR_TO_DATE(?, '${TIDB_DATETIME_FORMAT}'))`,
+        insertParameters: [bucket.hash, bucket.phone, timestamp, asTiDBUtcDateTime(0), timestamp, timestamp],
+        conflictSql: 'SELECT id FROM parent_auth_rate_limits WHERE id=? FOR UPDATE',
+        conflictParameters: [bucket.hash]
+      });
+      const selected = await tx.query(`SELECT phone,attempts,
+          DATE_FORMAT(first_attempt_at,'%Y-%m-%d %H:%i:%s.%f') AS firstAttemptAt,
+          DATE_FORMAT(blocked_until,'%Y-%m-%d %H:%i:%s.%f') AS blockedUntil
+        FROM parent_auth_rate_limits WHERE id=? FOR UPDATE`, [bucket.hash]);
+      if (!Array.isArray(selected) || selected.length !== 1) throw new Error('Parent login rate-limit row unavailable.');
+      const row = selected[0];
+      if (String(row.phone ?? '') !== bucket.phone) throw new Error('Parent login rate-limit identity is invalid.');
+      const firstAttemptAt = parseTiDBUtcDateTime(row.firstAttemptAt);
+      const blockedUntil = parseTiDBUtcDateTime(row.blockedUntil);
+      const attempts = Number(row.attempts);
+      if (!Number.isFinite(firstAttemptAt) || !Number.isFinite(attempts) || attempts < 0
+        || (row.blockedUntil != null && !Number.isFinite(blockedUntil))) throw new Error('Parent login rate-limit state is invalid.');
+      const locked = Number.isFinite(blockedUntil) && blockedUntil > nowMs;
+      const expired = !locked && nowMs - firstAttemptAt >= PARENT_PHONE_LOGIN_WINDOW_MS;
+      states.push({ bucket, row, firstAttemptAt, blockedUntil, count: expired ? 0 : attempts, expired, locked });
+    }
+
+    let legacyPhoneBlocked = false;
+    let legacyPhoneAttempts = 0;
+    let legacyPhoneWindowStart = null;
+    if (phoneValues.length) {
+      const placeholders = phoneValues.map(() => '?').join(',');
+      const oldRows = await tx.query(`SELECT id,attempts,
+          DATE_FORMAT(first_attempt_at,'%Y-%m-%d %H:%i:%s.%f') AS firstAttemptAt,
+          DATE_FORMAT(blocked_until,'%Y-%m-%d %H:%i:%s.%f') AS blockedUntil
+        FROM parent_auth_rate_limits
+        WHERE phone IN (${placeholders})
+          AND id<>? FOR UPDATE`, [...phoneValues, phoneBucketHash]);
+      for (const row of Array.isArray(oldRows) ? oldRows : []) {
+        const attempts = Number(row.attempts);
+        const firstAttemptAt = parseTiDBUtcDateTime(row.firstAttemptAt);
+        const blockedUntil = parseTiDBUtcDateTime(row.blockedUntil);
+        if (!Number.isFinite(attempts) || attempts < 0) throw new Error('Existing parent rate-limit state is invalid.');
+        if ((row.blockedUntil != null && !Number.isFinite(blockedUntil))
+          || (attempts > 0 && !Number.isFinite(firstAttemptAt))) throw new Error('Existing parent rate-limit window is invalid.');
+        if (Number.isFinite(blockedUntil) && blockedUntil > nowMs) { legacyPhoneBlocked = true; continue; }
+        if (attempts >= PARENT_PHONE_LOGIN_LIMIT) {
+          if (!Number.isFinite(firstAttemptAt)) throw new Error('Existing parent rate-limit window is invalid.');
+          if (nowMs - firstAttemptAt < PARENT_PHONE_LOGIN_WINDOW_MS) {
+            legacyPhoneBlocked = true;
+            legacyPhoneAttempts = Math.max(legacyPhoneAttempts, attempts);
+            legacyPhoneWindowStart = legacyPhoneWindowStart === null ? firstAttemptAt : Math.min(legacyPhoneWindowStart, firstAttemptAt);
+            continue;
+          }
+        }
+        if (Number.isFinite(firstAttemptAt) && nowMs - firstAttemptAt < PARENT_PHONE_LOGIN_WINDOW_MS) {
+          legacyPhoneAttempts += attempts;
+          legacyPhoneWindowStart = legacyPhoneWindowStart === null ? firstAttemptAt : Math.min(legacyPhoneWindowStart, firstAttemptAt);
+        }
+      }
+    }
+
+    const phoneState = states.find(({ bucket }) => bucket.kind === 'phone');
+    const effectivePhoneCount = (phoneState?.count ?? 0) + legacyPhoneAttempts;
+    const rateLimited = legacyPhoneBlocked || states.some(({ bucket, count, locked }) => locked || (bucket.kind === 'phone' ? effectivePhoneCount : count) >= bucket.limit);
+    for (const state of states) {
+      const { bucket, row, expired, count, firstAttemptAt, locked } = state;
+      const windowStart = bucket.kind === 'phone' && legacyPhoneWindowStart !== null
+        ? Math.min(expired ? nowMs : firstAttemptAt, legacyPhoneWindowStart)
+        : expired ? nowMs : firstAttemptAt;
+      const nextCount = count + (rateLimited ? 0 : 1);
+      const nextStart = asTiDBUtcDateTime(windowStart);
+      const nextBlockedUntil = locked
+        ? asTiDBUtcDateTime(state.blockedUntil)
+        : (bucket.kind === 'phone' ? nextCount + legacyPhoneAttempts : nextCount) >= bucket.limit
+          ? asTiDBUtcDateTime(windowStart + PARENT_PHONE_LOGIN_WINDOW_MS)
+          : asTiDBUtcDateTime(0);
+      await tx.execute(`UPDATE parent_auth_rate_limits
+        SET attempts=?,first_attempt_at=STR_TO_DATE(?, '${TIDB_DATETIME_FORMAT}'),
+            blocked_until=STR_TO_DATE(?, '${TIDB_DATETIME_FORMAT}'),updated_at=STR_TO_DATE(?, '${TIDB_DATETIME_FORMAT}')
+        WHERE id=?`, [nextCount, nextStart, nextBlockedUntil, timestamp, bucket.hash]);
+    }
+    return rateLimited;
+  }
+  async function takeParentLoginRateLimits(tx, { normalizedPhone, ipAddress }) {
+    const phoneBucketHash = createHmac('sha256', signingKey).update(`parent-phone-login\0${normalizedPhone}`).digest('hex');
+    const ipValue = String(ipAddress).slice(0, 128);
+    const ipBucketHash = createHmac('sha256', signingKey).update(`parent-ip-login\0${ipValue}`).digest('hex');
+    const ipBucketTag = `ip:${createHmac('sha256', signingKey).update(`parent-ip-login\0${ipValue}`).digest('base64url')}`;
+    const schema = await parentRateLimitSchema(tx);
+    if (schema === 'legacy') return takeLegacyParentLoginRateLimits(tx, { phoneBucketHash, ipBucketHash, ipBucketTag, normalizedPhone });
+
+    const timestamp = new Date(now()).toISOString();
+    const buckets = [{ hash: phoneBucketHash, limit: PARENT_PHONE_LOGIN_LIMIT }, { hash: ipBucketHash, limit: PARENT_PHONE_LOGIN_IP_LIMIT }].sort((a, b) => a.hash.localeCompare(b.hash));
+    const limitRows = [];
+    for (const bucket of buckets) {
+      await tidbInsertIfAbsent(tx, { insertSql:'INSERT INTO parent_auth_rate_limits (bucket_hash,window_started_at,request_count,updated_at) VALUES (?,?,0,?)', insertParameters:[bucket.hash,timestamp,timestamp], conflictSql:'SELECT bucket_hash FROM parent_auth_rate_limits WHERE bucket_hash=? FOR UPDATE', conflictParameters:[bucket.hash] });
+      const limits = await tx.query('SELECT window_started_at AS windowStartedAt,request_count AS requestCount FROM parent_auth_rate_limits WHERE bucket_hash=? FOR UPDATE', [bucket.hash]);
+      if (!Array.isArray(limits) || limits.length !== 1) throw new Error('Parent login rate-limit row unavailable.');
+      const limitRow = limits[0];
+      const startedAt = Date.parse(limitRow.windowStartedAt);
+      const expired = !Number.isFinite(startedAt) || now() - startedAt >= PARENT_PHONE_LOGIN_WINDOW_MS;
+      limitRows.push({ bucket, limitRow, expired, count: expired ? 0 : Number(limitRow.requestCount ?? 0) });
+    }
+    const rateLimited = limitRows.some(({ bucket, count }) => count >= bucket.limit);
+    for (const { bucket, limitRow, expired, count } of limitRows) {
+      await tx.execute('UPDATE parent_auth_rate_limits SET window_started_at=?,request_count=?,updated_at=? WHERE bucket_hash=?', [expired ? timestamp : limitRow.windowStartedAt, count + (rateLimited ? 0 : 1), timestamp, bucket.hash]);
+    }
+    return rateLimited;
+  }
   async function persistDurableSession(user, session, token) {
     if (!durableSessionStore) return;
     await database.execute('INSERT INTO auth_sessions (id, user_id, school_id, token_hash, created_at, expires_at, revoked_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?, NULL, ?)', [session.sessionId, user.id, user.schoolId, tokenHash(token), nowIso(), new Date(session.expiresAt).toISOString(), nowIso()]);
@@ -337,24 +482,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, schoolI
     try {
       await database.transaction(async (tx) => {
         if (database.dialect !== 'tidb') throw new Error('Parent login requires TiDB.');
-        const phoneBucketHash = createHmac('sha256', signingKey).update(`parent-phone-login\0${normalized}`).digest('hex');
-        const ipBucketHash = createHmac('sha256', signingKey).update(`parent-ip-login\0${String(ipAddress).slice(0, 128)}`).digest('hex');
-        const timestamp = new Date(now()).toISOString();
-        const buckets = [{ hash: phoneBucketHash, limit: PARENT_PHONE_LOGIN_LIMIT }, { hash: ipBucketHash, limit: PARENT_PHONE_LOGIN_IP_LIMIT }].sort((a, b) => a.hash.localeCompare(b.hash));
-        const limitRows = [];
-        for (const bucket of buckets) {
-          await tidbInsertIfAbsent(tx, { insertSql:'INSERT INTO parent_auth_rate_limits (bucket_hash,window_started_at,request_count,updated_at) VALUES (?,?,0,?)', insertParameters:[bucket.hash,timestamp,timestamp], conflictSql:'SELECT bucket_hash FROM parent_auth_rate_limits WHERE bucket_hash=?', conflictParameters:[bucket.hash] });
-          const limits = await tx.query('SELECT window_started_at AS windowStartedAt,request_count AS requestCount FROM parent_auth_rate_limits WHERE bucket_hash=? FOR UPDATE', [bucket.hash]);
-          if (!Array.isArray(limits) || limits.length !== 1) throw new Error('Parent login rate-limit row unavailable.');
-          const limitRow = limits[0];
-          const startedAt = Date.parse(limitRow.windowStartedAt);
-          const expired = !Number.isFinite(startedAt) || now() - startedAt >= PARENT_PHONE_LOGIN_WINDOW_MS;
-          limitRows.push({ bucket, limitRow, expired, count: expired ? 0 : Number(limitRow.requestCount ?? 0) });
-        }
-        rateLimited = limitRows.some(({ bucket, count }) => count >= bucket.limit);
-        for (const { bucket, limitRow, expired, count } of limitRows) {
-          await tx.execute('UPDATE parent_auth_rate_limits SET window_started_at=?,request_count=?,updated_at=? WHERE bucket_hash=?', [expired ? timestamp : limitRow.windowStartedAt, count + (rateLimited ? 0 : 1), timestamp, bucket.hash]);
-        }
+        rateLimited = await takeParentLoginRateLimits(tx, { normalizedPhone: normalized, ipAddress });
         if (rateLimited) return;
         const phoneValues = ghanaPhoneLookupValues(normalized);
         rows = await tx.query(`SELECT u.id,u.school_id AS schoolId,u.status,MIN(psl.telephone) AS parentPhone,
@@ -693,7 +821,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, schoolI
       return durableStaff.register({ ...input, username: input.username ?? input.email, primaryRole: 'SCHOOL_ADMIN' }, actor)
         .then((result) => ({ administrator: administratorView(result.staff, actor.id), temporaryPassword: result.temporaryPassword }));
     }
-    if (users.some((user) => user.staffId === input.staffId)) throw new Error('Staff ID already exists'); const temporaryPassword = randomBytes(18).toString('base64url'); const assignedAt = input.assignedAt ?? new Date(now()).toISOString(); const accountStatus = input.accountStatus === 'REVOKED' ? 'REVOKED' : input.accountStatus === 'DISABLED' ? 'DISABLED' : 'ACTIVE'; const user = { id: randomUUID(), username: administratorUsername(input.fullName), passwordHash: passwordHash(temporaryPassword), portal: 'school', roleKey: 'SCHOOL_ADMIN', schoolId: actor.schoolId, staffId: input.staffId, fullName: input.fullName, phone: input.phone ?? null, email: input.email ?? null, assignedAt, assignedBy: actor.id, must_change_password: true, is_active: accountStatus === 'ACTIVE', accountStatus, permissions: new Set(['users.read', 'users.credentials.manage', 'settings.read', 'settings.write', 'students.read', 'academics.read', 'attendance.read', 'examinations.read', 'marks.write', 'results.read', 'results.generate', 'results.print', 'fees.read', 'finance.read', 'staff.read', 'staff.manage', 'mock.scores.read', 'mock.scores.write', 'communication.read', 'announcements.create', 'calendar.read', 'calendar.write', 'documents.read', 'reports.read']) }; const active = administratorAssignments.find((assignment) => assignment.schoolId === actor.schoolId && assignment.status === 'ACTIVE'); if (active) { revokeAccount(active.userId); active.status = 'REASSIGNED'; active.removedAt = assignedAt; } users.push(user); const assignment = { id: randomUUID(), schoolId: actor.schoolId, userId: user.id, fullName: user.fullName, staffId: user.staffId, username: user.username, assignedAt, assignedBy: actor.id, removedAt: accountStatus === 'ACTIVE' ? null : assignedAt, status: accountStatus }; administratorAssignments.push(assignment); return { administrator: { id: user.id, fullName: user.fullName, staffId: user.staffId, username: user.username, phone: user.phone, email: user.email, assignedAt, assignedBy: user.assignedBy, status: user.accountStatus, mustChangePassword: user.must_change_password }, temporaryPassword }; }
+    if (users.some((user) => user.staffId === input.staffId)) throw new Error('Staff ID already exists'); const temporaryPassword = randomBytes(18).toString('base64url'); const assignedAt = input.assignedAt ?? new Date(now()).toISOString(); const accountStatus = input.accountStatus === 'REVOKED' ? 'REVOKED' : input.accountStatus === 'DISABLED' ? 'DISABLED' : 'ACTIVE'; const user = { id: randomUUID(), username: administratorUsername(input.fullName), passwordHash: passwordHash(temporaryPassword), portal: 'school', roleKey: 'SCHOOL_ADMIN', schoolId: actor.schoolId, staffId: input.staffId, fullName: input.fullName, phone: input.phone ?? null, email: input.email ?? null, assignedAt, assignedBy: actor.id, must_change_password: true, is_active: accountStatus === 'ACTIVE', accountStatus, permissions: new Set(['users.read', 'users.credentials.manage', 'settings.read', 'settings.write', 'students.read', 'academics.read', 'attendance.read', 'examinations.read', 'marks.write', 'results.read', 'results.generate', 'results.print', 'fees.read', 'finance.read', 'staff.read', 'staff.manage', 'mock.scores.read', 'mock.scores.write', 'communication.read', 'announcements.create', 'calendar.read', 'calendar.write', 'documents.read', 'reports.read', 'admissions.write']) }; const active = administratorAssignments.find((assignment) => assignment.schoolId === actor.schoolId && assignment.status === 'ACTIVE'); if (active) { revokeAccount(active.userId); active.status = 'REASSIGNED'; active.removedAt = assignedAt; } users.push(user); const assignment = { id: randomUUID(), schoolId: actor.schoolId, userId: user.id, fullName: user.fullName, staffId: user.staffId, username: user.username, assignedAt, assignedBy: actor.id, removedAt: accountStatus === 'ACTIVE' ? null : assignedAt, status: accountStatus }; administratorAssignments.push(assignment); return { administrator: { id: user.id, fullName: user.fullName, staffId: user.staffId, username: user.username, phone: user.phone, email: user.email, assignedAt, assignedBy: user.assignedBy, status: user.accountStatus, mustChangePassword: user.must_change_password }, temporaryPassword }; }
   function listAdministrators(schoolId) { if (database?.query) { if (!durableStaff) throw new Error('Durable administrator directory is unavailable.'); return durableStaff.list(schoolId).then((staff) => staff.filter((item) => item.roleKey === 'SCHOOL_ADMIN').map((item) => administratorView(item))); } return administratorAssignments.filter((assignment) => !schoolId || assignment.schoolId === schoolId).map((assignment) => ({ ...assignment })); }
   function getAdministrator(userId, schoolId) { if (database?.query) { if (!durableStaff) throw new Error('Durable administrator lookup is unavailable.'); return durableStaff.get(userId, schoolId).then((staff) => staff?.roleKey === 'SCHOOL_ADMIN' ? administratorView(staff) : null); } const assignment = administratorAssignments.find((item) => item.userId === userId && item.schoolId === schoolId); return assignment ? { ...assignment } : null; }
   function updateAdministrator(userId, input, schoolId) { if (database?.query) { if (!durableStaff) throw new Error('Durable administrator update is unavailable.'); return durableStaff.update(userId, input, schoolId).then((staff) => staff?.roleKey === 'SCHOOL_ADMIN' ? administratorView(staff) : null); } const user = users.find((candidate) => candidate.id === userId && candidate.schoolId === schoolId); if (!user) return null; if (input.staffId && input.staffId !== user.staffId && users.some((candidate) => candidate.staffId === input.staffId)) throw new Error('Staff ID already exists'); for (const field of ['fullName', 'staffId', 'phone', 'email']) if (input[field] !== undefined) user[field] = input[field]; const assignment = administratorAssignments.find((item) => item.userId === userId && item.schoolId === schoolId); if (assignment) Object.assign(assignment, { fullName: user.fullName, staffId: user.staffId }); return { id: user.id, fullName: user.fullName, staffId: user.staffId, username: user.username, phone: user.phone, email: user.email, status: user.accountStatus }; }

@@ -32,6 +32,15 @@ test('Part 8 inventory is read-only and targets the intended database without ex
   assert.match(inventory, /information_schema\.TABLES/);
   assert.match(inventory, /information_schema\.COLUMNS/);
   assert.match(inventory, /osaahdaylightschool/);
+  assert.match(inventory, /040_fee_structures_v2\.sql/);
+  assert.match(inventory, /084_internal_student_registration\.sql/);
+  assert.match(inventory, /085_global_student_id_unique\.sql/);
+  assert.match(inventory, /fee_structures_v2/);
+  assert.match(inventory, /student_id_reservations/);
+  assert.match(inventory, /information_schema\.STATISTICS/);
+  assert.match(inventory, /information_schema\.KEY_COLUMN_USAGE/);
+  assert.match(inventory, /migrations040And084RecordedAndChecksummed/);
+  assert.match(inventory, /releaseSchemaGate\.ready/);
   assert.doesNotMatch(inventory, /CREATE TABLE|ALTER TABLE|DROP TABLE|TRUNCATE|DELETE FROM|INSERT INTO|UPDATE /i);
   assert.doesNotMatch(inventory, /console\.log\(.*DATABASE_URL/i);
 });
