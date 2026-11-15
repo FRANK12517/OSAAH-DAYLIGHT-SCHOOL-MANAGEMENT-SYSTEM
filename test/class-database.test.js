@@ -9,10 +9,20 @@ test('Class Database derives current students and canonical parent contact data'
   const actor = { id: 'admin', roleKey: 'SCHOOL_ADMIN', schoolId: 'school-osaah-daylight', permissions: new Set(['students.read']) };
   const student = students.createStudent({ firstName: 'Ama', surname: 'Mensah', classId: 'Nursery 1', admissionYearId: '2026', family: [{ parentId: 'parent-1', fullName: 'Akosua Mensah', primary: true, telephone: '0240000000' }] });
   students.linkParent(student.id, { parentId: 'parent-1', fullName: 'Akosua Mensah', primary: true, telephone: '0240000000' });
-  assert.deepEqual(database.list({ classId: 'Nursery 1', academicYear: '2026/2027' }, actor), [{ permanentStudentId: student.permanentStudentId, studentId: student.id, studentName: 'Ama Mensah', gender: 'Not Recorded', parentGuardianName: 'Akosua Mensah', registeredParentPhone: '+233240000000', classId: 'Nursery 1', academicYear: '2026/2027', isTestRecord: false }]);
+  assert.deepEqual(database.list({ classId: 'Nursery 1', academicYear: '2026/2027' }, actor), [{ permanentStudentId: student.permanentStudentId, studentId: student.id, studentName: 'Ama Mensah', gender: 'Not Recorded', parentGuardianName: 'Akosua Mensah', registeredParentPhone: '+233240000000', previousSchool: null, previousClass: null, classId: 'Nursery 1', academicYear: '2026/2027', isTestRecord: false }]);
   assert.equal(database.list({ classId: 'Nursery 1', search: student.permanentStudentId }, actor).length, 1);
   assert.equal(database.list({ classId: 'Nursery 1', search: 'akosua' }, actor).length, 1);
   assert.equal(database.list({ classId: 'Nursery 1', search: '0240000000' }, actor).length, 1);
+});
+
+test('transfer admission details are available in Class Database rows', () => {
+  const students = createStudentService();
+  const database = createClassDatabaseService({ students });
+  const actor = { roleKey: 'SCHOOL_ADMIN', schoolId: 'school-osaah-daylight', permissions: new Set(['students.read']) };
+  students.createStudent({ firstName: 'Ama', surname: 'Mensah', classId: 'Primary 1', admissionYearId: '2026', previousSchool: 'Bogoso Basic School', previousClass: 'Basic 2', admissionType: 'TRANSFER' });
+  const row = database.list({ classId: 'Primary 1', academicYear: '2026/2027' }, actor)[0];
+  assert.equal(row.previousSchool, 'Bogoso Basic School');
+  assert.equal(row.previousClass, 'Basic 2');
 });
 
 test('class reassignment automatically moves the same canonical student row', () => {

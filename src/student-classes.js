@@ -29,6 +29,27 @@ const ALIASES = Object.freeze({
 
 export const CANONICAL_CLASS_IDS = Object.freeze([...CORE_LEVELS]);
 
+const TRANSFER_PREVIOUS_CLASS_LABELS = Object.freeze({
+  KG1: 'KG 1',
+  KG2: 'KG 2',
+  'Primary 1': 'Basic 1',
+  'Primary 2': 'Basic 2',
+  'Primary 3': 'Basic 3',
+  'Primary 4': 'Basic 4',
+  'Primary 5': 'Basic 5',
+  'Primary 6': 'Basic 6'
+});
+
+export const TRANSFER_PREVIOUS_CLASS_OPTIONS = Object.freeze(CORE_LEVELS
+  .filter((className) => !className.startsWith('Nursery '))
+  .map((value) => Object.freeze({ value, label: TRANSFER_PREVIOUS_CLASS_LABELS[value] ?? value })));
+
+export const TRANSFER_PREVIOUS_CLASS_VALUES = Object.freeze(TRANSFER_PREVIOUS_CLASS_OPTIONS.map(({ value }) => value));
+
+export function transferPreviousClassLabel(value) {
+  return TRANSFER_PREVIOUS_CLASS_OPTIONS.find((item) => item.value === value || item.label === value)?.label ?? value ?? null;
+}
+
 export function canonicalClassId(value) {
   const key = String(value ?? '').trim().toLowerCase();
   const resolved = ALIASES[key];

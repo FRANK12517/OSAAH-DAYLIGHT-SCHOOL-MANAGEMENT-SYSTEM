@@ -9,7 +9,7 @@ const STUDENT_FIELDS = Object.freeze({
   firstName: ['first_name', 'firstName'], middleName: ['middle_name', 'middleName'], surname: ['last_name', 'surname', 'lastName'],
   gender: ['gender'], dateOfBirth: ['date_of_birth', 'dateOfBirth'], placeOfBirth: ['place_of_birth', 'placeOfBirth'], nationality: ['nationality'],
   preferredName: ['preferred_name', 'preferredName'], photograph: ['photograph_path', 'photograph', 'photographPath'], admissionDate: ['admission_date', 'admissionDate'],
-  previousSchool: ['previous_school', 'previousSchool'], admissionType: ['admission_type', 'admissionType'], classId: ['current_class_id', 'class_id', 'classId'],
+  previousSchool: ['previous_school', 'previousSchool'], previousClass: ['previous_class', 'previousClass'], admissionType: ['admission_type', 'admissionType'], classId: ['current_class_id', 'class_id', 'classId'],
   streamId: ['stream_id', 'streamId'], houseId: ['house_id', 'houseId'], indexNumber: ['index_number', 'indexNumber'], healthInsuranceNumber: ['health_insurance_number', 'healthInsuranceNumber']
 });
 
@@ -25,7 +25,7 @@ function normalized(row, profile = null, family = []) {
     dateOfBirth: value(fieldFromRow(row, 'dateOfBirth'), profile?.date_of_birth, profile?.dateOfBirth), placeOfBirth: value(fieldFromRow(row, 'placeOfBirth'), profile?.place_of_birth, profile?.placeOfBirth),
     nationality: value(fieldFromRow(row, 'nationality'), profile?.nationality), preferredName: value(fieldFromRow(row, 'preferredName'), profile?.preferred_name, profile?.preferredName),
     photograph: value(fieldFromRow(row, 'photograph'), profile?.photograph_path, profile?.photographPath), admissionDate: value(fieldFromRow(row, 'admissionDate'), profile?.admission_date, profile?.admissionDate),
-    previousSchool: value(fieldFromRow(row, 'previousSchool'), profile?.previous_school, profile?.previousSchool), admissionType: value(fieldFromRow(row, 'admissionType'), profile?.admission_type, profile?.admissionType),
+    previousSchool: value(fieldFromRow(row, 'previousSchool'), profile?.previous_school, profile?.previousSchool), previousClass: value(fieldFromRow(row, 'previousClass'), profile?.previous_class, profile?.previousClass), admissionType: value(fieldFromRow(row, 'admissionType'), profile?.admission_type, profile?.admissionType),
     classId: value(fieldFromRow(row, 'classId'), profile?.class_id, profile?.classId), streamId: value(fieldFromRow(row, 'streamId'), profile?.stream_id, profile?.streamId), houseId: value(fieldFromRow(row, 'houseId'), profile?.house_id, profile?.houseId),
     indexNumber: value(fieldFromRow(row, 'indexNumber'), profile?.index_number, profile?.indexNumber), healthInsuranceNumber: value(fieldFromRow(row, 'healthInsuranceNumber'), profile?.health_insurance_number, profile?.healthInsuranceNumber), family: family.map((item) => ({ ...item })),
     status: value(row.student_status, row.studentStatus, profile?.enrollment_status, profile?.enrollmentStatus), updatedAt: value(row.updated_at, row.updatedAt, profile?.updated_at, profile?.updatedAt)
@@ -53,11 +53,12 @@ export function createDurableStudentProfileService({ database, clock = () => new
     const schoolId = actor?.schoolId;
     if (!schoolId) throw error('Authenticated school context is required.', 403);
     const term = `%${String(query ?? '').trim().toLowerCase()}%`;
-    const found = rows(await database.query(`SELECT s.*,sp.id AS profile_id,sp.first_name AS profile_first_name,sp.last_name AS profile_last_name,sp.class_id AS profile_class_id
+    const found = rows(await database.query(`SELECT s.*,sp.id AS profile_id,sp.first_name AS profile_first_name,sp.last_name AS profile_last_name,sp.class_id AS profile_class_id,
+      sp.previous_school AS profile_previous_school,sp.previous_class AS profile_previous_class
       FROM students s LEFT JOIN student_profiles sp ON sp.school_id=s.school_id AND (sp.student_master_id=s.id OR sp.student_id=s.permanent_student_id)
       WHERE s.school_id=? AND s.is_test_record IS NOT TRUE AND (?='' OR LOWER(CONCAT_WS(' ',s.first_name,s.middle_name,s.last_name,s.permanent_student_id,s.admission_number)) LIKE ?)
       ORDER BY s.last_name,s.first_name,s.id`, [schoolId, String(query ?? '').trim(), term]));
-    return found.map((row) => normalized(row, { id: row.profile_id, first_name: row.profile_first_name, last_name: row.profile_last_name, class_id: row.profile_class_id }));
+    return found.map((row) => normalized(row, { id: row.profile_id, first_name: row.profile_first_name, last_name: row.profile_last_name, class_id: row.profile_class_id, previous_school: row.profile_previous_school, previous_class: row.profile_previous_class }));
   }
   async function update(identifier, input, actor) {
     const current = await getStudent(identifier, actor);
