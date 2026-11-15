@@ -14,6 +14,10 @@ const existingStudentMatch = document.querySelector('#existing-student-match');
 const classField = form.elements.classId;
 const yearField = form.elements.academicYearId;
 const termField = form.elements.termId;
+const previousSchoolField = form.elements.previousSchool;
+const previousClassField = form.elements.previousClass;
+const previousSchoolError = document.querySelector('#previous-school-error');
+const previousClassError = document.querySelector('#previous-class-error');
 const draftStatus = document.querySelector('#registration-draft-status');
 let draftKey = null;
 const defaultAcademicYear = '2026/2027';
@@ -39,6 +43,16 @@ function setExistingIdError(message = '') {
   existingIdError.hidden = !message;
   if (message) existingIdField.setAttribute('aria-invalid', 'true');
   else existingIdField.removeAttribute('aria-invalid');
+}
+
+function setTransferFieldError(field, message = '') {
+  const isSchool = field === 'previousSchool';
+  const input = isSchool ? previousSchoolField : previousClassField;
+  const error = isSchool ? previousSchoolError : previousClassError;
+  error.textContent = message;
+  error.hidden = !message;
+  if (message) input.setAttribute('aria-invalid', 'true');
+  else input.removeAttribute('aria-invalid');
 }
 
 function saveDraft() {
@@ -70,6 +84,10 @@ function restoreDraft() {
       const field = form.elements.namedItem(name);
       if (field && 'value' in field) field.value = String(value ?? '');
     }
+    if (categoryField.value !== 'TRANSFER') {
+      previousSchoolField.value = '';
+      previousClassField.value = '';
+    }
     registeredStudentId = saved.registeredStudentId ?? null;
     form.elements.registrationToken.value ||= saved.data.registrationToken ?? '';
     if (!registeredStudentId) form.elements.resolvedPermanentStudentId.value = '';
@@ -94,7 +112,12 @@ async function request(url, options = {}) {
   const responseText = await response.text();
   let result = {};
   try { result = responseText ? JSON.parse(responseText) : {}; } catch { /* Keep the HTTP status for non-JSON server responses. */ }
-  if (!response.ok) throw new Error(result.error ?? result.message ?? `Request failed (HTTP ${response.status}).`);
+  if (!response.ok) {
+    const error = new Error(result.error ?? result.message ?? `Request failed (HTTP ${response.status}).`);
+    error.code = result.code;
+    error.fields = result.fields;
+    throw error;
+  }
   return result;
 }
 
@@ -116,7 +139,8 @@ function showRegistrationSaved(student, className, idStatus = student.permanentS
     submitButton.textContent = 'Submit';
     generateButton.disabled = true;
     generateButton.textContent = 'Permanent Student ID Assigned';
-    idHelp.hidden = true;
+    idHelp.textContent = 'This student already has a permanent ID.';
+    idHelp.hidden = false;
   } else {
     idOutput.textContent = '';
     idOutput.hidden = true;
@@ -197,7 +221,15 @@ function syncCategory() {
   document.querySelectorAll('[data-transfer-field]').forEach((element) => { element.hidden = !transfer; });
   existingIdField.required = existing && identificationChoice.value === 'HAVE_ID';
   setExistingIdError('');
+  if (!existing) [...identificationChoice].forEach((item) => { item.checked = item.value === 'NO_ID'; });
   form.elements.previousSchool.required = transfer;
+  previousClassField.required = transfer;
+  if (!transfer) {
+    previousSchoolField.value = '';
+    previousClassField.value = '';
+    setTransferFieldError('previousSchool');
+    setTransferFieldError('previousClass');
+  }
   form.elements.resolvedPermanentStudentId.value = '';
   existingIdField.value = '';
   existingStudentIdField.value = '';
@@ -255,6 +287,8 @@ async function loadOptions() {
     classes = options.classes ?? [];
     classField.replaceChildren(new Option('Select class', ''));
     for (const item of classes) classField.add(new Option(item.name, item.id));
+    previousClassField.replaceChildren(new Option('Select previous class', ''));
+    for (const item of options.transferPreviousClasses ?? []) previousClassField.add(new Option(item.label, item.value));
     const years = options.academicYears ?? [];
     terms = options.terms ?? [];
     const savedYear = yearField.value;
@@ -290,6 +324,8 @@ categoryField.addEventListener('change', () => { if (!completed) syncCategory();
 identificationChoice.forEach((radio) => radio.addEventListener('change', () => { if (!completed) syncExistingIdChoice(); }));
 form.elements.dateOfBirth.addEventListener('change', updateAge);
 existingIdField.addEventListener('input', () => { if (existingIdField.value.trim()) setExistingIdError(''); });
+previousSchoolField.addEventListener('input', () => setTransferFieldError('previousSchool'));
+previousClassField.addEventListener('change', () => setTransferFieldError('previousClass'));
 form.addEventListener('input', saveDraft);
 form.addEventListener('change', saveDraft);
 
@@ -301,6 +337,8 @@ document.querySelector('#reset-registration-form').addEventListener('click', () 
   form.reset();
   setStatus('');
   setExistingIdError('');
+  setTransferFieldError('previousSchool');
+  setTransferFieldError('previousClass');
   success.replaceChildren();
   success.hidden = true;
   form.elements.registrationToken.value = '';
@@ -335,6 +373,18 @@ form.addEventListener('submit', async (event) => {
     setStatus(message, 'error');
     return;
   }
+  if (categoryField.value === 'TRANSFER') {
+    const previousSchool = previousSchoolField.value.trim();
+    const previousClass = previousClassField.value;
+    const schoolError = previousSchool.length < 2 ? 'Enter the previous school name (at least 2 characters).' : previousSchool.length > 120 ? 'Previous school must be no more than 120 characters.' : '';
+    const classError = !previousClass ? 'Select the student’s previous class.' : '';
+    setTransferFieldError('previousSchool', schoolError);
+    setTransferFieldError('previousClass', classError);
+    if (schoolError || classError) {
+      setStatus(schoolError || classError, 'error');
+      return;
+    }
+  }
   if (!form.reportValidity()) {
     const invalid = form.querySelector(':invalid');
     const label = invalid?.labels?.[0]?.textContent?.trim().replace(/\s+/g, ' ') ?? 'Form';
@@ -349,12 +399,19 @@ form.addEventListener('submit', async (event) => {
   if (nameParts.length < 2) { setStatus('Enter the pupil’s first and last name.', 'error'); return; }
   const data = new FormData(form);
   const payload = Object.fromEntries([...data.entries()].map(([key, value]) => [key, String(value).trim() || null]));
+  if (categoryField.value === 'TRANSFER') {
+    payload.previousSchool = previousSchoolField.value.trim() || null;
+    payload.previousClass = previousClassField.value || null;
+  } else {
+    delete payload.previousSchool;
+    delete payload.previousClass;
+  }
   const suppliedId = categoryField.value === 'ALREADY_ENROLLED' && identificationChoice.value === 'HAVE_ID' ? existingIdField.value.trim() : null;
   Object.assign(payload, {
     firstName: nameParts[0], middleName: nameParts.length > 2 ? nameParts.slice(1, -1).join(' ') : '', lastName: nameParts.at(-1),
     existingPermanentStudentId: suppliedId,
     existingStudentId: categoryField.value === 'ALREADY_ENROLLED' && identificationChoice.value === 'HAVE_ID' ? existingStudentIdField.value || null : null,
-    existingIdChoice: identificationChoice.value
+    existingIdChoice: categoryField.value === 'ALREADY_ENROLLED' ? identificationChoice.value : 'NO_ID'
   });
 
   saving = true;
@@ -402,6 +459,8 @@ form.addEventListener('submit', async (event) => {
     completed = false;
     registeredStudentId = null;
     generateButton.disabled = true;
+    if (error.fields?.includes('previousSchool')) setTransferFieldError('previousSchool', error.message);
+    if (error.fields?.includes('previousClass')) setTransferFieldError('previousClass', error.message);
     setStatus(error.message || 'The registration could not be submitted. Please retry.', 'error');
   }
   finally {

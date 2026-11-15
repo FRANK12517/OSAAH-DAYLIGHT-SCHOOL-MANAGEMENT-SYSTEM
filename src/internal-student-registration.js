@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { normalizeGhanaPhone } from './ghana-phone.js';
 import { requireStudentGender } from './student-gender.js';
-import { canonicalClassId } from './student-classes.js';
+import { canonicalClassId, transferPreviousClassLabel, TRANSFER_PREVIOUS_CLASS_VALUES } from './student-classes.js';
 import { tidbInsertIfAbsent } from './tidb-conflict.js';
 
 const rows = (value) => Array.isArray(value) ? value : [];
-const fail = (code, message, status = 400) => { throw Object.assign(new Error(message), { code, status }); };
+const fail = (code, message, status = 400, fields = null) => { throw Object.assign(new Error(message), { code, status, ...(fields ? { fields } : {}) }); };
 const text = (value, max = 255) => { const result = String(value ?? '').trim(); return result ? result.slice(0, max) : null; };
 const normalizeName = (value) => String(value ?? '').trim().replace(/\s+/g, ' ').toLocaleLowerCase();
 const canonicalTerm = (value) => ({ '1st term': '1st Term', 'first term': '1st Term', 'term 1': '1st Term', '2nd term': '2nd Term', 'second term': '2nd Term', 'term 2': '2nd Term', '3rd term': '3rd Term', 'third term': '3rd Term', 'term 3': '3rd Term' })[String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ')] ?? null;
@@ -224,7 +224,16 @@ export function createInternalStudentRegistrationService({ database, clock = () 
     const category = String(input?.admissionType ?? '').trim().toUpperCase().replace(/[ -]+/g, '_');
     if (!['FIRST_TIME', 'TRANSFER', 'ALREADY_ENROLLED'].includes(category)) fail('ADMISSION_CATEGORY_INVALID', 'Select an admission category.');
     const existingIdChoice = String(input?.existingIdChoice ?? 'NO_ID').trim().toUpperCase();
+    if (category !== 'ALREADY_ENROLLED' && existingIdChoice === 'HAVE_ID') fail('EXISTING_ID_CHOICE_NOT_ALLOWED', 'A permanent ID choice is available only for an existing OSAAH student.', 400);
     if (category === 'ALREADY_ENROLLED' && !['NO_ID', 'HAVE_ID'].includes(existingIdChoice)) fail('EXISTING_ID_CHOICE_INVALID', 'Choose whether the student has a permanent ID.');
+    const previousSchool = category === 'TRANSFER' ? (typeof input?.previousSchool === 'string' ? input.previousSchool.trim() : '') : null;
+    const previousClassInput = category === 'TRANSFER' ? String(input?.previousClass ?? '').trim() : null;
+    const normalizedPreviousClass = category === 'TRANSFER' ? canonicalClassId(previousClassInput) : null;
+    const previousClass = normalizedPreviousClass ? transferPreviousClassLabel(normalizedPreviousClass) : null;
+    const transferErrors = [];
+    if (category === 'TRANSFER' && (previousSchool.length < 2 || previousSchool.length > 120)) transferErrors.push('previousSchool');
+    if (category === 'TRANSFER' && (!normalizedPreviousClass || !TRANSFER_PREVIOUS_CLASS_VALUES.includes(normalizedPreviousClass))) transferErrors.push('previousClass');
+    if (transferErrors.length) fail('VALIDATION_FAILED', 'Transfer admission requires a previous school name (2–120 characters) and a valid previous class.', 400, transferErrors);
     const firstName = text(input.firstName ?? input.studentFirstName, 100), middleName = text(input.middleName, 100), lastName = text(input.lastName ?? input.studentSurname, 100);
     if (!firstName || !lastName) fail('STUDENT_NAME_REQUIRED', 'Pupil first and last names are required.');
     const dateOfBirth = text(input.dateOfBirth, 10);
@@ -372,10 +381,10 @@ export function createInternalStudentRegistrationService({ database, clock = () 
           const studentId = idFactory(), profileId = idFactory(), registrationNumber = `REG-${registrationToken || studentId}`;
           await tx.execute(`INSERT INTO students (id,permanent_student_id,school_id,admission_number,current_class_id,first_name,middle_name,last_name,full_name,gender,date_of_birth,parent_guardian_name,parent_phone,admission_date,admission_type,student_status,is_test_record,created_at,updated_at)
             VALUES (?,NULL,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [studentId, schoolId, registrationNumber, classId, firstName, middleName, lastName, [firstName, middleName, lastName].filter(Boolean).join(' '), gender, dateOfBirth, parentName, parentPhone, admissionDate, category, 'ACTIVE', false, timestamp, timestamp]);
-          await tx.execute(`INSERT INTO student_profiles (id,student_master_id,student_id,school_id,admission_number,class_id,admission_date,first_name,middle_name,surname,gender,date_of_birth,place_of_birth,home_address,nationality,previous_school,admission_type,qr_code,enrollment_status,created_at,updated_at)
-            VALUES (?,?,NULL,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [profileId, studentId, schoolId, registrationNumber, classId, admissionDate, firstName, middleName, lastName, gender, dateOfBirth, text(input.placeOfBirth), homeAddress, text(input.nationality, 100) ?? 'Ghanaian', text(input.previousSchool), category, `osaah:student:${profileId}`, 'ACTIVE', timestamp, timestamp]);
+          await tx.execute(`INSERT INTO student_profiles (id,student_master_id,student_id,school_id,admission_number,class_id,admission_date,first_name,middle_name,surname,gender,date_of_birth,place_of_birth,home_address,nationality,previous_school,previous_class,admission_type,qr_code,enrollment_status,created_at,updated_at)
+            VALUES (?,?,NULL,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [profileId, studentId, schoolId, registrationNumber, classId, admissionDate, firstName, middleName, lastName, gender, dateOfBirth, text(input.placeOfBirth), homeAddress, text(input.nationality, 100) ?? 'Ghanaian', previousSchool || null, previousClass, category, `osaah:student:${profileId}`, 'ACTIVE', timestamp, timestamp]);
           student = { studentId, permanentStudentId: null, firstName, lastName };
-          profile = { id: profileId };
+          profile = { id: profileId, previousSchool: previousSchool || null, previousClass };
           created = true;
         }
 
@@ -384,7 +393,7 @@ export function createInternalStudentRegistrationService({ database, clock = () 
 
         if (!created) {
           await tx.execute(`UPDATE students SET current_class_id=?,first_name=?,middle_name=?,last_name=?,full_name=?,gender=?,date_of_birth=?,parent_guardian_name=?,parent_phone=?,student_status='ACTIVE',updated_at=? WHERE id=? AND school_id=?`, [classId, firstName, middleName, lastName, [firstName, middleName, lastName].filter(Boolean).join(' '), gender, dateOfBirth, parentName, parentPhone, timestamp, student.studentId, schoolId]);
-          await tx.execute(`UPDATE student_profiles SET class_id=?,first_name=?,middle_name=?,surname=?,gender=?,date_of_birth=?,place_of_birth=?,home_address=?,nationality=?,admission_type=?,enrollment_status='ACTIVE',updated_at=? WHERE id=? AND school_id=?`, [classId, firstName, middleName, lastName, gender, dateOfBirth, text(input.placeOfBirth), homeAddress, text(input.nationality, 100) ?? 'Ghanaian', category, timestamp, profile.id, schoolId]);
+          await tx.execute(`UPDATE student_profiles SET class_id=?,first_name=?,middle_name=?,surname=?,gender=?,date_of_birth=?,place_of_birth=?,home_address=?,nationality=?,previous_school=?,previous_class=?,admission_type=?,enrollment_status='ACTIVE',updated_at=? WHERE id=? AND school_id=?`, [classId, firstName, middleName, lastName, gender, dateOfBirth, text(input.placeOfBirth), homeAddress, text(input.nationality, 100) ?? 'Ghanaian', previousSchool || null, previousClass, category, timestamp, profile.id, schoolId]);
         }
 
         {
@@ -423,7 +432,7 @@ export function createInternalStudentRegistrationService({ database, clock = () 
         const permanentStudentId = confirmed.permanentStudentId ?? null;
         return {
           success: true, found,
-          student: { ...confirmed, id: confirmed.studentId, permanentStudentId }, studentId: confirmed.studentId,
+          student: { ...confirmed, id: confirmed.studentId, permanentStudentId, previousSchool: previousSchool || null, previousClass }, studentId: confirmed.studentId,
           registered: true, permanentStudentId, idStatus: permanentStudentId ? 'EXISTING' : 'PENDING_GENERATION',
           classId, className: classRow.name, created
         };

@@ -49,7 +49,7 @@ export function createClassDatabaseService({ students, classes = CORE_LEVELS, pa
   function row(student, actor, enrollment, completionYear = null) {
     const parents = parentCandidates(student, actor);
     const parent = parents.find((item) => item.primary) ?? parents[0] ?? {};
-    return { permanentStudentId: student.permanentStudentId, studentId: student.id, studentName: fullName(student), gender: displayStudentGender(student.gender), parentGuardianName: parent.fullName ?? 'Not Registered', registeredParentPhone: parent.telephone ?? 'Not Registered', classId: enrollment?.classId ?? student.classId, academicYear: enrollment?.academicYear ?? actor.academicYear ?? null, ...(completionYear ?? student.completionYear ? { completionYear: completionYear ?? student.completionYear } : {}), isTestRecord: Boolean(student.isTestRecord) };
+    return { permanentStudentId: student.permanentStudentId, studentId: student.id, studentName: fullName(student), gender: displayStudentGender(student.gender), parentGuardianName: parent.fullName ?? 'Not Registered', registeredParentPhone: parent.telephone ?? 'Not Registered', previousSchool: student.previousSchool ?? null, previousClass: student.previousClass ?? null, classId: enrollment?.classId ?? student.classId, academicYear: enrollment?.academicYear ?? actor.academicYear ?? null, ...(completionYear ?? student.completionYear ? { completionYear: completionYear ?? student.completionYear } : {}), isTestRecord: Boolean(student.isTestRecord) };
   }
 
   function searchable(item, term) {

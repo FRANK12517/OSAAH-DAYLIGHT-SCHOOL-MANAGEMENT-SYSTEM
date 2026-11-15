@@ -16,11 +16,11 @@ async function api(url) {
 }
 
 function render(items) {
-  rows.innerHTML = items.length ? items.map((item) => `<tr><td>${esc(item.permanentStudentId)}</td><td>${esc(item.studentName)}</td><td>${esc(item.gender || 'Not Recorded')}</td><td>${esc(item.parentGuardianName)}</td><td>${esc(item.registeredParentPhone)}</td><td>${esc(classLabel(item.classId))}</td><td>${esc(item.academicYear || year.value || 'Not Recorded')}</td></tr>`).join('') : `<tr><td colspan="7">${emptyMessage}</td></tr>`;
+  rows.innerHTML = items.length ? items.map((item) => `<tr><td>${esc(item.permanentStudentId)}</td><td>${esc(item.studentName)}</td><td>${esc(item.gender || 'Not Recorded')}</td><td>${esc(item.parentGuardianName)}</td><td>${esc(item.registeredParentPhone)}</td><td>${esc(item.previousSchool)}</td><td>${esc(item.previousClass)}</td><td>${esc(classLabel(item.classId))}</td><td>${esc(item.academicYear || year.value || 'Not Recorded')}</td></tr>`).join('') : `<tr><td colspan="9">${emptyMessage}</td></tr>`;
 }
 
 function showError(error) {
-  rows.innerHTML = '<tr><td colspan="7">Unable to load Class Database records. Please try again.</td></tr>';
+  rows.innerHTML = '<tr><td colspan="9">Unable to load Class Database records. Please try again.</td></tr>';
   status.textContent = error.message;
   status.className = 'error';
 }
@@ -36,7 +36,7 @@ async function loadOptions() {
 
 async function loadRows() {
   if (!classSelect.value) {
-    rows.innerHTML = '<tr><td colspan="7">Select a class to view students.</td></tr>';
+    rows.innerHTML = '<tr><td colspan="9">Select a class to view students.</td></tr>';
     status.className = 'muted';
     status.textContent = 'Select a class to view currently enrolled students.';
     return;

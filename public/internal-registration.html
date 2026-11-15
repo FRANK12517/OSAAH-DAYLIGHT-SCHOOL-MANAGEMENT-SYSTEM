@@ -48,7 +48,18 @@
           <label>Academic year<select name="academicYearId" required><option value="">Loading academic years…</option></select></label>
           <label>Term<select name="termId" required><option value="">Select academic year first</option></select></label>
           <label>8. Home address<textarea name="homeAddress" autocomplete="street-address" rows="2" required></textarea></label>
-          <label data-transfer-field hidden>Previous school<input name="previousSchool" autocomplete="organization"></label>
+          <div data-transfer-field hidden>
+            <label for="previous-school">Previous School</label>
+            <input id="previous-school" name="previousSchool" autocomplete="organization" minlength="2" maxlength="120" aria-describedby="previous-school-error">
+            <p id="previous-school-error" class="field-error" role="alert" hidden></p>
+          </div>
+          <div data-transfer-field hidden>
+            <label for="previous-class">Previous Class</label>
+            <select id="previous-class" name="previousClass" aria-describedby="previous-class-error">
+              <option value="">Select previous class</option>
+            </select>
+            <p id="previous-class-error" class="field-error" role="alert" hidden></p>
+          </div>
         </div>
       </section>
       <section class="registration-section">

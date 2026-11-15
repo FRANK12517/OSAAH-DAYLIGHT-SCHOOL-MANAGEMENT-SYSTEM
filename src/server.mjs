@@ -12,7 +12,7 @@ import { createRoleProvisioningDiagnostic } from './role-provisioning-diagnostic
 import { createDurableRoleAccountProvisioning } from './durable-role-account-provisioning.js';
 import { createAuditLog } from './audit.js';
 import { CORE_LEVELS, createStudentService } from './students.js';
-import { canonicalClassId } from './student-classes.js';
+import { canonicalClassId, TRANSFER_PREVIOUS_CLASS_OPTIONS } from './student-classes.js';
 import { displayStudentGender } from './student-gender.js';
 import { createClassDatabaseService } from './class-database.js';
 import { ACADEMIC_YEAR_OPTIONS, ATTENDANCE_METHODS, STUDENT_REASON_STATUSES, STUDENT_STATUSES, TERM_OPTIONS, createAttendanceService } from './attendance.js';
@@ -275,12 +275,22 @@ export function createApp({ auth = null, students = null, attendance = null, att
   async function durableClassDatabaseList(filters, actor) {
     classDatabase.options(actor);
     if (!database?.query) return classDatabase.list(filters, actor);
+    const profileColumnRows = await database.query(`SELECT COLUMN_NAME AS columnName FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='student_profiles' AND COLUMN_NAME IN ('previous_school','previous_class')`);
+    const profileColumns = new Set(profileColumnRows.map((row) => String(row.columnName ?? row.COLUMN_NAME ?? '').toLowerCase()));
+    const previousSchoolSelect = profileColumns.has('previous_school')
+      ? `(SELECT sp.previous_school FROM student_profiles sp WHERE sp.school_id=s.school_id AND (sp.student_master_id=s.id OR (sp.student_master_id IS NULL AND sp.student_id=s.permanent_student_id)) ORDER BY sp.updated_at DESC,sp.id DESC LIMIT 1) AS previousSchool`
+      : 'NULL AS previousSchool';
+    const previousClassSelect = profileColumns.has('previous_class')
+      ? `(SELECT sp.previous_class FROM student_profiles sp WHERE sp.school_id=s.school_id AND (sp.student_master_id=s.id OR (sp.student_master_id IS NULL AND sp.student_id=s.permanent_student_id)) ORDER BY sp.updated_at DESC,sp.id DESC LIMIT 1) AS previousClass`
+      : 'NULL AS previousClass';
     const academicYear = String(filters.academicYear ?? '').trim();
     const classId = String(filters.classId ?? '').trim();
     const search = `%${String(filters.search ?? '').trim().toLowerCase()}%`;
     const results = await database.query(`SELECT s.permanent_student_id AS permanentStudentId,s.id AS studentId,
       TRIM(CONCAT_WS(' ',s.first_name,s.middle_name,s.last_name)) AS studentName,s.gender AS gender,
       s.parent_guardian_name AS parentGuardianName,s.parent_phone AS registeredParentPhone,
+      ${previousSchoolSelect},${previousClassSelect},
       e.class_id AS classId,COALESCE(y.name,e.academic_year) AS academicYear
       FROM student_enrollments e JOIN students s ON s.id=e.student_id AND s.school_id=e.school_id
       LEFT JOIN academic_years y ON y.id=e.academic_year_id AND y.school_id=e.school_id
@@ -627,7 +637,7 @@ export function createApp({ auth = null, students = null, attendance = null, att
           return json(response, result, result.created ? 201 : 200);
         } catch (error) {
           if ((error.status ?? 400) >= 500) console.error('Internal student registration request failed', { operation: pathname.endsWith('/student-id') ? request.method === 'GET' ? 'student_id_lookup' : 'student_id_assignment' : pathname.endsWith('/existing-student') ? 'existing_student_lookup' : 'student_registration', code: error.code ?? 'UNCLASSIFIED', dbCode: error.cause?.code ?? null, errno: error.cause?.errno ?? null, sqlState: error.cause?.sqlState ?? null, errorType: error.cause?.name ?? error.name ?? 'Error' });
-          return json(response, { error: error.message ?? 'Student registration failed.', code: error.code ?? 'STUDENT_REGISTRATION_FAILED' }, error.status ?? 400);
+          return json(response, { error: error.message ?? 'Student registration failed.', code: error.code ?? 'STUDENT_REGISTRATION_FAILED', ...(Array.isArray(error.fields) ? { fields: error.fields } : {}) }, error.status ?? 400);
         }
       }
       if (pathname === '/api/school-settings' && request.method === 'GET') { if (!canAccess(user, 'settings.read')) return json(response, { error: 'Forbidden.' }, 403); try { return json(response, await schoolSettings.read(user)); } catch (error) { return json(response, { error: error.message }, error.status ?? 500); } }
@@ -795,7 +805,7 @@ export function createApp({ auth = null, students = null, attendance = null, att
           }
           if (!database?.query) return json(response, { error: 'Database-backed admission options are unavailable.', code: 'PERSISTENCE_UNAVAILABLE' }, 503);
           academicYears = academicYears.map((item) => ({ ...item, admissionYear: String(item.name ?? item.id).match(/^\d{4}/)?.[0] ?? null }));
-          return json(response, { classes, academicYears, terms, documentStorageAvailable: Boolean(admissionDocumentStorage) });
+          return json(response, { classes, academicYears, terms, transferPreviousClasses: TRANSFER_PREVIOUS_CLASS_OPTIONS, documentStorageAvailable: Boolean(admissionDocumentStorage) });
         } catch (error) { return json(response, { error: 'Unable to load admission options.' }, error.status ?? 503); }
       }
       if (pathname === '/api/admission-prospectus/template' && request.method === 'GET') { if (!canAccess(user, PROSPECTUS_PERMISSION)) return json(response, { error: 'Forbidden.' }, 403); return json(response, { template: DEFAULT_PROSPECTUS_TEMPLATE }); }

@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import test from 'node:test';
 import { chromium } from 'playwright';
+import { TRANSFER_PREVIOUS_CLASS_OPTIONS } from '../src/student-classes.js';
 
 const registrationPage = pathToFileURL(fileURLToPath(new URL('../public/internal-registration.html', import.meta.url))).href;
 
@@ -21,7 +22,7 @@ async function launchBrowser(t) {
 }
 
 async function installApiFixture(page) {
-  const setup = () => {
+  const setup = (transferPreviousClasses) => {
     window.__registrationCalls = 0;
     window.__idCalls = 0;
     window.__lookupCalls = 0;
@@ -31,7 +32,7 @@ async function installApiFixture(page) {
       const pathname = url.pathname.replace(/^\/[A-Za-z]:/, '');
       const key = '__registration_test_record';
       const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
-      if (pathname === '/api/admission-workflow/options') return json({ classes: [{ id: 'class-1', name: 'Primary 1' }], academicYears: [{ id: 'year-1', name: '2026/2027' }], terms: [{ id: 'term-1', academicYearId: 'year-1', name: '1st Term' }] });
+      if (pathname === '/api/admission-workflow/options') return json({ classes: [{ id: 'class-1', name: 'Primary 1' }], academicYears: [{ id: 'year-1', name: '2026/2027' }], terms: [{ id: 'term-1', academicYearId: 'year-1', name: '1st Term' }], transferPreviousClasses });
       if (pathname === '/api/sidebar') return json({ user: { id: 'browser-test-user' } });
       if (pathname === '/api/internal-student-registration/existing-student') {
         window.__lookupCalls += 1;
@@ -66,7 +67,7 @@ async function installApiFixture(page) {
       return json({ error: `Unexpected request: ${pathname}` }, 404);
     };
   };
-  await page.evaluate(setup);
+  await page.evaluate(setup, TRANSFER_PREVIOUS_CLASS_OPTIONS);
 }
 
 async function loadRegistrationPage(page, html, css, script, savedDraft = null) {
@@ -176,6 +177,7 @@ test('Section 20 submits, recovers, preserves existing IDs and reports failures 
   await page.waitForFunction(() => document.querySelector('#registration-status')?.textContent === '✅ Submitted successfully');
   assert.equal(await page.locator('#permanent-student-id').innerText(), 'Permanent Student ID: OSAA/2025/004');
   assert.equal(await page.locator('#generate-student-id').isDisabled(), true);
+  assert.equal(await page.locator('#student-id-help').innerText(), 'This student already has a permanent ID.');
   assert.equal(await page.evaluate(() => window.__idCalls), 0, 'an existing ID is retained without requesting a new ID');
 
   await page.evaluate(() => { localStorage.clear(); localStorage.setItem('__registration_test_mode', 'offline'); });
@@ -323,4 +325,89 @@ test('a saved ID choice is restored, while Reset Form returns to NO_ID', { timeo
   assert.equal(await idField.isHidden(), true);
   assert.equal(await idField.evaluate((input) => input.required), false);
   await context.close();
+});
+
+test('transfer fields validate, save, restore and clear at 360px', { timeout: 120_000 }, async (t) => {
+  const browser = await launchBrowser(t);
+  const context = await browser.newContext({ viewport: { width: 360, height: 800 } });
+  const page = await context.newPage();
+  const [html, css, script] = await Promise.all([
+    readFile(new URL('../public/internal-registration.html', import.meta.url), 'utf8'),
+    readFile(new URL('../public/internal-registration.css', import.meta.url), 'utf8'),
+    readFile(new URL('../public/internal-registration.js', import.meta.url), 'utf8')
+  ]);
+  await loadRegistrationPage(page, html, css, script);
+  await page.waitForFunction(() => document.querySelector('select[name="classId"] option[value="class-1"]'));
+  const category = page.locator('select[name="admissionType"]');
+  const school = page.locator('#previous-school');
+  const previousClass = page.locator('#previous-class');
+  const submit = page.locator('#submit-registration');
+  const generate = page.locator('#generate-student-id');
+  const status = page.locator('#registration-status');
+
+  assert.equal(await page.evaluate(() => innerWidth), 360);
+  assert.equal(await page.locator('input[name="existingIdChoice"][value="NO_ID"]').isChecked(), true);
+  assert.equal(await school.isHidden(), true);
+  assert.equal(await previousClass.isHidden(), true);
+
+  await category.selectOption('TRANSFER');
+  assert.equal(await school.isVisible(), true);
+  assert.equal(await previousClass.isVisible(), true);
+  assert.equal(await school.evaluate((node) => node.required), true);
+  assert.equal(await previousClass.evaluate((node) => node.required), true);
+  assert.equal(await page.locator('[data-existing-field]').isHidden(), true, 'ID choice stays hidden for transfer admission');
+  assert.deepEqual(await previousClass.locator('option').allTextContents(), ['Select previous class', 'KG 1', 'KG 2', 'Basic 1', 'Basic 2', 'Basic 3', 'Basic 4', 'Basic 5', 'Basic 6', 'JHS 1', 'JHS 2', 'JHS 3']);
+
+  await fillValidRegistration(page);
+  await submit.click();
+  assert.match(await page.locator('#previous-school-error').innerText(), /at least 2 characters/);
+  assert.match(await page.locator('#previous-class-error').innerText(), /Select the student’s previous class/);
+  assert.equal(await page.evaluate(() => window.__registrationCalls), 0, 'invalid transfer does not send a request');
+  assert.equal(await generate.isDisabled(), true);
+
+  await school.fill('  Bogoso Basic School  ');
+  await previousClass.selectOption('Primary 1');
+  await submit.click();
+  await page.waitForFunction(() => document.querySelector('#registration-status')?.textContent === '✅ Submitted successfully');
+  assert.equal(await page.evaluate(() => window.__registrationCalls), 1);
+  assert.equal(await page.evaluate(() => window.__registrationPayloads[0].previousSchool), 'Bogoso Basic School');
+  assert.equal(await page.evaluate(() => window.__registrationPayloads[0].previousClass), 'Primary 1');
+  assert.equal(await generate.isDisabled(), false, 'Generate unlocks after successful save');
+  await generate.click();
+  await page.waitForFunction(() => window.__idCalls === 1);
+  assert.match(await page.locator('#permanent-student-id').innerText(), /OSAA\/2026\/001/);
+
+  await page.locator('#reset-registration-form').click();
+  assert.equal(await school.isHidden(), true);
+  assert.equal(await previousClass.isHidden(), true);
+  assert.equal(await school.inputValue(), '');
+  assert.equal(await previousClass.inputValue(), '');
+  assert.equal(await page.locator('input[name="existingIdChoice"][value="NO_ID"]').isChecked(), true);
+
+  await category.selectOption('TRANSFER');
+  await fillValidRegistration(page);
+  await submit.click();
+  assert.equal(await page.locator('#previous-school-error').isVisible(), true);
+  assert.equal(await page.locator('#previous-class-error').isVisible(), true);
+  await page.locator('select[name="admissionType"]').selectOption('FIRST_TIME');
+  assert.equal(await school.isHidden(), true);
+  assert.equal(await previousClass.isHidden(), true);
+  assert.equal(await page.locator('#previous-school-error').isHidden(), true);
+  assert.equal(await page.locator('#previous-class-error').isHidden(), true);
+  assert.equal(await school.inputValue(), '');
+  assert.equal(await previousClass.inputValue(), '');
+  assert.equal(await school.evaluate((node) => node.required), false);
+  assert.equal(await previousClass.evaluate((node) => node.required), false);
+
+  await loadRegistrationPage(page, html, css, script, { version: 2, data: { admissionType: 'TRANSFER', previousSchool: 'Draft Academy', previousClass: 'JHS 2', existingIdChoice: 'HAVE_ID' } });
+  await page.waitForFunction(() => document.querySelector('#previous-class')?.value === 'JHS 2');
+  assert.equal(await school.inputValue(), 'Draft Academy');
+  assert.equal(await previousClass.inputValue(), 'JHS 2');
+  assert.equal(await page.locator('input[name="existingIdChoice"][value="NO_ID"]').isChecked(), true, 'transfer drafts cannot restore HAVE_ID');
+  await page.setViewportSize({ width: 1280, height: 900 });
+  assert.equal(await page.evaluate(() => innerWidth), 1280);
+  assert.equal(await school.isVisible(), true, 'transfer fields remain visible at desktop width');
+  assert.equal(await previousClass.isVisible(), true);
+  await context.close();
+  await browser.close();
 });

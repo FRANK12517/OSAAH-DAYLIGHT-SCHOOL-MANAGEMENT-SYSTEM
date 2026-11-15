@@ -151,7 +151,7 @@ function databaseFixture() {
     if (sql.startsWith('INSERT INTO users ')) { state.parentAccounts.push({ id: params[0], school_id: params[1], username: params[2], email: params[3], phone: params[4], status: 'ACTIVE' }); return; }
     if (sql.startsWith('INSERT INTO user_roles ')) { state.userRoles.push({ id: params[0], user_id: params[1], role_id: params[2], created_at: params[3] }); return; }
     if (sql.startsWith('INSERT INTO students ')) { state.students.push({ id: params[0], permanent_student_id: null, school_id: params[1], admission_number: params[2], current_class_id: params[3], first_name: params[4], middle_name: params[5], last_name: params[6], full_name: params[7], gender: params[8], date_of_birth: params[9], parent_guardian_name: params[10], parent_phone: params[11], admission_type: params[13], student_status: params[14] }); return; }
-    if (sql.startsWith('INSERT INTO student_profiles') && sql.includes('VALUES (?,?,NULL')) { state.profiles.push({ id: params[0], student_master_id: params[1], student_id: null, permanent_student_id: null, school_id: params[2], admission_number: params[3], class_id: params[4], first_name: params[6], middle_name: params[7], surname: params[8], date_of_birth: params[10], home_address: params[12], previous_school: params[14] }); return; }
+    if (sql.startsWith('INSERT INTO student_profiles') && sql.includes('VALUES (?,?,NULL')) { state.profiles.push({ id: params[0], student_master_id: params[1], student_id: null, permanent_student_id: null, school_id: params[2], admission_number: params[3], class_id: params[4], first_name: params[6], middle_name: params[7], surname: params[8], date_of_birth: params[10], home_address: params[12], previous_school: params[14], previous_class: params[15], admission_type: params[16] }); return; }
     if (sql.startsWith('INSERT INTO student_profiles') && sql.includes('student_id,permanent_student_id')) { state.profiles.push({ id: params[0], student_master_id: params[1], student_id: params[2], permanent_student_id: params[3], school_id: params[4], admission_number: params[5], class_id: params[6], first_name: params[8], middle_name: params[9], surname: params[10], date_of_birth: params[12], home_address: params[14], previous_school: params[16] }); return; }
     if (sql.startsWith('INSERT INTO student_profiles')) { state.profiles.push({ id: params[0], student_master_id: params[1], student_id: params[2], permanent_student_id: null, school_id: params[3], admission_number: params[4], class_id: params[5], first_name: params[7], middle_name: params[8], surname: params[9], date_of_birth: params[11], home_address: params[13], previous_school: params[15] }); return; }
     if (sql.startsWith('UPDATE student_id_reservations')) { const row = state.reservations.find((item) => item.id === params[2]); Object.assign(row, { reservation_status: 'CONSUMED', student_id: params[0], consumed_at: params[1] }); return; }
@@ -161,7 +161,7 @@ function databaseFixture() {
     if (sql.startsWith('UPDATE student_profiles SET student_id=?,admission_number=')) { for (const row of state.profiles.filter((item) => item.school_id === params[3] && item.student_master_id === params[4])) Object.assign(row, { student_id: params[0], admission_number: row.admission_number.startsWith('REG-') ? params[1] : row.admission_number }); return; }
     if (sql.startsWith('UPDATE parent_student_links SET permanent_student_id=')) { for (const row of state.parentLinks.filter((item) => item.permanent_student_id == null)) row.permanent_student_id = params[0]; return; }
     if (sql.startsWith('UPDATE students SET current_class_id=?,first_name=')) { const row = state.students.find((item) => item.id === params[10]); if (row) Object.assign(row, { current_class_id: params[0], first_name: params[1], middle_name: params[2], last_name: params[3], full_name: params[4], gender: params[5], date_of_birth: params[6], parent_guardian_name: params[7], parent_phone: params[8] }); return; }
-    if (sql.startsWith('UPDATE student_profiles SET class_id=?,first_name=')) { const row = state.profiles.find((item) => item.id === params[11]); if (row) Object.assign(row, { class_id: params[0], first_name: params[1], middle_name: params[2], surname: params[3], home_address: params[7] }); return; }
+    if (sql.startsWith('UPDATE student_profiles SET class_id=?,first_name=')) { const row = state.profiles.find((item) => item.id === params[13]); if (row) Object.assign(row, { class_id: params[0], first_name: params[1], middle_name: params[2], surname: params[3], home_address: params[7], previous_school: params[9], previous_class: params[10], admission_type: params[11] }); return; }
     if (sql.startsWith('UPDATE students SET current_class_id=')) { const row = state.students.find((item) => item.id === params[3]); Object.assign(row, { current_class_id: params[0] }); return; }
     if (sql.startsWith('UPDATE student_profiles SET student_id=COALESCE')) { const row = state.profiles.find((item) => item.id === params[4]); Object.assign(row, { student_id: row.student_id ?? params[0], permanent_student_id: row.permanent_student_id ?? params[1] }); return; }
     if (sql.startsWith('UPDATE student_profiles SET student_id=')) { const row = state.profiles.find((item) => item.id === params[3]); Object.assign(row, { student_id: params[0] }); return; }
@@ -504,14 +504,43 @@ test('an existing ID stored only in the linked profile resolves to the existing 
   assert.equal(state.reservations.length, 1);
 });
 
-test('transfer admissions use the same reserved-ID registration path and retain the previous school', async () => {
+test('transfer admissions persist normalized previous school and class before separate ID assignment', async () => {
   const { database, state } = databaseFixture();
   const service = createInternalStudentRegistrationService({ database, clock: () => '2026-11-11T10:00:00.000Z', idFactory: (() => { let n = 0; return () => `id-${++n}`; })() });
-  const result = await saveRegistration(service, { admissionType: 'TRANSFER', previousSchool: 'Bogoso Basic School', registrationToken: 'registration-token-transfer' });
+  const result = await saveRegistration(service, { admissionType: 'TRANSFER', previousSchool: '  Bogoso Basic School  ', previousClass: 'Basic 1', registrationToken: 'registration-token-transfer' });
   assert.equal(result.permanentStudentId, null);
   assert.equal(result.created, true);
   assert.equal(state.students[0].admission_type, 'TRANSFER');
   assert.equal(state.profiles[0].previous_school, 'Bogoso Basic School');
+  assert.equal(state.profiles[0].previous_class, 'Basic 1');
+  assert.equal(result.student.previousSchool, 'Bogoso Basic School');
+  assert.equal(result.student.previousClass, 'Basic 1');
   assert.equal(state.parentLinks.length, 1);
+  assert.equal((await service.assignPermanentId({ studentId: result.studentId, schoolId: 'school-1', actorId: 'staff-1' })).permanentStudentId, 'OSAA/2026/001');
+});
+
+test('transfer registration rejects missing or invalid previous school/class with field names', async () => {
+  const { database, state } = databaseFixture();
+  const service = createInternalStudentRegistrationService({ database, clock: () => '2026-11-11T10:00:00.000Z' });
+  await assert.rejects(() => saveRegistration(service, { admissionType: 'TRANSFER', previousSchool: ' ', previousClass: '' }), { code: 'VALIDATION_FAILED', status: 400, fields: ['previousSchool', 'previousClass'] });
+  await assert.rejects(() => saveRegistration(service, { admissionType: 'TRANSFER', previousSchool: 'A', previousClass: 'Nursery 1' }), { code: 'VALIDATION_FAILED', status: 400, fields: ['previousSchool', 'previousClass'] });
+  assert.equal(state.students.length, 0, 'invalid transfers create no student rows');
+});
+
+test('first-time and transfer registration reject HAVE_ID and do not accept supplied IDs', async () => {
+  const { database, state } = databaseFixture();
+  const service = createInternalStudentRegistrationService({ database, clock: () => '2026-11-11T10:00:00.000Z' });
+  await assert.rejects(() => saveRegistration(service, { admissionType: 'FIRST_TIME', existingIdChoice: 'HAVE_ID', existingPermanentStudentId: 'OSAA/2025/001' }), { code: 'EXISTING_ID_CHOICE_NOT_ALLOWED', status: 400 });
+  await assert.rejects(() => saveRegistration(service, { admissionType: 'TRANSFER', existingIdChoice: 'HAVE_ID', existingPermanentStudentId: 'OSAA/2025/001', previousSchool: 'Former School', previousClass: 'KG 2' }), { code: 'EXISTING_ID_CHOICE_NOT_ALLOWED', status: 400 });
+  assert.equal(state.students.length, 0);
+});
+
+test('first-time registration ignores a client-supplied ID when the ID choice is NO_ID', async () => {
+  const { database, state } = databaseFixture();
+  const service = createInternalStudentRegistrationService({ database, clock: () => '2026-11-11T10:00:00.000Z' });
+  const result = await saveRegistration(service, { admissionType: 'FIRST_TIME', existingIdChoice: 'NO_ID', existingPermanentStudentId: 'OSAA/2025/777' });
+  assert.equal(result.idStatus, 'PENDING_GENERATION');
+  assert.equal(result.permanentStudentId, null);
+  assert.equal(state.students[0].permanent_student_id, null);
   assert.equal((await service.assignPermanentId({ studentId: result.studentId, schoolId: 'school-1', actorId: 'staff-1' })).permanentStudentId, 'OSAA/2026/001');
 });
