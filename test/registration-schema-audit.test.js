@@ -32,6 +32,15 @@ test('registration schema audit is read-only and validates live schema against m
   assert.ok(calls.every((sql) => /^\s*SELECT\b/i.test(sql)));
 });
 
+test('registration schema requirements match the supplied production TiDB inventory', () => {
+  for (const column of ['full_name', 'parent_guardian_name', 'parent_phone']) assert.ok(!REGISTRATION_SCHEMA_REQUIREMENTS.students.includes(column));
+  for (const column of ['permanent_student_id', 'middle_name', 'surname', 'place_of_birth', 'nationality', 'admission_type', 'qr_code', 'updated_at']) assert.ok(!REGISTRATION_SCHEMA_REQUIREMENTS.student_profiles.includes(column));
+  for (const column of ['status']) assert.ok(!REGISTRATION_SCHEMA_REQUIREMENTS.classes.includes(column));
+  for (const column of ['is_current', 'enrollment_status', 'enrolled_at']) assert.ok(!REGISTRATION_SCHEMA_REQUIREMENTS.student_enrollments.includes(column));
+  assert.ok(REGISTRATION_SCHEMA_REQUIREMENTS.student_health_records.includes('created_at'));
+  assert.ok(REGISTRATION_SCHEMA_REQUIREMENTS.student_health_records.includes('updated_at'));
+});
+
 test('registration schema audit fails on a missing registration column or mismatched transfer type', async () => {
   const missing = adapterFixture({ missingColumn: 'student_id_reservations.sequence_number' });
   const report = await runRegistrationSchemaAudit({ adapter: missing.adapter, discover: async () => versions });

@@ -5,14 +5,14 @@ import { discoverMigrations } from '../src/platform/migration-runner.js';
 
 export const REGISTRATION_SCHEMA_REQUIREMENTS = Object.freeze({
   schools: ['id'],
-  students: ['id', 'permanent_student_id', 'school_id', 'admission_number', 'current_class_id', 'first_name', 'middle_name', 'last_name', 'full_name', 'gender', 'date_of_birth', 'parent_guardian_name', 'parent_phone', 'admission_date', 'admission_type', 'student_status', 'is_test_record', 'created_at', 'updated_at'],
-  student_profiles: ['id', 'student_master_id', 'student_id', 'permanent_student_id', 'school_id', 'admission_number', 'first_name', 'middle_name', 'surname', 'gender', 'date_of_birth', 'place_of_birth', 'class_id', 'home_address', 'nationality', 'previous_school', 'previous_class', 'admission_type', 'qr_code', 'enrollment_status', 'created_at', 'updated_at'],
+  students: ['id', 'permanent_student_id', 'admission_number', 'school_id', 'current_class_id', 'first_name', 'middle_name', 'last_name', 'gender', 'date_of_birth', 'student_status', 'admission_date', 'admission_type', 'photo_url', 'is_test_record', 'created_at', 'updated_at'],
+  student_profiles: ['id', 'school_id', 'student_id', 'admission_number', 'first_name', 'last_name', 'gender', 'date_of_birth', 'class_id', 'stream_id', 'enrollment_status', 'admission_date', 'created_at', 'student_master_id', 'home_address', 'previous_school', 'previous_class'],
   student_family_contacts: ['id', 'student_id', 'contact_type', 'full_name', 'relationship', 'telephone', 'address', 'email', 'occupation', 'national_id', 'created_at', 'updated_at'],
   student_health_records: ['student_id', 'allergies', 'conditions', 'medications', 'emergency_notes', 'created_at', 'updated_at'],
-  classes: ['id', 'name', 'school_id', 'status'],
+  classes: ['id', 'school_id', 'name', 'level', 'department_id', 'created_at'],
   academic_years: ['id', 'school_id', 'name', 'starts_on'],
   terms: ['id', 'academic_year_id', 'name'],
-  student_enrollments: ['id', 'student_id', 'school_id', 'class_id', 'academic_year_id', 'term_id', 'enrollment_status', 'is_current', 'enrolled_at'],
+  student_enrollments: ['id', 'student_id', 'class_id', 'academic_year_id', 'school_id', 'term_id'],
   users: ['id', 'school_id', 'email', 'phone', 'username', 'status'],
   user_roles: ['user_id', 'role_id'],
   roles: ['id', 'school_id', 'role_key'],
@@ -27,13 +27,11 @@ export const REGISTRATION_SCHEMA_INDEXES = Object.freeze([
   { table: 'students', columns: ['school_id', 'admission_number'], unique: true },
   { table: 'students', columns: ['permanent_student_id'], unique: true },
   { table: 'student_profiles', columns: ['school_id', 'admission_number'], unique: true },
-  { table: 'student_profiles', columns: ['qr_code'], unique: true },
   { table: 'student_id_sequences', columns: ['admission_year'], unique: true },
   { table: 'student_id_reservations', columns: ['reservation_token'], unique: true },
   { table: 'student_id_reservations', columns: ['permanent_student_id'], unique: true },
   { table: 'student_id_reservations', columns: ['admission_year', 'sequence_number'], unique: true },
   { table: 'parent_student_links', columns: ['parent_user_id', 'student_id'], unique: true },
-  { table: 'student_enrollments', columns: ['school_id', 'student_id', 'academic_year_id', 'term_id', 'is_current'], unique: true }
 ]);
 
 const MIGRATION_VERSIONS = [18, 23, 27, 38, 54, 78, 84, 85, 86];
