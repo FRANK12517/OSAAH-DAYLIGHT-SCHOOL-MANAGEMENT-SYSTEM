@@ -4,22 +4,26 @@ import { REGISTRATION_SCHEMA_INDEXES, REGISTRATION_SCHEMA_REQUIREMENTS, runRegis
 
 const versions = [18, 23, 27, 38, 54, 78, 84, 85, 86].map((version) => ({ version, name: `${String(version).padStart(3, '0')}_migration.sql`, checksum: String(version).padStart(64, '0') }));
 
-function adapterFixture({ missingColumn = null, migrationRows = null, badTransferType = false } = {}) {
+function adapterFixture({ missingColumn = null, migrationRows = null, badTransferType = false, absentTables = [] } = {}) {
   const calls = [];
+  const requestedTables = [];
   const adapter = {
     dialect: 'tidb',
     async verifyReadiness() { return { ready: true, engine: 'TiDB', database: 'osaahdaylightschool' }; },
     async query(sql, params = []) {
       assert.match(sql, /^\s*SELECT\b/i, 'audit must issue SELECT-only queries');
       calls.push(sql);
-      if (sql.includes('information_schema.TABLES')) return params[0].map((tableName) => ({ tableName }));
+      if (sql.includes('information_schema.TABLES')) {
+        requestedTables.push(...params[0]);
+        return params[0].filter((tableName) => !absentTables.includes(tableName)).map((tableName) => ({ tableName }));
+      }
       if (sql.includes('information_schema.COLUMNS')) return Object.entries(REGISTRATION_SCHEMA_REQUIREMENTS).flatMap(([tableName, names]) => names.filter((columnName) => `${tableName}.${columnName}` !== missingColumn).map((columnName) => ({ tableName, columnName, columnType: tableName === 'student_profiles' && columnName === 'previous_school' ? (badTransferType ? 'text' : 'varchar(120)') : tableName === 'student_profiles' && columnName === 'previous_class' ? 'varchar(20)' : 'varchar(255)', isNullable: tableName === 'student_profiles' && ['previous_school', 'previous_class'].includes(columnName) ? 'YES' : 'NO' })));
       if (sql.includes('information_schema.STATISTICS')) return REGISTRATION_SCHEMA_INDEXES.flatMap((index, indexNo) => index.columns.map((columnName, offset) => ({ tableName: index.table, indexName: `fixture_${indexNo}`, nonUnique: Number(!index.unique), columnName, sequence: offset + 1 })));
       if (sql.includes('FROM schema_migrations')) return migrationRows ?? [];
       throw new Error('unexpected audit query');
     }
   };
-  return { adapter, calls };
+  return { adapter, calls, requestedTables };
 }
 
 test('registration schema audit is read-only and validates live schema against migration checksums', async () => {
@@ -30,6 +34,28 @@ test('registration schema audit is read-only and validates live schema against m
   assert.equal(report.columns.find(({ column }) => column === 'previous_school').actualType, 'varchar(120)');
   assert.ok(report.migrations.find(({ version }) => version === 86).checksumMatches);
   assert.ok(calls.every((sql) => /^\s*SELECT\b/i.test(sql)));
+});
+
+test('registration schema requirements match the supplied production TiDB inventory', () => {
+  for (const column of ['full_name', 'parent_guardian_name', 'parent_phone']) assert.ok(!REGISTRATION_SCHEMA_REQUIREMENTS.students.includes(column));
+  for (const column of ['permanent_student_id', 'middle_name', 'surname', 'place_of_birth', 'nationality', 'admission_type', 'qr_code', 'updated_at']) assert.ok(!REGISTRATION_SCHEMA_REQUIREMENTS.student_profiles.includes(column));
+  for (const column of ['status']) assert.ok(!REGISTRATION_SCHEMA_REQUIREMENTS.classes.includes(column));
+  for (const column of ['is_current', 'enrollment_status', 'enrolled_at']) assert.ok(!REGISTRATION_SCHEMA_REQUIREMENTS.student_enrollments.includes(column));
+  assert.ok(REGISTRATION_SCHEMA_REQUIREMENTS.student_health_records.includes('created_at'));
+  assert.ok(REGISTRATION_SCHEMA_REQUIREMENTS.student_health_records.includes('updated_at'));
+});
+
+test('registration schema audit passes when the optional AI audit table is absent', async () => {
+  const { adapter, requestedTables } = adapterFixture({
+    absentTables: ['ai_audit_logs'],
+    migrationRows: versions.filter(({ version }) => [84, 85, 86].includes(version)).map((migration) => ({ ...migration, appliedAt: 'metadata-only' }))
+  });
+  const report = await runRegistrationSchemaAudit({ adapter, discover: async () => versions });
+  assert.equal(report.result, 'PASS');
+  assert.ok(!requestedTables.includes('ai_audit_logs'));
+  for (const table of ['users', 'user_roles', 'roles', 'academic_years', 'terms', 'schools', 'schema_migrations']) {
+    assert.ok(REGISTRATION_SCHEMA_REQUIREMENTS[table], `${table} remains a required registration dependency`);
+  }
 });
 
 test('registration schema audit fails on a missing registration column or mismatched transfer type', async () => {
