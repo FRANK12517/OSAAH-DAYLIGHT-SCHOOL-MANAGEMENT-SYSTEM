@@ -25,5 +25,11 @@ test('canonical student enrollment is immediately visible in the selected class 
   const student = students.createStudent({ firstName: 'Test', surname: 'Student', gender: 'Female', classId: canonicalClassId('Basic 3'), admissionYearId: '2026', family: [{ fullName: 'Test Parent', telephone: '0240000000', primary: true }] });
   const rows = classDatabase.list({ classId: 'Primary 3', academicYear: '2026/2027' }, { roleKey: 'SCHOOL_ADMIN', schoolId: 'school-osaah-daylight', permissions: new Set(['students.read']) });
   assert.equal(rows.length, 1);
-  assert.deepEqual(rows[0], { permanentStudentId: student.permanentStudentId, studentId: student.id, studentName: 'Test Student', gender: 'Female', parentGuardianName: 'Test Parent', registeredParentPhone: '0240000000', classId: 'Primary 3', academicYear: '2026/2027', isTestRecord: false });
+  assert.deepEqual(rows[0], { permanentStudentId: student.permanentStudentId, studentId: student.id, studentName: 'Test Student', gender: 'Female', parentGuardianName: 'Test Parent', registeredParentPhone: '0240000000', previousSchool: null, previousClass: null, classId: 'Primary 3', academicYear: '2026/2027', isTestRecord: false });
+
+  const transfer = students.createStudent({ firstName: 'Transfer', surname: 'Student', gender: 'Female', classId: canonicalClassId('Basic 3'), admissionYearId: '2026', previousSchool: 'Old School', previousClass: 'Primary 2', family: [] });
+  const transferRows = classDatabase.list({ classId: 'Primary 3', academicYear: '2026/2027' }, { roleKey: 'SCHOOL_ADMIN', schoolId: 'school-osaah-daylight', permissions: new Set(['students.read']) });
+  assert.equal(transferRows.length, 2);
+  assert.equal(transferRows.find((row) => row.studentId === transfer.id)?.previousSchool, 'Old School');
+  assert.equal(transferRows.find((row) => row.studentId === transfer.id)?.previousClass, 'Primary 2');
 });

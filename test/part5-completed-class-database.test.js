@@ -35,7 +35,7 @@ test('authorized JHS 3 completion moves the canonical student to the archive wit
   assert.equal(historical.length, 1);
   const archive = classDatabase.listCompleted({ completionYear: years.completionA, search: permanentId }, actor);
   assert.equal(archive.length, 1);
-  assert.deepEqual(archive[0], { permanentStudentId: permanentId, studentId: graduate.id, studentName: 'Kofi Graduate', gender: 'Male', parentGuardianName: 'Kwame Graduate', registeredParentPhone: archive[0].registeredParentPhone, classId: null, academicYear: null, completionYear: years.completionA, isTestRecord: false });
+  assert.deepEqual(archive[0], { permanentStudentId: permanentId, studentId: graduate.id, studentName: 'Kofi Graduate', gender: 'Male', parentGuardianName: 'Kwame Graduate', registeredParentPhone: archive[0].registeredParentPhone, previousSchool: null, previousClass: null, classId: null, academicYear: null, completionYear: years.completionA, isTestRecord: false });
   assert.match(archive[0].registeredParentPhone, /0244|233244/);
   assert.deepEqual(classDatabase.completedOptions(actor).completionYears, [years.completionA]);
   const retry = examinations.complete(graduate.id, { completionYear: years.completionA }, actor);
