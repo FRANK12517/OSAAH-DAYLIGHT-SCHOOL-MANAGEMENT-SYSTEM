@@ -19,7 +19,6 @@ export const REGISTRATION_SCHEMA_REQUIREMENTS = Object.freeze({
   parent_student_links: ['parent_user_id', 'student_id', 'permanent_student_id', 'telephone', 'relationship', 'relationship_type', 'link_status', 'created_at', 'updated_at'],
   student_id_sequences: ['admission_year', 'next_sequence', 'updated_at'],
   student_id_reservations: ['id', 'reservation_token', 'permanent_student_id', 'admission_year', 'sequence_number', 'reservation_status', 'student_id', 'reserved_by', 'created_at', 'consumed_at'],
-  ai_audit_logs: ['id', 'request_id', 'correlation_id', 'occurred_at', 'event_type', 'severity', 'school_id', 'user_id', 'role_key', 'capability_id', 'request_status', 'environment', 'metadata_json'],
   schema_migrations: ['version', 'name', 'checksum', 'applied_at']
 });
 
