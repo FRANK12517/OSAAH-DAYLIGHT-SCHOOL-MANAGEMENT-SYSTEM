@@ -374,7 +374,7 @@ test('transfer fields validate, save, restore and clear at 360px', { timeout: 12
   assert.equal(await page.evaluate(() => window.__registrationPayloads[0].previousClass), 'Primary 1');
   assert.equal(await generate.isDisabled(), false, 'Generate unlocks after successful save');
   await generate.click();
-  await page.waitForFunction(() => window.__idCalls === 1);
+  await page.waitForFunction(() => document.querySelector('#permanent-student-id')?.textContent.includes('OSAA/2026/001'));
   assert.match(await page.locator('#permanent-student-id').innerText(), /OSAA\/2026\/001/);
 
   await page.locator('#reset-registration-form').click();
