@@ -162,6 +162,50 @@ test('application adapter auto-detects a MySQL DATABASE_URL when no adapter is s
   await persistence.close();
 });
 
+test('TiDB transaction reports each lifecycle step and always releases an acquired connection', async (t) => {
+  for (const failAt of ['acquire', 'begin', 'query', 'commit', 'rollback', 'release']) {
+    await t.test(`${failAt} failure`, async () => {
+      const calls = [], steps = [];
+      const makeError = () => Object.assign(new Error(`injected ${failAt}`), { code: `E_${failAt.toUpperCase()}` });
+      const connection = {
+        async beginTransaction() { calls.push('begin'); if (failAt === 'begin') throw makeError(); },
+        async query() { calls.push('query'); if (failAt === 'query') throw makeError(); return [[], []]; },
+        async execute() { return [{ affectedRows: 1 }, []]; },
+        async commit() { calls.push('commit'); if (failAt === 'commit') throw makeError(); },
+        async rollback() { calls.push('rollback'); if (failAt === 'rollback') throw makeError(); },
+        release() { calls.push('release'); if (failAt === 'release') throw makeError(); }
+      };
+      const adapter = createDatabaseAdapter({
+        environment: { DATABASE_URL: 'mysql://user:password@example.test:4000/osaahdaylightschool' },
+        poolFactory: () => ({
+          async getConnection() { calls.push('acquire'); if (failAt === 'acquire') throw makeError(); return connection; },
+          async end() {}
+        })
+      });
+      try {
+        let failure;
+        try { await adapter.transaction(async (tx) => {
+          await tx.query('SELECT 1');
+          if (failAt === 'rollback') throw new Error('force rollback');
+        }, { onStep: (step) => steps.push(step) }); }
+        catch (error) { failure = error; }
+        assert.ok(failure, 'the injected failure is propagated');
+        if (failAt === 'rollback') assert.equal(failure.rollbackError?.code, 'E_ROLLBACK');
+        assert.equal(calls.includes('release'), failAt !== 'acquire', 'every acquired connection is released');
+        if (failAt === 'begin') assert.deepEqual(calls, ['acquire', 'begin', 'release']);
+        if (failAt === 'query') assert.deepEqual(calls, ['acquire', 'begin', 'query', 'rollback', 'release']);
+        if (failAt === 'commit') assert.deepEqual(calls, ['acquire', 'begin', 'query', 'commit', 'rollback', 'release']);
+        if (failAt === 'rollback') assert.deepEqual(calls, ['acquire', 'begin', 'query', 'rollback', 'release']);
+        if (failAt === 'release') assert.deepEqual(calls, ['acquire', 'begin', 'query', 'commit', 'release']);
+        const expectedStep = failAt === 'acquire' ? 'transaction.connection.acquire'
+          : failAt === 'release' ? 'transaction.connection.release'
+            : failAt === 'commit' ? 'transaction.commit' : 'transaction.begin';
+        assert.ok(steps.includes(expectedStep));
+      } finally { await adapter.close(); }
+    });
+  }
+});
+
 function migrationPool({ failOn } = {}) {
   const statements = [];
   const connection = {

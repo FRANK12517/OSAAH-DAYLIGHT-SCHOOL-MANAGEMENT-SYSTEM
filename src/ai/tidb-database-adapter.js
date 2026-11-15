@@ -181,17 +181,43 @@ export function createDatabaseAdapter({ environment, poolFactory = mysql.createP
     supportsDurableAuthSessions: true,
     async query(sql, params = []) { const [rows] = await pool.query(sql, params); return rows; },
     async execute(sql, params = []) { const [result] = await pool.execute(sql, params); return { insertId: result.insertId, affectedRows: result.affectedRows }; },
-    async transaction(callback) {
-      const connection = await pool.getConnection(); await connection.beginTransaction();
+    async transaction(callback, { onStep = null } = {}) {
+      let connection = null, transactionStarted = false, primaryError = null, lastStep = null;
+      const step = (value) => { lastStep = value; onStep?.(value); };
       try {
+        step('transaction.connection.acquire');
+        connection = await pool.getConnection();
+        step('transaction.begin');
+        await connection.beginTransaction();
+        transactionStarted = true;
         const transactionalAdapter = {
           async query(sql, params = []) { const [rows] = await connection.query(sql, params); return rows; },
           async execute(sql, params = []) { const [result] = await connection.execute(sql, params); return { insertId: result.insertId, affectedRows: result.affectedRows }; },
           async executeMigrationSql(sql, context) { return executeMigrationSqlOn(connection, sql, context); },
           async recordApplied(record) { await this.execute('INSERT INTO schema_migrations (version, name, checksum, applied_at) VALUES (?, ?, ?, ?)', [Number(record.version), record.name, record.checksum, record.appliedAt]); }
         };
-        const result = await callback(transactionalAdapter); await connection.commit(); return result;
-      } catch (error) { await connection.rollback(); throw error; } finally { connection.release(); }
+        const result = await callback(transactionalAdapter);
+        step('transaction.commit');
+        await connection.commit();
+        transactionStarted = false;
+        return result;
+      } catch (error) {
+        primaryError = error;
+        if (connection && transactionStarted) {
+          try { await connection.rollback(); transactionStarted = false; }
+          catch (rollbackError) { error.rollbackError = rollbackError; }
+        }
+        throw error;
+      } finally {
+        if (connection) {
+          if (!primaryError) step('transaction.connection.release');
+          try { connection.release(); }
+          catch (releaseError) {
+            if (primaryError) primaryError.releaseError = releaseError;
+            else { releaseError.registrationStep = 'transaction.connection.release'; throw releaseError; }
+          }
+        }
+      }
     },
     async verifyReadiness() {
       let identity;

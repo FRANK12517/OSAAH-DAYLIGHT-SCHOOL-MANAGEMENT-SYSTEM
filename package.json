@@ -18,6 +18,7 @@
     "supabase:migration:apply": "node scripts/supabase-migrate.mjs apply",
     "database:mysql-inventory": "node scripts/inventory-mysql-dependencies.mjs",
     "database:tidb:requirements": "node scripts/reconcile-tidb-schema-requirements.mjs",
+    "audit:registration-schema": "node scripts/registration-schema-audit.mjs",
     "database:reconcile-snapshots": "node scripts/reconcile-postgres-snapshots.mjs",
     "test:supabase": "node --test test/postgres-database-adapter.test.js test/postgres-pglite-application.test.js test/supabase-migrate-cli.test.js test/supabase-existing-reconcile-pglite.test.js",
     "test:postgres:integration": "node scripts/run-postgres-integration.mjs",

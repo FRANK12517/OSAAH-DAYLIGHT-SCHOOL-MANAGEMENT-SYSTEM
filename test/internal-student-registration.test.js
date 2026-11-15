@@ -238,17 +238,22 @@ test('registration reports typed failures and identifies every failing persisten
       const fixture = databaseFixture({ failAt: index + 1 });
       const response = await postRegistration(fixture.database, input({ registrationToken: 'registration-token-diagnostic' }));
       assert.equal(response.status, 500, `step ${baseline.operations[index]}`);
-      assert.equal(response.body.code, 'STUDENT_REGISTRATION_FAILED');
+      assert.equal(response.body.code, 'DATABASE_SCHEMA_ERROR');
       const entry = logs.find((items) => items[0] === 'Internal student registration persistence failed')?.[1];
       assert.ok(entry, `service diagnostic log missing for ${baseline.operations[index]}`);
-      assert.equal(entry.failingStep, baseline.operations[index]);
+      assert.equal(entry.step, baseline.operations[index]);
+      assert.ok(entry.requestId);
+      assert.ok(entry.errorName);
+      assert.ok(Object.hasOwn(entry, 'sanitizedSqlMessage'));
       for (const field of ['name', 'message', 'code', 'errno', 'sqlState', 'sqlMessage', 'failingStep']) assert.ok(Object.hasOwn(entry, field), `missing ${field} for ${baseline.operations[index]}`);
       const routeEntry = logs.find((items) => items[0] === 'Internal student registration request failed')?.[1];
       assert.ok(routeEntry, `route diagnostic log missing for ${baseline.operations[index]}`);
-      assert.equal(routeEntry.failingStep, baseline.operations[index]);
-      for (const field of ['name', 'message', 'code', 'errno', 'sqlState', 'sqlMessage', 'failingStep']) assert.ok(Object.hasOwn(routeEntry, field), `route missing ${field} for ${baseline.operations[index]}`);
+      assert.equal(routeEntry.step, baseline.operations[index]);
+      assert.ok(routeEntry.requestId);
+      assert.ok(routeEntry.errorName);
+      assert.ok(Object.hasOwn(routeEntry, 'sanitizedSqlMessage'));
       const serializedLogs = JSON.stringify(logs);
-      for (const privateValue of ['Ama Mensah', '2018-01-02', 'ama@example.test', '0240000000']) assert.equal(serializedLogs.includes(privateValue), false, `${privateValue} leaked from ${baseline.operations[index]}`);
+      for (const privateValue of ['Ama Mensah', '2018-01-02', 'ama@example.test', '0240000000', 'OSAA/2026/008']) assert.equal(serializedLogs.includes(privateValue), false, `${privateValue} leaked from ${baseline.operations[index]}`);
       logs.length = 0;
     }
 
@@ -256,7 +261,8 @@ test('registration reports typed failures and identifies every failing persisten
       { error: Object.assign(new Error('duplicate key'), { code: 'ER_DUP_ENTRY', errno: 1062, sqlState: '23000', sqlMessage: "Duplicate entry 'Ama Mensah'" }), status: 409, code: 'DUPLICATE_STUDENT' },
       { error: Object.assign(new Error('connection reset'), { code: 'ECONNRESET' }), status: 503, code: 'DB_UNAVAILABLE' },
       { error: Object.assign(new Error('query timeout'), { code: 'ER_QUERY_TIMEOUT', errno: 3024, sqlState: 'HY000' }), status: 503, code: 'DB_UNAVAILABLE' },
-      { error: Object.assign(new Error('bad column'), { code: 'ER_BAD_FIELD_ERROR', errno: 1054, sqlState: '42S22' }), status: 500, code: 'STUDENT_REGISTRATION_FAILED' }
+      { error: Object.assign(new Error('bad column'), { code: 'ER_BAD_FIELD_ERROR', errno: 1054, sqlState: '42S22' }), status: 500, code: 'DATABASE_SCHEMA_ERROR' },
+      { error: Object.assign(new Error('constraint failure'), { code: 'ER_NO_REFERENCED_ROW_2', errno: 1452, sqlState: '23000' }), status: 500, code: 'DATABASE_OPERATION_FAILED' }
     ];
     for (const { error, status, code } of failures) {
       const fixture = databaseFixture({ failAt: 1, errorFactory: () => error });

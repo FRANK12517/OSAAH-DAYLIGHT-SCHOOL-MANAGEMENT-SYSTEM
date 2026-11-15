@@ -39,6 +39,8 @@ function redactDiagnosticText(value, sensitiveValues = []) {
     .replace(/(?:mysql|mariadb):\/\/[^\s]+/gi, '[redacted database URL]')
     .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[redacted email]')
     .replace(/\+?\d[\d ().-]{7,}\d/g, '[redacted number]')
+    .replace(/\bOSAAH?\/\d{4}\/\d+\b/gi, '[redacted student ID]')
+    .replace(/\b[A-F0-9]{8}-(?:[A-F0-9]{4}-){3}[A-F0-9]{12}\b/gi, '[redacted identifier]')
     .replace(/\b[A-Z][a-z]+(?:[-'][A-Z]?[a-z]+)?(?:\s+[A-Z][a-z]+(?:[-'][A-Z]?[a-z]+)?){1,3}\b/g, '[redacted name]')
     .replace(/(['"])[^'"\r\n]*\1/g, '[redacted value]')
     .slice(0, 500);
@@ -87,13 +89,24 @@ function isDuplicateError(error) {
   return false;
 }
 
+const DATABASE_SCHEMA_CODES = new Set(['ER_BAD_FIELD_ERROR', 'ER_NO_SUCH_TABLE', 'ER_PARSE_ERROR']);
+const DATABASE_SCHEMA_ERRNOS = new Set([1054, 1064, 1146]);
+const DATABASE_SCHEMA_SQL_STATES = new Set(['42S02', '42S22']);
+
 function registrationFailure(error, failingStep) {
   const fields = Array.isArray(error?.fields) && error.fields.length ? error.fields : VALIDATION_FIELDS[error?.code] ?? ['registration'];
   if (error?.status === 400) return Object.assign(new Error(error.message ?? 'Check the registration details and try again.'), { code: 'VALIDATION_FAILED', status: 400, fields, registrationStep: failingStep, cause: error });
   if (isDuplicateError(error)) return Object.assign(new Error('A student record or enrollment with these details already exists.'), { code: 'DUPLICATE_STUDENT', status: 409, registrationStep: failingStep, cause: error });
   if (isDatabaseUnavailable(error)) return Object.assign(new Error('The registration database is temporarily unavailable. Please retry.'), { code: 'DB_UNAVAILABLE', status: 503, registrationStep: failingStep, cause: error });
   if ([401, 403, 404, 409].includes(Number(error?.status))) { error.registrationStep ??= failingStep; return error; }
-  return Object.assign(new Error('Student registration could not be completed. Please retry.'), { code: 'STUDENT_REGISTRATION_FAILED', status: 500, registrationStep: failingStep, cause: error });
+  const cause = deepestCause(error);
+  if (DATABASE_SCHEMA_CODES.has(String(cause?.code ?? '').toUpperCase()) || DATABASE_SCHEMA_ERRNOS.has(Number(cause?.errno)) || DATABASE_SCHEMA_SQL_STATES.has(String(cause?.sqlState ?? '').toUpperCase())) {
+    return Object.assign(new Error('The registration database schema is not ready. Contact the system administrator.'), { code: 'DATABASE_SCHEMA_ERROR', status: 500, registrationStep: failingStep, cause: error });
+  }
+  if (cause?.code || cause?.errno != null || cause?.sqlState) {
+    return Object.assign(new Error('The registration database operation failed. Please contact the system administrator.'), { code: 'DATABASE_OPERATION_FAILED', status: 500, registrationStep: failingStep, cause: error });
+  }
+  return Object.assign(new Error('Student registration could not be completed. Please contact the system administrator.'), { code: 'INTERNAL_SERVER_ERROR', status: 500, registrationStep: failingStep, cause: error });
 }
 
 export function createInternalStudentRegistrationService({ database, clock = () => new Date().toISOString(), idFactory = randomUUID } = {}) {
@@ -111,7 +124,7 @@ export function createInternalStudentRegistrationService({ database, clock = () 
           const result = await work(trackedTx);
           onStep?.('transaction.commit');
           return result;
-        });
+        }, { onStep });
       }
       catch (error) {
         if (attempt >= 2 || !retryableTransactionError(error)) throw error;
@@ -314,7 +327,7 @@ export function createInternalStudentRegistrationService({ database, clock = () 
     } catch (error) { if (error?.status) throw error; if (error?.code === 'ER_DUP_ENTRY' || error?.code === '1062') fail('STUDENT_ID_ASSIGNMENT_CONFLICT', 'Another request assigned this Student ID. Reload the student and retry.', 409); throw Object.assign(new Error('Permanent Student ID generation failed. The saved registration remains available; retry the ID request.'), { code: 'STUDENT_ID_ASSIGNMENT_FAILED', status: 503, cause: error }); }
   }
 
-  async function register(input, { schoolId, actorId } = {}) {
+  async function register(input, { schoolId, actorId, requestId = null } = {}) {
     if (!schoolId || !actorId) fail('ACTOR_REQUIRED', 'An authorized school staff account is required.', 401);
     const category = String(input?.admissionType ?? '').trim().toUpperCase().replace(/[ -]+/g, '_');
     if (!['FIRST_TIME', 'TRANSFER', 'ALREADY_ENROLLED'].includes(category)) fail('VALIDATION_FAILED', 'Select an admission category.', 400, ['admissionType']);
@@ -536,7 +549,14 @@ export function createInternalStudentRegistrationService({ database, clock = () 
       }, (step) => { failingStep = step; });
     } catch (error) {
       const failure = registrationFailure(error, failingStep);
-      console.error('Internal student registration persistence failed', { ...internalRegistrationErrorLogFields(error, failingStep, Object.values(input ?? {})), responseCode: failure.code, responseStatus: failure.status });
+      const diagnostic = internalRegistrationErrorLogFields(error, failingStep, Object.values(input ?? {}));
+      console.error('Internal student registration persistence failed', {
+        ...diagnostic,
+        operation: 'student_registration', requestId, step: diagnostic.failingStep,
+        errorName: diagnostic.name, errno: diagnostic.errno, sqlState: diagnostic.sqlState,
+        sanitizedSqlMessage: diagnostic.sqlMessage ?? diagnostic.message,
+        code: diagnostic.code, responseCode: failure.code, responseStatus: failure.status
+      });
       throw failure;
     }
   }
