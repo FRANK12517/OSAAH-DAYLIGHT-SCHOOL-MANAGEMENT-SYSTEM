@@ -69,7 +69,7 @@ import { createDurableAcademicService } from './durable-academic.js';
 import { createDurablePromotionService } from './durable-promotion.js';
 import { createDurableResultBlockingService } from './durable-result-blocking.js';
 import { createFeeTypeRegistry } from './fee-types.js';
-import { createInternalStudentRegistrationService } from './internal-student-registration.js';
+import { createInternalStudentRegistrationService, internalRegistrationErrorLogFields } from './internal-student-registration.js';
 const releaseMetadata = Object.freeze({
   commitSha: process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.GIT_COMMIT_SHA ?? 'unknown',
   deploymentId: process.env.VERCEL_DEPLOYMENT_ID ?? process.env.VERCEL_URL ?? 'local',
@@ -618,25 +618,27 @@ export function createApp({ auth = null, students = null, attendance = null, att
         if (!user || user.portal !== 'school') return json(response, { error: user ? 'Forbidden.' : 'UNAUTHENTICATED' }, user ? 403 : 401);
         if (!canAccess(user, 'admissions.write')) return json(response, { error: 'Forbidden.' }, 403);
         if (!internalStudentRegistration) return json(response, { error: 'Internal student registration persistence is unavailable.', code: 'PERSISTENCE_UNAVAILABLE' }, 503);
+        let requestBody = null;
         try {
           if (pathname === '/api/internal-student-registration/student-id') {
             const studentId = new URL(request.url, 'http://localhost').searchParams.get('studentId');
             if (request.method === 'GET') return json(response, await internalStudentRegistration.getRegisteredStudent({ studentId, schoolId: user.schoolId }));
-            const body = await readJson(request);
-            const result = await internalStudentRegistration.assignPermanentId({ studentId: body.studentId, schoolId: user.schoolId, actorId: user.id });
+            requestBody = await readJson(request);
+            const result = await internalStudentRegistration.assignPermanentId({ studentId: requestBody.studentId, schoolId: user.schoolId, actorId: user.id });
             audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, roleId: user.roleKey, action: result.created ? 'STUDENT_ID_ASSIGNED' : 'STUDENT_ID_RETRIEVED', entity: 'Student', entityId: result.studentId, newValue: { permanentStudentId: result.permanentStudentId } }));
             return json(response, result, result.created ? 201 : 200);
           }
-          const body = await readJson(request);
+          requestBody = await readJson(request);
           if (pathname === '/api/internal-student-registration/existing-student') {
-            const student = await internalStudentRegistration.findExistingStudent(body, user.schoolId);
+            const student = await internalStudentRegistration.findExistingStudent(requestBody, user.schoolId);
             return json(response, { found: Boolean(student), student: student ? { ...student, id: student.studentId } : null });
           }
-          const result = await internalStudentRegistration.register(body, { schoolId: user.schoolId, actorId: user.id });
-          audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, roleId: user.roleKey, action: 'INTERNAL_STUDENT_REGISTERED', entity: 'Student', entityId: result.student.studentId ?? result.student.id, newValue: { permanentStudentId: result.permanentStudentId, classId: result.classId, admissionType: body.admissionType, created: result.created } }));
+          const result = await internalStudentRegistration.register(requestBody, { schoolId: user.schoolId, actorId: user.id });
+          audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, roleId: user.roleKey, action: 'INTERNAL_STUDENT_REGISTERED', entity: 'Student', entityId: result.student.studentId ?? result.student.id, newValue: { permanentStudentId: result.permanentStudentId, classId: result.classId, admissionType: requestBody.admissionType, created: result.created } }));
           return json(response, result, result.created ? 201 : 200);
         } catch (error) {
-          if ((error.status ?? 400) >= 500) console.error('Internal student registration request failed', { operation: pathname.endsWith('/student-id') ? request.method === 'GET' ? 'student_id_lookup' : 'student_id_assignment' : pathname.endsWith('/existing-student') ? 'existing_student_lookup' : 'student_registration', code: error.code ?? 'UNCLASSIFIED', dbCode: error.cause?.code ?? null, errno: error.cause?.errno ?? null, sqlState: error.cause?.sqlState ?? null, errorType: error.cause?.name ?? error.name ?? 'Error' });
+          const operation = pathname.endsWith('/student-id') ? request.method === 'GET' ? 'student_id_lookup' : 'student_id_assignment' : pathname.endsWith('/existing-student') ? 'existing_student_lookup' : 'student_registration';
+          console.error('Internal student registration request failed', { operation, ...internalRegistrationErrorLogFields(error, error.registrationStep, Object.values(requestBody ?? {})), responseCode: error.code ?? 'STUDENT_REGISTRATION_FAILED', responseStatus: error.status ?? 500 });
           return json(response, { error: error.message ?? 'Student registration failed.', code: error.code ?? 'STUDENT_REGISTRATION_FAILED', ...(Array.isArray(error.fields) ? { fields: error.fields } : {}) }, error.status ?? 400);
         }
       }
