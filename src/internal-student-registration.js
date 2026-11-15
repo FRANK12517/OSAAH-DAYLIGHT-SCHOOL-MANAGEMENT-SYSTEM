@@ -199,11 +199,11 @@ export function createInternalStudentRegistrationService({ database, clock = () 
 
   async function findRegistrationMatch(tx, { schoolId, fullName, dateOfBirth }) {
     const candidates = rows(await tx.query(`SELECT id AS studentId,permanent_student_id AS permanentStudentId,admission_number AS admissionNumber,
-      first_name AS firstName,middle_name AS middleName,last_name AS lastName,full_name AS fullName,date_of_birth AS dateOfBirth,
+      first_name AS firstName,middle_name AS middleName,last_name AS lastName,date_of_birth AS dateOfBirth,
       current_class_id AS currentClassId,gender,student_status AS studentStatus FROM students
       WHERE school_id=? AND date_of_birth=? AND is_test_record IS NOT TRUE ORDER BY id FOR UPDATE`, [schoolId, dateOfBirth]));
     const normalizedName = normalizeName(fullName);
-    const matches = candidates.filter((student) => normalizeName([student.firstName, student.middleName, student.lastName].filter(Boolean).join(' ') || student.fullName) === normalizedName
+    const matches = candidates.filter((student) => normalizeName([student.firstName, student.middleName, student.lastName].filter(Boolean).join(' ')) === normalizedName
       && String(student.dateOfBirth ?? '').slice(0, 10) === dateOfBirth);
     if (matches.length > 1) fail('STUDENT_IDENTITY_AMBIGUOUS', 'More than one student matches this normalized full name and date of birth. Ask the proprietor to reconcile the records.', 409);
     return matches[0] ?? null;
@@ -489,8 +489,8 @@ export function createInternalStudentRegistrationService({ database, clock = () 
         }
         if (!student) {
           const studentId = idFactory(), profileId = idFactory(), registrationNumber = `REG-${registrationToken || studentId}`;
-          await tx.execute(`INSERT INTO students (id,permanent_student_id,school_id,admission_number,current_class_id,first_name,middle_name,last_name,full_name,gender,date_of_birth,parent_guardian_name,parent_phone,admission_date,admission_type,student_status,is_test_record,created_at,updated_at)
-            VALUES (?,NULL,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [studentId, schoolId, registrationNumber, classId, firstName, middleName, lastName, [firstName, middleName, lastName].filter(Boolean).join(' '), gender, dateOfBirth, parentName, parentPhone, admissionDate, category, 'ACTIVE', false, timestamp, timestamp]);
+          await tx.execute(`INSERT INTO students (id,permanent_student_id,school_id,admission_number,current_class_id,first_name,middle_name,last_name,gender,date_of_birth,parent_guardian_name,parent_phone,admission_date,admission_type,student_status,is_test_record,created_at,updated_at)
+            VALUES (?,NULL,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [studentId, schoolId, registrationNumber, classId, firstName, middleName, lastName, gender, dateOfBirth, parentName, parentPhone, admissionDate, category, 'ACTIVE', false, timestamp, timestamp]);
           await tx.execute(`INSERT INTO student_profiles (id,student_master_id,student_id,school_id,admission_number,class_id,admission_date,first_name,middle_name,surname,gender,date_of_birth,place_of_birth,home_address,nationality,previous_school,previous_class,admission_type,qr_code,enrollment_status,created_at,updated_at)
             VALUES (?,?,NULL,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [profileId, studentId, schoolId, registrationNumber, classId, admissionDate, firstName, middleName, lastName, gender, dateOfBirth, text(input.placeOfBirth), homeAddress, text(input.nationality, 100) ?? 'Ghanaian', previousSchool || null, previousClass, category, `osaah:student:${profileId}`, 'ACTIVE', timestamp, timestamp]);
           student = { studentId, permanentStudentId: null, firstName, lastName };
@@ -502,7 +502,7 @@ export function createInternalStudentRegistrationService({ database, clock = () 
         if (!classRow || !canonicalClassId(classRow.name)) fail('CLASS_INVALID', 'Select an active school class.');
 
         if (!created) {
-          await tx.execute(`UPDATE students SET current_class_id=?,first_name=?,middle_name=?,last_name=?,full_name=?,gender=?,date_of_birth=?,parent_guardian_name=?,parent_phone=?,student_status='ACTIVE',updated_at=? WHERE id=? AND school_id=?`, [classId, firstName, middleName, lastName, [firstName, middleName, lastName].filter(Boolean).join(' '), gender, dateOfBirth, parentName, parentPhone, timestamp, student.studentId, schoolId]);
+          await tx.execute(`UPDATE students SET current_class_id=?,first_name=?,middle_name=?,last_name=?,gender=?,date_of_birth=?,parent_guardian_name=?,parent_phone=?,student_status='ACTIVE',updated_at=? WHERE id=? AND school_id=?`, [classId, firstName, middleName, lastName, gender, dateOfBirth, parentName, parentPhone, timestamp, student.studentId, schoolId]);
           await tx.execute(`UPDATE student_profiles SET class_id=?,first_name=?,middle_name=?,surname=?,gender=?,date_of_birth=?,place_of_birth=?,home_address=?,nationality=?,previous_school=?,previous_class=?,admission_type=?,enrollment_status='ACTIVE',updated_at=? WHERE id=? AND school_id=?`, [classId, firstName, middleName, lastName, gender, dateOfBirth, text(input.placeOfBirth), homeAddress, text(input.nationality, 100) ?? 'Ghanaian', previousSchool || null, previousClass, category, timestamp, profile.id, schoolId]);
         }
 
