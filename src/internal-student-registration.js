@@ -334,6 +334,7 @@ export function createInternalStudentRegistrationService({ database, clock = () 
     const existingIdChoice = String(input?.existingIdChoice ?? 'NO_ID').trim().toUpperCase();
     if (category !== 'ALREADY_ENROLLED' && existingIdChoice === 'HAVE_ID') fail('VALIDATION_FAILED', 'A permanent ID choice is available only for an existing OSAAH student.', 400, ['existingIdChoice']);
     if (category === 'ALREADY_ENROLLED' && !['NO_ID', 'HAVE_ID'].includes(existingIdChoice)) fail('VALIDATION_FAILED', 'Choose whether the student has a permanent ID.', 400, ['existingIdChoice']);
+    const requiresExistingId = category === 'ALREADY_ENROLLED' && existingIdChoice === 'HAVE_ID';
     const previousSchool = category === 'TRANSFER' ? (typeof input?.previousSchool === 'string' ? input.previousSchool.trim() : '') : null;
     const previousClassInput = category === 'TRANSFER' ? String(input?.previousClass ?? '').trim() : null;
     const normalizedPreviousClass = category === 'TRANSFER' ? canonicalClassId(previousClassInput) : null;
@@ -369,9 +370,11 @@ export function createInternalStudentRegistrationService({ database, clock = () 
     try {
       return await transactionWithRetry(async (tx) => {
         const registrationYear = new Date(timestamp).getUTCFullYear();
-        await tidbInsertIfAbsent(tx, { insertSql: 'INSERT INTO student_id_sequences (admission_year,next_sequence,updated_at) VALUES (?,?,?)', insertParameters: [registrationYear, 1, timestamp], conflictSql: 'SELECT admission_year FROM student_id_sequences WHERE admission_year=?', conflictParameters: [registrationYear] });
-        const registrationLock = rows(await tx.query('SELECT admission_year FROM student_id_sequences WHERE admission_year=? FOR UPDATE', [registrationYear]))[0];
-        if (!registrationLock) fail('STUDENT_REGISTRATION_LOCK_UNAVAILABLE', 'Student registration is temporarily unavailable. Please retry.', 503);
+        if (!requiresExistingId) {
+          await tidbInsertIfAbsent(tx, { insertSql: 'INSERT INTO student_id_sequences (admission_year,next_sequence,updated_at) VALUES (?,?,?)', insertParameters: [registrationYear, 1, timestamp], conflictSql: 'SELECT admission_year FROM student_id_sequences WHERE admission_year=?', conflictParameters: [registrationYear] });
+          const registrationLock = rows(await tx.query('SELECT admission_year FROM student_id_sequences WHERE admission_year=? FOR UPDATE', [registrationYear]))[0];
+          if (!registrationLock) fail('STUDENT_REGISTRATION_LOCK_UNAVAILABLE', 'Student registration is temporarily unavailable. Please retry.', 503);
+        }
         const period = rows(await tx.query(`SELECT y.id AS academicYearId,y.name AS academicYearName,y.starts_on AS academicYearStartsOn,t.id AS termId,t.name AS termName FROM academic_years y
           JOIN terms t ON t.academic_year_id=y.id WHERE y.school_id=? AND y.id=? AND t.id=? LIMIT 1`, [schoolId, academicYearId, termId]))[0];
         if (!period) fail('ACADEMIC_PERIOD_INVALID', 'Select a valid academic year and term.');
@@ -403,7 +406,6 @@ export function createInternalStudentRegistrationService({ database, clock = () 
         let student, profile, created = false, found = false;
         const existingStudentId = text(input.existingStudentId, 64);
         const existingPermanentStudentId = text(input.existingPermanentStudentId, 128);
-        const requiresExistingId = category === 'ALREADY_ENROLLED' && existingIdChoice === 'HAVE_ID';
         if (requiresExistingId && !existingPermanentStudentId) fail('EXISTING_STUDENT_ID_REQUIRED', 'Enter the existing Student ID before submitting.');
         if (requiresExistingId) {
           const matches = existingStudentId
