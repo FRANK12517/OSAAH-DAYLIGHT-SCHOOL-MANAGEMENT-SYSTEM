@@ -1,10 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { canonicalRoleKey, createAuthService } from '../src/auth.js';
 import { SIDEBAR_MODULES, visibleSidebar } from '../src/sidebar-registry.js';
 import '../src/module-registry.js';
 import { createInternalStudentRegistrationService } from '../src/internal-student-registration.js';
+import { createApp } from '../src/server.mjs';
 
 test('canonical student registration navigation is unique and restricted to leadership roles', async () => {
   const migration = await readFile(new URL('../schema/084_internal_student_registration.sql', import.meta.url), 'utf8');
@@ -79,10 +81,18 @@ test('Section 20 saves registration before enabling its separate permanent ID ac
   assert.match(script, /if \(saving\) return/);
 });
 
-function databaseFixture() {
+function databaseFixture({ failAt = null, errorFactory = null } = {}) {
   const state = { sequences: new Map(), reservations: [], students: [], profiles: [], guardians: [], health: [], enrollments: [], parentAccounts: [{ id: 'parent-1', email: 'kwame@example.test', phone: '+233241234567', username: '+233241234567' }], parentLinks: [], roles: [{ id: 'role-parent', school_id: 'school-1', role_key: 'PARENT' }], userRoles: [], classes: [{ id: 'class-kg1', name: 'KG1', school_id: 'school-1' }], periods: [{ academicYearId: 'year-2026', academicYearName: '2026/2027', academicYearStartsOn: '2026-09-01', termId: 'term-1', termName: '1st Term' }] };
+  const operations = [];
+  const failIfConfigured = (kind, sql) => {
+    const operation = String(sql ?? '').trim().match(/^([A-Za-z]+)/)?.[1]?.toLowerCase() ?? kind;
+    const table = String(sql ?? '').match(/\b(?:FROM|INTO|UPDATE|JOIN)\s+`?([A-Za-z0-9_]+)`?/i)?.[1]?.toLowerCase();
+    operations.push(`${operation}:${table ?? 'database'}`);
+    if (failAt === operations.length) throw errorFactory?.() ?? Object.assign(new Error('Injected database failure for Ama Mensah, 2018-01-02, ama@example.test, 0240000000'), { code: 'ER_BAD_FIELD_ERROR', errno: 1054, sqlState: '42S22', sqlMessage: "Injected SQL failure for 'Ama Mensah'" });
+  };
   let tail = Promise.resolve();
   const query = async (sql, params = []) => {
+    failIfConfigured('query', sql);
     if (sql.includes('FROM student_enrollments e JOIN classes c')) {
       const enrollment = state.enrollments.filter((row) => row.school_id === params[0] && row.student_id === params[1] && row.is_current === 1).sort((a, b) => String(b.enrolled_at ?? '').localeCompare(String(a.enrolled_at ?? '')))[0];
       const classRow = enrollment && state.classes.find((item) => item.id === enrollment.class_id && item.school_id === enrollment.school_id);
@@ -143,6 +153,7 @@ function databaseFixture() {
     throw new Error(`Unexpected query: ${sql}`);
   };
   const execute = async (sql, params = []) => {
+    failIfConfigured('execute', sql);
     const count = (sql.match(/\?/g) ?? []).length;
     assert.equal(count, params.length, `SQL bind count mismatch in ${sql}`);
     if (sql.startsWith('INSERT INTO student_id_sequences')) { if (!state.sequences.has(Number(params[0]))) state.sequences.set(Number(params[0]), 1); return; }
@@ -188,7 +199,7 @@ function databaseFixture() {
       try { return await callback({ query, execute }); } finally { release(); }
     }
   };
-  return { database, state };
+  return { database, state, operations };
 }
 
 const input = (overrides = {}) => ({
@@ -199,6 +210,76 @@ const input = (overrides = {}) => ({
 });
 
 const saveRegistration = (service, overrides = {}) => service.register(input(overrides), { schoolId: 'school-1', actorId: 'staff-1' });
+
+async function postRegistration(database, payload = input()) {
+  const actor = { id: 'staff-1', userId: 'staff-1', roleKey: 'SCHOOL_ADMIN', portal: 'school', schoolId: 'school-1', permissions: new Set(['admissions.write']) };
+  const auth = { authenticateAsync: async (token) => token === 'diagnostic-staff' ? actor : null };
+  const server = createServer(createApp({ auth, database, aiEnabled: false }));
+  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
+  try {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/internal-student-registration`, {
+      method: 'POST', headers: { Authorization: 'Bearer diagnostic-staff', 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+    });
+    return { status: response.status, body: await response.json() };
+  } finally { await new Promise((resolve) => { server.close(resolve); server.closeAllConnections?.(); }); }
+}
+
+test('registration reports typed failures and identifies every failing persistence step without logging student data', async () => {
+  const baseline = databaseFixture();
+  const baselineService = createInternalStudentRegistrationService({ database: baseline.database, clock: () => '2026-11-11T10:00:00.000Z' });
+  await saveRegistration(baselineService, { registrationToken: 'registration-token-baseline' });
+  assert.ok(baseline.operations.length > 10, 'the fixture covers the full registration persistence workflow');
+
+  const originalConsoleError = console.error;
+  const logs = [];
+  console.error = (...items) => logs.push(items);
+  try {
+    for (let index = 0; index < baseline.operations.length; index += 1) {
+      const fixture = databaseFixture({ failAt: index + 1 });
+      const response = await postRegistration(fixture.database, input({ registrationToken: 'registration-token-diagnostic' }));
+      assert.equal(response.status, 500, `step ${baseline.operations[index]}`);
+      assert.equal(response.body.code, 'DATABASE_SCHEMA_ERROR');
+      const entry = logs.find((items) => items[0] === 'Internal student registration persistence failed')?.[1];
+      assert.ok(entry, `service diagnostic log missing for ${baseline.operations[index]}`);
+      assert.equal(entry.step, baseline.operations[index]);
+      assert.ok(entry.requestId);
+      assert.ok(entry.errorName);
+      assert.ok(Object.hasOwn(entry, 'sanitizedSqlMessage'));
+      for (const field of ['name', 'message', 'code', 'errno', 'sqlState', 'sqlMessage', 'failingStep']) assert.ok(Object.hasOwn(entry, field), `missing ${field} for ${baseline.operations[index]}`);
+      const routeEntry = logs.find((items) => items[0] === 'Internal student registration request failed')?.[1];
+      assert.ok(routeEntry, `route diagnostic log missing for ${baseline.operations[index]}`);
+      assert.equal(routeEntry.step, baseline.operations[index]);
+      assert.ok(routeEntry.requestId);
+      assert.ok(routeEntry.errorName);
+      assert.ok(Object.hasOwn(routeEntry, 'sanitizedSqlMessage'));
+      const serializedLogs = JSON.stringify(logs);
+      for (const privateValue of ['Ama Mensah', '2018-01-02', 'ama@example.test', '0240000000', 'OSAA/2026/008']) assert.equal(serializedLogs.includes(privateValue), false, `${privateValue} leaked from ${baseline.operations[index]}`);
+      logs.length = 0;
+    }
+
+    const failures = [
+      { error: Object.assign(new Error('duplicate key'), { code: 'ER_DUP_ENTRY', errno: 1062, sqlState: '23000', sqlMessage: "Duplicate entry 'Ama Mensah'" }), status: 409, code: 'DUPLICATE_STUDENT' },
+      { error: Object.assign(new Error('connection reset'), { code: 'ECONNRESET' }), status: 503, code: 'DB_UNAVAILABLE' },
+      { error: Object.assign(new Error('query timeout'), { code: 'ER_QUERY_TIMEOUT', errno: 3024, sqlState: 'HY000' }), status: 503, code: 'DB_UNAVAILABLE' },
+      { error: Object.assign(new Error('bad column'), { code: 'ER_BAD_FIELD_ERROR', errno: 1054, sqlState: '42S22' }), status: 500, code: 'DATABASE_SCHEMA_ERROR' },
+      { error: Object.assign(new Error('constraint failure'), { code: 'ER_NO_REFERENCED_ROW_2', errno: 1452, sqlState: '23000' }), status: 500, code: 'DATABASE_OPERATION_FAILED' }
+    ];
+    for (const { error, status, code } of failures) {
+      const fixture = databaseFixture({ failAt: 1, errorFactory: () => error });
+      const response = await postRegistration(fixture.database, input({ registrationToken: 'registration-token-mapped' }));
+      assert.equal(response.status, status);
+      assert.equal(response.body.code, code);
+      logs.length = 0;
+    }
+
+    const validationFixture = databaseFixture();
+    const validation = await postRegistration(validationFixture.database, input({ admissionType: 'TRANSFER', previousSchool: ' ', previousClass: '' }));
+    assert.equal(validation.status, 400);
+    assert.equal(validation.body.code, 'VALIDATION_FAILED');
+    assert.deepEqual(validation.body.fields, ['previousSchool', 'previousClass']);
+    assert.equal(validationFixture.operations.length, 0, 'validation fails before any database call');
+  } finally { console.error = originalConsoleError; }
+});
 
 test('permanent ID generation is rejected before a student registration is saved', async () => {
   const { database, state } = databaseFixture();
@@ -266,7 +347,7 @@ test('registration rejects unsupported terms before creating student records', a
   const { database, state } = databaseFixture();
   state.periods[0].termName = 'Summer Term';
   const service = createInternalStudentRegistrationService({ database, clock: () => '2026-11-12T10:00:00.000Z' });
-  await assert.rejects(() => saveRegistration(service, { registrationToken: 'registration-token-term' }), { code: 'ACADEMIC_TERM_INVALID' });
+  await assert.rejects(() => saveRegistration(service, { registrationToken: 'registration-token-term' }), { code: 'VALIDATION_FAILED', status: 400, fields: ['termId'] });
   assert.equal(state.students.length, 0);
 });
 
@@ -274,7 +355,7 @@ test('failed registration attempts do not consume the first permanent ID', async
   const { database, state } = databaseFixture();
   const service = createInternalStudentRegistrationService({ database, clock: () => '2026-11-12T10:00:00.000Z' });
   state.periods[0].termName = 'Summer Term';
-  await assert.rejects(() => saveRegistration(service, { registrationToken: 'registration-token-failed' }), { code: 'ACADEMIC_TERM_INVALID' });
+  await assert.rejects(() => saveRegistration(service, { registrationToken: 'registration-token-failed' }), { code: 'VALIDATION_FAILED', status: 400, fields: ['termId'] });
   state.periods[0].termName = '1st Term';
   const saved = await saveRegistration(service, { registrationToken: 'registration-token-after-failure' });
   assert.equal((await service.assignPermanentId({ studentId: saved.studentId, schoolId: 'school-1', actorId: 'staff-1' })).permanentStudentId, 'OSAA/2026/001');
@@ -530,8 +611,8 @@ test('transfer registration rejects missing or invalid previous school/class wit
 test('first-time and transfer registration reject HAVE_ID and do not accept supplied IDs', async () => {
   const { database, state } = databaseFixture();
   const service = createInternalStudentRegistrationService({ database, clock: () => '2026-11-11T10:00:00.000Z' });
-  await assert.rejects(() => saveRegistration(service, { admissionType: 'FIRST_TIME', existingIdChoice: 'HAVE_ID', existingPermanentStudentId: 'OSAA/2025/001' }), { code: 'EXISTING_ID_CHOICE_NOT_ALLOWED', status: 400 });
-  await assert.rejects(() => saveRegistration(service, { admissionType: 'TRANSFER', existingIdChoice: 'HAVE_ID', existingPermanentStudentId: 'OSAA/2025/001', previousSchool: 'Former School', previousClass: 'KG 2' }), { code: 'EXISTING_ID_CHOICE_NOT_ALLOWED', status: 400 });
+  await assert.rejects(() => saveRegistration(service, { admissionType: 'FIRST_TIME', existingIdChoice: 'HAVE_ID', existingPermanentStudentId: 'OSAA/2025/001' }), { code: 'VALIDATION_FAILED', status: 400, fields: ['existingIdChoice'] });
+  await assert.rejects(() => saveRegistration(service, { admissionType: 'TRANSFER', existingIdChoice: 'HAVE_ID', existingPermanentStudentId: 'OSAA/2025/001', previousSchool: 'Former School', previousClass: 'KG 2' }), { code: 'VALIDATION_FAILED', status: 400, fields: ['existingIdChoice'] });
   assert.equal(state.students.length, 0);
 });
 

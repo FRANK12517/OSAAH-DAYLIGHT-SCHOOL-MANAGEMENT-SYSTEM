@@ -114,6 +114,10 @@ export async function runProductionTiDBMigrationAudit({
   const [parentTableRows] = await Promise.all([
     select(adapter, 'SELECT TABLE_NAME AS tableName FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN (?,?)', PARENT_TABLES, 'MIGRATION_082_SCHEMA_QUERY_FAILED')
   ]);
+  const transferProfileColumnRows = await select(adapter,
+    "SELECT COLUMN_NAME AS columnName,COLUMN_TYPE AS columnType,IS_NULLABLE AS isNullable FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME IN (?,?) ORDER BY COLUMN_NAME",
+    ['student_profiles', 'previous_school', 'previous_class'],
+    'TRANSFER_PROFILE_COLUMNS_QUERY_FAILED');
 
   const sourceByVersion = new Map(migrations.map((migration) => [migration.version, migration]));
   const applied = appliedRows.map(normalizeMigration);
@@ -163,6 +167,10 @@ export async function runProductionTiDBMigrationAudit({
   const pending082 = pending.find((migration) => migration.version === 82);
   const presentParentTables = new Set(parentTableRows.map((row) => String(value(row, 'tableName', 'TABLE_NAME'))));
   const existingParentTables = PARENT_TABLES.filter((name) => presentParentTables.has(name));
+  const transferProfileColumns = new Map(transferProfileColumnRows.map((row) => [String(value(row, 'columnName', 'COLUMN_NAME')).toLowerCase(), {
+    type: String(value(row, 'columnType', 'COLUMN_TYPE') ?? '').toLowerCase(),
+    nullable: String(value(row, 'isNullable', 'IS_NULLABLE') ?? '').toUpperCase()
+  }]));
   let migration082Status;
   if (applied082 && existingParentTables.length === PARENT_TABLES.length && migration082?.checksum === applied082.checksum && migration082?.name === applied082.name) {
     migration082Status = 'RECORDED_APPLIED_AND_SCHEMA_PRESENT';
@@ -202,6 +210,11 @@ export async function runProductionTiDBMigrationAudit({
       existingTables: existingParentTables,
       requiredTables: PARENT_TABLES
     },
+    studentProfileTransferColumns: Object.fromEntries(['previous_school', 'previous_class'].map((name) => [name, {
+      present: transferProfileColumns.has(name),
+      type: transferProfileColumns.get(name)?.type ?? null,
+      nullable: transferProfileColumns.get(name)?.nullable ?? null
+    }])),
     ledger: { checksumConsistent: !issues.some((item) => ['MIGRATION_CHECKSUM_MISMATCH', 'MIGRATION_RUN_SOURCE_MISMATCH', 'COMPLETED_RUN_LEDGER_MISMATCH'].includes(item.code)), gaps: gaps.map(({ version, name, checksum }) => ({ version, name, checksum })) },
     blockingIssues: issues
   };

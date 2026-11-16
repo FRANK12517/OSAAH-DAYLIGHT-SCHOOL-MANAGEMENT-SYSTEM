@@ -20,7 +20,7 @@ async function migrationFixture() {
   return directory;
 }
 
-function makeAdapter({ applied = [], baselines = [], runs = [], metadataTables, parentTables = [], lockRows = [{ lockId: 1, locked: 0, acquiredAt: null }], schoolRows = [{ id: 'sch_default_01' }], identity, failAt } = {}) {
+function makeAdapter({ applied = [], baselines = [], runs = [], metadataTables, parentTables = [], profileColumns = [{ columnName: 'previous_class', columnType: 'varchar(20)', isNullable: 'YES' }, { columnName: 'previous_school', columnType: 'varchar(120)', isNullable: 'YES' }], lockRows = [{ lockId: 1, locked: 0, acquiredAt: null }], schoolRows = [{ id: 'sch_default_01' }], identity, failAt } = {}) {
   const queries = [];
   const allMetadata = ['schema_migrations', 'schema_migration_lock', 'schema_migration_runs', 'schema_baselines'];
   const adapter = {
@@ -34,6 +34,7 @@ function makeAdapter({ applied = [], baselines = [], runs = [], metadataTables, 
       queries.push({ sql, parameters });
       if (failAt === sql) throw new Error('secret:do-not-print');
       if (sql.includes('FROM schools')) return schoolRows;
+      if (sql.includes('information_schema.COLUMNS') && parameters[0] === 'student_profiles') return profileColumns;
       if (sql.includes('information_schema.TABLES')) {
         const names = parameters.length === 4 ? (metadataTables ?? allMetadata) : parentTables;
         return names.map((tableName) => ({ tableName }));
@@ -102,6 +103,19 @@ test('protected read-only production TiDB migration audit', async (t) => {
     assert.equal(report.migration082.status, 'PENDING_AND_SCHEMA_ABSENT');
     assert.equal(report.ledger.checksumConsistent, true);
     assert.deepEqual(report.ledger.gaps, []);
+    assert.deepEqual(report.studentProfileTransferColumns, {
+      previous_school: { present: true, type: 'varchar(120)', nullable: 'YES' },
+      previous_class: { present: true, type: 'varchar(20)', nullable: 'YES' }
+    });
+  });
+
+  await t.test('reports missing transfer columns without treating them as present', async () => {
+    const { adapter } = makeAdapter({ applied: [applied49], baselines: [baseline], profileColumns: [{ columnName: 'previous_school', columnType: 'varchar(120)', isNullable: 'YES' }] });
+    const report = await runAudit(directory, adapter);
+    assert.deepEqual(report.studentProfileTransferColumns, {
+      previous_school: { present: true, type: 'varchar(120)', nullable: 'YES' },
+      previous_class: { present: false, type: null, nullable: null }
+    });
   });
 
   await t.test('requires TiDB engine and canonical database identity', async () => {

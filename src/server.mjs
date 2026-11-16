@@ -69,7 +69,7 @@ import { createDurableAcademicService } from './durable-academic.js';
 import { createDurablePromotionService } from './durable-promotion.js';
 import { createDurableResultBlockingService } from './durable-result-blocking.js';
 import { createFeeTypeRegistry } from './fee-types.js';
-import { createInternalStudentRegistrationService } from './internal-student-registration.js';
+import { createInternalStudentRegistrationService, internalRegistrationErrorLogFields } from './internal-student-registration.js';
 const releaseMetadata = Object.freeze({
   commitSha: process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.GIT_COMMIT_SHA ?? 'unknown',
   deploymentId: process.env.VERCEL_DEPLOYMENT_ID ?? process.env.VERCEL_URL ?? 'local',
@@ -618,26 +618,37 @@ export function createApp({ auth = null, students = null, attendance = null, att
         if (!user || user.portal !== 'school') return json(response, { error: user ? 'Forbidden.' : 'UNAUTHENTICATED' }, user ? 403 : 401);
         if (!canAccess(user, 'admissions.write')) return json(response, { error: 'Forbidden.' }, 403);
         if (!internalStudentRegistration) return json(response, { error: 'Internal student registration persistence is unavailable.', code: 'PERSISTENCE_UNAVAILABLE' }, 503);
+        let requestBody = null;
+        const suppliedRequestId = request.headers['x-vercel-id'] ?? request.headers['x-request-id'];
+        const requestId = typeof suppliedRequestId === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(suppliedRequestId) ? suppliedRequestId : randomUUID();
         try {
           if (pathname === '/api/internal-student-registration/student-id') {
             const studentId = new URL(request.url, 'http://localhost').searchParams.get('studentId');
             if (request.method === 'GET') return json(response, await internalStudentRegistration.getRegisteredStudent({ studentId, schoolId: user.schoolId }));
-            const body = await readJson(request);
-            const result = await internalStudentRegistration.assignPermanentId({ studentId: body.studentId, schoolId: user.schoolId, actorId: user.id });
+            requestBody = await readJson(request);
+            const result = await internalStudentRegistration.assignPermanentId({ studentId: requestBody.studentId, schoolId: user.schoolId, actorId: user.id });
             audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, roleId: user.roleKey, action: result.created ? 'STUDENT_ID_ASSIGNED' : 'STUDENT_ID_RETRIEVED', entity: 'Student', entityId: result.studentId, newValue: { permanentStudentId: result.permanentStudentId } }));
             return json(response, result, result.created ? 201 : 200);
           }
-          const body = await readJson(request);
+          requestBody = await readJson(request);
           if (pathname === '/api/internal-student-registration/existing-student') {
-            const student = await internalStudentRegistration.findExistingStudent(body, user.schoolId);
+            const student = await internalStudentRegistration.findExistingStudent(requestBody, user.schoolId);
             return json(response, { found: Boolean(student), student: student ? { ...student, id: student.studentId } : null });
           }
-          const result = await internalStudentRegistration.register(body, { schoolId: user.schoolId, actorId: user.id });
-          audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, roleId: user.roleKey, action: 'INTERNAL_STUDENT_REGISTERED', entity: 'Student', entityId: result.student.studentId ?? result.student.id, newValue: { permanentStudentId: result.permanentStudentId, classId: result.classId, admissionType: body.admissionType, created: result.created } }));
+          const result = await internalStudentRegistration.register(requestBody, { schoolId: user.schoolId, actorId: user.id, requestId });
+          audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, roleId: user.roleKey, action: 'INTERNAL_STUDENT_REGISTERED', entity: 'Student', entityId: result.student.studentId ?? result.student.id, newValue: { permanentStudentId: result.permanentStudentId, classId: result.classId, admissionType: requestBody.admissionType, created: result.created } }));
           return json(response, result, result.created ? 201 : 200);
         } catch (error) {
-          if ((error.status ?? 400) >= 500) console.error('Internal student registration request failed', { operation: pathname.endsWith('/student-id') ? request.method === 'GET' ? 'student_id_lookup' : 'student_id_assignment' : pathname.endsWith('/existing-student') ? 'existing_student_lookup' : 'student_registration', code: error.code ?? 'UNCLASSIFIED', dbCode: error.cause?.code ?? null, errno: error.cause?.errno ?? null, sqlState: error.cause?.sqlState ?? null, errorType: error.cause?.name ?? error.name ?? 'Error' });
-          return json(response, { error: error.message ?? 'Student registration failed.', code: error.code ?? 'STUDENT_REGISTRATION_FAILED', ...(Array.isArray(error.fields) ? { fields: error.fields } : {}) }, error.status ?? 400);
+          const operation = pathname.endsWith('/student-id') ? request.method === 'GET' ? 'student_id_lookup' : 'student_id_assignment' : pathname.endsWith('/existing-student') ? 'existing_student_lookup' : 'student_registration';
+          const diagnostic = internalRegistrationErrorLogFields(error, error.registrationStep, Object.values(requestBody ?? {}));
+          console.error('Internal student registration request failed', {
+            ...diagnostic,
+            operation, requestId, step: diagnostic.failingStep, errorName: diagnostic.name,
+            errno: diagnostic.errno, sqlState: diagnostic.sqlState,
+            sanitizedSqlMessage: diagnostic.sqlMessage ?? diagnostic.message,
+            code: diagnostic.code, responseCode: error.code ?? 'INTERNAL_SERVER_ERROR', responseStatus: error.status ?? 500
+          });
+          return json(response, { error: error.message ?? 'Student registration failed.', code: error.code ?? 'INTERNAL_SERVER_ERROR', ...(Array.isArray(error.fields) ? { fields: error.fields } : {}) }, error.status ?? 500);
         }
       }
       if (pathname === '/api/school-settings' && request.method === 'GET') { if (!canAccess(user, 'settings.read')) return json(response, { error: 'Forbidden.' }, 403); try { return json(response, await schoolSettings.read(user)); } catch (error) { return json(response, { error: error.message }, error.status ?? 500); } }

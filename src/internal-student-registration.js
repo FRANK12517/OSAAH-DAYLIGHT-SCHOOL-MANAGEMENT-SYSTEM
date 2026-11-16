@@ -11,13 +11,121 @@ const normalizeName = (value) => String(value ?? '').trim().replace(/\s+/g, ' ')
 const canonicalTerm = (value) => ({ '1st term': '1st Term', 'first term': '1st Term', 'term 1': '1st Term', '2nd term': '2nd Term', 'second term': '2nd Term', 'term 2': '2nd Term', '3rd term': '3rd Term', 'third term': '3rd Term', 'term 3': '3rd Term' })[String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ')] ?? null;
 function normalizedPhone(value) { try { return normalizeGhanaPhone(value); } catch { return null; } }
 const retryableTransactionError = (error) => ['ER_LOCK_DEADLOCK', 'ER_LOCK_WAIT_TIMEOUT'].includes(error?.code) || [1213, 1205].includes(Number(error?.errno));
+const DUPLICATE_ERROR_CODES = new Set(['ER_DUP_ENTRY', '1062']);
+const DATABASE_UNAVAILABLE_CODES = new Set(['ECONNREFUSED', 'ECONNRESET', 'EHOSTUNREACH', 'ENETUNREACH', 'EPIPE', 'ENOTFOUND', 'ETIMEDOUT', 'ESOCKETTIMEDOUT', 'PROTOCOL_CONNECTION_LOST', 'PROTOCOL_ENQUEUE_AFTER_FATAL_ERROR', 'ER_CON_COUNT_ERROR', 'ER_LOCK_WAIT_TIMEOUT', 'ER_QUERY_TIMEOUT']);
+const DATABASE_UNAVAILABLE_ERRNOS = new Set([1040, 1205, 2002, 2003, 2006, 2013, 2026, 2055, 3024]);
+const VALIDATION_FIELDS = Object.freeze({
+  ADMISSION_CATEGORY_INVALID: ['admissionType'], EXISTING_ID_CHOICE_NOT_ALLOWED: ['existingIdChoice'], EXISTING_ID_CHOICE_INVALID: ['existingIdChoice'],
+  STUDENT_NAME_REQUIRED: ['fullName'], DATE_OF_BIRTH_INVALID: ['dateOfBirth'], GENDER_INVALID: ['gender'], CLASS_REQUIRED: ['classId'], CLASS_INVALID: ['classId'],
+  PARENT_DETAILS_REQUIRED: ['parentName', 'parentPhone'], PARENT_PHONE_INVALID: ['parentPhone'], ADDRESS_REQUIRED: ['homeAddress', 'parentAddress'],
+  PARENT_EMAIL_INVALID: ['parentEmail'], ACADEMIC_PERIOD_REQUIRED: ['academicYearId', 'termId'], ACADEMIC_PERIOD_INVALID: ['academicYearId', 'termId'], ACADEMIC_TERM_INVALID: ['termId']
+});
+
+function deepestCause(error) {
+  let current = error;
+  const seen = new Set();
+  while (current?.cause && !seen.has(current.cause)) { seen.add(current); current = current.cause; }
+  return current ?? error;
+}
+
+function redactDiagnosticText(value, sensitiveValues = []) {
+  if (value === null || value === undefined) return null;
+  let result = String(value);
+  for (const privateValue of sensitiveValues) {
+    const text = String(privateValue ?? '').trim();
+    if (text.length >= 3) result = result.replace(new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '[redacted value]');
+  }
+  return result
+    .replace(/(?:mysql|mariadb):\/\/[^\s]+/gi, '[redacted database URL]')
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[redacted email]')
+    .replace(/\+?\d[\d ().-]{7,}\d/g, '[redacted number]')
+    .replace(/\bOSAAH?\/\d{4}\/\d+\b/gi, '[redacted student ID]')
+    .replace(/\b[A-F0-9]{8}-(?:[A-F0-9]{4}-){3}[A-F0-9]{12}\b/gi, '[redacted identifier]')
+    .replace(/\b[A-Z][a-z]+(?:[-'][A-Z]?[a-z]+)?(?:\s+[A-Z][a-z]+(?:[-'][A-Z]?[a-z]+)?){1,3}\b/g, '[redacted name]')
+    .replace(/(['"])[^'"\r\n]*\1/g, '[redacted value]')
+    .slice(0, 500);
+}
+
+export function internalRegistrationErrorLogFields(error, failingStep = null, sensitiveValues = []) {
+  const cause = deepestCause(error);
+  return {
+    name: String(cause?.name ?? error?.name ?? 'Error').slice(0, 100),
+    message: redactDiagnosticText(cause?.message ?? error?.message, sensitiveValues),
+    code: cause?.code ?? error?.code ?? null,
+    errno: Number.isFinite(Number(cause?.errno)) ? Number(cause.errno) : null,
+    sqlState: cause?.sqlState ? String(cause.sqlState).slice(0, 16) : null,
+    sqlMessage: redactDiagnosticText(cause?.sqlMessage, sensitiveValues),
+    failingStep: error?.registrationStep ?? failingStep ?? 'registration.unknown'
+  };
+}
+
+function registrationDatabaseStep(kind, sql) {
+  const operation = String(sql ?? '').trim().match(/^([A-Za-z]+)/)?.[1]?.toLowerCase() ?? kind;
+  const table = String(sql ?? '').match(/\b(?:FROM|INTO|UPDATE|JOIN)\s+`?([A-Za-z0-9_]+)`?/i)?.[1]?.toLowerCase();
+  return `${operation}:${table ?? 'database'}`;
+}
+
+function isDatabaseUnavailable(error) {
+  let current = error;
+  const seen = new Set();
+  while (current && !seen.has(current)) {
+    seen.add(current);
+    if (DATABASE_UNAVAILABLE_CODES.has(String(current.code ?? '').toUpperCase())
+      || DATABASE_UNAVAILABLE_ERRNOS.has(Number(current.errno))
+      || String(current.sqlState ?? '').startsWith('08')) return true;
+    current = current.cause;
+  }
+  return false;
+}
+
+function isDuplicateError(error) {
+  let current = error;
+  const seen = new Set();
+  while (current && !seen.has(current)) {
+    seen.add(current);
+    if (DUPLICATE_ERROR_CODES.has(String(current.code ?? '')) || Number(current.errno) === 1062) return true;
+    current = current.cause;
+  }
+  return false;
+}
+
+const DATABASE_SCHEMA_CODES = new Set(['ER_BAD_FIELD_ERROR', 'ER_NO_SUCH_TABLE', 'ER_PARSE_ERROR']);
+const DATABASE_SCHEMA_ERRNOS = new Set([1054, 1064, 1146]);
+const DATABASE_SCHEMA_SQL_STATES = new Set(['42S02', '42S22']);
+
+function registrationFailure(error, failingStep) {
+  const fields = Array.isArray(error?.fields) && error.fields.length ? error.fields : VALIDATION_FIELDS[error?.code] ?? ['registration'];
+  if (error?.status === 400) return Object.assign(new Error(error.message ?? 'Check the registration details and try again.'), { code: 'VALIDATION_FAILED', status: 400, fields, registrationStep: failingStep, cause: error });
+  if (isDuplicateError(error)) return Object.assign(new Error('A student record or enrollment with these details already exists.'), { code: 'DUPLICATE_STUDENT', status: 409, registrationStep: failingStep, cause: error });
+  if (isDatabaseUnavailable(error)) return Object.assign(new Error('The registration database is temporarily unavailable. Please retry.'), { code: 'DB_UNAVAILABLE', status: 503, registrationStep: failingStep, cause: error });
+  if ([401, 403, 404, 409].includes(Number(error?.status))) { error.registrationStep ??= failingStep; return error; }
+  const cause = deepestCause(error);
+  if (DATABASE_SCHEMA_CODES.has(String(cause?.code ?? '').toUpperCase()) || DATABASE_SCHEMA_ERRNOS.has(Number(cause?.errno)) || DATABASE_SCHEMA_SQL_STATES.has(String(cause?.sqlState ?? '').toUpperCase())) {
+    return Object.assign(new Error('The registration database schema is not ready. Contact the system administrator.'), { code: 'DATABASE_SCHEMA_ERROR', status: 500, registrationStep: failingStep, cause: error });
+  }
+  if (cause?.code || cause?.errno != null || cause?.sqlState) {
+    return Object.assign(new Error('The registration database operation failed. Please contact the system administrator.'), { code: 'DATABASE_OPERATION_FAILED', status: 500, registrationStep: failingStep, cause: error });
+  }
+  return Object.assign(new Error('Student registration could not be completed. Please contact the system administrator.'), { code: 'INTERNAL_SERVER_ERROR', status: 500, registrationStep: failingStep, cause: error });
+}
 
 export function createInternalStudentRegistrationService({ database, clock = () => new Date().toISOString(), idFactory = randomUUID } = {}) {
   if (!database?.transaction) fail('DATABASE_ADAPTER_REQUIRED', 'Internal registration persistence is unavailable.', 503);
 
-  async function transactionWithRetry(work) {
+  async function transactionWithRetry(work, onStep = null) {
     for (let attempt = 0; ; attempt += 1) {
-      try { return await database.transaction(work); }
+      try {
+        return await database.transaction(async (tx) => {
+          onStep?.('transaction.begin');
+          const trackedTx = {
+            query(sql, ...args) { onStep?.(registrationDatabaseStep('query', sql)); return tx.query(sql, ...args); },
+            execute(sql, ...args) { onStep?.(registrationDatabaseStep('execute', sql)); return tx.execute(sql, ...args); }
+          };
+          const result = await work(trackedTx);
+          onStep?.('transaction.commit');
+          return result;
+        }, { onStep });
+      }
       catch (error) {
         if (attempt >= 2 || !retryableTransactionError(error)) throw error;
         await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
@@ -219,13 +327,14 @@ export function createInternalStudentRegistrationService({ database, clock = () 
     } catch (error) { if (error?.status) throw error; if (error?.code === 'ER_DUP_ENTRY' || error?.code === '1062') fail('STUDENT_ID_ASSIGNMENT_CONFLICT', 'Another request assigned this Student ID. Reload the student and retry.', 409); throw Object.assign(new Error('Permanent Student ID generation failed. The saved registration remains available; retry the ID request.'), { code: 'STUDENT_ID_ASSIGNMENT_FAILED', status: 503, cause: error }); }
   }
 
-  async function register(input, { schoolId, actorId } = {}) {
+  async function register(input, { schoolId, actorId, requestId = null } = {}) {
     if (!schoolId || !actorId) fail('ACTOR_REQUIRED', 'An authorized school staff account is required.', 401);
     const category = String(input?.admissionType ?? '').trim().toUpperCase().replace(/[ -]+/g, '_');
-    if (!['FIRST_TIME', 'TRANSFER', 'ALREADY_ENROLLED'].includes(category)) fail('ADMISSION_CATEGORY_INVALID', 'Select an admission category.');
+    if (!['FIRST_TIME', 'TRANSFER', 'ALREADY_ENROLLED'].includes(category)) fail('VALIDATION_FAILED', 'Select an admission category.', 400, ['admissionType']);
     const existingIdChoice = String(input?.existingIdChoice ?? 'NO_ID').trim().toUpperCase();
-    if (category !== 'ALREADY_ENROLLED' && existingIdChoice === 'HAVE_ID') fail('EXISTING_ID_CHOICE_NOT_ALLOWED', 'A permanent ID choice is available only for an existing OSAAH student.', 400);
-    if (category === 'ALREADY_ENROLLED' && !['NO_ID', 'HAVE_ID'].includes(existingIdChoice)) fail('EXISTING_ID_CHOICE_INVALID', 'Choose whether the student has a permanent ID.');
+    if (category !== 'ALREADY_ENROLLED' && existingIdChoice === 'HAVE_ID') fail('VALIDATION_FAILED', 'A permanent ID choice is available only for an existing OSAAH student.', 400, ['existingIdChoice']);
+    if (category === 'ALREADY_ENROLLED' && !['NO_ID', 'HAVE_ID'].includes(existingIdChoice)) fail('VALIDATION_FAILED', 'Choose whether the student has a permanent ID.', 400, ['existingIdChoice']);
+    const requiresExistingId = category === 'ALREADY_ENROLLED' && existingIdChoice === 'HAVE_ID';
     const previousSchool = category === 'TRANSFER' ? (typeof input?.previousSchool === 'string' ? input.previousSchool.trim() : '') : null;
     const previousClassInput = category === 'TRANSFER' ? String(input?.previousClass ?? '').trim() : null;
     const normalizedPreviousClass = category === 'TRANSFER' ? canonicalClassId(previousClassInput) : null;
@@ -235,33 +344,37 @@ export function createInternalStudentRegistrationService({ database, clock = () 
     if (category === 'TRANSFER' && (!normalizedPreviousClass || !TRANSFER_PREVIOUS_CLASS_VALUES.includes(normalizedPreviousClass))) transferErrors.push('previousClass');
     if (transferErrors.length) fail('VALIDATION_FAILED', 'Transfer admission requires a previous school name (2–120 characters) and a valid previous class.', 400, transferErrors);
     const firstName = text(input.firstName ?? input.studentFirstName, 100), middleName = text(input.middleName, 100), lastName = text(input.lastName ?? input.studentSurname, 100);
-    if (!firstName || !lastName) fail('STUDENT_NAME_REQUIRED', 'Pupil first and last names are required.');
+    if (!firstName || !lastName) fail('VALIDATION_FAILED', 'Pupil first and last names are required.', 400, ['fullName']);
     const dateOfBirth = text(input.dateOfBirth, 10);
     const fullName = [firstName, middleName, lastName].filter(Boolean).join(' ');
     const parsedDate = dateOfBirth && /^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth) ? new Date(`${dateOfBirth}T00:00:00Z`) : null;
-    if (!parsedDate || Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== dateOfBirth) fail('DATE_OF_BIRTH_INVALID', 'Enter a valid date of birth.');
-    const gender = requireStudentGender(input.gender);
+    if (!parsedDate || Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== dateOfBirth) fail('VALIDATION_FAILED', 'Enter a valid date of birth.', 400, ['dateOfBirth']);
+    let gender;
+    try { gender = requireStudentGender(input.gender); } catch { fail('VALIDATION_FAILED', 'Select a valid gender.', 400, ['gender']); }
     let classId = String(input.classId ?? '').trim();
-    if (!classId) fail('CLASS_REQUIRED', 'Select a class.');
+    if (!classId) fail('VALIDATION_FAILED', 'Select a class.', 400, ['classId']);
     const parentName = text(input.parentName, 255), parentPhoneRaw = text(input.parentPhone, 50);
-    if (!parentName || !parentPhoneRaw) fail('PARENT_DETAILS_REQUIRED', 'Parent/guardian name and phone number are required.');
+    if (!parentName || !parentPhoneRaw) fail('VALIDATION_FAILED', 'Parent/guardian name and phone number are required.', 400, [!parentName ? 'parentName' : 'parentPhone']);
     const parentPhone = normalizeGhanaPhone(parentPhoneRaw);
-    if (!parentPhone) fail('PARENT_PHONE_INVALID', 'Enter a valid Ghanaian mobile number.');
+    if (!parentPhone) fail('VALIDATION_FAILED', 'Enter a valid Ghanaian mobile number.', 400, ['parentPhone']);
     const homeAddress = text(input.homeAddress, 500), parentAddress = text(input.parentAddress, 500);
-    if (!homeAddress || !parentAddress) fail('ADDRESS_REQUIRED', 'Pupil home and parent/guardian residential addresses are required.');
+    if (!homeAddress || !parentAddress) fail('VALIDATION_FAILED', 'Pupil home and parent/guardian residential addresses are required.', 400, [...(!homeAddress ? ['homeAddress'] : []), ...(!parentAddress ? ['parentAddress'] : [])]);
     const parentEmail = text(input.parentEmail, 254);
-    if (parentEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(parentEmail)) fail('PARENT_EMAIL_INVALID', 'Enter a valid parent/guardian email address.');
+    if (parentEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(parentEmail)) fail('VALIDATION_FAILED', 'Enter a valid parent/guardian email address.', 400, ['parentEmail']);
     const emergencyPhoneRaw = text(input.emergencyPhone, 50);
     const emergencyPhone = emergencyPhoneRaw ? normalizeGhanaPhone(emergencyPhoneRaw) : null;
     const academicYearId = text(input.academicYearId, 64), termId = text(input.termId, 64);
-    if (!academicYearId || !termId) fail('ACADEMIC_PERIOD_REQUIRED', 'Select the academic year and one term for class registration.');
+    if (!academicYearId || !termId) fail('VALIDATION_FAILED', 'Select the academic year and one term for class registration.', 400, [...(!academicYearId ? ['academicYearId'] : []), ...(!termId ? ['termId'] : [])]);
     const timestamp = clock(), admissionDate = timestamp.slice(0, 10);
+    let failingStep = 'registration.transaction.begin';
     try {
       return await transactionWithRetry(async (tx) => {
         const registrationYear = new Date(timestamp).getUTCFullYear();
-        await tidbInsertIfAbsent(tx, { insertSql: 'INSERT INTO student_id_sequences (admission_year,next_sequence,updated_at) VALUES (?,?,?)', insertParameters: [registrationYear, 1, timestamp], conflictSql: 'SELECT admission_year FROM student_id_sequences WHERE admission_year=?', conflictParameters: [registrationYear] });
-        const registrationLock = rows(await tx.query('SELECT admission_year FROM student_id_sequences WHERE admission_year=? FOR UPDATE', [registrationYear]))[0];
-        if (!registrationLock) fail('STUDENT_REGISTRATION_LOCK_UNAVAILABLE', 'Student registration is temporarily unavailable. Please retry.', 503);
+        if (!requiresExistingId) {
+          await tidbInsertIfAbsent(tx, { insertSql: 'INSERT INTO student_id_sequences (admission_year,next_sequence,updated_at) VALUES (?,?,?)', insertParameters: [registrationYear, 1, timestamp], conflictSql: 'SELECT admission_year FROM student_id_sequences WHERE admission_year=?', conflictParameters: [registrationYear] });
+          const registrationLock = rows(await tx.query('SELECT admission_year FROM student_id_sequences WHERE admission_year=? FOR UPDATE', [registrationYear]))[0];
+          if (!registrationLock) fail('STUDENT_REGISTRATION_LOCK_UNAVAILABLE', 'Student registration is temporarily unavailable. Please retry.', 503);
+        }
         const period = rows(await tx.query(`SELECT y.id AS academicYearId,y.name AS academicYearName,y.starts_on AS academicYearStartsOn,t.id AS termId,t.name AS termName FROM academic_years y
           JOIN terms t ON t.academic_year_id=y.id WHERE y.school_id=? AND y.id=? AND t.id=? LIMIT 1`, [schoolId, academicYearId, termId]))[0];
         if (!period) fail('ACADEMIC_PERIOD_INVALID', 'Select a valid academic year and term.');
@@ -293,7 +406,6 @@ export function createInternalStudentRegistrationService({ database, clock = () 
         let student, profile, created = false, found = false;
         const existingStudentId = text(input.existingStudentId, 64);
         const existingPermanentStudentId = text(input.existingPermanentStudentId, 128);
-        const requiresExistingId = category === 'ALREADY_ENROLLED' && existingIdChoice === 'HAVE_ID';
         if (requiresExistingId && !existingPermanentStudentId) fail('EXISTING_STUDENT_ID_REQUIRED', 'Enter the existing Student ID before submitting.');
         if (requiresExistingId) {
           const matches = existingStudentId
@@ -436,8 +548,19 @@ export function createInternalStudentRegistrationService({ database, clock = () 
           registered: true, permanentStudentId, idStatus: permanentStudentId ? 'EXISTING' : 'PENDING_GENERATION',
           classId, className: classRow.name, created
         };
+      }, (step) => { failingStep = step; });
+    } catch (error) {
+      const failure = registrationFailure(error, failingStep);
+      const diagnostic = internalRegistrationErrorLogFields(error, failingStep, Object.values(input ?? {}));
+      console.error('Internal student registration persistence failed', {
+        ...diagnostic,
+        operation: 'student_registration', requestId, step: diagnostic.failingStep,
+        errorName: diagnostic.name, errno: diagnostic.errno, sqlState: diagnostic.sqlState,
+        sanitizedSqlMessage: diagnostic.sqlMessage ?? diagnostic.message,
+        code: diagnostic.code, responseCode: failure.code, responseStatus: failure.status
       });
-    } catch (error) { if (error?.status) throw error; if (error?.code === 'ER_DUP_ENTRY' || error?.code === '1062') fail('STUDENT_REGISTRATION_CONFLICT', 'A student ID or class enrollment already exists. Reload the form and verify the student record.', 409); const failure = Object.assign(new Error('Student registration could not be completed. Please retry.'), { code: 'STUDENT_REGISTRATION_FAILED', status: 503, cause: error }); throw failure; }
+      throw failure;
+    }
   }
 
   return Object.freeze({ register, assignPermanentId, getRegisteredStudent, findExistingStudent });
