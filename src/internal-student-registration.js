@@ -210,7 +210,7 @@ export function createInternalStudentRegistrationService({ database, clock = () 
     return matches[0] ?? null;
   }
 
-  async function resolveExistingParent(tx, { schoolId, parentEmail, parentPhone, timestamp }) {
+  async function resolveExistingParent(tx, { schoolId, parentEmail, parentName, parentPhone, timestamp }) {
     let role = rows(await tx.query("SELECT id FROM roles WHERE school_id=? AND role_key='PARENT' LIMIT 1 FOR UPDATE", [schoolId]))[0];
     if (!role) {
       const roleId = idFactory();
@@ -232,10 +232,11 @@ export function createInternalStudentRegistrationService({ database, clock = () 
     if (matched[0]) return matched[0].id;
     const proposedParentUserId = idFactory();
     const unusablePasswordHash = await bcrypt.hash(randomUUID(), 12);
+    const parentFullName = String(parentName ?? '').trim() || 'Parent / Guardian';
     const accountCreated = await tidbInsertIfAbsent(tx, {
-      insertSql: `INSERT INTO users (id,school_id,username,email,phone,password_hash,status,created_at,updated_at)
-        VALUES (?,?,?,?,?,?, 'ACTIVE',?,?)`,
-      insertParameters: [proposedParentUserId, schoolId, parentPhone, parentEmail, parentPhone, unusablePasswordHash, timestamp, timestamp],
+      insertSql: `INSERT INTO users (id,school_id,username,email,phone,full_name,password_hash,status,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,?, 'ACTIVE',?,?)`,
+      insertParameters: [proposedParentUserId, schoolId, parentPhone, parentEmail, parentPhone, parentFullName, unusablePasswordHash, timestamp, timestamp],
       conflictSql: 'SELECT id FROM users WHERE school_id=? AND username=? LIMIT 1 FOR UPDATE',
       conflictParameters: [schoolId, parentPhone]
     });
@@ -564,7 +565,7 @@ export function createInternalStudentRegistrationService({ database, clock = () 
         if (health) await tx.execute('UPDATE student_health_records SET allergies=?,conditions=?,medications=?,emergency_notes=?,updated_at=? WHERE student_id=?', [...healthValues, profile.id]);
         else await tx.execute('INSERT INTO student_health_records (student_id,allergies,conditions,medications,emergency_notes,created_at,updated_at) VALUES (?,?,?,?,?,?,?)', [profile.id, ...healthValues, timestamp]);
 
-        const existingParentId = await resolveExistingParent(tx, { schoolId, parentEmail, parentPhone, timestamp });
+        const existingParentId = await resolveExistingParent(tx, { schoolId, parentEmail, parentName, parentPhone, timestamp });
         if (existingParentId) await tidbInsertIfAbsent(tx, {
           insertSql: 'INSERT INTO parent_student_links (parent_user_id,student_id,permanent_student_id,telephone,relationship,relationship_type,link_status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)',
           insertParameters: [existingParentId, profile.id, student.permanentStudentId ?? student.permanent_student_id ?? null, parentPhone, text(input.relationship, 100) ?? 'Parent/Guardian', text(input.relationship, 100) ?? 'GUARDIAN', 'ACTIVE', timestamp, timestamp],
