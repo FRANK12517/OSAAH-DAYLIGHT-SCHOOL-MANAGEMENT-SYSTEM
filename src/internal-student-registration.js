@@ -444,7 +444,7 @@ export function createInternalStudentRegistrationService({ database, clock = () 
           if (!profile) {
             const profileId = idFactory();
             await tx.execute(`INSERT INTO student_profiles (id,student_master_id,student_id,school_id,admission_number,first_name,last_name,gender,date_of_birth,class_id,enrollment_status,created_at)
-              VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`, [profileId, student.studentId, permanentStudentId, schoolId, student.admissionNumber, student.firstName, student.lastName, student.gender ?? gender, student.dateOfBirth, student.currentClassId ?? classId, student.studentStatus ?? 'ACTIVE', timestamp]);
+              VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`, [profileId, student.studentId, permanentStudentId ?? null, schoolId, student.admissionNumber ?? `REG-${student.studentId}`, student.firstName ?? firstName, student.lastName ?? lastName, student.gender ?? gender ?? 'NOT_SPECIFIED', student.dateOfBirth ?? dateOfBirth, student.currentClassId ?? classId, student.studentStatus ?? 'ACTIVE', timestamp]);
             profile = { id: profileId, permanentStudentId, classId: student.currentClassId ?? classId };
           } else if (!profile.permanentStudentId) {
             await tx.execute('UPDATE student_profiles SET student_id=COALESCE(NULLIF(student_id,\'\'),?) WHERE school_id=? AND id=?', [permanentStudentId, schoolId, profile.id]);
@@ -479,7 +479,7 @@ export function createInternalStudentRegistrationService({ database, clock = () 
           if (!profile) {
             const profileId = idFactory();
             await tx.execute(`INSERT INTO student_profiles (id,student_master_id,student_id,school_id,admission_number,first_name,last_name,gender,date_of_birth,class_id,enrollment_status,created_at)
-              VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`, [profileId, student.studentId, permanentStudentId, schoolId, student.admissionNumber, student.firstName, student.lastName, student.gender ?? gender, student.dateOfBirth, student.currentClassId ?? classId, student.studentStatus ?? 'ACTIVE', timestamp]);
+              VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`, [profileId, student.studentId, permanentStudentId ?? null, schoolId, student.admissionNumber ?? `REG-${student.studentId}`, student.firstName ?? firstName, student.lastName ?? lastName, student.gender ?? gender ?? 'NOT_SPECIFIED', student.dateOfBirth ?? dateOfBirth, student.currentClassId ?? classId, student.studentStatus ?? 'ACTIVE', timestamp]);
             profile = { id: profileId, permanentStudentId, classId: student.currentClassId ?? classId };
           } else if (permanentStudentId && !profile.permanentStudentId) {
             await tx.execute('UPDATE student_profiles SET student_id=COALESCE(NULLIF(student_id,\'\'),?) WHERE school_id=? AND id=?', [permanentStudentId, schoolId, profile.id]);
@@ -491,9 +491,9 @@ export function createInternalStudentRegistrationService({ database, clock = () 
         if (!student) {
           const studentId = idFactory(), profileId = idFactory(), registrationNumber = `REG-${registrationToken || studentId}`;
           await tx.execute(`INSERT INTO students (id,permanent_student_id,school_id,admission_number,current_class_id,first_name,middle_name,last_name,gender,date_of_birth,admission_date,admission_type,student_status,is_test_record,created_at,updated_at)
-            VALUES (?,NULL,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [studentId, schoolId, registrationNumber, classId, firstName, middleName, lastName, gender, dateOfBirth, admissionDate, category, 'ACTIVE', false, timestamp, timestamp]);
+            VALUES (?,NULL,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [studentId, schoolId, registrationNumber, classId, firstName, middleName, lastName, gender || 'NOT_SPECIFIED', dateOfBirth, admissionDate, category, 'ACTIVE', false, timestamp, timestamp]);
           await tx.execute(`INSERT INTO student_profiles (id,student_master_id,student_id,school_id,admission_number,class_id,admission_date,first_name,last_name,gender,date_of_birth,home_address,previous_school,previous_class,enrollment_status,created_at)
-            VALUES (?,?,NULL,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [profileId, studentId, schoolId, registrationNumber, classId, admissionDate, firstName, lastName, gender, dateOfBirth, homeAddress, previousSchool || null, previousClass, 'ACTIVE', timestamp]);
+            VALUES (?,?,NULL,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [profileId, studentId, schoolId, registrationNumber, classId, admissionDate, firstName, lastName, gender || 'NOT_SPECIFIED', dateOfBirth, homeAddress ?? '', previousSchool ?? null, previousClass ?? null, 'ACTIVE', timestamp]);
           student = { studentId, permanentStudentId: null, firstName, lastName };
           profile = { id: profileId, previousSchool: previousSchool || null, previousClass };
           created = true;
