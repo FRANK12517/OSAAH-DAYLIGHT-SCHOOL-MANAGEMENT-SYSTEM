@@ -92,6 +92,7 @@ function isDuplicateError(error) {
 const DATABASE_SCHEMA_CODES = new Set(['ER_BAD_FIELD_ERROR', 'ER_NO_SUCH_TABLE', 'ER_PARSE_ERROR']);
 const DATABASE_SCHEMA_ERRNOS = new Set([1054, 1064, 1146]);
 const DATABASE_SCHEMA_SQL_STATES = new Set(['42S02', '42S22']);
+const isTemporaryAdmissionNumber = (value) => /^REG-/i.test(String(value ?? '').trim());
 
 function registrationFailure(error, failingStep) {
   const fields = Array.isArray(error?.fields) && error.fields.length ? error.fields : VALIDATION_FIELDS[error?.code] ?? ['registration'];
@@ -182,11 +183,11 @@ export function createInternalStudentRegistrationService({ database, clock = () 
         FROM student_profiles WHERE school_id=? AND student_master_id=? ORDER BY id DESC LIMIT 2`, [schoolId, student.studentId]));
     } catch { fail('STUDENT_LOOKUP_FAILED', 'Existing student details could not be checked. Please retry.', 503); }
     const profile = profiles[0] ?? null;
-    const profileIds = [profile?.profileStudentId].filter(Boolean).map(String);
+    const profileIds = [profile?.profileStudentId].filter((id) => id && !isTemporaryAdmissionNumber(id)).map(String);
     if (new Set(profileIds).size > 1 || student.masterPermanentStudentId && profileIds.some((id) => String(student.masterPermanentStudentId) !== id)) fail('STUDENT_ID_PROFILE_CONFLICT', 'The student and profile contain different IDs. Ask the proprietor to reconcile the record.', 409);
     return {
       ...student,
-      permanentStudentId: student.masterPermanentStudentId ?? profile?.profileStudentId ?? (permanentStudentId && student.admissionNumber === permanentStudentId ? permanentStudentId : null),
+      permanentStudentId: student.masterPermanentStudentId ?? (isTemporaryAdmissionNumber(profile?.profileStudentId) ? null : profile?.profileStudentId) ?? (permanentStudentId && student.admissionNumber === permanentStudentId ? permanentStudentId : null),
       profileId: profile?.profileId ?? null,
       classId: student.currentClassId ?? profile?.profileClassId ?? null,
       firstName: student.firstName ?? profile?.profileFirstName,
@@ -235,9 +236,9 @@ export function createInternalStudentRegistrationService({ database, clock = () 
       WHERE s.id=? AND s.school_id=? AND s.is_test_record IS NOT TRUE LIMIT 2`, [studentId, schoolId]));
     if (student.length !== 1) fail(student.length ? 'STUDENT_IDENTITY_AMBIGUOUS' : 'REGISTERED_STUDENT_NOT_FOUND', student.length ? 'This student has multiple profiles. Ask an administrator to reconcile the record.' : 'Save the student registration before requesting a permanent ID.', student.length ? 409 : 404);
     const item = student[0];
-    const profileIds = [item.profileStudentId].filter(Boolean).map(String);
+    const profileIds = [item.profileStudentId].filter((id) => id && !isTemporaryAdmissionNumber(id)).map(String);
     if (new Set(profileIds).size > 1 || item.permanentStudentId && profileIds.some((id) => id !== String(item.permanentStudentId))) fail('STUDENT_ID_PROFILE_CONFLICT', 'The student and profile contain different IDs. Ask the proprietor to reconcile the record.', 409);
-    return { ...item, permanentStudentId: item.permanentStudentId ?? item.profileStudentId ?? null };
+    return { ...item, permanentStudentId: item.permanentStudentId ?? (isTemporaryAdmissionNumber(item.profileStudentId) ? null : item.profileStudentId) ?? null };
   }
 
   async function getRegisteredStudent({ studentId, schoolId } = {}) {
@@ -262,12 +263,12 @@ export function createInternalStudentRegistrationService({ database, clock = () 
         const profiles = rows(await tx.query('SELECT id AS profileId,student_id AS permanentStudentId FROM student_profiles WHERE school_id=? AND student_master_id=? ORDER BY id DESC FOR UPDATE', [schoolId, studentId]));
         if (!profiles.length) fail('STUDENT_PROFILE_NOT_FOUND', 'The saved student profile is incomplete. Ask an administrator to review the registration.', 409);
         const profileId = profiles[0].profileId;
-        const storedIds = profiles.map((row) => row.permanentStudentId).filter(Boolean).map(String);
+        const storedIds = profiles.map((row) => row.permanentStudentId).filter((id) => id && !isTemporaryAdmissionNumber(id)).map(String);
         if (new Set(storedIds).size > 1 || student.permanentStudentId && storedIds.some((id) => id !== String(student.permanentStudentId))) fail('STUDENT_ID_PROFILE_CONFLICT', 'The student and profile contain different IDs. Ask the proprietor to reconcile the record.', 409);
         const existing = String(student.permanentStudentId ?? storedIds[0] ?? '').trim();
         if (existing) {
           if (!student.permanentStudentId) await tx.execute('UPDATE students SET permanent_student_id=?,updated_at=? WHERE school_id=? AND id=? AND (permanent_student_id IS NULL OR permanent_student_id=\'\')', [existing, timestamp, schoolId, studentId]);
-          if (profiles.some((row) => !row.permanentStudentId)) await tx.execute('UPDATE student_profiles SET student_id=COALESCE(NULLIF(student_id,\'\'),?) WHERE school_id=? AND student_master_id=?', [existing, schoolId, studentId]);
+          if (profiles.some((row) => !row.permanentStudentId || isTemporaryAdmissionNumber(row.permanentStudentId))) await tx.execute('UPDATE student_profiles SET student_id=CASE WHEN student_id IS NULL OR student_id=\'\' OR student_id LIKE \'REG-%\' THEN ? ELSE student_id END WHERE school_id=? AND student_master_id=?', [existing, schoolId, studentId]);
           await tx.execute('UPDATE parent_student_links SET permanent_student_id=?,updated_at=? WHERE student_id IN (SELECT id FROM student_profiles WHERE school_id=? AND student_master_id=?) AND (permanent_student_id IS NULL OR permanent_student_id=\'\')', [existing, timestamp, schoolId, studentId]);
           return { studentId, permanentStudentId: existing, created: false };
         }
@@ -305,7 +306,7 @@ export function createInternalStudentRegistrationService({ database, clock = () 
             VALUES (?,?,?,?,?,'CONSUMED',?,?,?,?)`, [idFactory(), idFactory(), permanentStudentId, admissionYear, sequence, studentId, actorId, timestamp, timestamp]);
         }
         await tx.execute('UPDATE students SET permanent_student_id=?,admission_number=CASE WHEN admission_number LIKE \'REG-%\' THEN ? ELSE admission_number END,updated_at=? WHERE school_id=? AND id=? AND (permanent_student_id IS NULL OR permanent_student_id=\'\')', [permanentStudentId, permanentStudentId, timestamp, schoolId, studentId]);
-        await tx.execute('UPDATE student_profiles SET student_id=?,admission_number=CASE WHEN admission_number LIKE \'REG-%\' THEN ? ELSE admission_number END WHERE school_id=? AND student_master_id=? AND (student_id IS NULL OR student_id=\'\')', [permanentStudentId, permanentStudentId, schoolId, studentId]);
+        await tx.execute('UPDATE student_profiles SET student_id=?,admission_number=CASE WHEN admission_number LIKE \'REG-%\' THEN ? ELSE admission_number END WHERE school_id=? AND student_master_id=? AND (student_id IS NULL OR student_id=\'\' OR student_id LIKE \'REG-%\')', [permanentStudentId, permanentStudentId, schoolId, studentId]);
         await tx.execute('UPDATE parent_student_links SET permanent_student_id=?,updated_at=? WHERE student_id IN (SELECT id FROM student_profiles WHERE school_id=? AND student_master_id=?) AND (permanent_student_id IS NULL OR permanent_student_id=\'\')', [permanentStudentId, timestamp, schoolId, studentId]);
         const confirmed = rows(await tx.query(`SELECT s.permanent_student_id AS permanentStudentId,sp.student_id AS profileStudentId
           FROM students s JOIN student_profiles sp ON sp.school_id=s.school_id AND sp.student_master_id=s.id
@@ -427,7 +428,7 @@ export function createInternalStudentRegistrationService({ database, clock = () 
           if (normalizeName([student.firstName, student.middleName, student.lastName].filter(Boolean).join(' ')) !== normalizeName(fullName) || String(student.dateOfBirth ?? '').slice(0, 10) !== dateOfBirth) fail('EXISTING_STUDENT_IDENTITY_MISMATCH', 'The name and date of birth do not match this existing student ID.', 409);
           profile = rows(await tx.query('SELECT id,student_id AS permanentStudentId,class_id AS classId FROM student_profiles WHERE school_id=? AND student_master_id=? ORDER BY id DESC LIMIT 1 FOR UPDATE', [schoolId, student.studentId]))[0] ?? null;
           const masterId = String(student.permanentStudentId ?? '').trim() || null;
-          const profileIds = [profile?.permanentStudentId].filter(Boolean).map(String);
+          const profileIds = [profile?.permanentStudentId].filter((id) => id && !isTemporaryAdmissionNumber(id)).map(String);
           if (new Set(profileIds).size > 1 || masterId && profileIds.some((id) => id !== masterId)) fail('STUDENT_ID_PROFILE_CONFLICT', 'The student and profile contain different IDs. Ask the proprietor to reconcile the record.', 409);
           let permanentStudentId = masterId ?? profileIds[0] ?? null;
           if (existingPermanentStudentId && permanentStudentId && existingPermanentStudentId !== permanentStudentId) fail('EXISTING_STUDENT_IDENTITY_MISMATCH', 'The entered ID does not match this student’s existing ID.', 409);
@@ -443,11 +444,15 @@ export function createInternalStudentRegistrationService({ database, clock = () 
           }
           if (!profile) {
             const profileId = idFactory();
+            const tempAdmissionNumber = student.admissionNumber;
+            const admissionNumber = student.admissionNumber;
+            const newStudentId = student.studentId;
+            const safeProfileStudentId = permanentStudentId || tempAdmissionNumber || admissionNumber || newStudentId;
             await tx.execute(`INSERT INTO student_profiles (id,student_master_id,student_id,school_id,admission_number,first_name,last_name,gender,date_of_birth,class_id,enrollment_status,created_at)
-              VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`, [profileId, student.studentId, permanentStudentId ?? null, schoolId, student.admissionNumber ?? `REG-${student.studentId}`, student.firstName ?? firstName, student.lastName ?? lastName, student.gender ?? gender ?? 'NOT_SPECIFIED', student.dateOfBirth ?? dateOfBirth, student.currentClassId ?? classId, student.studentStatus ?? 'ACTIVE', timestamp]);
+              VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`, [profileId, student.studentId, safeProfileStudentId, schoolId, student.admissionNumber ?? `REG-${student.studentId}`, student.firstName ?? firstName, student.lastName ?? lastName, student.gender ?? gender ?? 'NOT_SPECIFIED', student.dateOfBirth ?? dateOfBirth, student.currentClassId ?? classId, student.studentStatus ?? 'ACTIVE', timestamp]);
             profile = { id: profileId, permanentStudentId, classId: student.currentClassId ?? classId };
-          } else if (!profile.permanentStudentId) {
-            await tx.execute('UPDATE student_profiles SET student_id=COALESCE(NULLIF(student_id,\'\'),?) WHERE school_id=? AND id=?', [permanentStudentId, schoolId, profile.id]);
+          } else if (permanentStudentId && (!profile.permanentStudentId || isTemporaryAdmissionNumber(profile.permanentStudentId))) {
+            await tx.execute('UPDATE student_profiles SET student_id=? WHERE school_id=? AND id=? AND (student_id IS NULL OR student_id=\'\' OR student_id LIKE \'REG-%\')', [permanentStudentId, schoolId, profile.id]);
             profile.permanentStudentId = profile.permanentStudentId ?? permanentStudentId;
           }
           student.permanentStudentId = permanentStudentId;
@@ -471,7 +476,7 @@ export function createInternalStudentRegistrationService({ database, clock = () 
         }
         if (student && !requiresExistingId) {
           const masterId = String(student.permanentStudentId ?? '').trim() || null;
-          const profileIds = [profile?.permanentStudentId].filter(Boolean).map(String);
+          const profileIds = [profile?.permanentStudentId].filter((id) => id && !isTemporaryAdmissionNumber(id)).map(String);
           if (new Set(profileIds).size > 1 || masterId && profileIds.some((id) => id !== masterId)) fail('STUDENT_ID_PROFILE_CONFLICT', 'The student and profile contain different IDs. Ask the proprietor to reconcile the record.', 409);
           let permanentStudentId = masterId ?? profileIds[0] ?? null;
           if (!permanentStudentId && student.admissionNumber && /^(?:OSAA|OSAAH)\/\d{4}\/\d+$/.test(student.admissionNumber)) permanentStudentId = student.admissionNumber;
@@ -482,23 +487,30 @@ export function createInternalStudentRegistrationService({ database, clock = () 
           }
           if (!profile) {
             const profileId = idFactory();
+            const tempAdmissionNumber = student.admissionNumber;
+            const admissionNumber = student.admissionNumber;
+            const newStudentId = student.studentId;
+            const safeProfileStudentId = permanentStudentId || tempAdmissionNumber || admissionNumber || newStudentId;
             await tx.execute(`INSERT INTO student_profiles (id,student_master_id,student_id,school_id,admission_number,first_name,last_name,gender,date_of_birth,class_id,enrollment_status,created_at)
-              VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`, [profileId, student.studentId, permanentStudentId ?? null, schoolId, student.admissionNumber ?? `REG-${student.studentId}`, student.firstName ?? firstName, student.lastName ?? lastName, student.gender ?? gender ?? 'NOT_SPECIFIED', student.dateOfBirth ?? dateOfBirth, student.currentClassId ?? classId, student.studentStatus ?? 'ACTIVE', timestamp]);
+              VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`, [profileId, student.studentId, safeProfileStudentId, schoolId, student.admissionNumber ?? `REG-${student.studentId}`, student.firstName ?? firstName, student.lastName ?? lastName, student.gender ?? gender ?? 'NOT_SPECIFIED', student.dateOfBirth ?? dateOfBirth, student.currentClassId ?? classId, student.studentStatus ?? 'ACTIVE', timestamp]);
             profile = { id: profileId, permanentStudentId, classId: student.currentClassId ?? classId };
-          } else if (permanentStudentId && !profile.permanentStudentId) {
-            await tx.execute('UPDATE student_profiles SET student_id=COALESCE(NULLIF(student_id,\'\'),?) WHERE school_id=? AND id=?', [permanentStudentId, schoolId, profile.id]);
+          } else if (permanentStudentId && (!profile.permanentStudentId || isTemporaryAdmissionNumber(profile.permanentStudentId))) {
+            await tx.execute('UPDATE student_profiles SET student_id=? WHERE school_id=? AND id=? AND (student_id IS NULL OR student_id=\'\' OR student_id LIKE \'REG-%\')', [permanentStudentId, schoolId, profile.id]);
             profile.permanentStudentId = profile.permanentStudentId ?? permanentStudentId;
           }
           student.permanentStudentId = permanentStudentId;
           found = true;
         }
         if (!student) {
-          const studentId = idFactory(), profileId = idFactory(), registrationNumber = `REG-${registrationToken || studentId}`;
+          const newStudentId = idFactory(), profileId = idFactory(), tempAdmissionNumber = `REG-${registrationToken || newStudentId}`;
+          const admissionNumber = tempAdmissionNumber;
+          const permanentStudentId = null;
+          const safeProfileStudentId = permanentStudentId || tempAdmissionNumber || admissionNumber || newStudentId;
           await tx.execute(`INSERT INTO students (id,permanent_student_id,school_id,admission_number,current_class_id,first_name,middle_name,last_name,gender,date_of_birth,admission_date,admission_type,student_status,is_test_record,created_at,updated_at)
-            VALUES (?,NULL,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [studentId, schoolId, registrationNumber, classId, firstName, middleName, lastName, gender || 'NOT_SPECIFIED', dateOfBirth, admissionDate, category, 'ACTIVE', false, timestamp, timestamp]);
+            VALUES (?,NULL,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [newStudentId, schoolId, admissionNumber, classId, firstName, middleName, lastName, gender || 'NOT_SPECIFIED', dateOfBirth, admissionDate, category, 'ACTIVE', false, timestamp, timestamp]);
           await tx.execute(`INSERT INTO student_profiles (id,student_master_id,student_id,school_id,admission_number,class_id,admission_date,first_name,last_name,gender,date_of_birth,home_address,previous_school,previous_class,enrollment_status,created_at)
-            VALUES (?,?,NULL,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [profileId, studentId, schoolId, registrationNumber, classId, admissionDate, firstName, lastName, gender || 'NOT_SPECIFIED', dateOfBirth, homeAddress ?? '', previousSchool ?? null, previousClass ?? null, 'ACTIVE', timestamp]);
-          student = { studentId, permanentStudentId: null, firstName, lastName };
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [profileId, newStudentId, safeProfileStudentId, schoolId, admissionNumber, classId, admissionDate, firstName, lastName, gender || 'NOT_SPECIFIED', dateOfBirth, homeAddress ?? '', previousSchool ?? null, previousClass ?? null, 'ACTIVE', timestamp]);
+          student = { studentId: newStudentId, permanentStudentId, admissionNumber, firstName, lastName };
           profile = { id: profileId, previousSchool: previousSchool || null, previousClass };
           created = true;
         }
