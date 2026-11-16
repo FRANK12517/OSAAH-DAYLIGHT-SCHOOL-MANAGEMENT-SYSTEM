@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import bcrypt from 'bcryptjs';
 import { normalizeGhanaPhone } from './ghana-phone.js';
 import { requireStudentGender } from './student-gender.js';
 import { canonicalClassId, transferPreviousClassLabel, TRANSFER_PREVIOUS_CLASS_VALUES } from './student-classes.js';
@@ -230,10 +231,11 @@ export function createInternalStudentRegistrationService({ database, clock = () 
     if (matched.length > 1) fail('PARENT_IDENTITY_AMBIGUOUS', 'More than one parent account matches these contact details. Reconcile the parent accounts before linking the student.', 409);
     if (matched[0]) return matched[0].id;
     const proposedParentUserId = idFactory();
+    const unusablePasswordHash = await bcrypt.hash(randomUUID(), 12);
     const accountCreated = await tidbInsertIfAbsent(tx, {
       insertSql: `INSERT INTO users (id,school_id,username,email,phone,password_hash,status,created_at,updated_at)
-        VALUES (?,?,?,?,?,NULL,'ACTIVE',?,?)`,
-      insertParameters: [proposedParentUserId, schoolId, parentPhone, parentEmail, parentPhone, timestamp, timestamp],
+        VALUES (?,?,?,?,?,?, 'ACTIVE',?,?)`,
+      insertParameters: [proposedParentUserId, schoolId, parentPhone, parentEmail, parentPhone, unusablePasswordHash, timestamp, timestamp],
       conflictSql: 'SELECT id FROM users WHERE school_id=? AND username=? LIMIT 1 FOR UPDATE',
       conflictParameters: [schoolId, parentPhone]
     });

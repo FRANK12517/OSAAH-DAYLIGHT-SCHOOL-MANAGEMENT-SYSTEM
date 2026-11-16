@@ -166,7 +166,7 @@ function databaseFixture({ failAt = null, errorFactory = null } = {}) {
     if (sql.startsWith('INSERT INTO student_id_sequences')) { if (!state.sequences.has(Number(params[0]))) state.sequences.set(Number(params[0]), 1); return; }
     if (sql.startsWith('UPDATE student_id_sequences')) { state.sequences.set(Number(params[2]), Number(params[0])); return; }
     if (sql.startsWith('INSERT INTO student_id_reservations')) { state.reservations.push({ id: params[0], reservation_token: params[1], permanent_student_id: params[2], admission_year: params[3], sequence_number: params[4], reservation_status: 'CONSUMED', student_id: params[5], reserved_by: params[6], created_at: params[7], consumed_at: params[8] }); return; }
-    if (sql.startsWith('INSERT INTO users ')) { state.parentAccounts.push({ id: params[0], school_id: params[1], username: params[2], email: params[3], phone: params[4], status: 'ACTIVE' }); return; }
+    if (sql.startsWith('INSERT INTO users ')) { state.parentAccounts.push({ id: params[0], school_id: params[1], username: params[2], email: params[3], phone: params[4], password_hash: params[5], status: 'ACTIVE' }); return; }
     if (sql.startsWith('INSERT INTO user_roles ')) { state.userRoles.push({ id: params[0], user_id: params[1], role_id: params[2], created_at: params[3] }); return; }
     if (sql.startsWith('INSERT INTO roles ')) { state.roles.push({ id: params[0], school_id: params[1], role_key: params[2], role_name: params[3], oversight_rank: params[4], created_at: params[5], updated_at: params[6] }); return; }
     if (sql.startsWith('INSERT INTO students ')) { state.students.push({ id: params[0], permanent_student_id: null, school_id: params[1], admission_number: params[2], current_class_id: params[3], first_name: params[4], middle_name: params[5], last_name: params[6], gender: params[7], date_of_birth: params[8], admission_date: params[9], admission_type: params[10], student_status: params[11], is_test_record: params[12] }); return; }
@@ -511,6 +511,8 @@ test('new parent contact is linked to a school-scoped phone-only Parent Portal a
   assert.equal(result.created, true);
   assert.equal(parent.username, '+233241234567');
   assert.equal(parent.phone, '+233241234567');
+  assert.equal(typeof parent.password_hash, 'string');
+  assert.ok(parent.password_hash.length > 0);
   const parentRoleLink = state.userRoles.find((link) => link.user_id === parent.id);
   assert.equal(parentRoleLink?.role_id, 'role-parent');
   assert.equal(state.parentLinks[0].parent_user_id, parent.id);
