@@ -648,7 +648,7 @@ export function createApp({ auth = null, students = null, attendance = null, att
             sanitizedSqlMessage: diagnostic.sqlMessage ?? diagnostic.message,
             code: diagnostic.code, responseCode: error.code ?? 'INTERNAL_SERVER_ERROR', responseStatus: error.status ?? 500
           });
-          return json(response, { error: error.message ?? 'Student registration failed.', code: error.code ?? 'INTERNAL_SERVER_ERROR', ...(Array.isArray(error.fields) ? { fields: error.fields } : {}) }, error.status ?? 500);
+          return json(response, { success: false, code: error.code ?? 'DATABASE_OPERATION_FAILED', error: error.databaseMessage ?? error.message ?? 'The registration database operation failed.', cause: error.databaseCause ?? error.cause?.message ?? error.toString(), ...(Array.isArray(error.fields) ? { fields: error.fields } : {}) }, error.status ?? 500);
         }
       }
       if (pathname === '/api/school-settings' && request.method === 'GET') { if (!canAccess(user, 'settings.read')) return json(response, { error: 'Forbidden.' }, 403); try { return json(response, await schoolSettings.read(user)); } catch (error) { return json(response, { error: error.message }, error.status ?? 500); } }

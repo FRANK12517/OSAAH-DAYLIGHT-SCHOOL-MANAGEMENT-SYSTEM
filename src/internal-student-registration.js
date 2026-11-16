@@ -452,15 +452,19 @@ export function createInternalStudentRegistrationService({ database, clock = () 
           }
           student.permanentStudentId = permanentStudentId;
           found = true;
-        } else {
+        } else if (category === 'ALREADY_ENROLLED') {
           student = await findRegistrationMatch(tx, { schoolId, fullName, dateOfBirth });
           if (student) {
             found = true;
             const profileRows = rows(await tx.query('SELECT id,student_id AS permanentStudentId,class_id AS classId FROM student_profiles WHERE school_id=? AND student_master_id=? ORDER BY id DESC LIMIT 1 FOR UPDATE', [schoolId, student.studentId]));
             profile = profileRows[0] ?? null;
           }
+        } else if (category === 'FIRST_TIME') {
+          const existing = await findRegistrationMatch(tx, { schoolId, fullName, dateOfBirth });
+          if (existing) fail('STUDENT_IDENTITY_ALREADY_EXISTS', 'A student with this name and date of birth already exists. Select Existing Student to continue their record.', 409);
         }
         if (!student && requiresExistingId) fail('EXISTING_ID_NOT_FOUND', 'EXISTING_ID_NOT_FOUND: No student record has that permanent ID. Check the ID and try again.', 404);
+        if (!student && category === 'ALREADY_ENROLLED' && !requiresExistingId) fail('EXISTING_STUDENT_NOT_FOUND', 'No existing student matches this name and date of birth. Check the details or ask an administrator to reconcile the student record.', 404);
         if (student && !profile) {
           const profileRows = rows(await tx.query('SELECT id,student_id AS permanentStudentId,class_id AS classId FROM student_profiles WHERE school_id=? AND student_master_id=? ORDER BY id DESC LIMIT 1 FOR UPDATE', [schoolId, student.studentId]));
           profile = profileRows[0] ?? null;
@@ -548,6 +552,9 @@ export function createInternalStudentRegistrationService({ database, clock = () 
       }, (step) => { failingStep = step; });
     } catch (error) {
       const failure = registrationFailure(error, failingStep);
+      console.error('REGISTRATION_ERROR_DETAIL:', error);
+      failure.databaseMessage = error.message || 'The registration database operation failed.';
+      failure.databaseCause = error.cause?.message || error.toString();
       const diagnostic = internalRegistrationErrorLogFields(error, failingStep, Object.values(input ?? {}));
       console.error('Internal student registration persistence failed', {
         ...diagnostic,
