@@ -234,9 +234,9 @@ export function createInternalStudentRegistrationService({ database, clock = () 
     const unusablePasswordHash = await bcrypt.hash(randomUUID(), 12);
     const parentFullName = String(parentName ?? '').trim() || 'Parent / Guardian';
     const accountCreated = await tidbInsertIfAbsent(tx, {
-      insertSql: `INSERT INTO users (id,school_id,username,email,phone,full_name,password_hash,status,created_at,updated_at)
-        VALUES (?,?,?,?,?,?,?, 'ACTIVE',?,?)`,
-      insertParameters: [proposedParentUserId, schoolId, parentPhone, parentEmail, parentPhone, parentFullName, unusablePasswordHash, timestamp, timestamp],
+      insertSql: `INSERT INTO users (id,school_id,username,email,phone,full_name,role,password_hash,status,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,?, 'ACTIVE',?,?)`,
+      insertParameters: [proposedParentUserId, schoolId, parentPhone, parentEmail, parentPhone, parentFullName, 'PARENT', unusablePasswordHash, timestamp, timestamp],
       conflictSql: 'SELECT id FROM users WHERE school_id=? AND username=? LIMIT 1 FOR UPDATE',
       conflictParameters: [schoolId, parentPhone]
     });
