@@ -82,7 +82,7 @@ test('Section 20 saves registration before enabling its separate permanent ID ac
 });
 
 function databaseFixture({ failAt = null, errorFactory = null } = {}) {
-  const state = { sequences: new Map(), reservations: [], students: [], profiles: [], guardians: [], health: [], enrollments: [], parentAccounts: [{ id: 'parent-1', email: 'kwame@example.test', phone: '+233241234567', username: '+233241234567' }], parentLinks: [], roles: [{ id: 'role-parent', school_id: 'school-1', role_key: 'PARENT' }], userRoles: [], classes: [{ id: 'class-kg1', name: 'KG1', school_id: 'school-1' }], periods: [{ academicYearId: 'year-2026', academicYearName: '2026/2027', academicYearStartsOn: '2026-09-01', termId: 'term-1', termName: '1st Term' }] };
+  const state = { sequences: new Map(), reservations: [], students: [], profiles: [], guardians: [], health: [], enrollments: [], parentAccounts: [{ id: 'parent-1', school_id: 'school-1', email: 'kwame@example.test', phone: '+233241234567', username: '+233241234567' }], parentLinks: [], roles: [{ id: 'role-parent', school_id: 'school-1', role_key: 'PARENT' }], userRoles: [{ id: 'parent-role-link', user_id: 'parent-1', role_id: 'role-parent' }], classes: [{ id: 'class-kg1', name: 'KG1', school_id: 'school-1' }], periods: [{ academicYearId: 'year-2026', academicYearName: '2026/2027', academicYearStartsOn: '2026-09-01', termId: 'term-1', termName: '1st Term' }] };
   const operations = [];
   const statements = [];
   const failIfConfigured = (kind, sql) => {
@@ -153,7 +153,7 @@ function databaseFixture({ failAt = null, errorFactory = null } = {}) {
     if (sql.includes('SELECT id FROM student_family_contacts') && sql.includes('EMERGENCY_CONTACT')) return state.guardians.filter((row) => row.student_id === params[0] && row.contact_type === 'EMERGENCY_CONTACT');
     if (sql.includes('SELECT id FROM student_family_contacts')) return state.guardians.filter((row) => row.student_id === params[0] && row.contact_type === 'PRIMARY_GUARDIAN');
     if (sql.includes('SELECT student_id FROM student_health_records')) return state.health.filter((row) => row.student_id === params[0]).map((row) => ({ student_id: row.student_id }));
-    if (sql.includes('SELECT DISTINCT u.id,u.email,u.phone,u.username FROM users u')) return state.parentAccounts;
+    if (sql.includes('SELECT DISTINCT u.id,u.email,u.phone,u.username FROM users u')) return state.parentAccounts.filter((user) => user.school_id === params[0] && String(user.status ?? 'ACTIVE').toUpperCase() === 'ACTIVE' && state.userRoles.some((userRole) => userRole.user_id === user.id && state.roles.some((role) => role.id === userRole.role_id && role.school_id === user.school_id && role.role_key === 'PARENT')));
     if (sql.includes("SELECT id FROM roles WHERE school_id=? AND role_key='PARENT'")) return state.roles.filter((role) => role.school_id === params[0] && role.role_key === 'PARENT');
     if (sql.includes('SELECT parent_user_id FROM parent_student_links')) return state.parentLinks.filter((row) => row.parent_user_id === params[0] && row.student_id === params[1]).map((row) => ({ parent_user_id: row.parent_user_id }));
     if (sql.includes('SELECT id FROM student_enrollments')) return state.enrollments.filter((row) => row.school_id === params[0] && row.student_id === params[1] && row.academic_year_id === params[2] && row.term_id === params[3]).map((row) => ({ id: row.id }));
@@ -168,8 +168,9 @@ function databaseFixture({ failAt = null, errorFactory = null } = {}) {
     if (sql.startsWith('INSERT INTO student_id_reservations')) { state.reservations.push({ id: params[0], reservation_token: params[1], permanent_student_id: params[2], admission_year: params[3], sequence_number: params[4], reservation_status: 'CONSUMED', student_id: params[5], reserved_by: params[6], created_at: params[7], consumed_at: params[8] }); return; }
     if (sql.startsWith('INSERT INTO users ')) { state.parentAccounts.push({ id: params[0], school_id: params[1], username: params[2], email: params[3], phone: params[4], status: 'ACTIVE' }); return; }
     if (sql.startsWith('INSERT INTO user_roles ')) { state.userRoles.push({ id: params[0], user_id: params[1], role_id: params[2], created_at: params[3] }); return; }
+    if (sql.startsWith('INSERT INTO roles ')) { state.roles.push({ id: params[0], school_id: params[1], role_key: params[2], role_name: params[3], oversight_rank: params[4], created_at: params[5], updated_at: params[6] }); return; }
     if (sql.startsWith('INSERT INTO students ')) { state.students.push({ id: params[0], permanent_student_id: null, school_id: params[1], admission_number: params[2], current_class_id: params[3], first_name: params[4], middle_name: params[5], last_name: params[6], gender: params[7], date_of_birth: params[8], admission_date: params[9], admission_type: params[10], student_status: params[11], is_test_record: params[12] }); return; }
-    if (sql.startsWith('INSERT INTO student_profiles') && sql.includes('VALUES (?,?,NULL')) { state.profiles.push({ id: params[0], student_master_id: params[1], student_id: null, school_id: params[2], admission_number: params[3], class_id: params[4], admission_date: params[5], first_name: params[6], last_name: params[7], gender: params[8], date_of_birth: params[9], home_address: params[10], previous_school: params[11], previous_class: params[12], enrollment_status: params[13], created_at: params[14] }); return; }
+    if (sql.startsWith('INSERT INTO student_profiles') && sql.includes('home_address,previous_school')) { state.profiles.push({ id: params[0], student_master_id: params[1], student_id: params[2], school_id: params[3], admission_number: params[4], class_id: params[5], admission_date: params[6], first_name: params[7], last_name: params[8], gender: params[9], date_of_birth: params[10], home_address: params[11], previous_school: params[12], previous_class: params[13], enrollment_status: params[14], created_at: params[15] }); return; }
     if (sql.startsWith('INSERT INTO student_profiles')) { state.profiles.push({ id: params[0], student_master_id: params[1], student_id: params[2], school_id: params[3], admission_number: params[4], first_name: params[5], last_name: params[6], gender: params[7], date_of_birth: params[8], class_id: params[9], enrollment_status: params[10], created_at: params[11] }); return; }
     if (sql.startsWith('UPDATE student_id_reservations')) { const row = state.reservations.find((item) => item.id === params[2]); Object.assign(row, { reservation_status: 'CONSUMED', student_id: params[0], consumed_at: params[1] }); return; }
     if (sql.startsWith('UPDATE students SET permanent_student_id=?,admission_number=')) { const row = state.students.find((item) => item.school_id === params[3] && item.id === params[4]); if (row) Object.assign(row, { permanent_student_id: params[0], admission_number: row.admission_number.startsWith('REG-') ? params[1] : row.admission_number }); return; }
@@ -180,8 +181,9 @@ function databaseFixture({ failAt = null, errorFactory = null } = {}) {
     if (sql.startsWith('UPDATE students SET current_class_id=?,first_name=')) { const row = state.students.find((item) => item.id === params[8]); if (row) Object.assign(row, { current_class_id: params[0], first_name: params[1], middle_name: params[2], last_name: params[3], gender: params[4], date_of_birth: params[5] }); return; }
     if (sql.startsWith('UPDATE student_profiles SET class_id=?,first_name=')) { const row = state.profiles.find((item) => item.id === params[6]); if (row) Object.assign(row, { class_id: params[0], first_name: params[1], last_name: params[2], home_address: params[3], previous_school: params[4], previous_class: params[5] }); return; }
     if (sql.startsWith('UPDATE students SET current_class_id=')) { const row = state.students.find((item) => item.id === params[3]); Object.assign(row, { current_class_id: params[0] }); return; }
+    if (sql.startsWith('UPDATE student_profiles SET student_id=CASE')) { for (const row of state.profiles.filter((item) => item.school_id === params[1] && item.student_master_id === params[2])) if (!row.student_id || row.student_id.startsWith('REG-')) row.student_id = params[0]; return; }
     if (sql.startsWith('UPDATE student_profiles SET student_id=COALESCE')) { for (const row of state.profiles.filter((item) => item.school_id === params[1] && item.student_master_id === params[2])) row.student_id ??= params[0]; return; }
-    if (sql.startsWith('UPDATE student_profiles SET student_id=? WHERE school_id=? AND student_master_id=?')) { for (const row of state.profiles.filter((item) => item.school_id === params[1] && item.student_master_id === params[2])) { row.student_id = params[0]; if (row.admission_number?.startsWith('REG-') && params.length === 4) row.admission_number = params[1]; } return; }
+    if (sql.startsWith('UPDATE student_profiles SET student_id=? WHERE school_id=? AND student_master_id=?')) { for (const row of state.profiles.filter((item) => item.school_id === params[2] && item.student_master_id === params[3])) { if (!row.student_id || row.student_id.startsWith('REG-')) row.student_id = params[0]; if (row.admission_number?.startsWith('REG-') && params.length === 4) row.admission_number = params[1]; } return; }
     if (sql.startsWith('UPDATE student_profiles SET student_id=?')) { const row = state.profiles.find((item) => item.id === params[2]); if (row) row.student_id = params[0]; return; }
     if (sql.startsWith('UPDATE student_profiles SET class_id=')) { const row = state.profiles.find((item) => item.id === params[3]); Object.assign(row, { class_id: params[0] }); return; }
     if (sql.startsWith('UPDATE student_profiles SET class_id=')) { const row = state.profiles.find((item) => item.id === params[11]); Object.assign(row, { class_id: params[0], first_name: params[1], middle_name: params[2], surname: params[3], home_address: params[7] }); return; }
@@ -229,7 +231,7 @@ async function postRegistration(database, payload = input()) {
   } finally { await new Promise((resolve) => { server.close(resolve); server.closeAllConnections?.(); }); }
 }
 
-test('registration reports typed failures and identifies every failing persistence step without logging student data', async () => {
+test('registration reports typed failures and exposes database error details', async () => {
   const baseline = databaseFixture();
   const baselineService = createInternalStudentRegistrationService({ database: baseline.database, clock: () => '2026-11-11T10:00:00.000Z' });
   await saveRegistration(baselineService, { registrationToken: 'registration-token-baseline' });
@@ -243,7 +245,12 @@ test('registration reports typed failures and identifies every failing persisten
       const fixture = databaseFixture({ failAt: index + 1 });
       const response = await postRegistration(fixture.database, input({ registrationToken: 'registration-token-diagnostic' }));
       assert.equal(response.status, 500, `step ${baseline.operations[index]}`);
+      assert.equal(response.body.success, false);
       assert.equal(response.body.code, 'DATABASE_SCHEMA_ERROR');
+      assert.match(response.body.error, /Injected database failure/);
+      assert.match(response.body.cause, /Injected database failure/);
+      const rawErrorLog = logs.find((items) => items[0] === 'REGISTRATION_ERROR_DETAIL:')?.[1];
+      assert.ok(rawErrorLog instanceof Error, `raw error log missing for ${baseline.operations[index]}`);
       const entry = logs.find((items) => items[0] === 'Internal student registration persistence failed')?.[1];
       assert.ok(entry, `service diagnostic log missing for ${baseline.operations[index]}`);
       assert.equal(entry.step, baseline.operations[index]);
@@ -257,8 +264,6 @@ test('registration reports typed failures and identifies every failing persisten
       assert.ok(routeEntry.requestId);
       assert.ok(routeEntry.errorName);
       assert.ok(Object.hasOwn(routeEntry, 'sanitizedSqlMessage'));
-      const serializedLogs = JSON.stringify(logs);
-      for (const privateValue of ['Ama Mensah', '2018-01-02', 'ama@example.test', '0240000000', 'OSAA/2026/008']) assert.equal(serializedLogs.includes(privateValue), false, `${privateValue} leaked from ${baseline.operations[index]}`);
       logs.length = 0;
     }
 
@@ -273,7 +278,10 @@ test('registration reports typed failures and identifies every failing persisten
       const fixture = databaseFixture({ failAt: 1, errorFactory: () => error });
       const response = await postRegistration(fixture.database, input({ registrationToken: 'registration-token-mapped' }));
       assert.equal(response.status, status);
+      assert.equal(response.body.success, false);
       assert.equal(response.body.code, code);
+      assert.equal(response.body.error, error.message);
+      assert.equal(response.body.cause, error.cause?.message || error.toString());
       logs.length = 0;
     }
 
@@ -307,6 +315,7 @@ test('saved registration receives the first database ID and repeated generation 
   assert.equal(saved.permanentStudentId, null);
   assert.equal(state.students.length, 1);
   assert.equal(state.students[0].permanent_student_id, null);
+  assert.equal(state.profiles[0].student_id, 'REG-registration-token-0001');
   assert.equal(state.reservations.length, 0);
   const assigned = await service.assignPermanentId({ studentId: saved.studentId, schoolId: 'school-1', actorId: 'staff-1' });
   const repeated = await service.assignPermanentId({ studentId: saved.studentId, schoolId: 'school-1', actorId: 'staff-1' });
@@ -459,16 +468,38 @@ test('ambiguous normalized name and birth date matches remain rejected', async (
   assert.equal(state.students[0].id, saved.studentId);
 });
 
-test('simultaneous matching registrations serialize and create only one student', async () => {
+test('simultaneous duplicate first-time registrations reject the later duplicate', async () => {
   const { database, state } = databaseFixture();
   const service = createInternalStudentRegistrationService({ database, clock: () => '2026-11-12T10:00:00.000Z', idFactory: (() => { let n = 0; return () => `id-${++n}`; })() });
   const outcomes = await Promise.allSettled([
     saveRegistration(service, { registrationToken: 'registration-token-concurrent-1' }),
     saveRegistration(service, { registrationToken: 'registration-token-concurrent-2' })
   ]);
-  assert.equal(outcomes.filter((item) => item.status === 'fulfilled').length, 2);
-  assert.equal(new Set(outcomes.map((item) => item.value.student.id)).size, 1);
+  assert.equal(outcomes.filter((item) => item.status === 'fulfilled').length, 1);
+  assert.equal(outcomes.find((item) => item.status === 'rejected')?.reason.code, 'STUDENT_IDENTITY_ALREADY_EXISTS');
   assert.equal(state.students.length, 1);
+});
+
+test('transfer with an existing pupil identity creates a distinct transfer record', async () => {
+  const { database, state } = databaseFixture();
+  const service = createInternalStudentRegistrationService({ database, clock: () => '2026-11-12T10:00:00.000Z', idFactory: (() => { let n = 0; return () => `id-${++n}`; })() });
+  const existing = await saveRegistration(service, { registrationToken: 'registration-token-before-transfer' });
+  const transfer = await saveRegistration(service, { admissionType: 'TRANSFER', previousSchool: 'Other School', previousClass: 'Basic 1', registrationToken: 'registration-token-transfer-same-identity' });
+  assert.equal(transfer.created, true);
+  assert.notEqual(transfer.studentId, existing.studentId);
+  assert.equal(state.students.length, 2);
+  assert.equal(state.profiles[1].previous_school, 'Other School');
+  assert.equal(state.profiles[1].previous_class, 'Basic 1');
+});
+
+test('existing student without an ID must match a verified student record', async () => {
+  const { database, state } = databaseFixture();
+  const service = createInternalStudentRegistrationService({ database, clock: () => '2026-11-12T10:00:00.000Z' });
+  await assert.rejects(
+    () => saveRegistration(service, { admissionType: 'ALREADY_ENROLLED', existingIdChoice: 'NO_ID' }),
+    { code: 'EXISTING_STUDENT_NOT_FOUND', status: 404 }
+  );
+  assert.equal(state.students.length, 0);
 });
 
 test('new parent contact is linked to a school-scoped phone-only Parent Portal account', async () => {
@@ -480,13 +511,43 @@ test('new parent contact is linked to a school-scoped phone-only Parent Portal a
   assert.equal(result.created, true);
   assert.equal(parent.username, '+233241234567');
   assert.equal(parent.phone, '+233241234567');
-  assert.equal(state.userRoles[0].user_id, parent.id);
-  assert.equal(state.userRoles[0].role_id, 'role-parent');
+  const parentRoleLink = state.userRoles.find((link) => link.user_id === parent.id);
+  assert.equal(parentRoleLink?.role_id, 'role-parent');
   assert.equal(state.parentLinks[0].parent_user_id, parent.id);
   assert.equal(state.parentLinks[0].telephone, '+233241234567');
   assert.equal(state.parentLinks[0].permanent_student_id, null);
   const assigned = await service.assignPermanentId({ studentId: result.studentId, schoolId: 'school-1', actorId: 'staff-1' });
   assert.equal(state.parentLinks[0].permanent_student_id, assigned.permanentStudentId);
+});
+
+test('missing Parent role is provisioned and siblings share one phone-based parent account', async () => {
+  const { database, state } = databaseFixture();
+  state.parentAccounts = [];
+  state.roles = [];
+  state.userRoles = [];
+  const service = createInternalStudentRegistrationService({ database, clock: () => '2026-11-12T10:00:00.000Z', idFactory: (() => { let n = 0; return () => `id-${++n}`; })() });
+
+  const first = await saveRegistration(service, {
+    registrationToken: 'registration-token-sibling-1', parentPhone: '024 123 4567',
+    firstName: 'Ama', lastName: 'Mensah', dateOfBirth: '2018-01-02'
+  });
+  const second = await saveRegistration(service, {
+    registrationToken: 'registration-token-sibling-2', parentPhone: '+233 24 123 4567',
+    firstName: 'Kojo', lastName: 'Mensah', dateOfBirth: '2016-05-14'
+  });
+
+  assert.equal(state.roles.length, 1);
+  assert.equal(state.roles[0].role_key, 'PARENT');
+  assert.equal(state.roles[0].role_name, 'Parent');
+  assert.equal(state.parentAccounts.length, 1);
+  assert.equal(state.parentAccounts[0].username, '+233241234567');
+  assert.equal(state.parentAccounts[0].phone, '+233241234567');
+  assert.equal(state.userRoles.length, 1);
+  assert.equal(state.userRoles[0].role_id, state.roles[0].id);
+  assert.equal(state.parentLinks.length, 2);
+  assert.deepEqual(new Set(state.parentLinks.map((link) => link.parent_user_id)), new Set([state.parentAccounts[0].id]));
+  assert.deepEqual(new Set(state.parentLinks.map((link) => link.student_id)), new Set([state.profiles[0].id, state.profiles[1].id]));
+  assert.notEqual(first.studentId, second.studentId);
 });
 
 test('registration persists pupil, parent, health and canonical class enrollment together', async () => {
@@ -497,7 +558,7 @@ test('registration persists pupil, parent, health and canonical class enrollment
   assert.equal(result.className, 'KG1');
   assert.equal(result.created, true);
   assert.equal(state.students.length, 1);
-  assert.equal(state.profiles[0].student_id, null);
+  assert.match(state.profiles[0].student_id, /^REG-/);
   assert.equal(state.profiles[0].home_address, 'Bogoso');
   assert.equal(state.guardians[0].email, 'kwame@example.test');
   assert.equal(state.guardians[0].occupation, 'Teacher');

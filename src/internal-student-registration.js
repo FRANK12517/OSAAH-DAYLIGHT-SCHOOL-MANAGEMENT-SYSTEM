@@ -210,20 +210,43 @@ export function createInternalStudentRegistrationService({ database, clock = () 
   }
 
   async function resolveExistingParent(tx, { schoolId, parentEmail, parentPhone, timestamp }) {
+    let role = rows(await tx.query("SELECT id FROM roles WHERE school_id=? AND role_key='PARENT' LIMIT 1 FOR UPDATE", [schoolId]))[0];
+    if (!role) {
+      const roleId = idFactory();
+      await tidbInsertIfAbsent(tx, {
+        insertSql: 'INSERT INTO roles (id,school_id,role_key,role_name,oversight_rank,created_at,updated_at) VALUES (?,?,?,?,?,?,?)',
+        insertParameters: [roleId, schoolId, 'PARENT', 'Parent', 5, timestamp, timestamp],
+        conflictSql: "SELECT id FROM roles WHERE school_id=? AND role_key='PARENT' LIMIT 1 FOR UPDATE",
+        conflictParameters: [schoolId]
+      });
+      role = rows(await tx.query("SELECT id FROM roles WHERE school_id=? AND role_key='PARENT' LIMIT 1 FOR UPDATE", [schoolId]))[0];
+    }
+    if (!role) fail('PARENT_ROLE_PROVISION_FAILED', 'Parent Portal role could not be provisioned for this school. Please retry.', 503);
     const candidates = rows(await tx.query(`SELECT DISTINCT u.id,u.email,u.phone,u.username FROM users u
       JOIN user_roles ur ON ur.user_id=u.id
       JOIN roles r ON r.id=ur.role_id AND r.school_id=u.school_id AND r.role_key='PARENT'
       WHERE u.school_id=? AND UPPER(COALESCE(u.status,'ACTIVE'))='ACTIVE'`, [schoolId]));
-    const matched = candidates.filter((item) => (parentEmail && String(item.email ?? '').trim().toLowerCase() === parentEmail.toLowerCase())
-      || normalizedPhone(item.phone) === parentPhone || String(item.username ?? '') === parentPhone);
+    const matched = candidates.filter((item) => (normalizedPhone(item.phone) ?? normalizedPhone(item.username)) === parentPhone);
     if (matched.length > 1) fail('PARENT_IDENTITY_AMBIGUOUS', 'More than one parent account matches these contact details. Reconcile the parent accounts before linking the student.', 409);
     if (matched[0]) return matched[0].id;
-    const role = rows(await tx.query("SELECT id FROM roles WHERE school_id=? AND role_key='PARENT' LIMIT 1 FOR UPDATE", [schoolId]))[0];
-    if (!role) fail('PARENT_ROLE_NOT_CONFIGURED', 'Parent Portal access is not configured for this school. Ask an administrator to configure the Parent role before completing registration.', 503);
-    const parentUserId = idFactory();
-    await tx.execute(`INSERT INTO users (id,school_id,username,email,phone,password_hash,status,created_at,updated_at)
-      VALUES (?,?,?,?,?,NULL,'ACTIVE',?,?)`, [parentUserId, schoolId, parentPhone, parentEmail, parentPhone, timestamp, timestamp]);
-    await tx.execute('INSERT INTO user_roles (id,user_id,role_id,created_at) VALUES (?,?,?,?)', [idFactory(), parentUserId, role.id, timestamp]);
+    const proposedParentUserId = idFactory();
+    const accountCreated = await tidbInsertIfAbsent(tx, {
+      insertSql: `INSERT INTO users (id,school_id,username,email,phone,password_hash,status,created_at,updated_at)
+        VALUES (?,?,?,?,?,NULL,'ACTIVE',?,?)`,
+      insertParameters: [proposedParentUserId, schoolId, parentPhone, parentEmail, parentPhone, timestamp, timestamp],
+      conflictSql: 'SELECT id FROM users WHERE school_id=? AND username=? LIMIT 1 FOR UPDATE',
+      conflictParameters: [schoolId, parentPhone]
+    });
+    const parentUserId = accountCreated ? proposedParentUserId : rows(await tx.query(
+      'SELECT id FROM users WHERE school_id=? AND username=? LIMIT 1 FOR UPDATE', [schoolId, parentPhone]
+    ))[0]?.id;
+    if (!parentUserId) fail('PARENT_ACCOUNT_PROVISION_FAILED', 'Parent Portal account could not be provisioned. Please retry.', 503);
+    await tidbInsertIfAbsent(tx, {
+      insertSql: 'INSERT INTO user_roles (id,user_id,role_id,created_at) VALUES (?,?,?,?)',
+      insertParameters: [idFactory(), parentUserId, role.id, timestamp],
+      conflictSql: 'SELECT user_id FROM user_roles WHERE user_id=? AND role_id=? LIMIT 1 FOR UPDATE',
+      conflictParameters: [parentUserId, role.id]
+    });
     return parentUserId;
   }
 
