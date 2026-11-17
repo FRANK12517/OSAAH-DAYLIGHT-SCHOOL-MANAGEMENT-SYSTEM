@@ -294,11 +294,12 @@ test('Parent transport exposes only the selected child assignment and strips rou
 });
 
 test('Parent class options include all 13 canonical classes in order and preserve configured class IDs', async () => {
-  const service = createParentDashboardService(dependencies({ durableAcademic: { options: async () => ({
+  const base = dependencies();
+  const service = createParentDashboardService({ ...base, durableAcademic: { ...base.durableAcademic, options: async () => ({
     academicYears: [{ id: 'year-2026', name: '2026/2027' }],
     terms: [{ id: 'term-2', name: '2nd Term', academicYearId: 'year-2026' }],
     classes: [{ id: 'class-primary-6', name: 'Basic 6' }, { id: 'class-jhs-3', name: 'JHS 3' }]
-  }) } }));
+  }) } });
   const result = await service.options(actor());
   assert.deepEqual(result.classes.slice(0, 13).map((item) => item.name), [
     'Nursery 1', 'Nursery 2', 'KG 1', 'KG 2', 'Primary 1', 'Primary 2', 'Primary 3',
@@ -309,6 +310,18 @@ test('Parent class options include all 13 canonical classes in order and preserv
   assert.equal(result.classes[12].id, 'class-jhs-3');
   assert.equal(result.classes.some((item) => item.name === 'Basic 6'), false);
   assert.equal(result.classes.at(-1).name, 'Completed / Graduated');
+});
+
+test('Parent academic options expose configured mock labels for published result selection', async () => {
+  const base = dependencies();
+  const service = createParentDashboardService({ ...base, durableAcademic: { ...base.durableAcademic, options: async () => ({
+    academicYears: [{ id: 'year-2026', name: '2026/2027' }],
+    terms: [{ id: 'term-1', name: '1st Term', academicYearId: 'year-2026' }],
+    classes: [{ id: 'class-primary-1', name: 'Primary 1' }],
+    mockTypes: ['1st Mock', '2nd Mock']
+  }) } });
+  const result = await service.options(actor());
+  assert.deepEqual(result.mockTypes, [{ id: '1st Mock', name: '1st Mock' }, { id: '2nd Mock', name: '2nd Mock' }]);
 });
 
 test('sample context metadata does not narrow the Parent class dropdown', () => {
@@ -470,6 +483,8 @@ test('Parent published-result access honors the persisted block and still requir
   let blocked = true;
   let publicationStatus = 'PUBLISHED';
   let publicationReads = 0;
+  const publicationInputs = [];
+  const resultOptions = [];
   const service = createParentDashboardService({
     ...base,
     cards: [...cards, { moduleKey: 'parent-results', moduleName: 'Published Results', route: '#results' }],
@@ -480,8 +495,8 @@ test('Parent published-result access honors the persisted block and still requir
         terms: [{ id: 'term-1', name: '1st Term', academicYearId: 'year-2026' }],
         classes: [{ id: 'class-primary-1', name: 'Primary 1' }]
       }),
-      publicationFor: async () => { publicationReads += 1; return publicationStatus ? { status: publicationStatus } : null; },
-      result: async () => ({ studentId: child.id, classId: child.classId, result: 'published result' })
+      publicationFor: async (input) => { publicationReads += 1; publicationInputs.push(input); return publicationStatus ? { status: publicationStatus } : null; },
+      result: async (input, selectedActor, options) => { resultOptions.push(options); return { studentId: child.id, classId: child.classId, result: 'published result', resultType: input.examination, mockLabel: input.mockLabel }; }
     },
     academicResults: { publicationFor: () => null, result: () => null },
     resultBlocking: {
@@ -498,6 +513,17 @@ test('Parent published-result access honors the persisted block and still requir
   blocked = false;
   const visible = await service.loadRecord(actor(), query);
   assert.equal(visible.result.result, 'published result');
+  publicationStatus = 'PUBLISHED';
+  const mock = await service.loadRecord(actor(), { ...query, resultType: 'MOCK', mockLabel: '2nd Mock' });
+  assert.equal(mock.result.resultType, 'MOCK');
+  assert.equal(mock.result.mockLabel, '2nd Mock');
+  assert.equal(publicationInputs.at(-1).examination, 'MOCK');
+  assert.equal(publicationInputs.at(-1).mockLabel, '2nd Mock');
+  assert.equal(resultOptions.at(-1).mock, true);
+  const midterm = await service.loadRecord(actor(), { ...query, resultType: 'MIDTERM' });
+  assert.equal(midterm.result.resultType, 'MIDTERM');
+  assert.equal(publicationInputs.at(-1).examination, 'MIDTERM');
+  assert.deepEqual(resultOptions.at(-1), { mock: false });
   publicationStatus = null;
   await assert.rejects(() => service.loadRecord(actor(), query), (error) => error.status === 404 && error.code === 'PARENT_RESULT_NOT_PUBLISHED');
 });
