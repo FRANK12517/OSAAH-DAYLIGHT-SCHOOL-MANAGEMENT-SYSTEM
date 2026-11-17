@@ -25,10 +25,13 @@ async function main() {
   try {
     const database = (await adapter.query('SELECT DATABASE() AS databaseName'))[0]?.databaseName;
     if (database !== EXPECTED_DATABASE) throw new Error('Unexpected production database target.');
-    const tables = (await adapter.query("SELECT TABLE_NAME AS tableName FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ('academic_result_records','academic_result_blocks','academic_result_unblock_requests')")).map((row) => row.tableName);
-    for (const table of ['academic_result_records', 'academic_result_blocks', 'academic_result_unblock_requests']) if (!tables.includes(table)) throw new Error(`Required result lifecycle table ${table} is absent.`);
+    const tables = (await adapter.query("SELECT TABLE_NAME AS tableName FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ('academic_score_records','academic_result_records','academic_result_blocks','academic_result_unblock_requests')")).map((row) => row.tableName);
+    for (const table of ['academic_score_records', 'academic_result_records', 'academic_result_blocks', 'academic_result_unblock_requests']) if (!tables.includes(table)) throw new Error(`Required result lifecycle table ${table} is absent.`);
     const runner = createMigrationRunner({ adapter, directory, baselineRequired: true });
-    const result = await runner.applyVersions({ versions: [VERSION], requiredAppliedVersions: [83, 84, 85, 86], dryRun: mode === 'dry-run' });
+    // The lifecycle and score foundation are deliberately applied through their
+    // own guarded scripts (068 before 067); refuse 087 unless that history and
+    // the later result-blocking scope migrations are already recorded.
+    const result = await runner.applyVersions({ versions: [VERSION], requiredAppliedVersions: [63, 64, 65, 66, 67, 68, 75, 83, 84, 85, 86], dryRun: mode === 'dry-run' });
     return { ok: true, mode, database, migration: { version: VERSION, name: NAME, checksum: migration.checksum }, productionWrites: mode === 'apply' ? 'SCHEMA_ONLY' : 'NONE', result };
   } finally { await adapter.close?.(); }
 }
