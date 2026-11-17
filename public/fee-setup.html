@@ -41,7 +41,19 @@ import { renderPublishedFeeSummary } from '/fee-publication-summary.js';
   const syncCustom = () => { const other = form.elements.feeStructureId.value === 'OTHER' || /(^|\b)other(\b|$)/i.test(form.elements.feeStructureId.selectedOptions[0]?.textContent ?? ''); customField.hidden = !other; customInput.required = other; if (!other) customInput.value = ''; };
   async function jsonRequest(url, options = {}) { const response = await fetch(url, { credentials: 'same-origin', cache: 'no-store', ...options }); let data = {}; try { data = await response.json(); } catch {} if (!response.ok) throw new Error(data.error || `Request failed (${response.status}).`); return data; }
   async function loadOptions() { const data = await jsonRequest('/api/fee-setup/options'); canPublish = data.canPublish === true; const feeTypes = data.feeTypes?.length ? data.feeTypes : FEE_TYPE_CATALOGUE.map(([id, name]) => ({ id, name })); fill(form.elements.academicYearId, data.academicYears || [], 'Select academic year', (item) => item.name); const terms = data.terms || []; const syncTerms = () => { const yearId = form.elements.academicYearId.value; const available = terms.filter((item) => !item.academicYearId || item.academicYearId === yearId); fill(form.elements.termId, available, yearId ? 'Select term' : 'Select academic year first', (item) => item.name); refreshSubmitState(); }; syncTerms(); form.elements.academicYearId.addEventListener('change', syncTerms); fill(form.elements.feeStructureId, feeTypes, 'Select fee type', (item) => item.name || item.feeType); fill(classSelect, data.classes || [], 'Select class', (item) => item.name); if (!data.classes?.length) classSelect.add(new Option('No classes available', '')); syncTarget(); syncCustom(); if (!canPublish) setStatus('You have read-only access to Fee Setup; publishing requires fee publication permission.', true); }
-  async function loadPublishedFees() { const data = await jsonRequest('/api/fees/obligations'); const rows = Array.isArray(data) ? data : (data.rows || data.obligations || []); renderPublishedFeeSummary(publishedFeeSummary, rows); document.querySelector('#fees').innerHTML = rows.map((item) => `<article class="card"><strong>${esc(item.fee_type_name || item.feeTypeName || item.custom_fee_type_name || item.fee_structure_id || item.feeStructureId || 'Published fee')}</strong><span>${esc(item.amount_minor ?? item.amountMinor ?? '')} pesewas</span></article>`).join('') || '<p>No published fees.</p>'; }
+  async function loadPublishedFees() {
+    const data = await jsonRequest('/api/fees/obligations');
+    const rows = Array.isArray(data) ? data : (data.rows || data.obligations || []);
+    renderPublishedFeeSummary(publishedFeeSummary, rows);
+    document.querySelector('#fees').innerHTML = rows.map((item) => {
+      const feeType = item.fee_type_name || item.feeTypeName || item.custom_fee_type_name || item.fee_structure_id || item.feeStructureId || 'Published fee';
+      const amountMinor = Number(item.amount_minor ?? item.amountMinor);
+      const amount = Number.isSafeInteger(amountMinor) ? `GH₵${(amountMinor / 100).toFixed(2)}` : 'Amount unavailable';
+      const target = (item.applicability_type || item.scope) === 'WHOLE_SCHOOL' ? 'Whole school' : `Class ${item.class_id || item.classId || '—'}`;
+      const period = [item.academic_year_name || item.academicYearName || item.academic_year_id || item.academicYearId, item.term_name || item.termName || item.term_id || item.termId, target].filter(Boolean).join(' · ');
+      return `<article class="card"><strong>${esc(feeType)}</strong><span>${esc(amount)}</span><small>${esc(period)}</small></article>`;
+    }).join('') || '<p>No published fees.</p>';
+  }
   form.elements.scope.addEventListener('change', () => { syncTarget(); refreshSubmitState(); }); form.elements.feeStructureId.addEventListener('change', () => { syncCustom(); refreshSubmitState(); });
   form.addEventListener('input', refreshSubmitState); form.addEventListener('change', refreshSubmitState);
   form.addEventListener('submit', async (event) => {
@@ -55,9 +67,11 @@ import { renderPublishedFeeSummary } from '/fee-publication-summary.js';
       submitting = true; submitButton.disabled = true; submitButton.textContent = 'Publishing…'; setStatus('Publishing fee securely…');
       const result = await jsonRequest('/api/fees/obligations/publish', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       if (!Number.isSafeInteger(Number(result.created_count)) || Number(result.created_count) < 0 || !Number.isSafeInteger(Number(result.skipped_count)) || Number(result.skipped_count) < 0) throw new Error('The server response was incomplete; verify the published fee before retrying.');
-      await loadPublishedFees();
-      setStatus(`Fee published successfully. ${result.created_count} student obligations created${result.skipped_count ? ` · ${result.skipped_count} existing obligations safely retained` : ''}`);
+      const successMessage = `Fee published successfully. ${result.created_count} student obligations created${result.skipped_count ? ` · ${result.skipped_count} existing obligations safely retained` : ''}`;
       form.elements.amount.value = '';
+      setStatus(successMessage);
+      try { await loadPublishedFees(); }
+      catch { setStatus(`${successMessage}. The published-fee list could not refresh; reload Fee Setup to view it.`, true); }
     } catch (error) { setStatus(error.message || 'Unable to publish this fee. Please try again.', true); }
     finally { submitting = false; submitButton.textContent = 'Publish fee'; refreshSubmitState(); }
   });

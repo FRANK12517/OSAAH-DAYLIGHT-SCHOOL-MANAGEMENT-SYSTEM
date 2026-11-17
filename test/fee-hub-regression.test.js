@@ -5,6 +5,7 @@ import { parsePositiveGhsAmountToMinorUnits } from '../public/fee-amount.js';
 import { createFeeCollectionsRepository } from '../src/fee-collections-repository.js';
 import { createParentFeeObligationsRepository } from '../src/parent-fee-obligations-repository.js';
 import { createApp } from '../src/server.mjs';
+import { createStudentService } from '../src/students.js';
 
 const writer = { id: 'accountant-1', schoolId: 'sch_default_01', roleKey: 'ACCOUNTANT_BURSAR', permissions: new Set(['fees.write', 'fees.read']) };
 const reader = { ...writer, permissions: new Set(['fees.read']) };
@@ -215,6 +216,8 @@ test('Fee Setup HTTP publication reaches durable storage and the Fee Structure r
     assert.match(source, /type="submit" disabled/);
     assert.match(source, /parsePositiveGhsAmountToMinorUnits\(data\.get\('amount'\)\)/);
     assert.match(source, /\/api\/fees\/obligations\/publish/);
+    assert.match(source, /GH₵/);
+    assert.match(source, /published-fee list could not refresh/);
     assert.match(source, /SPECIFIC_CLASS/);
     assert.match(source, /WHOLE_SCHOOL/);
   } finally { await new Promise((resolve) => server.close(resolve)); }
@@ -245,5 +248,32 @@ test('Specific Class HTTP publication persists the canonical class target for Fe
     assert.equal(freshRead.status, 200);
     assert.equal(freshRead.body.structures[0].scope, 'SPECIFIC_CLASS');
     assert.equal(freshRead.body.structures[0].classId, 'class-1');
+  } finally { await new Promise((resolve) => server.close(resolve)); }
+});
+
+test('Fee publication remains successful when post-commit parent notification lookup fails', async () => {
+  const db = publicationAdapter();
+  const students = createStudentService({ schoolId: writer.schoolId });
+  const auth = { authenticateAsync: async () => ({ ...writer, roleKey: 'ACCOUNTANT_BURSAR' }) };
+  const server = createServer(createApp({ auth, database: db, students, aiEnabled: false }));
+  students.listStudents = () => { throw new Error('notification lookup is unavailable'); };
+  await new Promise((resolve) => server.listen(0, resolve));
+  const request = (path, { method = 'GET', body } = {}) => new Promise((resolve, reject) => {
+    const req = httpRequest({ port: server.address().port, path, method, headers: { Authorization: 'Bearer test-accountant', ...(body ? { 'Content-Type': 'application/json' } : {}) } }, (res) => {
+      let text = '';
+      res.on('data', (chunk) => { text += chunk; });
+      res.on('end', () => resolve({ status: res.statusCode, body: text ? JSON.parse(text) : null }));
+    });
+    req.on('error', reject);
+    req.end(body ? JSON.stringify(body) : undefined);
+  });
+  try {
+    const published = await request('/api/fees/obligations/publish', { method: 'POST', body: { scope: 'WHOLE_SCHOOL', feeStructureId: 'fee-type-admission', academicYearId: 'year-2026', termId: 'term-1', amountMinor: 25050 } });
+    assert.equal(published.status, 200);
+    assert.equal(published.body.created_count, 1);
+    assert.equal(db.obligations.length, 1);
+    const listed = await request('/api/fees/obligations');
+    assert.equal(listed.status, 200);
+    assert.equal(listed.body[0].amountMinor, 25050);
   } finally { await new Promise((resolve) => server.close(resolve)); }
 });
