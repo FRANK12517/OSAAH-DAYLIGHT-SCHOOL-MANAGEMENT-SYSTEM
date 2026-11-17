@@ -275,15 +275,25 @@ export function createApp({ auth = null, students = null, attendance = null, att
   async function durableClassDatabaseList(filters, actor) {
     classDatabase.options(actor);
     if (!database?.query) return classDatabase.list(filters, actor);
-    const profileColumnRows = await database.query(`SELECT COLUMN_NAME AS columnName FROM INFORMATION_SCHEMA.COLUMNS
-      WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='student_profiles' AND COLUMN_NAME IN ('previous_school','previous_class')`);
+    const [profileColumnRows, enrollmentColumnRows] = await Promise.all([
+      database.query(`SELECT COLUMN_NAME AS columnName FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='student_profiles' AND COLUMN_NAME IN ('previous_school','previous_class','updated_at')`),
+      database.query(`SELECT COLUMN_NAME AS columnName FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='student_enrollments' AND COLUMN_NAME IN ('is_current','enrollment_status')`)
+    ]);
     const profileColumns = new Set(profileColumnRows.map((row) => String(row.columnName ?? row.COLUMN_NAME ?? '').toLowerCase()));
+    const enrollmentColumns = new Set(enrollmentColumnRows.map((row) => String(row.columnName ?? row.COLUMN_NAME ?? '').toLowerCase()));
+    const profileOrder = profileColumns.has('updated_at') ? 'sp.updated_at DESC,sp.id DESC' : 'sp.id DESC';
     const previousSchoolSelect = profileColumns.has('previous_school')
-      ? `(SELECT sp.previous_school FROM student_profiles sp WHERE sp.school_id=s.school_id AND (sp.student_master_id=s.id OR (sp.student_master_id IS NULL AND sp.student_id=s.permanent_student_id)) ORDER BY sp.updated_at DESC,sp.id DESC LIMIT 1) AS previousSchool`
+      ? `(SELECT sp.previous_school FROM student_profiles sp WHERE sp.school_id=s.school_id AND (sp.student_master_id=s.id OR (sp.student_master_id IS NULL AND sp.student_id=s.permanent_student_id)) ORDER BY ${profileOrder} LIMIT 1) AS previousSchool`
       : 'NULL AS previousSchool';
     const previousClassSelect = profileColumns.has('previous_class')
-      ? `(SELECT sp.previous_class FROM student_profiles sp WHERE sp.school_id=s.school_id AND (sp.student_master_id=s.id OR (sp.student_master_id IS NULL AND sp.student_id=s.permanent_student_id)) ORDER BY sp.updated_at DESC,sp.id DESC LIMIT 1) AS previousClass`
+      ? `(SELECT sp.previous_class FROM student_profiles sp WHERE sp.school_id=s.school_id AND (sp.student_master_id=s.id OR (sp.student_master_id IS NULL AND sp.student_id=s.permanent_student_id)) ORDER BY ${profileOrder} LIMIT 1) AS previousClass`
       : 'NULL AS previousClass';
+    const enrollmentFilters = [];
+    if (enrollmentColumns.has('is_current')) enrollmentFilters.push('e.is_current=1');
+    if (enrollmentColumns.has('enrollment_status')) enrollmentFilters.push("UPPER(COALESCE(e.enrollment_status,'ACTIVE')) NOT IN ('WITHDRAWN','TRANSFERRED','COMPLETED','GRADUATED')");
+    const activeEnrollmentFilter = enrollmentFilters.length ? ` AND ${enrollmentFilters.join(' AND ')}` : '';
     const academicYear = String(filters.academicYear ?? '').trim();
     const classId = String(filters.classId ?? '').trim();
     const search = `%${String(filters.search ?? '').trim().toLowerCase()}%`;
@@ -291,15 +301,15 @@ export function createApp({ auth = null, students = null, attendance = null, att
       TRIM(CONCAT_WS(' ',s.first_name,s.middle_name,s.last_name)) AS studentName,s.gender AS gender,
       s.parent_guardian_name AS parentGuardianName,s.parent_phone AS registeredParentPhone,
       ${previousSchoolSelect},${previousClassSelect},
-      e.class_id AS classId,COALESCE(y.name,e.academic_year) AS academicYear
+      e.class_id AS classId,y.name AS academicYear
       FROM student_enrollments e JOIN students s ON s.id=e.student_id AND s.school_id=e.school_id
       LEFT JOIN academic_years y ON y.id=e.academic_year_id AND y.school_id=e.school_id
-      WHERE e.school_id=? AND e.is_current=1 AND UPPER(COALESCE(e.enrollment_status,'ACTIVE')) NOT IN ('WITHDRAWN','TRANSFERRED','COMPLETED','GRADUATED')
-      AND (?='' OR y.id=? OR y.name=? OR e.academic_year=?)
+      WHERE e.school_id=?${activeEnrollmentFilter}
+      AND (?='' OR y.id=? OR y.name=?)
       AND (?='' OR e.class_id=? OR EXISTS (SELECT 1 FROM classes c WHERE c.school_id=e.school_id AND c.id=e.class_id AND c.name=?))
       AND (?='' OR LOWER(CONCAT_WS(' ',s.first_name,s.middle_name,s.last_name,s.permanent_student_id)) LIKE ?)
       AND s.is_test_record IS NOT TRUE
-      ORDER BY s.last_name,s.first_name,s.id`, [actor.schoolId, academicYear, academicYear, academicYear, academicYear, classId, classId, classId, search, search]);
+      ORDER BY s.last_name,s.first_name,s.id`, [actor.schoolId, academicYear, academicYear, academicYear, classId, classId, classId, search, search]);
     const assigned = actor.roleKey === 'TEACHER' ? new Set((actor.assignedClassIds ?? []).map(String)) : null;
     return results.filter((row) => !assigned || assigned.has(String(row.classId))).map((row) => ({ ...row, gender: displayStudentGender(row.gender) }));
   }
