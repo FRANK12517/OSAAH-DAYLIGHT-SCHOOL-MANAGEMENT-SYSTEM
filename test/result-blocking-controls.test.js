@@ -31,3 +31,21 @@ test('result pages refresh persisted block status and report class operation out
   assert.match(server, /pathname === '\/api\/academic\/results\/block-status'/);
   assert.match(server, /resultStudents\(\{ \.\.\.body, resultType/);
 });
+
+test('terminal and Mock result pages load scoped publishing and access management with Midterm support', async () => {
+  const [terminalPage, mockPage, manager, server] = await Promise.all([
+    readFile(new URL('../public/results.html', import.meta.url), 'utf8'),
+    readFile(new URL('../public/mock-results.html', import.meta.url), 'utf8'),
+    readFile(new URL('../public/result-access-management.js', import.meta.url), 'utf8'),
+    readFile(new URL('../src/server.mjs', import.meta.url), 'utf8')
+  ]);
+  assert.match(terminalPage, /result-access-management\.js/);
+  assert.match(mockPage, /result-access-management\.js/);
+  assert.match(manager, /MIDTERM/);
+  assert.match(terminalPage, /value="MIDTERM">Midterm/);
+  assert.match(manager, /controls\.resultType\.value/);
+  assert.match(manager, /publish-class/);
+  assert.match(manager, /window\.confirm/);
+  assert.match(server, /results\/access-management/);
+  assert.match(server, /results\/publish-class/);
+});

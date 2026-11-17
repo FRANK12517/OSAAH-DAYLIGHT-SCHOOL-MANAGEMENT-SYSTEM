@@ -240,6 +240,11 @@ export function createParentDashboardService({
     const academicYears = rows(source.academicYears).map(academicYearOption).filter(Boolean);
     const terms = rows(source.terms).map(termOption).filter(Boolean);
     const classes = canonicalClassOptions(source.classes);
+    const mockTypes = rows(source.mockTypes).map((item) => {
+      const id = text(typeof item === 'string' ? item : item.id ?? item.value ?? item.name);
+      const name = text(typeof item === 'string' ? item : item.name ?? item.label ?? item.id ?? item.value);
+      return id && name ? { id, name } : null;
+    }).filter(Boolean);
     if (!academicYears.length) fail('No academic years are configured for this school. Configure an academic year in School Settings before loading student records.', 503, 'PARENT_ACADEMIC_YEARS_NOT_CONFIGURED');
     if (!terms.length) fail('No academic terms are configured for this school. Configure terms for an academic year before loading student records.', 503, 'PARENT_TERMS_NOT_CONFIGURED');
     if (!classes.length) fail('No classes are configured for this school. Configure classes before loading student records.', 503, 'PARENT_CLASSES_NOT_CONFIGURED');
@@ -263,7 +268,7 @@ export function createParentDashboardService({
     const sampleContexts = isConfiguredTestParentActor(actor, testParentSchoolId)
       ? Object.fromEntries((await listChildren(actor)).map((child) => [child.permanentStudentId, listConfiguredSampleAcademicContexts({ actor, permanentStudentId: child.permanentStudentId, academicYears, terms, classes, schoolId: testParentSchoolId })]))
       : {};
-    return { academicYears, terms, classes, recordTypes, components: componentCatalog(actor), sampleContexts };
+    return { academicYears, terms, classes, mockTypes, recordTypes, components: componentCatalog(actor), sampleContexts };
   }
 
   async function listChildren(actor) {
@@ -303,8 +308,10 @@ export function createParentDashboardService({
   async function loadPublishedResult(actor, student, context, resultOptions = {}) {
     const source = resultSourceFor(student);
     if (!source?.publicationFor || !source?.result) return null;
-    const isMock = String(resultOptions.resultType ?? resultOptions.examination ?? '').toUpperCase() === 'MOCK'; const mockLabel = text(resultOptions.mockLabel); if (resultBlocking?.assertReadable) await resultBlocking.assertReadable({ classId: context.classId, academicYear: context.yearId, term: context.termId, studentId: student.id ?? student.studentId ?? student.student_id, resultType: isMock ? 'MOCK' : 'TERMINAL', mockLabel }, actor);
-    else if (academicResults?.blockFor?.({ classId: context.classId, academicYear: context.yearId, term: context.termId, studentId: student.id ?? student.studentId ?? student.student_id, resultType: isMock ? 'MOCK' : 'TERMINAL', mockLabel })?.status === 'BLOCKED') {
+    const resultType = text(resultOptions.resultType ?? resultOptions.examination ?? 'TERMINAL').toUpperCase();
+    if (!['TERMINAL', 'MOCK', 'MIDTERM'].includes(resultType)) fail('Select a supported examination type.', 400, 'INVALID_RESULT_TYPE');
+    const isMock = resultType === 'MOCK'; const mockLabel = text(resultOptions.mockLabel); if (resultBlocking?.assertReadable) await resultBlocking.assertReadable({ classId: context.classId, academicYear: context.yearId, term: context.termId, studentId: student.id ?? student.studentId ?? student.student_id, resultType, mockLabel }, actor);
+    else if (academicResults?.blockFor?.({ classId: context.classId, academicYear: context.yearId, term: context.termId, studentId: student.id ?? student.studentId ?? student.student_id, resultType, mockLabel })?.status === 'BLOCKED') {
       fail('This result is temporarily blocked by the school. Please contact the school office.', 403, 'PARENT_RESULT_BLOCKED');
     }
     const isSample = Boolean(student.isTestRecord ?? student.is_test_record);
@@ -313,7 +320,8 @@ export function createParentDashboardService({
       academicYear: context.yearId,
       term: context.termId,
       studentId: student.id ?? student.studentId ?? student.student_id,
-      examination: isMock ? 'MOCK' : 'TERMINAL',
+      resultType,
+      examination: resultType,
       mockLabel,
       isSample,
       sample: isSample

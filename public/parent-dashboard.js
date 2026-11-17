@@ -113,7 +113,7 @@ function renderFees(body, { payments = false } = {}) {
 
 function renderResult(body) {
   const result = body.result ?? {};
-  const pdfQuery = new URLSearchParams({ permanentStudentId: body.student?.permanentStudentId ?? '', academicYear: body.context?.yearId ?? '', classId: body.context?.classId ?? '', term: body.context?.termId ?? '' });
+  const pdfQuery = new URLSearchParams({ permanentStudentId: body.student?.permanentStudentId ?? '', academicYear: body.context?.yearId ?? '', classId: body.context?.classId ?? '', term: body.context?.termId ?? '', resultType: result.resultType || 'TERMINAL', ...(result.resultType === 'MOCK' ? { mockLabel: result.mockLabel ?? '' } : {}) });
   const pdfUrl = `/api/parent/results/pdf?${pdfQuery}`;
   const subjects = (result.subjects ?? []).map((item) => ({
     subject: item.subjectName ?? item.subjectId,
@@ -123,7 +123,7 @@ function renderResult(body) {
     grade: item.grade,
     remark: item.remark
   }));
-  return `<div class="parent-result-slip"><p class="parent-status-pill">PUBLISHED RESULT</p><h4>${esc(result.resultType === 'MOCK' ? result.mockLabel ?? 'Mock examination' : 'End-of-term result')}</h4>${summaryCards([
+  return `<div class="parent-result-slip"><p class="parent-status-pill">PUBLISHED RESULT</p><h4>${esc(result.resultType === 'MOCK' ? result.mockLabel ?? 'Mock examination' : result.resultType === 'MIDTERM' ? 'Midterm result' : 'End-of-term result')}</h4>${summaryCards([
     ['Student', body.student?.name],
     ['Permanent Student ID', body.student?.permanentStudentId],
     ['Class', body.context?.className],
@@ -289,6 +289,8 @@ export async function mountParentDashboard({ dashboard, user, sidebar } = {}) {
         ${field('Class', 'parent-class', [], { required: false })}
         ${field('Term', 'parent-term', [], { required: false })}
         ${field('Record to View', 'parent-record-type', [{ id: 'student-summary', name: 'Student Summary' }])}
+        <label id="parent-result-type-wrap" hidden>Result type<select id="parent-result-type" name="parentResultType"><option value="TERMINAL">End-of-term</option><option value="MIDTERM">Midterm</option><option value="MOCK">Mock</option></select></label>
+        <label id="parent-mock-label-wrap" hidden>Mock examination<select id="parent-mock-label" name="parentMockLabel"><option value="">Select Mock</option></select></label>
         <button class="primary-button" type="submit">Load Student Records</button>
       </form><p id="parent-options-status" class="module-status" role="status">Loading configured academic options…</p><p id="parent-record-status" class="module-status" role="status"></p><div id="parent-record-output" class="parent-output" aria-live="polite"></div>
     </section>
@@ -301,6 +303,10 @@ export async function mountParentDashboard({ dashboard, user, sidebar } = {}) {
   const classSelect = byId(overview, 'parent-class');
   const termSelect = byId(overview, 'parent-term');
   const recordTypeSelect = byId(overview, 'parent-record-type');
+  const resultTypeSelect = byId(overview, 'parent-result-type');
+  const resultTypeWrap = byId(overview, 'parent-result-type-wrap');
+  const mockLabelSelect = byId(overview, 'parent-mock-label');
+  const mockLabelWrap = byId(overview, 'parent-mock-label-wrap');
   const permanentId = byId(overview, 'parent-permanent-id');
   const optionsStatus = byId(overview, 'parent-options-status');
   const recordStatus = byId(overview, 'parent-record-status');
@@ -333,6 +339,13 @@ export async function mountParentDashboard({ dashboard, user, sidebar } = {}) {
 
   function contextComplete() {
     return Boolean(yearSelect.value && classSelect.value && termSelect.value);
+  }
+
+  function updateResultTypeFields() {
+    const show = recordTypeSelect.value === 'published-results';
+    resultTypeWrap.hidden = !show;
+    const showMock = show && resultTypeSelect.value === 'MOCK';
+    mockLabelWrap.hidden = !showMock;
   }
 
   function fillTerms() {
@@ -398,6 +411,8 @@ export async function mountParentDashboard({ dashboard, user, sidebar } = {}) {
       fillTerms();
       recordTypeSelect.innerHTML = `<option value="">Select Record to Load</option>${body.recordTypes.map((item) => `<option value="${esc(item.id)}"${item.available ? '' : ' disabled'}>${esc(item.name)}${item.available ? '' : ' — Not available yet'}</option>`).join('')}`;
       recordTypeSelect.value = 'student-summary';
+      mockLabelSelect.innerHTML = `<option value="">Select Mock</option>${(body.mockTypes ?? []).map((item) => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join('')}`;
+      updateResultTypeFields();
       for (const component of body.components ?? []) {
         cardSupport.set(component.moduleKey, component);
         const status = overview.querySelector(`[data-parent-card-status="${CSS.escape(component.moduleKey)}"]`);
@@ -468,8 +483,9 @@ export async function mountParentDashboard({ dashboard, user, sidebar } = {}) {
       if (!recordType) throw new Error('Select a record type.');
       const type = options?.recordTypes.find((item) => item.id === recordType);
       if (type?.requiresAcademicContext && !contextComplete()) throw new Error('Select an academic year, class, and term.');
+      if (recordType === 'published-results' && resultTypeSelect.value === 'MOCK' && !mockLabelSelect.value) throw new Error('Select a Mock examination.');
       recordStatus.textContent = 'Loading authorized records…';
-      const params = new URLSearchParams({ permanentStudentId: child.permanentStudentId, recordType, ...selectedContext() });
+      const params = new URLSearchParams({ permanentStudentId: child.permanentStudentId, recordType, ...selectedContext(), ...(recordType === 'published-results' ? { resultType: resultTypeSelect.value, ...(resultTypeSelect.value === 'MOCK' ? { mockLabel: mockLabelSelect.value } : {}) } : {}) });
       const response = await fetch(`/api/parent/records?${params}`, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
       const body = await response.json();
       if (!viewState.isCurrent(token)) return;
@@ -560,7 +576,8 @@ export async function mountParentDashboard({ dashboard, user, sidebar } = {}) {
     }
   });
   yearSelect.addEventListener('change', () => { fillTerms(); clearData(); });
-  for (const control of [classSelect, termSelect, recordTypeSelect]) control.addEventListener('change', clearData);
+  for (const control of [classSelect, termSelect, recordTypeSelect, resultTypeSelect, mockLabelSelect]) control.addEventListener('change', () => { updateResultTypeFields(); clearData(); });
+  resultTypeSelect.addEventListener('change', updateResultTypeFields);
   byId(overview, 'parent-record-form').addEventListener('submit', loadRecord);
   overview.querySelectorAll('[data-parent-component]').forEach((button) => button.addEventListener('click', () => openComponent(button.dataset.parentComponent)));
   byId(overview, 'parent-panel-close').addEventListener('click', () => { clearData(); panel.hidden = true; });

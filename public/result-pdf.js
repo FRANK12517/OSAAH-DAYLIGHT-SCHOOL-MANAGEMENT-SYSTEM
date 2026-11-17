@@ -14,11 +14,12 @@ window.downloadResultPdf = async function downloadResultPdf(result, { mock = fal
         classId: result.classId || '',
         academicYear: result.academicYear || '',
         term: result.term || '',
-        resultType: mock ? 'MOCK' : 'TERMINAL',
+        resultType: result.resultType || (mock ? 'MOCK' : 'TERMINAL'),
         ...(mock ? { mockLabel: result.mockLabel || '1st Mock' } : {})
       })
     };
   } else {
+    query.set('resultType', result.resultType || (mock ? 'MOCK' : 'TERMINAL'));
     if (mock) query.set('mockLabel', result.mockLabel || '');
     endpoint = mock ? '/api/academic/mock-result/pdf' : '/api/academic/result/pdf';
   }

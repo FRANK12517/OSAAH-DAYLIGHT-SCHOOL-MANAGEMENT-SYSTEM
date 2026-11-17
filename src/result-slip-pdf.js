@@ -12,7 +12,7 @@ const COLORS = Object.freeze({ navy: '#102a43', gold: '#d4a72c', ink: '#102a43',
 const CONTENT = Object.freeze({ x: 42, width: 511, bottom: 782 });
 
 export function resultPdfFilename(result) {
-  const type = result.resultType === 'MOCK' ? safe(result.mockLabel, 'Mock') : 'End-of-Term';
+  const type = result.resultType === 'MOCK' ? safe(result.mockLabel, 'Mock') : result.resultType === 'MIDTERM' ? 'Midterm' : 'End-of-Term';
   const samplePrefix = result.isSample === true ? 'SAMPLE_' : '';
   return `OSAAH_${samplePrefix}${type}_Result_${safe(result.studentIndexNumber, 'Student')}_${safe(result.academicYear, 'Academic-Year')}_${safe(result.term, 'Term')}.pdf`;
 }
@@ -200,7 +200,7 @@ export function createResultSlipPdfService() {
         drawLines(document, ['SAMPLE DATA / DEMONSTRATION — NOT AN OFFICIAL RESULT'], CONTENT.x, y, CONTENT.width, { font: 'Helvetica-Bold', size: 7.1, lineHeight: 8, color: '#9c6d00', align: 'center' });
         y += 10;
       }
-      const resultTitle = result.resultType === 'MOCK' ? 'Mock Examination Result Slip' : 'Terminal Examination Result Slip';
+      const resultTitle = result.resultType === 'MOCK' ? 'Mock Examination Result Slip' : result.resultType === 'MIDTERM' ? 'Midterm Examination Result Slip' : 'Terminal Examination Result Slip';
       drawLines(document, [resultTitle], CONTENT.x, y, CONTENT.width, { font: 'Helvetica-Bold', size: 11.2, lineHeight: 13, color: COLORS.navy, align: 'center' });
       y += 18;
 
@@ -216,7 +216,7 @@ export function createResultSlipPdfService() {
         { label: 'Total Students in Class', value: text(distribution.totalStudents ?? 0) },
         { label: 'Academic Year', value: text(result.academicYear) },
         { label: 'Term', value: text(result.term) },
-        { label: result.resultType === 'MOCK' ? 'Mock Examination' : 'Examination', value: text(result.resultType === 'MOCK' ? result.mockLabel : 'Terminal Examination') }
+        { label: result.resultType === 'MOCK' ? 'Mock Examination' : 'Examination', value: text(result.resultType === 'MOCK' ? result.mockLabel : result.resultType === 'MIDTERM' ? 'Midterm Examination' : 'Terminal Examination') }
       ];
       const metadataGap = 3;
       const metadataWidth = (CONTENT.width - metadataGap * 2) / 3;

@@ -48,6 +48,63 @@ test('production durable academic service requires a database adapter', () => {
   assert.throws(() => createDurableAcademicService({ schoolId }), /database is unavailable/i);
 });
 
+test('class result access overview scopes lifecycle status by exact result category, including Midterm', async () => {
+  const database = fakeDatabase();
+  const baseQuery = database.query.bind(database);
+  const lifecycleQueries = [];
+  database.query = async (sql, params = []) => {
+    lifecycleQueries.push({ sql, params });
+    if (sql.includes('FROM student_enrollments e JOIN students s')) return [{ studentId: 'student-1', permanentStudentId: 'OSAAH/2026/0001', firstName: 'Ama', surname: 'Learner', classId: 'class-basic-1' }];
+    if (sql.includes('FROM academic_result_records WHERE school_id=? AND class_id=?')) return [{ studentId: 'student-1', status: 'SAVED', version: 2 }];
+    return baseQuery(sql, params);
+  };
+  const service = createDurableAcademicService({ database, schoolId });
+  const reader = { ...manager, permissions: new Set(['results.read']) };
+  const result = await service.resultAccessOverview({ classId: 'class-basic-1', academicYear: '2026/2027', term: 'First Term' }, reader);
+  assert.equal(result.students[0].resultStatus, 'SAVED');
+  const midterm = await service.resultAccessOverview({ classId: 'class-basic-1', academicYear: '2026/2027', term: 'First Term', resultType: 'MIDTERM' }, reader);
+  assert.equal(midterm.resultType, 'MIDTERM');
+  const midtermQuery = lifecycleQueries.find(({ sql, params }) => sql.includes('FROM academic_result_records WHERE school_id=? AND class_id=?') && params[4] === 'MIDTERM');
+  assert.ok(midtermQuery);
+});
+
+test('class publication publishes only saved records in the exact Mock scope inside a transaction', async () => {
+  const queries = [], updates = [];
+  const roster = [
+    { studentId: 'student-1', permanentStudentId: 'OSAAH/2026/0001', firstName: 'Ama', surname: 'Learner', classId: 'class-jhs-1' },
+    { studentId: 'student-2', permanentStudentId: 'OSAAH/2026/0002', firstName: 'Kojo', surname: 'Learner', classId: 'class-jhs-1' }
+  ];
+  const records = [{ id: 'record-saved', studentId: 'student-1', status: 'SAVED' }, { id: 'record-published', studentId: 'student-2', status: 'PUBLISHED' }];
+  const database = {
+    async query(sql, params = []) {
+      queries.push({ sql, params });
+      if (sql.includes('FROM academic_years')) return [{ id: 'year-2026', name: '2026/2027' }];
+      if (sql.includes('FROM terms t JOIN academic_years')) return [{ id: 'term-1', name: 'First Term' }];
+      if (sql.includes('SELECT id,name FROM classes WHERE school_id=? AND id=?')) return [{ id: 'class-jhs-1', name: 'JHS 1' }];
+      if (sql.includes('FROM student_enrollments e JOIN students s')) return roster;
+      if (sql.includes('SELECT student_id AS studentId,status,version')) return records;
+      return [];
+    },
+    async execute(sql, params = []) { updates.push({ sql, params }); return { affectedRows: 1 }; },
+    async transaction(callback) {
+      return callback({
+        query: async (sql, params = []) => { queries.push({ sql, params }); return records; },
+        execute: async (sql, params = []) => { updates.push({ sql, params }); return { affectedRows: 1 }; }
+      });
+    }
+  };
+  const service = createDurableAcademicService({ database, schoolId, clock: () => '2026-11-17T00:00:00.000Z' });
+  const publisher = { id: 'head-1', schoolId, roleKey: 'HEADTEACHER', permissions: new Set(['results.publish']) };
+  const result = await service.publishClassResults({ classId: 'class-jhs-1', academicYear: '2026/2027', term: 'First Term', resultType: 'MOCK', mockLabel: '2nd Mock' }, publisher);
+  assert.equal(result.affectedStudents, 1);
+  assert.equal(result.alreadyPublishedStudents, 1);
+  assert.equal(result.status, 'PUBLISHED');
+  const lockedRead = queries.find(({ sql }) => sql.includes('FOR UPDATE'));
+  assert.deepEqual(lockedRead.params.slice(4), ['MOCK', '2nd Mock', '2nd Mock']);
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0].params[3], 'record-saved');
+});
+
 test('empty durable mappings return no subjects rather than every subject', async () => {
   const database = fakeDatabase();
   const service = createDurableAcademicService({ database, schoolId, idFactory: () => 'assignment-1' });
