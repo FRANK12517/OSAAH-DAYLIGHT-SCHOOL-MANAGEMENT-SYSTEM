@@ -69,10 +69,10 @@ async function verifyRunsTable(adapter) {
   const actualColumns = columnRows.map((row) => [
     String(field(row, 'columnName', 'COLUMN_NAME')).toLowerCase(),
     String(field(row, 'dataType', 'DATA_TYPE')).toLowerCase(),
-    String(field(row, 'dataType', 'DATA_TYPE')).toLowerCase() === 'enum' ? String(field(row, 'columnType', 'COLUMN_TYPE')).toLowerCase() : null,
+    String(field(row, 'dataType', 'DATA_TYPE')).toLowerCase() === 'enum' ? String(field(row, 'columnType', 'COLUMN_TYPE')).toLowerCase().replace(/'([^']*)'/g, (_, value) => `'${value.toLowerCase()}'`) : null,
     String(field(row, 'nullable', 'IS_NULLABLE')).toUpperCase(),
     field(row, 'maxLength', 'CHARACTER_MAXIMUM_LENGTH') == null ? null : Number(field(row, 'maxLength', 'CHARACTER_MAXIMUM_LENGTH'))
-  ]);
+  ]).sort((left, right) => EXPECTED_COLUMNS.findIndex(([name]) => name === left[0]) - EXPECTED_COLUMNS.findIndex(([name]) => name === right[0]));
   if (JSON.stringify(actualColumns) !== JSON.stringify(EXPECTED_COLUMNS)) failure('MIGRATION_RUN_TABLE_INCOMPATIBLE', 'The migration run metadata table does not match the TiDB adapter definition.');
 
   const indexes = rows(await adapter.query(
@@ -89,6 +89,45 @@ async function verifyRunsTable(adapter) {
 
   const countRows = rows(await adapter.query('SELECT COUNT(*) AS runCount FROM schema_migration_runs'), 'Migration run rows inspection');
   return { engine: field(table[0], 'engine', 'ENGINE') ?? null, columns: actualColumns.length, primaryKey: 'version', runCount: Number(field(countRows[0], 'runCount', 'COUNT(*)')) };
+}
+
+async function reconcileRunsTable(adapter) {
+  await adapter.ensureMetadata({ create: true });
+  let existing = rows(await adapter.query(
+    'SELECT COLUMN_NAME AS columnName,DATA_TYPE AS dataType,COLUMN_TYPE AS columnType,IS_NULLABLE AS nullable,CHARACTER_MAXIMUM_LENGTH AS maxLength FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? ORDER BY ORDINAL_POSITION',
+    [RUNS_TABLE]
+  ), 'Migration run table columns inspection');
+  if (!existing.length) failure('MIGRATION_RUN_TABLE_NOT_CREATED', 'The migration run metadata table is still missing.');
+  const byName = new Map(existing.map((row) => [String(field(row, 'columnName', 'COLUMN_NAME')).toLowerCase(), row]));
+  const definitions = new Map([
+    ['name', 'VARCHAR(255) NOT NULL DEFAULT \'\''],
+    ['checksum', 'CHAR(64) NOT NULL DEFAULT \'\''],
+    ['state', "ENUM('RUNNING','FAILED','COMPLETED') NOT NULL DEFAULT 'RUNNING'"],
+    ['started_at', 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP'],
+    ['completed_at', 'DATETIME NULL'],
+    ['error_code', 'VARCHAR(80) NULL']
+  ]);
+  if (!byName.has('version')) failure('MIGRATION_RUN_TABLE_INCOMPATIBLE', 'The migration run metadata table has no version key; no table rebuild was attempted.');
+  const missingColumns = [...definitions.keys()].filter((name) => !byName.has(name));
+  if (missingColumns.length) {
+    const countRows = rows(await adapter.query('SELECT COUNT(*) AS runCount FROM schema_migration_runs'), 'Migration run rows inspection');
+    if (Number(field(countRows[0], 'runCount', 'COUNT(*)')) !== 0) failure('MIGRATION_RUN_TABLE_INCOMPATIBLE', 'The migration run table has rows but is missing metadata columns; reconciliation stopped to avoid inventing run state.');
+  }
+  for (const [name, definition] of definitions) {
+    if (!byName.has(name)) {
+      await adapter.execute(`ALTER TABLE \`${RUNS_TABLE}\` ADD COLUMN IF NOT EXISTS \`${name}\` ${definition}`);
+      existing = rows(await adapter.query(
+        'SELECT COLUMN_NAME AS columnName,DATA_TYPE AS dataType,COLUMN_TYPE AS columnType,IS_NULLABLE AS nullable,CHARACTER_MAXIMUM_LENGTH AS maxLength FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? ORDER BY ORDINAL_POSITION',
+        [RUNS_TABLE]
+      ), 'Migration run table columns reinspection');
+      for (const row of existing) byName.set(String(field(row, 'columnName', 'COLUMN_NAME')).toLowerCase(), row);
+    }
+  }
+  const primary = rows(await adapter.query(
+    'SELECT COLUMN_NAME AS columnName,NON_UNIQUE AS nonUnique,SEQ_IN_INDEX AS sequence FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND INDEX_NAME=\'PRIMARY\' ORDER BY SEQ_IN_INDEX',
+    [RUNS_TABLE]
+  ), 'Migration run table primary key inspection');
+  if (primary.length !== 1 || String(field(primary[0], 'columnName', 'COLUMN_NAME')).toLowerCase() !== 'version' || Number(field(primary[0], 'nonUnique', 'NON_UNIQUE')) !== 0 || Number(field(primary[0], 'sequence', 'SEQ_IN_INDEX')) !== 1) failure('MIGRATION_RUN_TABLE_INCOMPATIBLE', 'The migration run metadata table primary key is incompatible; no key was changed.');
 }
 
 export async function initializeProductionMigrationMetadata({ adapter, backupConfirmation, backupCluster, backupStatus, backupRestoreAvailable, backupCompletedAt, backupExpiresAt, now = new Date() } = {}) {
@@ -114,8 +153,20 @@ export async function initializeProductionMigrationMetadata({ adapter, backupCon
   if (beforeLock.locked !== 0 || beforeLock.acquiredAt !== null) failure('MIGRATION_LOCKED', 'The existing migration lock is not idle; no initialization was attempted.');
 
   if (initialTables.includes(RUNS_TABLE)) {
-    const verified = await verifyRunsTable(adapter);
-    return { ok: true, outcome: 'ALREADY_PRESENT', database: DATABASE, serverVersion: readiness.serverVersion, metadataTables: initialTables, migrationHistoryUnchanged: true, baselineHistoryUnchanged: true, migrationLock: 'IDLE', migrationRuns: verified, migration085Executed: false, numberedMigrationsExecuted: false, studentOrGuardianRecordsChanged: false };
+    if (!await adapter.acquireLock()) failure('MIGRATION_LOCKED', 'Could not acquire the existing migration lock; no initialization was attempted.');
+    try {
+      const acquiredLock = await lockState(adapter);
+      if (acquiredLock.locked !== 1) failure('MIGRATION_LOCK_STATE_INVALID', 'Migration lock acquisition could not be verified.');
+      await reconcileRunsTable(adapter);
+      const verified = await verifyRunsTable(adapter);
+      await adapter.releaseLock();
+      const finalLock = await lockState(adapter);
+      if (finalLock.locked !== 0 || finalLock.acquiredAt !== null) failure('MIGRATION_LOCK_STATE_INVALID', 'The migration lock did not return to its idle state.');
+      return { ok: true, outcome: 'RECONCILED_OR_PRESENT', database: DATABASE, serverVersion: readiness.serverVersion, metadataTables: initialTables, migrationHistoryUnchanged: true, baselineHistoryUnchanged: true, migrationLock: 'RELEASED_IDLE', migrationRuns: verified, migration085Executed: false, numberedMigrationsExecuted: false, studentOrGuardianRecordsChanged: false };
+    } finally {
+      const finalLock = await lockState(adapter);
+      if (finalLock.locked !== 0 || finalLock.acquiredAt !== null) await adapter.releaseLock();
+    }
   }
 
   if (!await adapter.acquireLock()) failure('MIGRATION_LOCKED', 'Could not acquire the existing migration lock; no initialization was attempted.');
@@ -123,7 +174,7 @@ export async function initializeProductionMigrationMetadata({ adapter, backupCon
   try {
     const acquiredLock = await lockState(adapter);
     if (acquiredLock.locked !== 1) failure('MIGRATION_LOCK_STATE_INVALID', 'Migration lock acquisition could not be verified.');
-    await adapter.ensureMetadata({ create: true });
+    await reconcileRunsTable(adapter);
 
     const finalTables = await tableNames(adapter);
     const newlyCreated = finalTables.filter((table) => !initialTables.includes(table));

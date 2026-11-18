@@ -14,9 +14,10 @@ const columnFixture = [
   ['error_code', 'varchar', 'varchar(80)', 'YES', 80]
 ];
 
-function fixture({ missing = [], locked = false } = {}) {
+function fixture({ missing = [], locked = false, missingRunColumns = [] } = {}) {
   const tables = new Set(['schema_migrations', 'schema_migration_lock', 'schema_baselines', 'schema_migration_runs'].filter((name) => !missing.includes(name)));
   const calls = [];
+  const runColumns = columnFixture.filter(([name]) => !missingRunColumns.includes(name));
   let lock = locked ? 1 : 0;
   const adapter = {
     async verifyReadiness() { calls.push('verifyReadiness'); return { ready: true, engine: 'TiDB', database: 'osaahdaylightschool', serverVersion: '5.7.25-TiDB-v8.5.0' }; },
@@ -28,7 +29,7 @@ function fixture({ missing = [], locked = false } = {}) {
       if (sql.includes('FROM schema_baselines')) return [{ id: 'baseline-1', canonicalDatabase: 'osaahdaylightschool', repositoryCommit: 'b'.repeat(40) }];
       if (sql.includes('FROM schema_migration_lock')) return [{ lockId: 1, locked: lock, acquiredAt: lock ? '2026-11-14 09:30:00' : null }];
       if (sql.includes('information_schema.TABLES') && params[0] === 'schema_migration_runs') return tables.has('schema_migration_runs') ? [{ engine: 'InnoDB' }] : [];
-      if (sql.includes('information_schema.COLUMNS')) return columnFixture.map(([columnName, dataType, columnType, nullable, maxLength]) => ({ columnName, dataType, columnType, nullable, maxLength }));
+      if (sql.includes('information_schema.COLUMNS')) return runColumns.map(([columnName, dataType, columnType, nullable, maxLength]) => ({ columnName, dataType, columnType, nullable, maxLength }));
       if (sql.includes('information_schema.STATISTICS')) return [{ indexName: 'PRIMARY', nonUnique: 0, columnName: 'version', sequence: 1 }];
       if (sql.includes('COUNT(*) AS runCount')) return [{ runCount: 0 }];
       throw new Error(`Unexpected query: ${sql}`);
@@ -36,7 +37,20 @@ function fixture({ missing = [], locked = false } = {}) {
     async acquireLock() { calls.push('acquireLock'); if (lock) return false; lock = 1; return true; },
     async releaseLock() { calls.push('releaseLock'); lock = 0; },
     async ensureMetadata(options) { calls.push({ ensureMetadata: options }); tables.add('schema_migration_runs'); },
-    async execute() { throw new Error('Direct SQL execution is not allowed by metadata initialization.'); },
+    async execute(sql) {
+      calls.push({ execute: sql });
+      const columnName = sql.match(/ADD COLUMN IF NOT EXISTS `([^`]+)`/)?.[1];
+      if (columnName && missingRunColumns.includes(columnName)) {
+        const definition = columnName === 'state' ? ['state','enum',"enum('RUNNING','FAILED','COMPLETED')",'NO',null]
+          : columnName === 'started_at' ? ['started_at','datetime','datetime','NO',null]
+          : columnName === 'completed_at' ? ['completed_at','datetime','datetime','YES',null]
+          : columnName === 'error_code' ? ['error_code','varchar','varchar(80)','YES',80]
+          : columnName === 'name' ? ['name','varchar','varchar(255)','NO',255]
+          : ['checksum','char','char(64)','NO',64];
+        runColumns.push(definition);
+      }
+      return { affectedRows: 1 };
+    },
     async transaction() { throw new Error('Transactions are not part of metadata initialization.'); },
     async startMigration() { throw new Error('No numbered migration may run during metadata initialization.'); }
   };
@@ -90,9 +104,18 @@ test('metadata bootstrap requires a current successful restorable backup', async
 test('existing compatible metadata is recognized idempotently without acquiring the lock or creating tables', async () => {
   const { adapter, calls } = fixture();
   const result = await initializeProductionMigrationMetadata({ adapter, ...backup });
-  assert.equal(result.outcome, 'ALREADY_PRESENT');
-  assert.equal(calls.includes('acquireLock'), false);
-  assert.equal(calls.some((item) => typeof item === 'object' && 'ensureMetadata' in item), false);
+  assert.equal(result.outcome, 'RECONCILED_OR_PRESENT');
+  assert.equal(calls.includes('acquireLock'), true);
+  assert.equal(calls.some((item) => typeof item === 'object' && 'ensureMetadata' in item), true);
+});
+
+test('existing run metadata adds only missing non-key columns while holding the migration lock', async () => {
+  const { adapter, calls } = fixture({ missingRunColumns: ['state','completed_at','error_code'] });
+  const result = await initializeProductionMigrationMetadata({ adapter, ...backup });
+  assert.equal(result.outcome, 'RECONCILED_OR_PRESENT');
+  assert.deepEqual(calls.filter((item) => item.execute).map((item) => item.execute.match(/ADD COLUMN IF NOT EXISTS `([^`]+)`/)?.[1]), ['state','completed_at','error_code']);
+  assert.ok(calls.findIndex((item) => item === 'acquireLock') < calls.findIndex((item) => item.execute));
+  assert.equal(calls.includes('releaseLock'), true);
 });
 
 test('Production migration workflow isolates metadata initialization and keeps DRY_RUN/apply gates intact', async () => {
