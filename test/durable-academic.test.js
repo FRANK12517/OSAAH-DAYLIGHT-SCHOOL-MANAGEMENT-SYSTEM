@@ -6,12 +6,12 @@ import { createStudentService } from '../src/students.js';
 const schoolId = 'sch_default_01';
 const manager = { id: 'manager-1', schoolId, roleKey: 'SCHOOL_ADMIN', permissions: new Set(['subjects.manage', 'subjects.read', 'marks.write', 'academics.read']) };
 
-function scoreRosterSchema({ enrollmentStatus = true, isCurrent = true, isTestRecord = true, studentStatus = true } = {}) {
+function scoreRosterSchema({ enrollmentStatus = true, isCurrent = true, isTestRecord = true, studentStatus = true, scores = true } = {}) {
   return [
     ...['id','school_id','permanent_student_id','first_name','middle_name','last_name','current_class_id','admission_date','created_at',...(studentStatus ? ['student_status'] : []),...(isTestRecord ? ['is_test_record'] : [])].map((columnName) => ({ tableName: 'students', columnName })),
     ...['id','school_id','student_master_id','student_id','class_id','first_name','middle_name','surname'].map((columnName) => ({ tableName: 'student_profiles', columnName })),
     ...['school_id','student_id','class_id','academic_year_id','academic_year','class_name','term_id',...(enrollmentStatus ? ['enrollment_status'] : []),...(isCurrent ? ['is_current'] : [])].map((columnName) => ({ tableName: 'student_enrollments', columnName })),
-    ...['id','school_id','record_type','mock_label','academic_year_id','term_id','class_id','student_id','subject_id','ca_score','ca_max','examination_score','examination_max','total_score','grade','remark','entered_by','updated_at'].map((columnName) => ({ tableName: 'academic_score_records', columnName }))
+    ...(scores ? ['id','school_id','record_type','mock_label','academic_year_id','term_id','class_id','student_id','subject_id','ca_score','ca_max','examination_score','examination_max','total_score','grade','remark','entered_by','updated_at'].map((columnName) => ({ tableName: 'academic_score_records', columnName })) : [])
   ];
 }
 
@@ -689,6 +689,30 @@ test('Score Entry resolves canonical class labels and subject names and returns 
     const savedScoreQuery = calls.find(({ sql }) => sql.includes('FROM academic_score_records WHERE'));
     assert.equal(savedScoreQuery.params[4], `subject-${context.classId}`);
   }
+});
+
+test('Score Entry still returns registered students when the optional saved-score read schema is unavailable', async () => {
+  const calls = [];
+  const database = {
+    async query(sql, params = []) {
+      calls.push({ sql, params });
+      if (sql.includes('information_schema.COLUMNS')) return scoreRosterSchema({ scores: false });
+      if (sql.includes('FROM academic_years')) return [{ id: 'year-2026', name: '2026/2027', startsOn: '2026-09-01', endsOn: '2027-07-31' }];
+      if (sql.includes('FROM terms')) return [{ id: 'term-1', academicYearId: 'year-2026', name: 'First Term' }];
+      if (sql.includes('SELECT id,name FROM classes WHERE school_id=? AND id=?')) return [{ id: 'class_kg1_01', name: 'KG 1' }];
+      if (sql.includes('FROM subject_class_assignments a JOIN subjects s') && sql.includes('WHERE a.school_id=? AND a.class_id=?')) return [{ id: 'subject-art', name: 'Creative Arts', classId: 'class_kg1_01', className: 'KG 1', isScoring: 1, subjectActive: 1, assignmentActive: 1 }];
+      if (sql.includes('FROM student_enrollments e JOIN students s')) return [{ masterStudentId: 'student-1', studentId: 'student-1', profileId: 'profile-1', permanentStudentId: 'OSAAH/2026/001', firstName: 'Ama', middleName: null, surname: 'Learner' }];
+      return [];
+    },
+    async execute() { return { affectedRows: 1 }; }
+  };
+  const service = createDurableAcademicService({ database, schoolId });
+  const roster = await service.roster({ classId: 'class_kg1_01', subjectId: 'subject-art', academicYear: '2026/2027', term: 'First Term' }, manager);
+  assert.equal(roster.length, 1);
+  assert.equal(roster[0].caScore, null);
+  assert.equal(roster[0].examScore, null);
+  assert.equal(roster[0].saved, false);
+  assert.equal(calls.some(({ sql }) => sql.includes('FROM academic_score_records WHERE')), false);
 });
 
 

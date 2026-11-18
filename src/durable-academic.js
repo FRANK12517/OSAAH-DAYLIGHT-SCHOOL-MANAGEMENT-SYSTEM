@@ -669,10 +669,15 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     if (profileIds.length) {
       const columns = (await scoreRosterSchema()).get('academic_score_records') ?? new Set();
       const required = ['school_id','record_type','mock_label','academic_year_id','term_id','class_id','subject_id','student_id','ca_score','examination_score','total_score','id'];
-      if (required.some((column) => !columns.has(column))) fail('The academic score table is missing required score fields.', 503, 'SCORE_SCHEMA_INCOMPLETE');
-      const placeholders = profileIds.map(() => '?').join(',');
-      savedScores = rows(await database.query(`SELECT student_id AS profileId,ca_score AS caScore,examination_score AS examScore,total_score AS totalScore,${columns.has('grade') ? 'grade' : 'NULL AS grade'},id AS scoreId
-        FROM academic_score_records WHERE school_id=? AND record_type='TERMINAL' AND mock_label IS NULL AND academic_year_id=? AND term_id=? AND class_id=? AND subject_id=? AND student_id IN (${placeholders})`, [schoolId, period.yearId, period.termId, classId, subjectId, ...profileIds]));
+      // Roster display must not depend on already having a complete score
+      // schema or saved rows. Keep the lookup fully scoped when supported;
+      // otherwise return empty scores and let Save report any write-schema
+      // issue through its existing validation path.
+      if (required.every((column) => columns.has(column))) {
+        const placeholders = profileIds.map(() => '?').join(',');
+        savedScores = rows(await database.query(`SELECT student_id AS profileId,ca_score AS caScore,examination_score AS examScore,total_score AS totalScore,${columns.has('grade') ? 'grade' : 'NULL AS grade'},id AS scoreId
+          FROM academic_score_records WHERE school_id=? AND record_type='TERMINAL' AND mock_label IS NULL AND academic_year_id=? AND term_id=? AND class_id=? AND subject_id=? AND student_id IN (${placeholders})`, [schoolId, period.yearId, period.termId, classId, subjectId, ...profileIds]));
+      }
     }
     const scoresByProfile = new Map(savedScores.map((score) => [String(score.profileId), score]));
     return roster.map((student) => {
