@@ -70,9 +70,9 @@ test('existing student without an ID requires the verified historical OSAAH admi
   const service = createExistingStudentLinkingService({ database: db, schoolId: SCHOOL, idFactory: (() => { let n = 0; return () => `generated-${++n}`; })(), clock: () => '2026-10-11T00:00:00.000Z' });
   await assert.rejects(() => service.link({ admissionNumber: 'ADM-001', classId: 'class-p2', academicYearId: 'year-2026' }, actor), { code: 'HISTORICAL_ADMISSION_YEAR_REQUIRED' });
   const result = await service.link({ admissionNumber: 'ADM-001', historicalAdmissionYear: '2020', classId: 'class-p2', academicYearId: 'year-2026' }, actor);
-  assert.equal(result.student.permanentStudentId, 'OSAA/2020/001');
-  assert.equal(student.permanent_student_id, 'OSAA/2020/001');
-  assert.ok(db.writes.some(({ sql, params }) => sql.startsWith('UPDATE students SET permanent_student_id') && params[0] === 'OSAA/2020/001'));
+  assert.equal(result.student.permanentStudentId, 'OSAAH/2020/001');
+  assert.equal(student.permanent_student_id, 'OSAAH/2020/001');
+  assert.ok(db.writes.some(({ sql, params }) => sql.startsWith('UPDATE students SET permanent_student_id') && params[0] === 'OSAAH/2020/001'));
 });
 
 test('existing-student allocation fails closed when a malformed stored ID matches the requested year', async () => {
@@ -86,7 +86,7 @@ test('existing-student allocation reconciles globally issued IDs across schools'
   const { db } = fixture({ permanentStudentId: null, existingStudentIds: ['OSAAH/2020/0007'] });
   const service = createExistingStudentLinkingService({ database: db, schoolId: SCHOOL, clock: () => '2026-10-11T00:00:00.000Z' });
   const result = await service.link({ admissionNumber: 'ADM-001', historicalAdmissionYear: '2020', classId: 'class-p2', academicYearId: 'year-2026' }, actor);
-  assert.equal(result.student.permanentStudentId, 'OSAA/2020/008');
+  assert.equal(result.student.permanentStudentId, 'OSAAH/2020/008');
   const scan = db.calls.find(({ sql }) => sql.includes('FROM students WHERE permanent_student_id IS NOT NULL'));
   assert.ok(scan);
   assert.doesNotMatch(scan.sql, /\?/);

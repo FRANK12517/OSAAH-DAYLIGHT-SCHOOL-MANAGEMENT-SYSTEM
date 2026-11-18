@@ -20,7 +20,7 @@ export function createPermanentStudentIdAllocator({ sequences = new Map(), issue
     const year = admissionYearFor(yearInput, clock().getFullYear());
     let next = sequences.get(year) ?? 0;
     do { next += 1; } while (issued.has(`OSAA/${year}/${String(next).padStart(3, '0')}`) || issued.has(`OSAA/${year}/${String(next).padStart(4, '0')}`) || issued.has(`OSAAH/${year}/${String(next).padStart(3, '0')}`) || issued.has(`OSAAH/${year}/${String(next).padStart(4, '0')}`));
-    const permanentStudentId = `OSAA/${year}/${String(next).padStart(3, '0')}`;
+    const permanentStudentId = `OSAAH/${year}/${String(next).padStart(3, '0')}`;
     sequences.set(year, next);
     issued.add(permanentStudentId);
     return permanentStudentId;

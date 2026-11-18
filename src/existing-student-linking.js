@@ -89,7 +89,7 @@ export function createExistingStudentLinkingService({ database, schoolId, clock 
       return [Number(match[2])];
     });
     const sequence = Math.max(0, ...existingSequences) + 1;
-    const permanentStudentId = `OSAA/${year}/${String(sequence).padStart(3, '0')}`;
+    const permanentStudentId = `OSAAH/${year}/${String(sequence).padStart(3, '0')}`;
     const orphan = rows(await tx.query(`SELECT id FROM student_id_reservations WHERE admission_year=? AND sequence_number=?
       AND student_id IS NULL AND reservation_status='RESERVED' LIMIT 1 FOR UPDATE`, [year, sequence]))[0];
     if (orphan) await tx.execute(`UPDATE student_id_reservations SET permanent_student_id=?,reservation_status='CONSUMED',student_id=?,consumed_at=? WHERE id=? AND student_id IS NULL`, [permanentStudentId, studentId, timestamp, orphan.id]);

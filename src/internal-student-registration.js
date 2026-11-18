@@ -325,7 +325,7 @@ export function createInternalStudentRegistrationService({ database, clock = () 
         const maximum = Math.max(0, ...validNumbers);
         let sequence = maximum + 1;
         if (!Number.isSafeInteger(sequence) || sequence < 1) fail('STUDENT_ID_SEQUENCE_INVALID', 'Annual permanent Student ID sequence is invalid.', 409);
-        const permanentStudentId = `OSAA/${admissionYear}/${String(sequence).padStart(3, '0')}`;
+        const permanentStudentId = `OSAAH/${admissionYear}/${String(sequence).padStart(3, '0')}`;
         const idCollision = rows(await tx.query('SELECT id FROM students WHERE permanent_student_id=? FOR UPDATE', [permanentStudentId]));
         const profileCollision = rows(await tx.query('SELECT student_master_id AS studentId FROM student_profiles WHERE student_id=? FOR UPDATE', [permanentStudentId]));
         if (idCollision.some((row) => String(row.id) !== String(studentId)) || profileCollision.some((row) => String(row.studentId) !== String(studentId))) fail('STUDENT_ID_ASSIGNMENT_CONFLICT', 'This permanent ID is already assigned to another student record.', 409);

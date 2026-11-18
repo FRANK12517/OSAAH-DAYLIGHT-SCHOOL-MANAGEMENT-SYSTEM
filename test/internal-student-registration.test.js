@@ -324,7 +324,7 @@ test('saved registration receives the first database ID and repeated generation 
   assert.equal(state.reservations.length, 0);
   const assigned = await service.assignPermanentId({ studentId: saved.studentId, schoolId: 'school-1', actorId: 'staff-1' });
   const repeated = await service.assignPermanentId({ studentId: saved.studentId, schoolId: 'school-1', actorId: 'staff-1' });
-  assert.equal(assigned.permanentStudentId, 'OSAA/2026/001');
+  assert.equal(assigned.permanentStudentId, 'OSAAH/2026/001');
   assert.equal(repeated.permanentStudentId, assigned.permanentStudentId);
   assert.equal(state.students[0].permanent_student_id, assigned.permanentStudentId);
   assert.equal(state.profiles[0].student_id, assigned.permanentStudentId);
@@ -347,7 +347,7 @@ test('registration succeeds against students schema without full_name and genera
   const enrollmentSql = statements.filter((sql) => /\b(?:FROM|INTO|UPDATE|JOIN)\s+`?student_enrollments`?\b/i.test(sql));
   assert.ok(enrollmentSql.every((sql) => !/\b(?:is_current|enrollment_status|enrolled_at)\b/i.test(sql)), 'registration SQL must use the confirmed student_enrollments columns');
   const assigned = await service.assignPermanentId({ studentId: saved.studentId, schoolId: 'school-1', actorId: 'staff-1' });
-  assert.equal(assigned.permanentStudentId, 'OSAA/2026/001');
+  assert.equal(assigned.permanentStudentId, 'OSAAH/2026/001');
   assert.equal(state.students[0].permanent_student_id, assigned.permanentStudentId);
 });
 
@@ -364,7 +364,7 @@ test('permanent ID assignment retries a sequence collision before returning an I
   };
   const assigned = await service.assignPermanentId({ studentId: saved.studentId, schoolId: 'school-1', actorId: 'staff-1' });
   assert.equal(attempts, 2);
-  assert.equal(assigned.permanentStudentId, 'OSAA/2026/001');
+  assert.equal(assigned.permanentStudentId, 'OSAAH/2026/001');
   assert.equal(state.students[0].permanent_student_id, assigned.permanentStudentId);
 });
 
@@ -376,7 +376,7 @@ test('abandoned reservations and stale counters do not skip unused committed num
   const saved = await saveRegistration(service, { registrationToken: 'registration-token-0002' });
   assert.equal(state.sequences.get(2026), 6, 'saving a student must not consume an ID number');
   const assigned = await service.assignPermanentId({ studentId: saved.studentId, schoolId: 'school-1', actorId: 'staff-1' });
-  assert.equal(assigned.permanentStudentId, 'OSAA/2026/001');
+  assert.equal(assigned.permanentStudentId, 'OSAAH/2026/001');
   assert.equal(state.reservations[0].permanent_student_id, 'OSAAH/2026/005', 'an abandoned historical reservation is retained for audit');
 });
 
@@ -395,7 +395,7 @@ test('failed registration attempts do not consume the first permanent ID', async
   await assert.rejects(() => saveRegistration(service, { registrationToken: 'registration-token-failed' }), { code: 'VALIDATION_FAILED', status: 400, fields: ['termId'] });
   state.periods[0].termName = '1st Term';
   const saved = await saveRegistration(service, { registrationToken: 'registration-token-after-failure' });
-  assert.equal((await service.assignPermanentId({ studentId: saved.studentId, schoolId: 'school-1', actorId: 'staff-1' })).permanentStudentId, 'OSAA/2026/001');
+  assert.equal((await service.assignPermanentId({ studentId: saved.studentId, schoolId: 'school-1', actorId: 'staff-1' })).permanentStudentId, 'OSAAH/2026/001');
 });
 
 test('registration retry with the same token returns the committed student without duplicating it', async () => {
@@ -415,7 +415,7 @@ test('concurrent permanent ID assignments for distinct saved students remain uni
   const first = await saveRegistration(service, { registrationToken: 'registration-token-distinct-1' });
   const second = await saveRegistration(service, { registrationToken: 'registration-token-distinct-2', firstName: 'Kofi', lastName: 'Boateng' });
   const results = await Promise.all([first, second].map((student) => service.assignPermanentId({ studentId: student.studentId, schoolId: 'school-1', actorId: 'staff-1' })));
-  assert.deepEqual(results.map((item) => item.permanentStudentId).sort(), ['OSAA/2026/001', 'OSAA/2026/002']);
+  assert.deepEqual(results.map((item) => item.permanentStudentId).sort(), ['OSAAH/2026/001', 'OSAAH/2026/002']);
   assert.equal(new Set(state.students.map((student) => student.permanent_student_id)).size, 2);
 });
 
@@ -425,7 +425,7 @@ test('permanent ID allocation checks IDs across schools and requires a current c
   const saved = await saveRegistration(service, { registrationToken: 'registration-token-global-id' });
   state.students.push({ id: 'other-school-student', school_id: 'other-school', permanent_student_id: 'OSAA/2026/001' });
   const assigned = await service.assignPermanentId({ studentId: saved.studentId, schoolId: 'school-1', actorId: 'staff-1' });
-  assert.equal(assigned.permanentStudentId, 'OSAA/2026/002');
+  assert.equal(assigned.permanentStudentId, 'OSAAH/2026/002');
   const withoutPlacement = await saveRegistration(service, { registrationToken: 'registration-token-no-roster', firstName: 'Esi', lastName: 'Appiah' });
   const historicalEnrollment = state.enrollments.find((row) => row.student_id === withoutPlacement.studentId);
   historicalEnrollment.class_id = 'other-class';
@@ -637,7 +637,7 @@ test('existing student without an ID receives a backend ID on the same record an
   assert.equal(student.id, original.student.studentId);
   assert.equal(state.enrollments.length, 1);
   const assigned = await service.assignPermanentId({ studentId: student.id, schoolId: 'school-1', actorId: 'staff-1' });
-  assert.equal(assigned.permanentStudentId, 'OSAA/2026/001');
+  assert.equal(assigned.permanentStudentId, 'OSAAH/2026/001');
   assert.equal(student.permanent_student_id, assigned.permanentStudentId);
   assert.equal(profile.student_id, assigned.permanentStudentId);
 });
@@ -653,7 +653,7 @@ test('existing student permanent ID assignment is conditional and confirmed from
   assert.equal(result.student.studentId, original.student.studentId);
   assert.equal(result.permanentStudentId, null);
   const assigned = await service.assignPermanentId({ studentId: student.id, schoolId: 'school-1', actorId: 'staff-1' });
-  assert.equal(assigned.permanentStudentId, 'OSAA/2026/001');
+  assert.equal(assigned.permanentStudentId, 'OSAAH/2026/001');
   assert.equal(student.permanent_student_id, assigned.permanentStudentId);
   assert.equal(profile.student_id, assigned.permanentStudentId);
 });
@@ -709,7 +709,7 @@ test('transfer admissions persist normalized previous school and class before se
   assert.equal(result.student.previousSchool, 'Bogoso Basic School');
   assert.equal(result.student.previousClass, 'Basic 1');
   assert.equal(state.parentLinks.length, 1);
-  assert.equal((await service.assignPermanentId({ studentId: result.studentId, schoolId: 'school-1', actorId: 'staff-1' })).permanentStudentId, 'OSAA/2026/001');
+  assert.equal((await service.assignPermanentId({ studentId: result.studentId, schoolId: 'school-1', actorId: 'staff-1' })).permanentStudentId, 'OSAAH/2026/001');
 });
 
 test('transfer registration rejects missing or invalid previous school/class with field names', async () => {
@@ -735,5 +735,5 @@ test('first-time registration ignores a client-supplied ID when the ID choice is
   assert.equal(result.idStatus, 'PENDING_GENERATION');
   assert.equal(result.permanentStudentId, null);
   assert.equal(state.students[0].permanent_student_id, null);
-  assert.equal((await service.assignPermanentId({ studentId: result.studentId, schoolId: 'school-1', actorId: 'staff-1' })).permanentStudentId, 'OSAA/2026/001');
+  assert.equal((await service.assignPermanentId({ studentId: result.studentId, schoolId: 'school-1', actorId: 'staff-1' })).permanentStudentId, 'OSAAH/2026/001');
 });
