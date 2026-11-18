@@ -193,6 +193,8 @@ test('protected read-only production TiDB migration audit', async (t) => {
     assert.match(workflow, /node-version: 20/);
     assert.match(workflow, /npm ci/);
     assert.match(workflow, /node scripts\/migrate\.mjs status/);
+    assert.match(workflow, /actual_repository="\$\{actual_repository%\.git\}"/);
+    assert.match(workflow, /https:\/\/github\.com\/FRANK12517\/OSAAH-DAYLIGHT-SCHOOL-MANAGEMENT-SYSTEM"/);
     assert.doesNotMatch(workflow, /migration:apply|migration:baseline|forward-reconciliation|TRUNCATE|ALTER TABLE|DROP TABLE/);
   });
 
