@@ -53,7 +53,8 @@ jobs:
         run: |
           set -euo pipefail
           actual_repository="$(git -C release-source remote get-url origin)"
-          if [[ "${actual_repository}" != "https://github.com/FRANK12517/OSAAH-DAYLIGHT-SCHOOL-MANAGEMENT-SYSTEM.git" ]]; then
+          actual_repository="${actual_repository%.git}"
+          if [[ "${actual_repository}" != "https://github.com/FRANK12517/OSAAH-DAYLIGHT-SCHOOL-MANAGEMENT-SYSTEM" ]]; then
             echo "The release checkout did not come from the approved repository."
             exit 1
           fi
