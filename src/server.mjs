@@ -275,7 +275,7 @@ export function createApp({ auth = null, students = null, attendance = null, att
   async function durableClassDatabaseList(filters, actor) {
     classDatabase.options(actor);
     if (!database?.query) return classDatabase.list(filters, actor);
-    const [profileColumnRows, enrollmentColumnRows, studentColumnRows, familyContactColumnRows] = await Promise.all([
+    const [profileColumnRows, enrollmentColumnRows, studentColumnRows, familyContactColumnRows, enrollmentYearColumnRows] = await Promise.all([
       database.query(`SELECT COLUMN_NAME AS columnName FROM INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='student_profiles' AND COLUMN_NAME IN ('previous_school','previous_class')`),
       database.query(`SELECT COLUMN_NAME AS columnName FROM INFORMATION_SCHEMA.COLUMNS
@@ -283,12 +283,15 @@ export function createApp({ auth = null, students = null, attendance = null, att
       database.query(`SELECT COLUMN_NAME AS columnName FROM INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='students' AND COLUMN_NAME IN ('parent_guardian_name','guardian_name','parent_name','parent_phone','guardian_phone','registered_parent_phone')`),
       database.query(`SELECT COLUMN_NAME AS columnName FROM INFORMATION_SCHEMA.COLUMNS
-        WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='student_family_contacts' AND COLUMN_NAME IN ('student_id','contact_type','full_name','telephone','created_at','id')`)
+        WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='student_family_contacts' AND COLUMN_NAME IN ('student_id','contact_type','full_name','telephone','created_at','id')`),
+      database.query(`SELECT COLUMN_NAME AS columnName FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='student_enrollments' AND COLUMN_NAME='academic_year'`)
     ]);
     const profileColumns = new Set(profileColumnRows.map((row) => String(row.columnName ?? row.COLUMN_NAME ?? '').toLowerCase()));
     const enrollmentColumns = new Set(enrollmentColumnRows.map((row) => String(row.columnName ?? row.COLUMN_NAME ?? '').toLowerCase()));
     const studentColumns = new Set(studentColumnRows.map((row) => String(row.columnName ?? row.COLUMN_NAME ?? '').toLowerCase()));
     const familyContactColumns = new Set(familyContactColumnRows.map((row) => String(row.columnName ?? row.COLUMN_NAME ?? '').toLowerCase()));
+    const enrollmentHasAcademicYear = enrollmentYearColumnRows.length > 0;
     // Legacy production student_profiles tables may not have updated_at.
     // The profile id is present across supported schema versions.
     const profileOrder = 'sp.id DESC';
@@ -320,6 +323,8 @@ export function createApp({ auth = null, students = null, attendance = null, att
     if (enrollmentColumns.has('is_current')) enrollmentFilters.push('e.is_current=1');
     if (enrollmentColumns.has('enrollment_status')) enrollmentFilters.push("UPPER(COALESCE(e.enrollment_status,'ACTIVE')) NOT IN ('WITHDRAWN','TRANSFERRED','COMPLETED','GRADUATED')");
     const activeEnrollmentFilter = enrollmentFilters.length ? ` AND ${enrollmentFilters.join(' AND ')}` : '';
+    const legacyYearMatch = enrollmentHasAcademicYear ? ' OR (y.id IS NULL AND e.academic_year=?)' : '';
+    const legacyYearParameters = enrollmentHasAcademicYear ? [String(filters.academicYear ?? '').trim()] : [];
     const academicYear = String(filters.academicYear ?? '').trim();
     const classId = String(filters.classId ?? '').trim();
     const search = `%${String(filters.search ?? '').trim().toLowerCase()}%`;
@@ -331,11 +336,11 @@ export function createApp({ auth = null, students = null, attendance = null, att
       FROM student_enrollments e JOIN students s ON s.id=e.student_id AND s.school_id=e.school_id
       LEFT JOIN academic_years y ON y.id=e.academic_year_id AND y.school_id=e.school_id
       WHERE e.school_id=?${activeEnrollmentFilter}
-      AND (?='' OR y.id=? OR y.name=?)
-      AND (?='' OR e.class_id=? OR EXISTS (SELECT 1 FROM classes c WHERE c.school_id=e.school_id AND c.id=e.class_id AND c.name=?))
+      AND (?='' OR y.id=? OR y.name=?${legacyYearMatch})
+      AND (?='' OR e.class_id=? OR EXISTS (SELECT 1 FROM classes c WHERE c.school_id=e.school_id AND c.id=e.class_id AND c.name=?) OR EXISTS (SELECT 1 FROM classes c WHERE c.school_id=e.school_id AND c.id=e.class_id AND LOWER(TRIM(c.name))=LOWER(TRIM(?))))
       AND (?='' OR LOWER(CONCAT_WS(' ',s.first_name,s.middle_name,s.last_name,s.permanent_student_id)) LIKE ?)
       AND s.is_test_record IS NOT TRUE
-      ORDER BY s.last_name,s.first_name,s.id`, [actor.schoolId, academicYear, academicYear, academicYear, classId, classId, classId, search, search]);
+      ORDER BY s.last_name,s.first_name,s.id`, [actor.schoolId, academicYear, academicYear, academicYear, ...legacyYearParameters, classId, classId, classId, classId, search, search]);
     const assigned = actor.roleKey === 'TEACHER' ? new Set((actor.assignedClassIds ?? []).map(String)) : null;
     return results.filter((row) => !assigned || assigned.has(String(row.classId))).map((row) => ({ ...row, gender: displayStudentGender(row.gender) }));
   }

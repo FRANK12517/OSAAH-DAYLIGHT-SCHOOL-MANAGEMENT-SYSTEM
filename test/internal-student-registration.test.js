@@ -100,6 +100,7 @@ function databaseFixture({ failAt = null, errorFactory = null } = {}) {
   let tail = Promise.resolve();
   const query = async (sql, params = []) => {
     failIfConfigured('query', sql);
+    if (sql.includes('INFORMATION_SCHEMA.COLUMNS') && sql.includes("TABLE_NAME='student_enrollments'")) return ['permanent_student_id','academic_year','class_name'].map((columnName) => ({ columnName }));
     if (sql.includes('FROM student_enrollments e JOIN students s')) {
       const enrollment = state.enrollments.find((row) => row.school_id === params[0] && row.student_id === params[1]);
       const student = state.students.find((row) => row.school_id === params[0] && row.id === params[1] && row.current_class_id === enrollment?.class_id);
@@ -191,9 +192,9 @@ function databaseFixture({ failAt = null, errorFactory = null } = {}) {
     if (sql.startsWith('UPDATE student_health_records SET')) { const row = state.health.find((item) => item.student_id === params[5]); Object.assign(row, { allergies: params[0], conditions: params[1], medications: params[2] }); return; }
     if (sql.startsWith('INSERT INTO student_family_contacts')) { state.guardians.push({ id: params[0], student_id: params[1], contact_type: 'PRIMARY_GUARDIAN', full_name: params[2], telephone: params[4], email: params[6], occupation: params[7], national_id: params[8], created_at: params[9], updated_at: params[10] }); return; }
     if (sql.startsWith('INSERT INTO student_health_records')) { state.health.push({ student_id: params[0], allergies: params[1], conditions: params[2], medications: params[3] }); return; }
-    if (sql.startsWith('INSERT INTO student_enrollments')) { state.enrollments.push({ id: params[0], student_id: params[1], school_id: params[2], class_id: params[3], academic_year_id: params[4], term_id: params[5] }); return; }
+    if (sql.startsWith('INSERT INTO student_enrollments')) { state.enrollments.push({ id: params[0], school_id: params[1], student_id: params[2], permanent_student_id: params[3], academic_year: params[4], class_id: params[5], class_name: params[6], academic_year_id: params[7], term_id: params[8] }); return; }
     if (sql.startsWith('INSERT INTO parent_student_links')) { state.parentLinks.push({ parent_user_id: params[0], student_id: params[1], permanent_student_id: params[2], telephone: params[3] }); return; }
-    if (sql.startsWith('UPDATE student_enrollments SET class_id=')) { const row = state.enrollments.find((item) => item.id === params[1]); if (row) row.class_id = params[0]; return; }
+    if (sql.startsWith('UPDATE student_enrollments SET permanent_student_id=')) { const row = state.enrollments.find((item) => item.id === params[4]); if (row) Object.assign(row, { permanent_student_id: params[0], academic_year: params[1], class_id: params[2], class_name: params[3] }); return; }
     throw new Error(`Unexpected execute: ${sql}`);
   };
   const database = {
@@ -572,6 +573,8 @@ test('registration persists pupil, parent, health and canonical class enrollment
   assert.deepEqual(state.parentLinks, [{ parent_user_id: 'parent-1', student_id: state.profiles[0].id, permanent_student_id: null, telephone: '+233241234567' }]);
   assert.equal(state.enrollments[0].class_id, 'class-kg1');
   assert.equal(state.enrollments[0].academic_year_id, 'year-2026');
+  assert.equal(state.enrollments[0].academic_year, '2026/2027');
+  assert.equal(state.enrollments[0].class_name, 'KG1');
   assert.equal(state.reservations.length, 0);
   const retry = await saveRegistration(service, { registrationToken: 'registration-token-persist' });
   assert.equal(retry.created, false);

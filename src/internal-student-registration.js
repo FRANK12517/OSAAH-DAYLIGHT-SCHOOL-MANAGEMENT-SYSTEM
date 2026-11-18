@@ -113,6 +113,14 @@ function registrationFailure(error, failingStep) {
 
 export function createInternalStudentRegistrationService({ database, clock = () => new Date().toISOString(), idFactory = randomUUID } = {}) {
   if (!database?.transaction) fail('DATABASE_ADAPTER_REQUIRED', 'Internal registration persistence is unavailable.', 503);
+  let enrollmentColumnsPromise;
+  const getEnrollmentColumns = async (db) => {
+    enrollmentColumnsPromise ??= db.query(`SELECT COLUMN_NAME AS columnName FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='student_enrollments' AND COLUMN_NAME IN ('permanent_student_id','academic_year','class_name')`)
+      .then((columns) => new Set(rows(columns).map((column) => String(column.columnName ?? column.COLUMN_NAME ?? '').toLowerCase())))
+      .catch(() => new Set());
+    return enrollmentColumnsPromise;
+  };
 
   async function transactionWithRetry(work, onStep = null) {
     for (let attempt = 0; ; attempt += 1) {
@@ -574,9 +582,16 @@ export function createInternalStudentRegistrationService({ database, clock = () 
         });
         }
 
+        const enrollmentPermanentStudentId = student.permanentStudentId ?? student.permanent_student_id ?? null;
+        const enrollmentColumns = await getEnrollmentColumns(tx);
+        const enrollmentFields = ['school_id','student_id', ...(enrollmentColumns.has('permanent_student_id') ? ['permanent_student_id'] : []), ...(enrollmentColumns.has('academic_year') ? ['academic_year'] : []), 'class_id', ...(enrollmentColumns.has('class_name') ? ['class_name'] : []), 'academic_year_id','term_id'];
+        const enrollmentValues = [schoolId, student.studentId ?? student.id, ...(enrollmentColumns.has('permanent_student_id') ? [enrollmentPermanentStudentId] : []), ...(enrollmentColumns.has('academic_year') ? [period.academicYearName] : []), classId, ...(enrollmentColumns.has('class_name') ? [classRow.name] : []), academicYearId, termId];
         const current = rows(await tx.query('SELECT id FROM student_enrollments WHERE school_id=? AND student_id=? AND academic_year_id=? AND term_id=? LIMIT 1 FOR UPDATE', [schoolId, student.studentId ?? student.id, academicYearId, termId]))[0];
-        if (current) await tx.execute('UPDATE student_enrollments SET class_id=? WHERE id=?', [classId, current.id]);
-        else await tx.execute('INSERT INTO student_enrollments (id,student_id,school_id,class_id,academic_year_id,term_id) VALUES (?,?,?,?,?,?)', [idFactory(), student.studentId ?? student.id, schoolId, classId, academicYearId, termId]);
+        if (current) {
+          const updateFields = enrollmentFields.filter((column) => !['school_id','student_id','academic_year_id','term_id'].includes(column));
+          const updateValues = updateFields.map((column) => enrollmentValues[enrollmentFields.indexOf(column)]);
+          await tx.execute(`UPDATE student_enrollments SET ${updateFields.map((column) => `${column}=?`).join(',')} WHERE id=?`, [...updateValues, current.id]);
+        } else await tx.execute(`INSERT INTO student_enrollments (id,${enrollmentFields.join(',')}) VALUES (${Array(enrollmentFields.length + 1).fill('?').join(',')})`, [idFactory(), ...enrollmentValues]);
         const confirmed = rows(await tx.query(`SELECT id AS studentId,school_id AS schoolId,permanent_student_id AS permanentStudentId,
           first_name AS firstName,middle_name AS middleName,last_name AS lastName FROM students WHERE school_id=? AND id=? LIMIT 1 FOR UPDATE`, [schoolId, student.studentId ?? student.id]))[0];
         if (!confirmed) fail('STUDENT_REGISTRATION_CONFIRMATION_FAILED', 'The student record could not be confirmed after saving. Please retry.', 503);
