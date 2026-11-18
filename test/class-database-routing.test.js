@@ -13,13 +13,13 @@ const roles = ['PROPRIETOR', 'ACCOUNTANT_BURSAR', 'HEADTEACHER', 'ASSISTANT_HEAD
 const allClasses = ['Nursery 1', 'Nursery 2', 'KG1', 'KG2', 'Primary 1', 'Primary 2', 'Primary 3', 'Primary 4', 'Primary 5', 'Primary 6', 'JHS 1', 'JHS 2', 'JHS 3'];
 const users = roles.map((roleKey) => ({ id: `part2-${roleKey.toLowerCase()}`, username: `${roleKey.toLowerCase()}@part2.test`, passwordHash: hash(`part2-${roleKey.toLowerCase()}`), portal: 'school', roleKey, schoolId, permissions: new Set(['students.read', ...(roleKey === 'PROPRIETOR' ? ['*'] : [])]), assignedClassIds: roleKey === 'TEACHER' ? allClasses : [] }));
 
-function request(server, path, token) { return new Promise((resolve, reject) => { const req = httpRequest({ port: server.address().port, path, headers: { Authorization: `Bearer ${token}` } }, (res) => { let body = ''; res.setEncoding('utf8'); res.on('data', (chunk) => { body += chunk; }); res.on('end', () => resolve({ status: res.statusCode, body })); }); req.on('error', reject); req.end(); }); }
+function request(server, path, token) { return new Promise((resolve, reject) => { const req = httpRequest({ host: '127.0.0.1', port: server.address().port, path, headers: { Authorization: `Bearer ${token}` } }, (res) => { let body = ''; res.setEncoding('utf8'); res.on('data', (chunk) => { body += chunk; }); res.on('end', () => resolve({ status: res.statusCode, body })); }); req.on('error', reject); req.end(); }); }
 
 test('every authorized role maps to one exact Class Database sidebar route and component', async (t) => {
   const module = SIDEBAR_MODULES.find((item) => item.moduleKey === 'class-database');
   assert.ok(module); assert.equal(module.route, '/class-database.html'); assert.equal(module.category, 'STUDENTS MANAGEMENT'); assert.equal(module.requiredPermission, 'students.read');
   const auth = createAuthService({ users, sessionSecret: 'part2-routing-session-secret-0123456789' });
-  const server = createServer(createApp({ auth })); await new Promise((resolve) => server.listen(0, resolve)); t.after(() => new Promise((resolve) => server.close(resolve)));
+  const server = createServer(createApp({ auth })); await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve)); t.after(() => new Promise((resolve) => server.close(resolve)));
   for (const roleKey of roles) {
     const user = users.find((item) => item.roleKey === roleKey); const login = auth.login({ username: user.username, password, portal: 'school', role: roleKey }); assert.equal(login.ok, true, roleKey);
     const groups = visibleSidebar({ permissions: new Set([...user.permissions]), roleKey, portal: 'school' }); const studentGroup = groups.find((group) => group.category === 'STUDENTS MANAGEMENT' || group.category === 'STUDENT MANAGEMENT'); const item = studentGroup?.modules.find((entry) => entry.moduleKey === 'class-database'); assert.ok(item, `${roleKey} sidebar visibility`); assert.equal(item.route, '/class-database.html', roleKey);
@@ -37,18 +37,21 @@ test('Class Database academic-year filtering uses the academic_year_id join on l
       if (sql.includes('INFORMATION_SCHEMA.COLUMNS') && sql.includes("TABLE_NAME='student_profiles'")) {
         return [{ columnName: 'previous_school' }, { columnName: 'previous_class' }];
       }
-      if (sql.includes('INFORMATION_SCHEMA.COLUMNS') && sql.includes("TABLE_NAME='student_enrollments'")) return [];
+      if (sql.includes('INFORMATION_SCHEMA.COLUMNS') && sql.includes("TABLE_NAME='student_enrollments'") && sql.includes("COLUMN_NAME='academic_year'")) return [{ columnName: 'academic_year' }];
+      if (sql.includes('INFORMATION_SCHEMA.COLUMNS') && sql.includes("TABLE_NAME='student_enrollments'") && !sql.includes("COLUMN_NAME='academic_year'")) return [];
       if (sql.includes('INFORMATION_SCHEMA.COLUMNS') && sql.includes("TABLE_NAME='students'")) return [];
       if (sql.includes('INFORMATION_SCHEMA.COLUMNS') && sql.includes("TABLE_NAME='student_family_contacts'")) return ['student_id','contact_type','full_name','telephone','created_at','id'].map((columnName) => ({ columnName }));
       if (sql.includes('FROM student_enrollments e JOIN students s')) {
-        assert.doesNotMatch(sql, /e\.academic_year\b/);
+        assert.match(sql, /e\.academic_year=\?/);
         assert.doesNotMatch(sql, /sp\.updated_at\b/);
         assert.doesNotMatch(sql, /s\.parent_guardian_name|s\.parent_phone/);
         assert.match(sql, /FROM student_family_contacts fc JOIN student_profiles spg/);
         assert.match(sql, /ORDER BY sp\.id DESC LIMIT 1/);
         assert.match(sql, /y\.id=e\.academic_year_id/);
-        assert.match(sql, /AND \(\?='' OR y\.id=\? OR y\.name=\?\)/);
-        assert.deepEqual(params.slice(1, 4), ['2026/2027 Academic Year', '2026/2027 Academic Year', '2026/2027 Academic Year']);
+        assert.match(sql, /y\.id IS NULL AND e\.academic_year=\?/);
+        assert.match(sql, /LOWER\(TRIM\(c\.name\)\)=LOWER\(TRIM\(\?\)\)/);
+        assert.deepEqual(params.slice(1, 5), Array(4).fill('2026/2027 Academic Year'));
+        assert.deepEqual(params.slice(5, 9), Array(4).fill('class-kg1'));
         return [{ permanentStudentId: 'OSAAH-2026-0001', studentId: 'student-1', studentName: 'Ama Mensah', gender: 'Female', parentGuardianName: 'Efua Mensah', registeredParentPhone: '0240000000', previousSchool: null, previousClass: null, classId: 'class-kg1', academicYear: '2026/2027 Academic Year' }];
       }
       return [];
@@ -57,7 +60,7 @@ test('Class Database academic-year filtering uses the academic_year_id join on l
   const actor = { id: 'proprietor-1', schoolId, portal: 'school', roleKey: 'PROPRIETOR', permissions: new Set(['*']) };
   const auth = { authenticateAsync: async () => actor };
   const server = createServer(createApp({ auth, database }));
-  await new Promise((resolve) => server.listen(0, resolve));
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   t.after(() => new Promise((resolve) => server.close(resolve)));
 
   const response = await request(server, '/api/class-database?classId=class-kg1&academicYear=2026%2F2027%20Academic%20Year', 'test-token');
