@@ -59,6 +59,11 @@ test('durable register resolves academic period IDs, enforces term dates, and re
   const calls = [];
   const database = { async query(sql, params) {
     calls.push({ sql, params });
+    if (sql.includes('information_schema.COLUMNS') && sql.includes("TABLE_NAME IN ('students','student_profiles','student_enrollments')")) return [
+      ...['id','school_id','permanent_student_id','first_name','middle_name','last_name','gender','student_status','is_test_record'].map((columnName) => ({ tableName: 'students', columnName })),
+      ...['id','school_id','student_master_id','student_id','first_name','middle_name','surname','gender'].map((columnName) => ({ tableName: 'student_profiles', columnName })),
+      ...['school_id','student_id','class_id','academic_year_id','term_id'].map((columnName) => ({ tableName: 'student_enrollments', columnName }))
+    ];
     if (sql.includes('FROM academic_years y JOIN terms t')) return [YEAR];
     if (sql.includes('FROM student_enrollments e')) return [{ studentId: 'profile-1', permanentStudentId: 'OSAAH-100', firstName: 'Ama', middleName: null, surname: 'Mensah', gender: 'FEMALE' }];
     return [];
@@ -119,6 +124,11 @@ function databaseStub({ periodFailure = false, emptyRoster = false, fixtureStore
     executed,
     rosterQueryParams,
     async query(sql, params = []) {
+      if (sql.includes('information_schema.COLUMNS') && sql.includes("TABLE_NAME IN ('students','student_profiles','student_enrollments')")) return [
+        ...['id','school_id','permanent_student_id','first_name','middle_name','last_name','gender','student_status','is_test_record','current_class_id','admission_date','created_at'].map((columnName) => ({ tableName: 'students', columnName })),
+        ...['id','school_id','student_master_id','student_id','class_id','first_name','middle_name','surname','gender'].map((columnName) => ({ tableName: 'student_profiles', columnName })),
+        ...['school_id','student_id','permanent_student_id','academic_year','academic_year_id','class_id','class_name','term_id','enrollment_status','is_current'].map((columnName) => ({ tableName: 'student_enrollments', columnName }))
+      ];
       if (sql.includes('SELECT y.id AS yearId')) {
         if (periodFailure) throw new Error('sensitive database diagnostic text');
         return [YEAR];
@@ -166,7 +176,7 @@ test('HTTP register uses the durable active enrollment roster and returns a cons
   assert.equal(body.data.date, DATE);
   assert.equal(body.register.length, 1);
   assert.equal(body.register[0].studentId, 'profile-1');
-  assert.deepEqual(database.rosterQueryParams[0], [reporter.schoolId, 'class-1', 'ay-2026', 'term-1']);
+  assert.deepEqual(database.rosterQueryParams[0], [reporter.schoolId, 'class-1', 'Basic 1', 'Primary 1', 'ay-2026', '2026/2027', 'term-1']);
 });
 test('HTTP register reports a genuine empty enrollment set as a successful empty register', async (t) => {
   const reporter = makeUser('register-reader-empty', ['attendance.read']);
@@ -181,6 +191,53 @@ test('HTTP register reports a genuine empty enrollment set as a successful empty
   assert.equal(body.success, true);
   assert.deepEqual(body.data.register, []);
   assert.equal(body.date, DATE);
+});
+
+test('HTTP attendance register falls back to current registered classes and saves KG/Nursery marks', async (t) => {
+  const reporter = makeUser('register-fallback-writer');
+  const auth = createAuthService({ users: [reporter], sessionSecret: SECRET });
+  const students = createStudentService({ schoolId: reporter.schoolId, now: () => `${DATE}T09:00:00.000Z` });
+  const classes = [
+    { id: 'class_kg1_01', name: 'KG 1', permanentStudentId: 'OSAA/2026/001' },
+    { id: 'class_nursery1_01', name: 'Nursery 1', permanentStudentId: 'OSAA/2026/002' },
+    { id: 'class_nursery2_01', name: 'Nursery 2', permanentStudentId: 'OSAA/2026/003' }
+  ];
+  const registered = classes.map((item, index) => ({ ...item, student: students.createStudent({
+    firstName: `Learner${index + 1}`, surname: item.name.replaceAll(' ', ''), permanentStudentId: item.permanentStudentId,
+    classId: item.id, academicYearId: YEAR.yearName, termId: YEAR.termName, admissionDate: DATE
+  }) }));
+  const queries = [];
+  const columns = [
+    ...['id','school_id','permanent_student_id','first_name','middle_name','last_name','gender','student_status','is_test_record','current_class_id','admission_date','created_at'].map((columnName) => ({ tableName: 'students', columnName })),
+    ...['id','school_id','student_master_id','student_id','class_id','first_name','middle_name','surname','gender'].map((columnName) => ({ tableName: 'student_profiles', columnName }))
+  ];
+  const database = { async query(sql, params = []) {
+    queries.push({ sql, params });
+    if (sql.includes('information_schema.COLUMNS') && sql.includes("TABLE_NAME IN ('students','student_profiles','student_enrollments')")) return columns;
+    if (sql.includes('SELECT y.id AS yearId')) return [YEAR];
+    if (sql.includes('FROM classes')) return classes.map(({ id, name }, displayOrder) => ({ id, name, displayOrder }));
+    if (sql.includes('FROM students s LEFT JOIN student_profiles sp')) return registered
+      .filter(({ id, student }) => params.includes(id) && student.permanentStudentId !== 'DEFAULT_STUDENT')
+      .map(({ student }) => ({ studentId: student.id, masterStudentId: student.id, permanentStudentId: student.permanentStudentId, firstName: student.firstName, middleName: null, surname: student.surname, gender: student.gender }));
+    return [];
+  } };
+  const app = createApp({ auth, database, students, schoolSettings: { async read() { return { settings: [] }; } }, aiEnabled: false });
+  const base = await startApp(t, app);
+  const token = auth.login({ username: reporter.username, password: PASSWORD, portal: 'school', role: reporter.roleKey }).token;
+  for (const item of registered) {
+    const query = new URLSearchParams({ classId: item.id, academicYear: YEAR.yearName, term: YEAR.termName, date: DATE });
+    const response = await fetch(`${base}/api/attendance/register?${query}`, { headers: { authorization: `Bearer ${token}` } });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.deepEqual(body.register.map((row) => row.permanentStudentId), [item.permanentStudentId]);
+    const save = await fetch(`${base}/api/attendance/students/sync`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ entries: [{ studentId: item.student.id, classId: item.id, academicYear: YEAR.yearName, term: YEAR.termName, date: DATE, status: 'PRESENT', method: 'MANUAL' }] }) });
+    assert.equal(save.status, 200);
+    assert.equal((await save.json()).synced[0].studentId, item.student.id);
+  }
+  const rosterSql = queries.filter(({ sql }) => sql.includes('FROM students s LEFT JOIN student_profiles sp'));
+  assert.equal(rosterSql.length, 3, 'each selected class uses the schema-aware fallback roster');
+  assert.ok(rosterSql.every(({ sql }) => /DEFAULT_STUDENT/.test(sql)));
+  assert.ok(rosterSql.every(({ sql }) => /s\.current_class_id/.test(sql)));
 });
 
 test('HTTP register query failures are caught and always returned as safe JSON', async (t) => {

@@ -1192,7 +1192,7 @@ if (durableAcademic && isSampleModeEnabled(body)) {
               if (!sample?.isTestRecord) throw Object.assign(new Error('Sample / Test Mode accepts only configured sample students.'), { status: 400, code: 'ATTENDANCE_SAMPLE_STUDENT_INVALID' });
               normalized.isTestRecord = true;
             } else {
-              if (attendanceRepository && !(await attendanceRegister.isEnrolled({ schoolId: user.schoolId, studentId: entry.studentId, classId: String(classOption.id), period }))) throw Object.assign(new Error('Student is not actively enrolled in the selected class and academic period.'), { status: 400, code: 'ATTENDANCE_ENROLLMENT_INVALID' });
+              if (attendanceRepository && !(await attendanceRegister.isEnrolled({ schoolId: user.schoolId, studentId: entry.studentId, classId: String(classOption.id), className: classOption.name, canonicalClassName: canonicalClass, period }))) throw Object.assign(new Error('Student is not actively enrolled in the selected class and academic period.'), { status: 400, code: 'ATTENDANCE_ENROLLMENT_INVALID' });
               if (!attendanceRepository) {
                 const student = students.getStudent(entry.studentId, { requestedSchoolId: user.schoolId });
                 const enrolled = student && !student.isTestRecord && student.history?.some((item) => String(item.academicYearId ?? '') === String(period.yearName) && String(item.termId ?? '') === String(period.termName) && String(item.classId) === String(classOption.id));

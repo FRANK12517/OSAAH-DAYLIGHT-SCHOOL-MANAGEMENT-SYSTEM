@@ -29,7 +29,11 @@ test('Attendance API exposes authoritative classes and normalizes class scope be
   assert.match(server, /attendanceClassOptions\(user\)/);
   assert.match(server, /resolveAttendanceClass\(user, requestedClassId\)/);
   assert.match(server, /attendanceRegister\.enrolledStudents\(/);
-  assert.match(service, /e\.academic_year_id=\? AND e\.term_id=\?/);
-  assert.match(service, /COALESCE\(e\.enrollment_status,'ACTIVE'\)='ACTIVE'/);
+  assert.match(service, /e\.academic_year_id=\?/);
+  assert.match(service, /e\.term_id=\? OR e\.term_id IS NULL/);
+  assert.match(service, /information_schema\.COLUMNS/);
+  assert.match(service, /NOT EXISTS \(SELECT 1 FROM student_enrollments prior/);
+  assert.match(service, /DEFAULT_STUDENT/);
+  assert.match(service, /UPPER\(COALESCE\(e\.enrollment_status,'ACTIVE'\)\)='ACTIVE'/);
   assert.match(server, /throw Object\.assign\(new Error\('Forbidden\.'\), \{ status: 403 \}\)/);
 });

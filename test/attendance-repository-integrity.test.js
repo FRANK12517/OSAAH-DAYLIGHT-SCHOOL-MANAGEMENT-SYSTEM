@@ -119,3 +119,44 @@ test('attendance alert reads fall back to the verified legacy date column withou
   assert.deepEqual(queries.map(({ params }) => params), [['school-1'], ['school-1']]);
   assert.match(queries[1].sql, /WHERE school_id=\? ORDER BY `date`,student_id/);
 });
+
+test('legacy attendance schemas load and save present marks using date and created_at columns', async () => {
+  const columns = ['id','school_id','academic_year','term','date','class_id','student_id','status','remarks','created_at'];
+  const stored = [];
+  const queries = [];
+  const adapter = {
+    async query(sql, params = []) {
+      queries.push(sql);
+      if (sql.includes('information_schema.COLUMNS')) return columns.map((columnName) => ({ columnName }));
+      if (sql.includes('FROM student_attendance')) {
+        if (sql.includes('WHERE id=? AND school_id=?')) return stored.filter((row) => row.id === params[0] && row.school_id === params[1]);
+        const filtered = stored.filter((row) => row.school_id === params[0]
+          && (!params[1] || row.academic_year === params[1])
+          && (!params[2] || row.term === params[2])
+          && (!params[3] || row.date === params[3])
+          && (!params[4] || row.class_id === params[4])
+          && (!params[5] || row.student_id === params[5]));
+        return filtered;
+      }
+      return [];
+    },
+    async execute(sql, params = []) {
+      if (sql.startsWith('INSERT INTO student_attendance')) {
+        const fields = [...sql.matchAll(/`([^`]+)`/g)].map((match) => match[1]);
+        stored.push(Object.fromEntries(fields.map((field, index) => [field, params[index]])));
+        return { affectedRows: 1 };
+      }
+      if (sql.includes('attendance_audit_history')) throw new Error("Table 'attendance_audit_history' doesn't exist");
+      throw new Error(`Unexpected SQL: ${sql}`);
+    }
+  };
+  const repository = createAttendanceRepository({ adapter, now: () => '2026-11-18T12:00:00.000Z' });
+  const saved = await repository.saveStudentAttendance(entry('student-legacy', { status: 'PRESENT' }), actor);
+  assert.equal(saved.studentId, 'student-legacy');
+  assert.equal(saved.date, '2026-10-10');
+  assert.equal(saved.status, 'PRESENT');
+  assert.equal(stored[0].date, '2026-10-10');
+  assert.equal(stored[0].created_at, '2026-11-18T12:00:00.000Z');
+  assert.equal((await repository.listStudentRecords({ schoolId: 'school-1' })).length, 1);
+  assert.ok(queries.every((sql) => !sql.includes('attendance_date')));
+});

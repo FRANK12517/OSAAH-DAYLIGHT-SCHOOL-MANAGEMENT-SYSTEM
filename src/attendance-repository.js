@@ -22,9 +22,87 @@ function attendanceRow(row) { return { id: row.id, schoolId: row.schoolId ?? row
 function staffRow(row) { const type = row.type ?? row.attendance_type; const status = String(row.status ?? row.attendance_status ?? statusFromStaffAttendanceType(type) ?? '').toUpperCase(); return { id: row.id, schoolId: row.schoolId ?? row.school_id, academicYear: row.academicYear ?? row.academic_year, term: row.term, staffId: row.staffId ?? row.staff_id, date: row.date ?? row.attendance_date, type: type ?? typeFromStaffAttendanceStatus(status), status, source: row.source ?? row.attendance_source ?? 'MANUAL', leaveRequestId: row.leaveRequestId ?? row.leave_request_id ?? null, note: row.note ?? null, previousStatus: row.previousStatus ?? row.previous_status ?? null, time: row.time !== undefined ? row.time : row.attendance_time ?? null, recordedBy: row.recordedBy ?? row.recorded_by ?? row.enteredBy ?? row.entered_by, recordedAt: row.recordedAt ?? row.recorded_at ?? row.createdAt ?? row.created_at, updatedBy: row.updatedBy ?? row.updated_by ?? row.enteredBy ?? row.entered_by, updatedAt: row.updatedAt ?? row.updated_at ?? row.createdAt ?? row.created_at, enteredBy: row.enteredBy ?? row.entered_by ?? row.recordedBy ?? row.recorded_by, createdAt: row.createdAt ?? row.created_at ?? row.recordedAt ?? row.recorded_at }; }
 const STUDENT_SELECT = 'id,school_id AS schoolId,academic_year AS academicYear,term,attendance_date AS date,class_id AS classId,student_id AS studentId,subject_id AS subjectId,status,method,arrival_time AS arrivalTime,departure_time AS departureTime,reason,version,entered_by AS enteredBy,entered_at AS enteredAt,recorded_by AS recordedBy,recorded_at AS recordedAt,updated_by AS updatedBy,updated_at AS updatedAt,source';
 const STAFF_SELECT = 'id,school_id AS schoolId,academic_year AS academicYear,term,staff_id AS staffId,attendance_date AS date,attendance_type AS type,attendance_status AS status,attendance_source AS source,leave_request_id AS leaveRequestId,note,previous_status AS previousStatus,attendance_time AS time,entered_by AS enteredBy,created_at AS createdAt,recorded_by AS recordedBy,recorded_at AS recordedAt,updated_by AS updatedBy,updated_at AS updatedAt';
+const CANONICAL_STUDENT_COLUMNS = ['id','school_id','academic_year','term','attendance_date','class_id','student_id','subject_id','subject_key','status','method','arrival_time','departure_time','reason','version','entered_by','entered_at','recorded_by','recorded_at','updated_by','updated_at','source'];
 
 function buildAttendanceRepository({ adapter, now, insideTransaction }) {
   if (!adapter?.query || !adapter?.execute) throw new Error('A durable database adapter is required.');
+  let cachedStudentColumns;
+  async function studentAttendanceColumns() {
+    if (cachedStudentColumns !== undefined) return cachedStudentColumns;
+    const found = rows(await adapter.query("SELECT COLUMN_NAME AS columnName FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='student_attendance'"));
+    cachedStudentColumns = found.length ? new Set(found.map((row) => String(row.columnName ?? row.COLUMN_NAME ?? '').toLowerCase())) : null;
+    return cachedStudentColumns;
+  }
+  function has(columns, name) { return columns?.has(name) === true; }
+  function attendanceProjection(columns) {
+    const dateColumn = has(columns, 'attendance_date') ? 'attendance_date' : has(columns, 'date') ? 'date' : null;
+    const required = ['id','school_id','academic_year','term','class_id','student_id','status'];
+    if (!dateColumn || required.some((column) => !has(columns, column))) throw Object.assign(new Error('The student attendance table is missing required identity or period columns.'), { status: 503, code: 'ATTENDANCE_SCHEMA_INCOMPLETE' });
+    const expression = (column, alias, fallback = 'NULL') => has(columns, column) ? `\`${column}\`${alias ? ` AS ${alias}` : ''}` : `${fallback}${alias ? ` AS ${alias}` : ''}`;
+    return {
+      dateColumn,
+      select: [expression('id'),expression('school_id','schoolId'),expression('academic_year','academicYear'),expression('term'),expression(dateColumn,'date'),expression('class_id','classId'),expression('student_id','studentId'),expression('subject_id','subjectId'),expression('status'),expression('method','method',"'MANUAL'"),expression('arrival_time','arrivalTime'),expression('departure_time','departureTime'),expression('reason'),expression('version','version','1'),expression('entered_by','enteredBy'),expression('entered_at','enteredAt'),expression('recorded_by','recordedBy'),expression('recorded_at','recordedAt'),expression('updated_by','updatedBy'),expression('updated_at','updatedAt'),expression('source','source',"'MANUAL'")].join(',')
+    };
+  }
+  async function listStudentRecordsForSchema(filters = {}, columns) {
+    const projection = attendanceProjection(columns);
+    const conditions = ['school_id=?']; const params = [filters.schoolId];
+    for (const [column, value] of [['academic_year',filters.academicYear],['term',filters.term],[projection.dateColumn,filters.date],['class_id',filters.classId],['student_id',filters.studentId]]) if (value && has(columns,column)) { conditions.push(`\`${column}\`=?`); params.push(value); }
+    const result = await adapter.query(`SELECT ${projection.select} FROM student_attendance WHERE ${conditions.join(' AND ')} ORDER BY \`${projection.dateColumn}\`,student_id`, params);
+    return rows(result).map(attendanceRow);
+  }
+  async function findStudentAttendanceForSchema(entry, actor, columns) {
+    const projection = attendanceProjection(columns);
+    const conditions = ['school_id=?','academic_year=?','term=?','`' + projection.dateColumn + '`=?','class_id=?','student_id=?'];
+    const params = [actor.schoolId,entry.academicYear,entry.term,date(entry.date),entry.classId,entry.studentId];
+    if (has(columns,'subject_key')) { conditions.push('subject_key=?'); params.push(entry.subjectId ?? 'daily'); }
+    return rows(await adapter.query(`SELECT ${projection.select} FROM student_attendance WHERE ${conditions.join(' AND ')} LIMIT 1`,params))[0] ?? null;
+  }
+
+  async function saveStudentAttendanceForSchema(entry, actor, options, columns) {
+    const schoolId = actor.schoolId; assertActor(actor, schoolId);
+    const status = String(entry.status ?? '').toUpperCase();
+    const method = String(entry.method ?? 'MANUAL').toUpperCase();
+    if (!STUDENT_STATUSES.includes(status)) throw new Error('Invalid attendance status');
+    if (!ATTENDANCE_METHODS.includes(method)) throw new Error('Invalid attendance method');
+    const attendanceDate = date(entry.date);
+    const reason = entry.reason == null || String(entry.reason).trim() === '' ? null : String(entry.reason).trim();
+    validateReason(status, reason);
+    if (!has(columns,'reason') && reason) throw Object.assign(new Error('This attendance schema cannot store a reason yet. Apply the attendance compatibility migration before recording reason-required marks.'), { status: 503, code: 'ATTENDANCE_REASON_SCHEMA_UNAVAILABLE' });
+    const existing = await findStudentAttendanceForSchema(entry, actor, columns);
+    const correction = Boolean(options.correction);
+    const expectedVersion = options.expectedVersion == null ? null : Number(options.expectedVersion);
+    if (existing && !correction) throw Object.assign(new Error('Attendance already recorded'), { status: 409, code: 'ATTENDANCE_DUPLICATE' });
+    if (existing && expectedVersion == null) throw Object.assign(new Error('Attendance version is required for a correction.'), { status: 409, code: 'ATTENDANCE_VERSION_REQUIRED' });
+    if (existing && expectedVersion !== Number(existing.version ?? 1)) throw Object.assign(new Error('Attendance conflict: server record is newer'), { status: 409, code: 'ATTENDANCE_VERSION_CONFLICT' });
+    if (!existing && expectedVersion != null) throw Object.assign(new Error('Attendance conflict: the server record no longer exists.'), { status: 409, code: 'ATTENDANCE_VERSION_CONFLICT' });
+    const timestamp = now();
+    const id = existing?.id ?? randomUUID();
+    if (existing) {
+      const values = new Map([
+        ['status',status],['method',method],['arrival_time',time(entry.arrivalTime,'arrival time')],['departure_time',time(entry.departureTime,'departure time')],['reason',reason],['updated_by',actorId(actor)],['updated_at',timestamp],['source',source(entry.source)]
+      ]);
+      const sets = [];
+      const params = [];
+      for (const [column,value] of values) if (has(columns,column)) { sets.push(`\`${column}\`=?`); params.push(value); }
+      if (has(columns,'version')) sets.push('version=version+1');
+      const where = ['id=?','school_id=?']; params.push(id,schoolId);
+      if (has(columns,'version')) { where.push('version=?'); params.push(existing.version); }
+      const result = await adapter.execute(`UPDATE student_attendance SET ${sets.join(',')} WHERE ${where.join(' AND ')}`,params);
+      if (Number(result?.affectedRows ?? result?.changes ?? result?.rowCount ?? 0) !== 1) throw Object.assign(new Error('Attendance conflict: server record is newer'), { status: 409, code: 'ATTENDANCE_VERSION_CONFLICT' });
+    } else {
+      const values = new Map([
+        ['id',id],['school_id',schoolId],['academic_year',entry.academicYear],['term',entry.term],['attendance_date',attendanceDate],['date',attendanceDate],['class_id',entry.classId],['student_id',entry.studentId],['subject_id',entry.subjectId ?? null],['subject_key',entry.subjectId ?? 'daily'],['status',status],['method',method],['arrival_time',time(entry.arrivalTime,'arrival time')],['departure_time',time(entry.departureTime,'departure time')],['reason',reason],['version',1],['entered_by',actorId(actor)],['entered_at',timestamp],['created_at',timestamp],['recorded_by',actorId(actor)],['recorded_at',timestamp],['updated_by',actorId(actor)],['updated_at',timestamp],['source',source(entry.source)]
+      ]);
+      const fields = [...values].filter(([column]) => has(columns,column));
+      await adapter.execute(`INSERT INTO student_attendance (${fields.map(([column]) => `\`${column}\``).join(',')}) VALUES (${fields.map(() => '?').join(',')})`,fields.map(([,value]) => value));
+    }
+    const persisted = rows(await adapter.query(`SELECT ${attendanceProjection(columns).select} FROM student_attendance WHERE id=? AND school_id=?`, [id, schoolId]))[0];
+    if (!persisted) throw new Error('Attendance record could not be read after saving.');
+    const record = attendanceRow(persisted);
+    await writeAudit(record, existing ? attendanceRow(existing) : null, actor, 'STUDENT');
+    return record;
+  }
 
   async function writeAudit(record, previous, actor, personType) {
     if (previous) {
@@ -35,11 +113,20 @@ function buildAttendanceRepository({ adapter, now, insideTransaction }) {
     }
     const previousReason = personType === 'STAFF' ? previous?.note ?? null : previous?.reason ?? null;
     const newReason = personType === 'STAFF' ? record.note ?? null : record.reason ?? null;
-    await adapter.execute('INSERT INTO attendance_audit_history (id,school_id,attendance_record_id,person_id,person_type,previous_status,new_status,previous_reason,new_reason,changed_by,changed_at,source,action) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)', [randomUUID(), record.schoolId, record.id, record.studentId ?? record.staffId, personType, previous?.status ?? null, record.status, previousReason, newReason, actorId(actor), record.updatedAt, record.source, previous ? 'UPDATE' : 'CREATE']);
+    try {
+      await adapter.execute('INSERT INTO attendance_audit_history (id,school_id,attendance_record_id,person_id,person_type,previous_status,new_status,previous_reason,new_reason,changed_by,changed_at,source,action) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)', [randomUUID(), record.schoolId, record.id, record.studentId ?? record.staffId, personType, previous?.status ?? null, record.status, previousReason, newReason, actorId(actor), record.updatedAt, record.source, previous ? 'UPDATE' : 'CREATE']);
+    } catch (error) {
+      const message = String(error?.message ?? error?.sqlMessage ?? '');
+      if (!/attendance_audit_history|unknown column|doesn't exist|does not exist|no such table/i.test(message)) throw error;
+    }
   }
 
   async function saveStudentAttendance(entry, actor, { correction = false, expectedVersion = null } = {}) {
     const schoolId = actor.schoolId; assertActor(actor, schoolId);
+    const columns = await studentAttendanceColumns();
+    if (columns && CANONICAL_STUDENT_COLUMNS.some((column) => !has(columns, column))) {
+      return saveStudentAttendanceForSchema(entry, actor, { correction, expectedVersion }, columns);
+    }
     if (!STUDENT_STATUSES.includes(String(entry.status ?? '').toUpperCase())) throw new Error('Invalid attendance status');
     if (!ATTENDANCE_METHODS.includes(String(entry.method ?? 'MANUAL').toUpperCase())) throw new Error('Invalid attendance method');
     const timestamp = now();
@@ -129,6 +216,8 @@ function buildAttendanceRepository({ adapter, now, insideTransaction }) {
   }
 
   async function listStudentRecords(filters = {}) {
+    const columns = await studentAttendanceColumns();
+    if (columns && CANONICAL_STUDENT_COLUMNS.some((column) => !has(columns, column))) return listStudentRecordsForSchema(filters, columns);
     const conditions = ['school_id=?']; const params = [filters.schoolId];
     for (const [column, value] of [['academic_year', filters.academicYear], ['term', filters.term], ['attendance_date', filters.date], ['class_id', filters.classId], ['student_id', filters.studentId]]) if (value) { conditions.push(`${column}=?`); params.push(value); }
     const result = await adapter.query(`SELECT ${STUDENT_SELECT} FROM student_attendance WHERE ${conditions.join(' AND ')} ORDER BY attendance_date,student_id`, params);
