@@ -576,10 +576,12 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
       if (has('student_enrollments','school_id')) conditions.push('e.school_id=s.school_id');
       params.push(...yearParams);
       if (termPredicates.length) { conditions.push(`(${termPredicates.join(' OR ')})`); params.push(...termParams); }
-      if (has('student_enrollments','enrollment_status')) conditions.push("UPPER(COALESCE(e.enrollment_status,'ACTIVE'))='ACTIVE'");
+      // Match the Class Database roster contract: enrollment statuses can vary
+      // across legacy data, so only terminal states should remove a placement.
+      if (has('student_enrollments','enrollment_status')) conditions.push("UPPER(COALESCE(e.enrollment_status,'ACTIVE')) NOT IN ('WITHDRAWN','TRANSFERRED','COMPLETED','GRADUATED')");
       if (has('student_enrollments','is_current')) conditions.push('COALESCE(e.is_current,1)=1');
       const studentConditions = [];
-      if (has('students','student_status')) studentConditions.push("UPPER(COALESCE(s.student_status,'ACTIVE'))='ACTIVE'");
+      if (has('students','student_status')) studentConditions.push("UPPER(COALESCE(s.student_status,'ACTIVE')) NOT IN ('WITHDRAWN','TRANSFERRED','COMPLETED','GRADUATED')");
       if (has('students','is_test_record')) studentConditions.push('s.is_test_record IS NOT TRUE');
       if (has('students','permanent_student_id')) studentConditions.push("UPPER(COALESCE(s.permanent_student_id,'')) <> 'DEFAULT_STUDENT'");
       studentConditions.push("UPPER(COALESCE(s.id,'')) <> 'DEFAULT_STUDENT'");
@@ -596,7 +598,7 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
       const classConditions = [`${classExpression}=?`, ...classNames.map(() => `${classExpression}=?`)];
       const params = [schoolId, period.yearStartsOn, period.yearEndsOn, classId, ...classNames];
       const studentConditions = [];
-      if (has('students','student_status')) studentConditions.push("UPPER(COALESCE(s.student_status,'ACTIVE'))='ACTIVE'");
+      if (has('students','student_status')) studentConditions.push("UPPER(COALESCE(s.student_status,'ACTIVE')) NOT IN ('WITHDRAWN','TRANSFERRED','COMPLETED','GRADUATED')");
       if (has('students','is_test_record')) studentConditions.push('s.is_test_record IS NOT TRUE');
       if (has('students','permanent_student_id')) studentConditions.push("UPPER(COALESCE(s.permanent_student_id,'')) <> 'DEFAULT_STUDENT'");
       studentConditions.push("UPPER(COALESCE(s.id,'')) <> 'DEFAULT_STUDENT'");
