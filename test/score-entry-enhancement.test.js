@@ -32,6 +32,7 @@ test('Score Entry exposes complete columns, immediate grade calculation, and deb
   const html = fs.readFileSync(new URL('../public/examinations.html', import.meta.url), 'utf8'); const js = fs.readFileSync(new URL('../public/score-entry.js', import.meta.url), 'utf8');
   for (const header of ['OSAAH STUDENT INDEX', 'STUDENT NAME', 'CA / 50', 'Exam / 50', 'TOTAL', 'GRADE', 'SAVE STATUS']) assert.match(html, new RegExp(header));
   assert.match(js, /setTimeout\(\(\) => \{/); assert.match(js, /Saving/); assert.match(js, /Saved/); assert.match(js, /Error saving/); assert.match(js, /totalCell\.textContent/); assert.match(js, /gradeCell\.textContent/); assert.match(js, /min="0" max="50"/);
+  assert.match(js, /className: classSelect\.selectedOptions/); assert.match(js, /subjectId: subjectSelect\.value/); assert.match(js, /new URLSearchParams\(filters\)/); assert.match(js, /caScore \?\? ''/); assert.match(js, /examScore \?\? ''/);
 });
 
 test('generated results include every active subject configured for the selected class', () => {

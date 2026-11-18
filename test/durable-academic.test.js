@@ -653,6 +653,44 @@ test('Score Entry durable roster returns a valid empty collection with exact ter
   assert.equal(rosterQuery.params.at(-1), 'term-1');
 });
 
+test('Score Entry resolves canonical class labels and subject names and returns null for unsaved scores', async () => {
+  const contexts = [
+    { classId: 'class_kg1_01', className: 'KG 1', selection: 'KG1' },
+    { classId: 'class_nursery1_01', className: 'Nursery 1', selection: 'Nursery 1' },
+    { classId: 'class_nursery2_01', className: 'Nursery 2', selection: 'Nursery 2' }
+  ];
+  for (const context of contexts) {
+    const calls = [];
+    const database = {
+      async query(sql, params = []) {
+        calls.push({ sql, params });
+        if (sql.includes('information_schema.COLUMNS')) return scoreRosterSchema();
+        if (sql.includes('FROM academic_years')) return [{ id: 'year-2026', name: '2026/2027', startsOn: '2026-09-01', endsOn: '2027-07-31' }];
+        if (sql.includes('FROM terms')) return [{ id: 'term-1', academicYearId: 'year-2026', name: 'First Term' }];
+        if (sql.includes('SELECT id,name FROM classes WHERE school_id=? AND id=?')) return params[1] === context.classId ? [{ id: context.classId, name: context.className }] : [];
+        if (sql.includes('SELECT id,name FROM classes WHERE school_id=? AND name=?')) return params[1] === context.className ? [{ id: context.classId, name: context.className }] : [];
+        if (sql.includes('SELECT id,name FROM classes WHERE school_id=?')) return [{ id: context.classId, name: context.className }];
+        if (sql.includes('FROM subject_class_assignments a JOIN subjects s') && sql.includes('WHERE a.school_id=? AND a.class_id=?')) return [{ id: `subject-${context.classId}`, code: 'ART', name: 'Creative Arts', subjectType: 'CORE', isScoring: 1, subjectActive: 1, classId: context.classId, className: context.className, academicYearId: 'year-2026', assignmentActive: 1 }];
+        if (sql.includes('FROM student_enrollments e JOIN students s')) return [{ masterStudentId: `student-${context.classId}`, studentId: `student-${context.classId}`, profileId: `profile-${context.classId}`, permanentStudentId: 'OSAAH/2026/001', firstName: 'Ama', middleName: null, surname: 'Learner' }];
+        if (sql.includes('FROM academic_score_records WHERE')) return [];
+        return [];
+      },
+      async execute() { return { affectedRows: 1 }; }
+    };
+    const service = createDurableAcademicService({ database, schoolId });
+    const roster = await service.roster({ className: context.selection, subject: 'Creative Arts', academicYear: '2026/2027', term: 'First Term' }, manager);
+    assert.equal(roster.length, 1, `${context.className} roster should load`);
+    assert.equal(roster[0].classId, context.classId);
+    assert.equal(roster[0].caScore, null);
+    assert.equal(roster[0].examScore, null);
+    assert.equal(roster[0].totalScore, null);
+    assert.equal(roster[0].saved, false);
+    assert.ok(calls.some(({ sql }) => sql.includes("UPPER(COALESCE(s.permanent_student_id,'')) <> 'DEFAULT_STUDENT'")));
+    const savedScoreQuery = calls.find(({ sql }) => sql.includes('FROM academic_score_records WHERE'));
+    assert.equal(savedScoreQuery.params[4], `subject-${context.classId}`);
+  }
+});
+
 
 test('durable result roster accepts Mock-only access only for a JHS Mock context', async () => {
   const database = {

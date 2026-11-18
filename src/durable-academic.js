@@ -74,6 +74,26 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     return item;
   }
 
+  async function classForSelection(selection) {
+    const requested = text(selection);
+    if (!requested) fail('Class is required.');
+    let byId = null;
+    try { byId = await classFor(requested); }
+    catch (error) { if (error.code !== 'CLASS_NOT_FOUND') throw error; }
+    if (byId) return byId;
+    const exact = rows(await database.query('SELECT id,name FROM classes WHERE school_id=? AND name=? LIMIT 2', [schoolId, requested]));
+    if (exact.length === 1) return exact[0];
+    if (exact.length > 1) fail('The selected class is ambiguous.', 400, 'AMBIGUOUS_CLASS');
+    const canonical = canonicalAcademicClass(requested);
+    if (canonical) {
+      const candidates = rows(await database.query('SELECT id,name FROM classes WHERE school_id=?', [schoolId]))
+        .filter((item) => canonicalAcademicClass(item.name) === canonical);
+      if (candidates.length === 1) return candidates[0];
+      if (candidates.length > 1) fail('The selected class is ambiguous.', 400, 'AMBIGUOUS_CLASS');
+    }
+    fail('Class not found.', 404, 'CLASS_NOT_FOUND');
+  }
+
   function stableId(prefix, ...parts) {
     return `${prefix}-${createHash('sha256').update(parts.join('\u001f')).digest('hex').slice(0, 32)}`;
   }
@@ -628,12 +648,21 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
   async function roster(input = {}, actor) {
     assertActor(actor);
     if (!authorized(actor, 'marks.write') && !authorized(actor, 'results.read')) fail('Forbidden.', 403, 'ACADEMIC_PERMISSION_REQUIRED');
-    const classId = text(input.classId);
-    if (!classId || !text(input.subjectId)) fail('Class and subject are required.');
-    assertClassScope(classId, actor);
+    const classSelection = text(input.classId ?? input.class ?? input.className);
+    const subjectSelection = text(input.subjectId ?? input.subject);
+    if (!classSelection || !subjectSelection) fail('Class and subject are required.');
     const period = await resolvePeriod(input);
-    if (!await scoringSubjectAssigned({ classId, subjectId: input.subjectId, academicYearId: period.yearId }, actor)) fail('Subject is invalid for this class and academic context.', 400, 'INVALID_CLASS_SUBJECT');
-    const classRow = await classFor(classId);
+    const classRow = await classForSelection(classSelection);
+    const classId = text(classRow.id);
+    assertClassScope(classId, actor);
+    let subjectId = subjectSelection;
+    if (!await scoringSubjectAssigned({ classId, subjectId, academicYearId: period.yearId }, actor)) {
+      const matches = (await listSubjects({ classId, academicYearId: period.yearId }, actor))
+        .filter((subject) => text(subject.name).toLocaleLowerCase('en') === subjectSelection.toLocaleLowerCase('en') && subject.isScoring !== false && Number(subject.isScoring) !== 0);
+      if (matches.length !== 1) fail('Subject is invalid for this class and academic context.', 400, 'INVALID_CLASS_SUBJECT');
+      subjectId = text(matches[0].id);
+      if (!await scoringSubjectAssigned({ classId, subjectId, academicYearId: period.yearId }, actor)) fail('Subject is invalid for this class and academic context.', 400, 'INVALID_CLASS_SUBJECT');
+    }
     const roster = await scoreEntryStudents(classId, classRow, period);
     const profileIds = roster.map((student) => text(student.profileId)).filter(Boolean);
     let savedScores = [];
@@ -643,7 +672,7 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
       if (required.some((column) => !columns.has(column))) fail('The academic score table is missing required score fields.', 503, 'SCORE_SCHEMA_INCOMPLETE');
       const placeholders = profileIds.map(() => '?').join(',');
       savedScores = rows(await database.query(`SELECT student_id AS profileId,ca_score AS caScore,examination_score AS examScore,total_score AS totalScore,${columns.has('grade') ? 'grade' : 'NULL AS grade'},id AS scoreId
-        FROM academic_score_records WHERE school_id=? AND record_type='TERMINAL' AND mock_label IS NULL AND academic_year_id=? AND term_id=? AND class_id=? AND subject_id=? AND student_id IN (${placeholders})`, [schoolId, period.yearId, period.termId, classId, text(input.subjectId), ...profileIds]));
+        FROM academic_score_records WHERE school_id=? AND record_type='TERMINAL' AND mock_label IS NULL AND academic_year_id=? AND term_id=? AND class_id=? AND subject_id=? AND student_id IN (${placeholders})`, [schoolId, period.yearId, period.termId, classId, subjectId, ...profileIds]));
     }
     const scoresByProfile = new Map(savedScores.map((score) => [String(score.profileId), score]));
     return roster.map((student) => {
