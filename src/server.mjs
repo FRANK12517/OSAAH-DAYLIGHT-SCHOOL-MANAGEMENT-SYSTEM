@@ -277,13 +277,15 @@ export function createApp({ auth = null, students = null, attendance = null, att
     if (!database?.query) return classDatabase.list(filters, actor);
     const [profileColumnRows, enrollmentColumnRows] = await Promise.all([
       database.query(`SELECT COLUMN_NAME AS columnName FROM INFORMATION_SCHEMA.COLUMNS
-        WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='student_profiles' AND COLUMN_NAME IN ('previous_school','previous_class','updated_at')`),
+        WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='student_profiles' AND COLUMN_NAME IN ('previous_school','previous_class')`),
       database.query(`SELECT COLUMN_NAME AS columnName FROM INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='student_enrollments' AND COLUMN_NAME IN ('is_current','enrollment_status')`)
     ]);
     const profileColumns = new Set(profileColumnRows.map((row) => String(row.columnName ?? row.COLUMN_NAME ?? '').toLowerCase()));
     const enrollmentColumns = new Set(enrollmentColumnRows.map((row) => String(row.columnName ?? row.COLUMN_NAME ?? '').toLowerCase()));
-    const profileOrder = profileColumns.has('updated_at') ? 'sp.updated_at DESC,sp.id DESC' : 'sp.id DESC';
+    // Legacy production student_profiles tables may not have updated_at.
+    // The profile id is present across supported schema versions.
+    const profileOrder = 'sp.id DESC';
     const previousSchoolSelect = profileColumns.has('previous_school')
       ? `(SELECT sp.previous_school FROM student_profiles sp WHERE sp.school_id=s.school_id AND (sp.student_master_id=s.id OR (sp.student_master_id IS NULL AND sp.student_id=s.permanent_student_id)) ORDER BY ${profileOrder} LIMIT 1) AS previousSchool`
       : 'NULL AS previousSchool';
