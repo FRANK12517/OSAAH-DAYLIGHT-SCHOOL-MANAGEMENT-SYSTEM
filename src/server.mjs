@@ -326,7 +326,15 @@ export function createApp({ auth = null, students = null, attendance = null, att
     const legacyYearMatch = enrollmentHasAcademicYear ? ' OR (y.id IS NULL AND e.academic_year=?)' : '';
     const legacyYearParameters = enrollmentHasAcademicYear ? [String(filters.academicYear ?? '').trim()] : [];
     const academicYear = String(filters.academicYear ?? '').trim();
-    const classId = String(filters.classId ?? '').trim();
+    const selectedClass = String(filters.classId ?? '').trim();
+    const classAlias = new Map([
+      ['kg 1', 'class_kg1_01'], ['kg1', 'class_kg1_01'], ['class_kg1_01', 'class_kg1_01'],
+      ['nursery 1', 'class_nursery1_01'], ['nursery1', 'class_nursery1_01'], ['class_nursery1_01', 'class_nursery1_01'],
+      ['nursery 2', 'class_nursery2_01'], ['nursery2', 'class_nursery2_01'], ['class_nursery2_01', 'class_nursery2_01']
+    ]);
+    const normalizedClass = selectedClass.toLowerCase().replace(/\s+/g, ' ').trim();
+    const canonicalSelectedClassId = classAlias.get(normalizedClass) ?? selectedClass;
+    const classId = selectedClass;
     const search = `%${String(filters.search ?? '').trim().toLowerCase()}%`;
     const results = await database.query(`SELECT s.permanent_student_id AS permanentStudentId,s.id AS studentId,
       TRIM(CONCAT_WS(' ',s.first_name,s.middle_name,s.last_name)) AS studentName,s.gender AS gender,
@@ -337,10 +345,12 @@ export function createApp({ auth = null, students = null, attendance = null, att
       LEFT JOIN academic_years y ON y.id=e.academic_year_id AND y.school_id=e.school_id
       WHERE e.school_id=?${activeEnrollmentFilter}
       AND (?='' OR y.id=? OR y.name=?${legacyYearMatch})
-      AND (?='' OR e.class_id=? OR EXISTS (SELECT 1 FROM classes c WHERE c.school_id=e.school_id AND c.id=e.class_id AND c.name=?) OR EXISTS (SELECT 1 FROM classes c WHERE c.school_id=e.school_id AND c.id=e.class_id AND LOWER(TRIM(c.name))=LOWER(TRIM(?))))
+      AND (?='' OR e.class_id=? OR e.class_id=? OR EXISTS (SELECT 1 FROM classes c WHERE c.school_id=e.school_id AND c.id=e.class_id AND c.name=?) OR EXISTS (SELECT 1 FROM classes c WHERE c.school_id=e.school_id AND c.id=e.class_id AND LOWER(TRIM(c.name))=LOWER(TRIM(?))))
       AND (?='' OR LOWER(CONCAT_WS(' ',s.first_name,s.middle_name,s.last_name,s.permanent_student_id)) LIKE ?)
       AND s.is_test_record IS NOT TRUE
-      ORDER BY s.last_name,s.first_name,s.id`, [actor.schoolId, academicYear, academicYear, academicYear, ...legacyYearParameters, classId, classId, classId, classId, search, search]);
+      AND UPPER(COALESCE(s.permanent_student_id,'')) <> 'DEFAULT_STUDENT'
+      AND UPPER(COALESCE(s.id,'')) <> 'DEFAULT_STUDENT'
+      ORDER BY s.last_name,s.first_name,s.id`, [actor.schoolId, academicYear, academicYear, academicYear, ...legacyYearParameters, classId, classId, canonicalSelectedClassId, classId, classId, search, search]);
     const profileClassAvailable = profileColumns.has('class_id') && (profileColumns.has('student_master_id') || profileColumns.has('student_id'));
     const studentClassAvailable = studentColumns.has('current_class_id');
     const studentDateExpression = studentColumns.has('admission_date') && studentColumns.has('created_at')
@@ -351,7 +361,7 @@ export function createApp({ auth = null, students = null, attendance = null, att
         ? `(SELECT sp.class_id FROM student_profiles sp WHERE sp.school_id=s.school_id AND (${profileColumns.has('student_master_id') ? 'sp.student_master_id=s.id' : '1=0'}${profileColumns.has('student_master_id') && profileColumns.has('student_id') ? ' OR (sp.student_master_id IS NULL AND sp.student_id=s.permanent_student_id)' : ''}) ORDER BY sp.id DESC LIMIT 1)`
         : 'NULL';
       const fallbackClassId = studentClassAvailable ? `COALESCE(s.current_class_id,${profileClass})` : profileClass;
-      const fallbackClassLabel = `EXISTS (SELECT 1 FROM classes c WHERE c.school_id=s.school_id AND c.id=${fallbackClassId} AND (c.id=? OR c.name=? OR LOWER(TRIM(c.name))=LOWER(TRIM(?))))`;
+      const fallbackClassLabel = `EXISTS (SELECT 1 FROM classes c WHERE c.school_id=s.school_id AND c.id=${fallbackClassId} AND (c.id=? OR c.id=? OR c.name=? OR LOWER(TRIM(c.name))=LOWER(TRIM(?))))`;
       const fallbackRows = await database.query(`SELECT s.permanent_student_id AS permanentStudentId,s.id AS studentId,
         TRIM(CONCAT_WS(' ',s.first_name,s.middle_name,s.last_name)) AS studentName,s.gender AS gender,
         ${parentGuardianSelect},${parentPhoneSelect},${previousSchoolSelect},${previousClassSelect},
@@ -362,8 +372,10 @@ export function createApp({ auth = null, students = null, attendance = null, att
           AND NOT EXISTS (SELECT 1 FROM student_enrollments existing WHERE existing.school_id=s.school_id AND existing.student_id=s.id)
           AND UPPER(COALESCE(s.student_status,'ACTIVE')) NOT IN ('WITHDRAWN','TRANSFERRED','COMPLETED','GRADUATED')
           AND s.is_test_record IS NOT TRUE
+          AND UPPER(COALESCE(s.permanent_student_id,'')) <> 'DEFAULT_STUDENT'
+          AND UPPER(COALESCE(s.id,'')) <> 'DEFAULT_STUDENT'
           AND (?='' OR LOWER(CONCAT_WS(' ',s.first_name,s.middle_name,s.last_name,s.permanent_student_id)) LIKE ?)
-        ORDER BY s.last_name,s.first_name,s.id`, [actor.schoolId, academicYear, classId, classId, classId, search, search]);
+        ORDER BY s.last_name,s.first_name,s.id`, [actor.schoolId, academicYear, classId, canonicalSelectedClassId, classId, classId, search, search]);
       results.push(...fallbackRows);
     }
     const assigned = actor.roleKey === 'TEACHER' ? new Set((actor.assignedClassIds ?? []).map(String)) : null;

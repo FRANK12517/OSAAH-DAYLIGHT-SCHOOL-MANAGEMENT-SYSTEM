@@ -51,14 +51,16 @@ test('Class Database returns enrolled students and falls back to registered clas
         assert.match(sql, /y\.id IS NULL AND e\.academic_year=\?/);
         assert.match(sql, /LOWER\(TRIM\(c\.name\)\)=LOWER\(TRIM\(\?\)\)/);
         assert.deepEqual(params.slice(1, 5), Array(4).fill('2026/2027 Academic Year'));
-        assert.deepEqual(params.slice(5, 9), Array(4).fill('class-kg1'));
+        assert.deepEqual(params.slice(5, 10), ['class-kg1','class-kg1','class-kg1','class-kg1','class-kg1']);
+        assert.match(sql, /UPPER\(COALESCE\(s\.permanent_student_id,''\)\) <> 'DEFAULT_STUDENT'/);
         return [{ permanentStudentId: 'OSAAH-2026-0001', studentId: 'student-1', studentName: 'Ama Mensah', gender: 'Female', parentGuardianName: 'Efua Mensah', registeredParentPhone: '0240000000', previousSchool: null, previousClass: null, classId: 'class-kg1', academicYear: '2026/2027 Academic Year' }];
       }
       if (sql.includes('FROM students s JOIN academic_years y')) {
         assert.match(sql, /NOT EXISTS \(SELECT 1 FROM student_enrollments existing/);
         assert.match(sql, /COALESCE\(s\.admission_date,DATE\(s\.created_at\)\) BETWEEN y\.starts_on AND y\.ends_on/);
         assert.match(sql, /s\.current_class_id/);
-        assert.deepEqual(params, [schoolId, '2026/2027 Academic Year', 'class-kg1', 'class-kg1', 'class-kg1', '%%', '%%']);
+        assert.deepEqual(params, [schoolId, '2026/2027 Academic Year', 'class-kg1', 'class-kg1', 'class-kg1', 'class-kg1', '%%', '%%']);
+        assert.match(sql, /UPPER\(COALESCE\(s\.permanent_student_id,''\)\) <> 'DEFAULT_STUDENT'/);
         return [{ permanentStudentId: 'OSAAH/2026/002', studentId: 'legacy-student-2', studentName: 'Legacy Student', gender: 'Female', parentGuardianName: 'Legacy Parent', registeredParentPhone: '0240000002', previousSchool: null, previousClass: null, classId: 'class-kg1', academicYear: '2026/2027 Academic Year' }];
       }
       return [];
@@ -80,6 +82,36 @@ test('Class Database returns enrolled students and falls back to registered clas
   assert.equal(body.rows[0].classId, 'class-kg1');
   assert.equal(body.rows[1].permanentStudentId, 'OSAAH/2026/002');
   assert.ok(queries.some(({ sql }) => sql.includes('academic_years y')));
+});
+
+test('Class Database maps confirmed early years to canonical IDs and excludes DEFAULT_STUDENT', async (t) => {
+  const queries = [];
+  const database = {
+    async query(sql, params = []) {
+      queries.push({ sql, params });
+      if (sql.includes('INFORMATION_SCHEMA.COLUMNS') && sql.includes("TABLE_NAME='student_profiles'")) return ['class_id','student_master_id','student_id'].map((columnName) => ({ columnName }));
+      if (sql.includes('INFORMATION_SCHEMA.COLUMNS') && sql.includes("TABLE_NAME='student_enrollments'") && sql.includes("COLUMN_NAME='academic_year'")) return [];
+      if (sql.includes('INFORMATION_SCHEMA.COLUMNS') && sql.includes("TABLE_NAME='student_enrollments'")) return ['is_current','enrollment_status'].map((columnName) => ({ columnName }));
+      if (sql.includes('INFORMATION_SCHEMA.COLUMNS') && sql.includes("TABLE_NAME='students'")) return ['current_class_id','admission_date','created_at','is_test_record','student_status'].map((columnName) => ({ columnName }));
+      if (sql.includes('INFORMATION_SCHEMA.COLUMNS') && sql.includes("TABLE_NAME='student_family_contacts'")) return [];
+      if (sql.includes('FROM student_enrollments e JOIN students s')) return [];
+      if (sql.includes('FROM students s JOIN academic_years y')) return [];
+      return [];
+    }
+  };
+  const actor = { id: 'proprietor-1', schoolId, portal: 'school', roleKey: 'PROPRIETOR', permissions: new Set(['*']) };
+  const server = createServer(createApp({ auth: { authenticateAsync: async () => actor }, database }));
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  for (const [label, canonicalId] of [['KG 1','class_kg1_01'], ['Nursery 1','class_nursery1_01'], ['Nursery 2','class_nursery2_01']]) {
+    const response = await request(server, `/api/class-database?classId=${encodeURIComponent(label)}&academicYear=2026%2F2027`, 'test-token');
+    assert.equal(response.status, 200);
+    const [enrollmentQuery, fallbackQuery] = queries.filter(({ sql }) => sql.includes('FROM student_enrollments e JOIN students s') || sql.includes('FROM students s JOIN academic_years y')).slice(-2);
+    assert.ok(enrollmentQuery.params.includes(canonicalId), `${label} enrollment query resolves canonical ID`);
+    assert.ok(fallbackQuery.params.includes(canonicalId), `${label} fallback query resolves canonical ID`);
+    assert.match(enrollmentQuery.sql, /DEFAULT_STUDENT/);
+    assert.match(fallbackQuery.sql, /DEFAULT_STUDENT/);
+  }
 });
 
 test('Class Database is a single route/component and is not aliased to generic student pages', async () => {
