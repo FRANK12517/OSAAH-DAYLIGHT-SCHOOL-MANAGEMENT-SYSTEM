@@ -182,6 +182,88 @@ test('authenticated Score Entry API loads scoped students, saves CA/Exam, and re
   }
 });
 
+test('durable Score Entry resolves normalized and fallback class rosters and saves CA/Exam for KG and Nursery registrations', async () => {
+  const classRows = [
+    { id: 'class_kg1_01', name: 'KG 1', studentId: 'student-new-kg', profileId: 'profile-new-kg', permanentStudentId: 'OSAAH/2026/001' },
+    { id: 'class_nursery1_01', name: 'Nursery 1', studentId: 'student-enrolled-n1', profileId: 'profile-enrolled-n1', permanentStudentId: 'OSAAH/2026/002' },
+    { id: 'class_nursery2_01', name: 'Nursery 2', studentId: 'student-new-n2', profileId: 'profile-new-n2', permanentStudentId: 'OSAAH/2026/003' }
+  ];
+  const scoreRows = new Map();
+  const writes = [];
+  const schema = [
+    ...['id','school_id','permanent_student_id','first_name','middle_name','last_name','gender','student_status','is_test_record','current_class_id','admission_date','created_at'].map((columnName) => ({ tableName: 'students', columnName })),
+    ...['id','school_id','student_master_id','student_id','class_id','first_name','middle_name','surname','gender'].map((columnName) => ({ tableName: 'student_profiles', columnName })),
+    ...['id','school_id','student_id','class_id','academic_year_id','academic_year','term_id','class_name','enrollment_status','is_current'].map((columnName) => ({ tableName: 'student_enrollments', columnName })),
+    ...['id','school_id','record_type','mock_label','academic_year_id','term_id','class_id','student_id','subject_id','ca_score','ca_max','examination_score','examination_max','total_score','grade','remark','entered_by'].map((columnName) => ({ tableName: 'academic_score_records', columnName }))
+  ];
+  const database = {
+    async query(sql, params = []) {
+      if (sql.includes('information_schema.COLUMNS') && sql.includes("'student_enrollments'")) return schema;
+      if (sql.includes('FROM academic_years')) return [{ id: 'ay_2026_01', name: '2026/2027', startsOn: '2026-09-01', endsOn: '2027-08-31' }];
+      if (sql.includes('FROM terms')) return [{ id: 'term_2026_01', academicYearId: 'ay_2026_01', name: '1st Term' }];
+      if (sql.includes('FROM classes WHERE school_id=? AND id=?')) return classRows.filter((item) => item.id === params[1]);
+      if (sql.includes('FROM subject_class_assignments a JOIN subjects s') && sql.includes('WHERE a.school_id=? AND a.class_id=?')) {
+        const item = classRows.find((row) => row.id === params[1]);
+        return item ? [{ id: 'subject-creative-arts', code: 'ARTS', name: 'Creative Arts', subjectType: 'CORE', isScoring: 1, subjectActive: 1, classId: item.id, className: item.name, academicYearId: null, assignmentActive: 1 }] : [];
+      }
+      if (sql.includes('FROM student_enrollments e JOIN students s')) {
+        const item = classRows.find((row) => params.includes(row.id));
+        if (item?.id === 'class_nursery1_01') return [{ masterStudentId: item.studentId, profileId: item.profileId, studentId: item.studentId, permanentStudentId: item.permanentStudentId, firstName: 'Aba', middleName: null, surname: 'Enrolled' }];
+        return [];
+      }
+      if (sql.includes('FROM students s LEFT JOIN student_profiles sp')) {
+        const item = classRows.find((row) => params.includes(row.id));
+        return item && item.id !== 'class_nursery1_01' ? [{ masterStudentId: item.studentId, profileId: item.profileId, studentId: item.studentId, permanentStudentId: item.permanentStudentId, firstName: 'Aba', middleName: null, surname: 'Registered' }] : [];
+      }
+      if (sql.includes('FROM academic_score_records') && sql.includes('student_id IN (')) {
+        return [...scoreRows.values()].filter((score) => params.includes(score.profileId));
+      }
+      if (sql.includes('FROM academic_score_records') && sql.includes('student_id=?')) {
+        const score = scoreRows.get(String(params[4]));
+        return score ? [{ id: score.scoreId }] : [];
+      }
+      return [];
+    },
+    async execute(sql, params = []) {
+      writes.push({ sql, params });
+      if (sql.startsWith('INSERT INTO academic_score_records')) {
+        const fields = [...sql.matchAll(/`([^`]+)`/g)].map((match) => match[1]);
+        const row = Object.fromEntries(fields.map((field, index) => [field, params[index]]));
+        scoreRows.set(row.student_id, { scoreId: row.id, schoolId: row.school_id, academicYearId: row.academic_year_id, termId: row.term_id, classId: row.class_id, profileId: row.student_id, subjectId: row.subject_id, caScore: row.ca_score, examScore: row.examination_score, totalScore: row.total_score, grade: row.grade });
+      }
+      return { affectedRows: 1 };
+    }
+  };
+  const actor = { ...teacher, roleKey: 'PROPRIETOR', assignedClassIds: [], assignedSubjectIds: [], permissions: new Set(['*']) };
+  const auth = { authenticateAsync: async (token) => token === 'authorized' ? actor : null };
+  const server = http.createServer(createApp({ auth, database, aiEnabled: false }));
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const headers = { Authorization: 'Bearer authorized', 'Content-Type': 'application/json' };
+    for (const item of classRows) {
+      const context = { academicYearId: 'ay_2026_01', termId: 'term_2026_01', classId: item.id, subjectId: 'subject-creative-arts' };
+      const rosterResponse = await fetch(`${base}/api/academic/score-entry/roster?${new URLSearchParams(context)}`, { headers });
+      assert.equal(rosterResponse.status, 200, await rosterResponse.clone().text());
+      const roster = (await rosterResponse.json()).students;
+      assert.deepEqual(roster.map((student) => student.permanentStudentId), [item.permanentStudentId]);
+      assert.ok(!roster.some((student) => student.permanentStudentId === 'DEFAULT_STUDENT'));
+      const saveResponse = await fetch(`${base}/api/academic/scores`, { method: 'POST', headers, body: JSON.stringify({ ...context, studentId: item.studentId, caScore: 42, examScore: 38 }) });
+      assert.equal(saveResponse.status, 201, await saveResponse.clone().text());
+      const saved = await saveResponse.json();
+      assert.equal(saved.studentId, item.studentId);
+      assert.equal(saved.totalScore, 80);
+      const reload = await fetch(`${base}/api/academic/score-entry/roster?${new URLSearchParams(context)}`, { headers });
+      const reloaded = (await reload.json()).students[0];
+      assert.equal(reloaded.totalScore, 80, item.id);
+    }
+    assert.equal(writes.filter(({ sql }) => sql.startsWith('INSERT INTO academic_score_records')).length, 3);
+    assert.ok(writes.filter(({ sql }) => sql.startsWith('INSERT INTO academic_score_records')).every(({ sql }) => !sql.includes('updated_at')));
+  } finally {
+    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
 test('authenticated Sample Mode loads and saves only the existing DEMO-001 sample workflow record', async () => {
   const students = createStudentService({ schoolId });
   const subjects = createSubjectService({ schoolId });
@@ -220,7 +302,13 @@ test('durable Score Entry HTTP contract keeps empty, sample, validation, authori
   let failRoster = false;
   const database = {
     async query(sql) {
-      if (sql.includes('FROM academic_years')) return [{ id: 'ay_2026_01', name: '2026/2027' }];
+      if (sql.includes('information_schema.COLUMNS') && sql.includes("'student_enrollments'")) return [
+        ...['id','school_id','permanent_student_id','first_name','middle_name','last_name','student_status','is_test_record','current_class_id','admission_date','created_at'].map((columnName) => ({ tableName: 'students', columnName })),
+        ...['id','school_id','student_master_id','student_id','class_id'].map((columnName) => ({ tableName: 'student_profiles', columnName })),
+        ...['school_id','student_id','class_id','academic_year_id','term_id','enrollment_status','is_current'].map((columnName) => ({ tableName: 'student_enrollments', columnName })),
+        ...['id','school_id','record_type','mock_label','academic_year_id','term_id','class_id','student_id','subject_id','ca_score','ca_max','examination_score','examination_max','total_score','grade','remark','entered_by','updated_at'].map((columnName) => ({ tableName: 'academic_score_records', columnName }))
+      ];
+      if (sql.includes('FROM academic_years')) return [{ id: 'ay_2026_01', name: '2026/2027', startsOn: '2026-09-01', endsOn: '2027-08-31' }];
       if (sql.includes('FROM terms')) return [{ id: 'term_2026_01', academicYearId: 'ay_2026_01', name: '1st Term' }];
       if (sql.includes('FROM classes WHERE school_id')) return [{ id: 'class_bs4_01', name: 'Basic 4' }];
       if (sql.includes('FROM subject_class_assignments a JOIN subjects s') && sql.includes('WHERE a.school_id=? AND a.class_id=?')) return [{ id: 'subj_math', code: 'MATH', name: 'Mathematics', subjectType: 'CORE', isScoring: 1, subjectActive: 1, classId: 'class_bs4_01', className: 'Basic 4', academicYearId: null, assignmentActive: 1 }];

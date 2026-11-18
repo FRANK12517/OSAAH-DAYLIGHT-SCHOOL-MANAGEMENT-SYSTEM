@@ -53,6 +53,7 @@ function authorized(actor, permission) {
 
 export function createDurableAcademicService({ database, schoolId, signatures = null, idFactory = randomUUID, clock = () => new Date().toISOString(), students = null } = {}) {
   if (!database?.query || !database?.execute) fail('Durable academic database is unavailable.', 503, 'DURABLE_ACADEMIC_DATABASE_REQUIRED');
+  let scoreRosterSchemaCache;
 
   function assertActor(actor, permission = null) {
     if (!actor?.schoolId || actor.schoolId !== schoolId) fail('Forbidden.', 403, 'TENANT_SCOPE_VIOLATION');
@@ -498,11 +499,99 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     const year = text(input.academicYearId || input.academicYear);
     const term = text(input.termId || input.term);
     if (!year || !term) fail('Academic year and term are required.');
-    const yearRow = rows(await database.query('SELECT id,name FROM academic_years WHERE school_id=? AND (id=? OR name=?) LIMIT 1', [schoolId, year, year]))[0];
+    const yearRow = rows(await database.query('SELECT id,name,starts_on AS startsOn,ends_on AS endsOn FROM academic_years WHERE school_id=? AND (id=? OR name=?) LIMIT 1', [schoolId, year, year]))[0];
     if (!yearRow) fail('Academic year not found.', 404);
     const termRow = rows(await database.query('SELECT t.id,t.name FROM terms t JOIN academic_years y ON y.id=t.academic_year_id WHERE y.school_id=? AND y.id=? AND (t.id=? OR t.name=?) LIMIT 1', [schoolId, yearRow.id, term, term]))[0];
     if (!termRow) fail('Term not found.', 404);
-    return { yearId: yearRow.id, yearName: yearRow.name, termId: termRow.id, termName: termRow.name };
+    return { yearId: yearRow.id, yearName: yearRow.name, yearStartsOn: yearRow.startsOn ?? null, yearEndsOn: yearRow.endsOn ?? null, termId: termRow.id, termName: termRow.name };
+  }
+
+  async function scoreRosterSchema() {
+    if (scoreRosterSchemaCache) return scoreRosterSchemaCache;
+    const rowsFound = rows(await database.query("SELECT TABLE_NAME AS tableName,COLUMN_NAME AS columnName FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ('students','student_profiles','student_enrollments','academic_score_records')"));
+    const schema = new Map();
+    for (const row of rowsFound) {
+      const table = String(row.tableName ?? row.TABLE_NAME ?? '').toLowerCase();
+      if (!schema.has(table)) schema.set(table, new Set());
+      schema.get(table).add(String(row.columnName ?? row.COLUMN_NAME ?? '').toLowerCase());
+    }
+    scoreRosterSchemaCache = schema;
+    return schema;
+  }
+
+  async function scoreEntryStudents(classId, classRow, period) {
+    const schema = await scoreRosterSchema();
+    const has = (table, column) => schema.get(table)?.has(column) === true;
+    if (!has('students','id') || !has('students','school_id')) fail('The student roster schema is unavailable.', 503, 'SCORE_ROSTER_SCHEMA_UNAVAILABLE');
+    const profilesAvailable = has('student_profiles','id') && has('student_profiles','school_id');
+    const profileLinks = [];
+    if (profilesAvailable && has('student_profiles','student_master_id')) profileLinks.push('sp.student_master_id=s.id');
+    if (profilesAvailable && has('student_profiles','student_id') && has('students','permanent_student_id')) profileLinks.push(`${has('student_profiles','student_master_id') ? '(sp.student_master_id IS NULL AND ' : '('}sp.student_id=s.permanent_student_id)`);
+    const profileJoin = profileLinks.length ? ` LEFT JOIN student_profiles sp ON sp.school_id=s.school_id AND (${profileLinks.join(' OR ')})` : '';
+    const profileId = profileLinks.length ? 'sp.id' : 'NULL';
+    const projection = (candidates, alias) => {
+      const expressions = [];
+      const profileColumn = candidates.find((name) => has('student_profiles',name));
+      const studentColumn = candidates.find((name) => has('students',name));
+      if (profileColumn && profileLinks.length) expressions.push(`NULLIF(sp.${profileColumn},'')`);
+      if (studentColumn) expressions.push(`NULLIF(s.${studentColumn},'')`);
+      return `${expressions.length ? `COALESCE(${expressions.join(',')})` : 'NULL'} AS ${alias}`;
+    };
+    const yearPredicates = [];
+    const yearParams = [];
+    if (has('student_enrollments','academic_year_id')) { yearPredicates.push('e.academic_year_id=?'); yearParams.push(period.yearId); }
+    if (has('student_enrollments','academic_year')) { yearPredicates.push('e.academic_year=?'); yearParams.push(period.yearName); }
+    const termPredicates = [];
+    const termParams = [];
+    if (has('student_enrollments','term_id')) { termPredicates.push('(e.term_id=? OR e.term_id IS NULL)'); termParams.push(period.termId); }
+    if (has('student_enrollments','term')) { termPredicates.push('e.term=?'); termParams.push(period.termName); }
+    const classNames = [...new Set([classRow.name, canonicalAcademicClass(classRow.name)].filter(Boolean).map(String))];
+    const output = [];
+    const enrollmentReady = has('student_enrollments','student_id') && has('student_enrollments','class_id') && yearPredicates.length;
+    if (enrollmentReady) {
+      const classPredicates = ['e.class_id=?'];
+      const params = [schoolId, classId];
+      if (has('student_enrollments','class_name')) for (const name of classNames) { classPredicates.push('e.class_name=?'); params.push(name); }
+      const conditions = ['s.school_id=?','e.student_id=s.id',`(${classPredicates.join(' OR ')})`,`(${yearPredicates.join(' OR ')})`];
+      if (has('student_enrollments','school_id')) conditions.push('e.school_id=s.school_id');
+      params.push(...yearParams);
+      if (termPredicates.length) { conditions.push(`(${termPredicates.join(' OR ')})`); params.push(...termParams); }
+      if (has('student_enrollments','enrollment_status')) conditions.push("UPPER(COALESCE(e.enrollment_status,'ACTIVE'))='ACTIVE'");
+      if (has('student_enrollments','is_current')) conditions.push('COALESCE(e.is_current,1)=1');
+      const studentConditions = [];
+      if (has('students','student_status')) studentConditions.push("UPPER(COALESCE(s.student_status,'ACTIVE'))='ACTIVE'");
+      if (has('students','is_test_record')) studentConditions.push('s.is_test_record IS NOT TRUE');
+      if (has('students','permanent_student_id')) studentConditions.push("UPPER(COALESCE(s.permanent_student_id,'')) <> 'DEFAULT_STUDENT'");
+      studentConditions.push("UPPER(COALESCE(s.id,'')) <> 'DEFAULT_STUDENT'");
+      const query = `SELECT DISTINCT s.id AS masterStudentId,${profileId} AS profileId,COALESCE(${profileId},s.id) AS studentId,${has('students','permanent_student_id') ? 's.permanent_student_id' : 's.id'} AS permanentStudentId,
+        ${projection(['first_name'],'firstName')},${projection(['middle_name'],'middleName')},${projection(['last_name','surname'],'surname')}
+        FROM student_enrollments e JOIN students s ON s.id=e.student_id${profileJoin} WHERE ${[...conditions,...studentConditions].join(' AND ')} ORDER BY surname,firstName,studentId`;
+      output.push(...rows(await database.query(query, params)));
+    }
+    const profileClass = profileLinks.length && has('student_profiles','class_id')
+      ? `(SELECT spc.class_id FROM student_profiles spc WHERE spc.school_id=s.school_id AND (${profileLinks.map((link) => link.replaceAll('sp.', 'spc.')).join(' OR ')}) ORDER BY spc.id DESC LIMIT 1)` : null;
+    const classExpression = has('students','current_class_id') ? `COALESCE(s.current_class_id,${profileClass ?? 'NULL'})` : profileClass;
+    const dateColumns = ['admission_date','created_at'].filter((column) => has('students',column));
+    if (classExpression && dateColumns.length && period.yearStartsOn && period.yearEndsOn) {
+      const classConditions = [`${classExpression}=?`, ...classNames.map(() => `${classExpression}=?`)];
+      const params = [schoolId, period.yearStartsOn, period.yearEndsOn, classId, ...classNames];
+      const studentConditions = [];
+      if (has('students','student_status')) studentConditions.push("UPPER(COALESCE(s.student_status,'ACTIVE'))='ACTIVE'");
+      if (has('students','is_test_record')) studentConditions.push('s.is_test_record IS NOT TRUE');
+      if (has('students','permanent_student_id')) studentConditions.push("UPPER(COALESCE(s.permanent_student_id,'')) <> 'DEFAULT_STUDENT'");
+      studentConditions.push("UPPER(COALESCE(s.id,'')) <> 'DEFAULT_STUDENT'");
+      const noYearEnrollment = enrollmentReady ? ` AND NOT EXISTS (SELECT 1 FROM student_enrollments prior WHERE prior.student_id=s.id${has('student_enrollments','school_id') ? ' AND prior.school_id=s.school_id' : ''} AND (${yearPredicates.map((clause) => clause.replace(/\be\./g,'prior.')).join(' OR ')}))` : '';
+      const dateExpr = dateColumns.length === 2 ? 'COALESCE(s.admission_date,DATE(s.created_at))' : dateColumns[0] === 'created_at' ? 'DATE(s.created_at)' : 's.admission_date';
+      const query = `SELECT DISTINCT s.id AS masterStudentId,${profileId} AS profileId,COALESCE(${profileId},s.id) AS studentId,${has('students','permanent_student_id') ? 's.permanent_student_id' : 's.id'} AS permanentStudentId,
+        ${projection(['first_name'],'firstName')},${projection(['middle_name'],'middleName')},${projection(['last_name','surname'],'surname')}
+        FROM students s${profileJoin} WHERE s.school_id=? AND ${dateExpr} BETWEEN ? AND ? AND (${classConditions.join(' OR ')})${studentConditions.length ? ` AND ${studentConditions.join(' AND ')}` : ''}${noYearEnrollment} ORDER BY surname,firstName,studentId`;
+      const fallback = rows(await database.query(query, params));
+      const seen = new Set(output.map((student) => String(student.masterStudentId)));
+      for (const student of fallback) if (!seen.has(String(student.masterStudentId))) output.push(student);
+    }
+    const unique = new Map();
+    for (const student of output) if (!unique.has(String(student.masterStudentId ?? student.studentId))) unique.set(String(student.masterStudentId ?? student.studentId), student);
+    return [...unique.values()];
   }
 
   async function assertMockClass(classId) {
@@ -543,37 +632,24 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     if (!classId || !text(input.subjectId)) fail('Class and subject are required.');
     assertClassScope(classId, actor);
     const period = await resolvePeriod(input);
-    await classFor(classId);
     if (!await scoringSubjectAssigned({ classId, subjectId: input.subjectId, academicYearId: period.yearId }, actor)) fail('Subject is invalid for this class and academic context.', 400, 'INVALID_CLASS_SUBJECT');
-    const rosterProjection = `SELECT s.id AS studentId,s.permanent_student_id AS permanentStudentId,s.first_name AS firstName,s.middle_name AS middleName,s.last_name AS surname,
-      e.class_id AS classId,r.ca_score AS caScore,r.examination_score AS examScore,r.total_score AS totalScore,r.grade,r.id AS scoreId
-      FROM student_enrollments e JOIN students s ON s.id=e.student_id
-      LEFT JOIN academic_score_records r ON r.school_id=e.school_id AND r.student_id IN (SELECT sp.id FROM student_profiles sp WHERE sp.student_master_id=s.id OR sp.student_id=s.permanent_student_id) AND r.subject_id=? AND r.class_id=e.class_id AND r.academic_year_id=? AND r.term_id=? AND r.record_type='TERMINAL' AND r.mock_label IS NULL
-      WHERE e.school_id=? AND e.class_id=? AND e.academic_year_id=? AND e.term_id=? AND s.school_id=? AND COALESCE(s.student_status,'ACTIVE')='ACTIVE' AND s.is_test_record IS NOT TRUE`;
-    const rosterParams = [text(input.subjectId), period.yearId, period.termId, schoolId, classId, period.yearId, period.termId, schoolId];
-    let query = `${rosterProjection} AND COALESCE(e.enrollment_status,'ACTIVE')='ACTIVE' AND COALESCE(e.is_current,TRUE) IS TRUE ORDER BY s.last_name,s.first_name,s.id`;
-    let result;
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      try {
-        result = await database.query(query, rosterParams);
-        break;
-      } catch (error) {
-        if (missingOptionalStudentTestRecordColumn(error) && query.includes('s.is_test_record IS NOT TRUE')) {
-          // Older production student tables identify sample rows only by their
-          // permanent ID. Keep official mode isolated without requiring a
-          // column that the legacy schema never declared.
-          query = query.replace('s.is_test_record IS NOT TRUE', "s.permanent_student_id NOT LIKE 'OSAAH-DEMO-%' AND s.permanent_student_id NOT LIKE 'OSAAH/DEMO/%'");
-          continue;
-        }
-        if (missingOptionalEnrollmentStateColumn(error) && query.includes('COALESCE(e.enrollment_status')) {
-          query = query.replace(" AND COALESCE(e.enrollment_status,'ACTIVE')='ACTIVE' AND COALESCE(e.is_current,TRUE) IS TRUE", '');
-          continue;
-        }
-        throw error;
-      }
+    const classRow = await classFor(classId);
+    const roster = await scoreEntryStudents(classId, classRow, period);
+    const profileIds = roster.map((student) => text(student.profileId)).filter(Boolean);
+    let savedScores = [];
+    if (profileIds.length) {
+      const columns = (await scoreRosterSchema()).get('academic_score_records') ?? new Set();
+      const required = ['school_id','record_type','mock_label','academic_year_id','term_id','class_id','subject_id','student_id','ca_score','examination_score','total_score','id'];
+      if (required.some((column) => !columns.has(column))) fail('The academic score table is missing required score fields.', 503, 'SCORE_SCHEMA_INCOMPLETE');
+      const placeholders = profileIds.map(() => '?').join(',');
+      savedScores = rows(await database.query(`SELECT student_id AS profileId,ca_score AS caScore,examination_score AS examScore,total_score AS totalScore,${columns.has('grade') ? 'grade' : 'NULL AS grade'},id AS scoreId
+        FROM academic_score_records WHERE school_id=? AND record_type='TERMINAL' AND mock_label IS NULL AND academic_year_id=? AND term_id=? AND class_id=? AND subject_id=? AND student_id IN (${placeholders})`, [schoolId, period.yearId, period.termId, classId, text(input.subjectId), ...profileIds]));
     }
-    if (!result) throw new Error('Score Entry roster query did not return a result.');
-    return rows(result).map((item) => ({ studentId: item.studentId, permanentStudentId: item.permanentStudentId, studentName: [item.firstName, item.middleName, item.surname].filter(Boolean).join(' '), classId: item.classId, caScore: item.caScore == null ? null : Number(item.caScore), examScore: item.examScore == null ? null : Number(item.examScore), totalScore: item.totalScore == null ? null : Number(item.totalScore), grade: item.grade ?? null, saved: Boolean(item.scoreId) }));
+    const scoresByProfile = new Map(savedScores.map((score) => [String(score.profileId), score]));
+    return roster.map((student) => {
+      const score = scoresByProfile.get(String(student.profileId)) ?? {};
+      return { studentId: student.masterStudentId, permanentStudentId: student.permanentStudentId, studentName: [student.firstName, student.middleName, student.surname].filter(Boolean).join(' '), classId, caScore: score.caScore == null ? null : Number(score.caScore), examScore: score.examScore == null ? null : Number(score.examScore), totalScore: score.totalScore == null ? null : Number(score.totalScore), grade: score.grade ?? null, saved: Boolean(score.scoreId) };
+    });
   }
 
   async function sampleScoreEntryContext(input = {}, actor) {
@@ -664,30 +740,30 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     if (examScore < 0 || examScore > 50) fail('Exam score must be between 0 and 50.');
     assertClassScope(classId, actor);
     const period = await resolvePeriod(input);
-    await classFor(classId);
-    const enrollmentSql = 'SELECT e.student_id,s.permanent_student_id,c.name AS className FROM student_enrollments e JOIN students s ON s.id=e.student_id AND s.school_id=e.school_id JOIN classes c ON c.id=e.class_id AND c.school_id=e.school_id WHERE e.school_id=? AND e.student_id=? AND e.class_id=? AND e.academic_year_id=? AND e.term_id=?';
-    const enrollmentParams = [schoolId, studentId, classId, period.yearId, period.termId];
-    let enrolledRows;
-    try {
-      enrolledRows = await database.query(`${enrollmentSql} AND COALESCE(e.enrollment_status,'ACTIVE')='ACTIVE' AND COALESCE(e.is_current,TRUE) IS TRUE LIMIT 1`, enrollmentParams);
-    } catch (error) {
-      if (!missingOptionalEnrollmentStateColumn(error)) throw error;
-      enrolledRows = await database.query(`${enrollmentSql} LIMIT 1`, enrollmentParams);
-    }
-    const enrolled = rows(enrolledRows)[0];
+    const classRow = await classFor(classId);
+    const scoreColumns = (await scoreRosterSchema()).get('academic_score_records') ?? new Set();
+    const requiredScoreColumns = ['id','school_id','record_type','academic_year_id','term_id','class_id','student_id','subject_id','ca_score','examination_score','total_score'];
+    if (requiredScoreColumns.some((column) => !scoreColumns.has(column))) fail('The academic score table is missing required score fields.', 503, 'SCORE_SCHEMA_INCOMPLETE');
+    const roster = await scoreEntryStudents(classId, classRow, period);
+    const enrolled = roster.find((student) => [student.masterStudentId, student.studentId, student.profileId, student.permanentStudentId].some((value) => String(value ?? '') === studentId));
     if (!enrolled) fail('Student is not enrolled in the selected class, academic year, and term.', 400, 'STUDENT_ENROLLMENT_NOT_FOUND');
+    if (!enrolled.profileId) fail('Student profile is unavailable for score persistence.', 409, 'STUDENT_PROFILE_UNAVAILABLE');
     if (!await scoringSubjectAssigned({ classId, subjectId, academicYearId: period.yearId }, actor)) fail('Subject is not assigned as a scoring subject for the selected class.', 400);
     const totalScore = caScore + examScore;
-    const [grade, remark] = gradeForTotal(totalScore, { classId: enrolled.className, examination: 'TERMINAL' });
-    const existing = rows(await database.query("SELECT id FROM academic_score_records WHERE school_id=? AND record_type='TERMINAL' AND mock_label IS NULL AND academic_year_id=? AND term_id=? AND class_id=? AND student_id IN (SELECT sp.id FROM student_profiles sp WHERE sp.student_master_id=? OR sp.student_id=?) AND subject_id=? LIMIT 1", [schoolId, period.yearId, period.termId, classId, studentId, enrolled.permanent_student_id, subjectId]))[0];
+    const [grade, remark] = gradeForTotal(totalScore, { classId: classRow.name, examination: 'TERMINAL' });
+    const existing = rows(await database.query("SELECT id FROM academic_score_records WHERE school_id=? AND record_type='TERMINAL' AND mock_label IS NULL AND academic_year_id=? AND term_id=? AND class_id=? AND student_id=? AND subject_id=? LIMIT 1", [schoolId, period.yearId, period.termId, classId, enrolled.profileId, subjectId]))[0];
     const scoreId = existing?.id ?? idFactory();
-    if (existing) await database.execute('UPDATE academic_score_records SET ca_score=?,examination_score=?,total_score=?,grade=?,remark=?,entered_by=?,updated_at=? WHERE id=? AND school_id=?', [caScore, examScore, totalScore, grade, remark, actor.id, clock(), scoreId, schoolId]);
-    else {
-      const profile = rows(await database.query('SELECT id FROM student_profiles WHERE school_id=? AND (student_master_id=? OR student_id=?) LIMIT 1', [schoolId, studentId, enrolled.permanent_student_id]))[0];
-      if (!profile) fail('Student profile is unavailable for score persistence.', 409);
-      await database.execute('INSERT INTO academic_score_records (id,school_id,record_type,academic_year_id,term_id,class_id,student_id,subject_id,ca_score,ca_max,examination_score,examination_max,total_score,grade,remark,entered_by,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [scoreId, schoolId, 'TERMINAL', period.yearId, period.termId, classId, profile.id, subjectId, caScore, 50, examScore, 50, totalScore, grade, remark, actor.id, clock()]);
+    if (existing) {
+      const values = new Map([['ca_score',caScore],['examination_score',examScore],['total_score',totalScore],['grade',grade],['remark',remark],['entered_by',actor.id],['updated_at',clock()]]);
+      const fields = [...values].filter(([column]) => scoreColumns.has(column));
+      await database.execute(`UPDATE academic_score_records SET ${fields.map(([column]) => `\`${column}\`=?`).join(',')} WHERE id=? AND school_id=?`, [...fields.map(([,value]) => value), scoreId, schoolId]);
     }
-    return { id: scoreId, schoolId, studentId, permanentStudentId: enrolled.permanent_student_id, classId, subjectId, academicYear: period.yearName, term: period.termName, caScore, examScore, totalScore, grade, remark, saved: true };
+    else {
+      const values = new Map([['id',scoreId],['school_id',schoolId],['record_type','TERMINAL'],['mock_label',null],['academic_year_id',period.yearId],['term_id',period.termId],['class_id',classId],['student_id',enrolled.profileId],['subject_id',subjectId],['ca_score',caScore],['ca_max',50],['examination_score',examScore],['examination_max',50],['total_score',totalScore],['grade',grade],['remark',remark],['entered_by',actor.id],['updated_at',clock()]]);
+      const fields = [...values].filter(([column]) => scoreColumns.has(column));
+      await database.execute(`INSERT INTO academic_score_records (${fields.map(([column]) => `\`${column}\``).join(',')}) VALUES (${fields.map(() => '?').join(',')})`, fields.map(([,value]) => value));
+    }
+    return { id: scoreId, schoolId, studentId: enrolled.masterStudentId, permanentStudentId: enrolled.permanentStudentId, classId, subjectId, academicYear: period.yearName, term: period.termName, caScore, examScore, totalScore, grade, remark, saved: true };
   }
 
   async function mockRoster(input = {}, actor) {
