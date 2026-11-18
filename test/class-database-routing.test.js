@@ -29,17 +29,17 @@ test('every authorized role maps to one exact Class Database sidebar route and c
   const unauthenticated = await request(server, '/class-database.html?embedded=1', 'invalid-token'); assert.equal(unauthenticated.status, 401);
 });
 
-test('Class Database academic-year filtering uses the academic_year_id join on legacy enrollment schemas', async (t) => {
+test('Class Database returns enrolled students and falls back to registered class/year when enrollment is missing', async (t) => {
   const queries = [];
   const database = {
     async query(sql, params = []) {
       queries.push({ sql, params });
       if (sql.includes('INFORMATION_SCHEMA.COLUMNS') && sql.includes("TABLE_NAME='student_profiles'")) {
-        return [{ columnName: 'previous_school' }, { columnName: 'previous_class' }];
+        return ['previous_school','previous_class','class_id','student_master_id','student_id'].map((columnName) => ({ columnName }));
       }
       if (sql.includes('INFORMATION_SCHEMA.COLUMNS') && sql.includes("TABLE_NAME='student_enrollments'") && sql.includes("COLUMN_NAME='academic_year'")) return [{ columnName: 'academic_year' }];
       if (sql.includes('INFORMATION_SCHEMA.COLUMNS') && sql.includes("TABLE_NAME='student_enrollments'") && !sql.includes("COLUMN_NAME='academic_year'")) return [];
-      if (sql.includes('INFORMATION_SCHEMA.COLUMNS') && sql.includes("TABLE_NAME='students'")) return [];
+      if (sql.includes('INFORMATION_SCHEMA.COLUMNS') && sql.includes("TABLE_NAME='students'")) return ['current_class_id','admission_date','created_at'].map((columnName) => ({ columnName }));
       if (sql.includes('INFORMATION_SCHEMA.COLUMNS') && sql.includes("TABLE_NAME='student_family_contacts'")) return ['student_id','contact_type','full_name','telephone','created_at','id'].map((columnName) => ({ columnName }));
       if (sql.includes('FROM student_enrollments e JOIN students s')) {
         assert.match(sql, /e\.academic_year=\?/);
@@ -54,6 +54,13 @@ test('Class Database academic-year filtering uses the academic_year_id join on l
         assert.deepEqual(params.slice(5, 9), Array(4).fill('class-kg1'));
         return [{ permanentStudentId: 'OSAAH-2026-0001', studentId: 'student-1', studentName: 'Ama Mensah', gender: 'Female', parentGuardianName: 'Efua Mensah', registeredParentPhone: '0240000000', previousSchool: null, previousClass: null, classId: 'class-kg1', academicYear: '2026/2027 Academic Year' }];
       }
+      if (sql.includes('FROM students s JOIN academic_years y')) {
+        assert.match(sql, /NOT EXISTS \(SELECT 1 FROM student_enrollments existing/);
+        assert.match(sql, /COALESCE\(s\.admission_date,DATE\(s\.created_at\)\) BETWEEN y\.starts_on AND y\.ends_on/);
+        assert.match(sql, /s\.current_class_id/);
+        assert.deepEqual(params, [schoolId, '2026/2027 Academic Year', 'class-kg1', 'class-kg1', 'class-kg1', '%%', '%%']);
+        return [{ permanentStudentId: 'OSAAH/2026/002', studentId: 'legacy-student-2', studentName: 'Legacy Student', gender: 'Female', parentGuardianName: 'Legacy Parent', registeredParentPhone: '0240000002', previousSchool: null, previousClass: null, classId: 'class-kg1', academicYear: '2026/2027 Academic Year' }];
+      }
       return [];
     }
   };
@@ -66,11 +73,12 @@ test('Class Database academic-year filtering uses the academic_year_id join on l
   const response = await request(server, '/api/class-database?classId=class-kg1&academicYear=2026%2F2027%20Academic%20Year', 'test-token');
   assert.equal(response.status, 200);
   const body = JSON.parse(response.body);
-  assert.equal(body.rows.length, 1);
+  assert.equal(body.rows.length, 2);
   assert.equal(body.rows[0].studentName, 'Ama Mensah');
   assert.equal(body.rows[0].parentGuardianName, 'Efua Mensah');
   assert.equal(body.rows[0].registeredParentPhone, '0240000000');
   assert.equal(body.rows[0].classId, 'class-kg1');
+  assert.equal(body.rows[1].permanentStudentId, 'OSAAH/2026/002');
   assert.ok(queries.some(({ sql }) => sql.includes('academic_years y')));
 });
 
