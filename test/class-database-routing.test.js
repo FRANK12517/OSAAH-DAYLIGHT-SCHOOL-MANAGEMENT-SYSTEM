@@ -29,6 +29,42 @@ test('every authorized role maps to one exact Class Database sidebar route and c
   const unauthenticated = await request(server, '/class-database.html?embedded=1', 'invalid-token'); assert.equal(unauthenticated.status, 401);
 });
 
+test('Class Database academic-year filtering uses the academic_year_id join on legacy enrollment schemas', async (t) => {
+  const queries = [];
+  const database = {
+    async query(sql, params = []) {
+      queries.push({ sql, params });
+      if (sql.includes('INFORMATION_SCHEMA.COLUMNS') && sql.includes("TABLE_NAME='student_profiles'")) {
+        return [{ columnName: 'previous_school' }, { columnName: 'previous_class' }];
+      }
+      if (sql.includes('INFORMATION_SCHEMA.COLUMNS') && sql.includes("TABLE_NAME='student_enrollments'")) return [];
+      if (sql.includes('FROM student_enrollments e JOIN students s')) {
+        assert.doesNotMatch(sql, /e\.academic_year\b/);
+        assert.doesNotMatch(sql, /sp\.updated_at\b/);
+        assert.match(sql, /ORDER BY sp\.id DESC LIMIT 1/);
+        assert.match(sql, /y\.id=e\.academic_year_id/);
+        assert.match(sql, /AND \(\?='' OR y\.id=\? OR y\.name=\?\)/);
+        assert.deepEqual(params.slice(1, 4), ['2026/2027 Academic Year', '2026/2027 Academic Year', '2026/2027 Academic Year']);
+        return [{ permanentStudentId: 'OSAAH-2026-0001', studentId: 'student-1', studentName: 'Ama Mensah', gender: 'Female', parentGuardianName: 'Parent Mensah', registeredParentPhone: '0240000000', previousSchool: null, previousClass: null, classId: 'class-kg1', academicYear: '2026/2027 Academic Year' }];
+      }
+      return [];
+    }
+  };
+  const actor = { id: 'proprietor-1', schoolId, portal: 'school', roleKey: 'PROPRIETOR', permissions: new Set(['*']) };
+  const auth = { authenticateAsync: async () => actor };
+  const server = createServer(createApp({ auth, database }));
+  await new Promise((resolve) => server.listen(0, resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+
+  const response = await request(server, '/api/class-database?classId=class-kg1&academicYear=2026%2F2027%20Academic%20Year', 'test-token');
+  assert.equal(response.status, 200);
+  const body = JSON.parse(response.body);
+  assert.equal(body.rows.length, 1);
+  assert.equal(body.rows[0].studentName, 'Ama Mensah');
+  assert.equal(body.rows[0].classId, 'class-kg1');
+  assert.ok(queries.some(({ sql }) => sql.includes('academic_years y')));
+});
+
 test('Class Database is a single route/component and is not aliased to generic student pages', async () => {
   const source = await (await import('node:fs/promises')).readFile(new URL('../public/app.js', import.meta.url), 'utf8');
   assert.match(source, /navigateToRoute\(dashboard, route, title/); assert.match(source, /frame\.contentWindow\.location\.replace\(frameUrl\)/); assert.doesNotMatch(source, /class-database[^\n]*(students\.html|student-search|coming-soon)/i);
