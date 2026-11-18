@@ -277,11 +277,11 @@ export function createApp({ auth = null, students = null, attendance = null, att
     if (!database?.query) return classDatabase.list(filters, actor);
     const [profileColumnRows, enrollmentColumnRows, studentColumnRows, familyContactColumnRows, enrollmentYearColumnRows] = await Promise.all([
       database.query(`SELECT COLUMN_NAME AS columnName FROM INFORMATION_SCHEMA.COLUMNS
-        WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='student_profiles' AND COLUMN_NAME IN ('previous_school','previous_class')`),
+        WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='student_profiles' AND COLUMN_NAME IN ('previous_school','previous_class','class_id','student_master_id','student_id')`),
       database.query(`SELECT COLUMN_NAME AS columnName FROM INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='student_enrollments' AND COLUMN_NAME IN ('is_current','enrollment_status')`),
       database.query(`SELECT COLUMN_NAME AS columnName FROM INFORMATION_SCHEMA.COLUMNS
-        WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='students' AND COLUMN_NAME IN ('parent_guardian_name','guardian_name','parent_name','parent_phone','guardian_phone','registered_parent_phone')`),
+        WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='students' AND COLUMN_NAME IN ('parent_guardian_name','guardian_name','parent_name','parent_phone','guardian_phone','registered_parent_phone','current_class_id','admission_date','created_at')`),
       database.query(`SELECT COLUMN_NAME AS columnName FROM INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='student_family_contacts' AND COLUMN_NAME IN ('student_id','contact_type','full_name','telephone','created_at','id')`),
       database.query(`SELECT COLUMN_NAME AS columnName FROM INFORMATION_SCHEMA.COLUMNS
@@ -341,6 +341,31 @@ export function createApp({ auth = null, students = null, attendance = null, att
       AND (?='' OR LOWER(CONCAT_WS(' ',s.first_name,s.middle_name,s.last_name,s.permanent_student_id)) LIKE ?)
       AND s.is_test_record IS NOT TRUE
       ORDER BY s.last_name,s.first_name,s.id`, [actor.schoolId, academicYear, academicYear, academicYear, ...legacyYearParameters, classId, classId, classId, classId, search, search]);
+    const profileClassAvailable = profileColumns.has('class_id') && (profileColumns.has('student_master_id') || profileColumns.has('student_id'));
+    const studentClassAvailable = studentColumns.has('current_class_id');
+    const studentDateExpression = studentColumns.has('admission_date') && studentColumns.has('created_at')
+      ? 'COALESCE(s.admission_date,DATE(s.created_at))'
+      : studentColumns.has('admission_date') ? 's.admission_date' : studentColumns.has('created_at') ? 'DATE(s.created_at)' : null;
+    if ((studentClassAvailable || profileClassAvailable) && studentDateExpression) {
+      const profileClass = profileClassAvailable
+        ? `(SELECT sp.class_id FROM student_profiles sp WHERE sp.school_id=s.school_id AND (${profileColumns.has('student_master_id') ? 'sp.student_master_id=s.id' : '1=0'}${profileColumns.has('student_master_id') && profileColumns.has('student_id') ? ' OR (sp.student_master_id IS NULL AND sp.student_id=s.permanent_student_id)' : ''}) ORDER BY sp.id DESC LIMIT 1)`
+        : 'NULL';
+      const fallbackClassId = studentClassAvailable ? `COALESCE(s.current_class_id,${profileClass})` : profileClass;
+      const fallbackClassLabel = `EXISTS (SELECT 1 FROM classes c WHERE c.school_id=s.school_id AND c.id=${fallbackClassId} AND (c.id=? OR c.name=? OR LOWER(TRIM(c.name))=LOWER(TRIM(?))))`;
+      const fallbackRows = await database.query(`SELECT s.permanent_student_id AS permanentStudentId,s.id AS studentId,
+        TRIM(CONCAT_WS(' ',s.first_name,s.middle_name,s.last_name)) AS studentName,s.gender AS gender,
+        ${parentGuardianSelect},${parentPhoneSelect},${previousSchoolSelect},${previousClassSelect},
+        ${fallbackClassId} AS classId,y.name AS academicYear
+        FROM students s JOIN academic_years y ON y.school_id=s.school_id
+          AND ${studentDateExpression} BETWEEN y.starts_on AND y.ends_on
+        WHERE s.school_id=? AND y.name=? AND ${fallbackClassLabel}
+          AND NOT EXISTS (SELECT 1 FROM student_enrollments existing WHERE existing.school_id=s.school_id AND existing.student_id=s.id)
+          AND UPPER(COALESCE(s.student_status,'ACTIVE')) NOT IN ('WITHDRAWN','TRANSFERRED','COMPLETED','GRADUATED')
+          AND s.is_test_record IS NOT TRUE
+          AND (?='' OR LOWER(CONCAT_WS(' ',s.first_name,s.middle_name,s.last_name,s.permanent_student_id)) LIKE ?)
+        ORDER BY s.last_name,s.first_name,s.id`, [actor.schoolId, academicYear, classId, classId, classId, search, search]);
+      results.push(...fallbackRows);
+    }
     const assigned = actor.roleKey === 'TEACHER' ? new Set((actor.assignedClassIds ?? []).map(String)) : null;
     return results.filter((row) => !assigned || assigned.has(String(row.classId))).map((row) => ({ ...row, gender: displayStudentGender(row.gender) }));
   }

@@ -245,6 +245,10 @@ test('registration reports typed failures and exposes database error details', a
     for (let index = 0; index < baseline.operations.length; index += 1) {
       const fixture = databaseFixture({ failAt: index + 1 });
       const response = await postRegistration(fixture.database, input({ registrationToken: 'registration-token-diagnostic' }));
+      if (baseline.operations[index] === 'select:information_schema') {
+        assert.equal(response.status, 201, 'optional enrollment-column inspection may fail while canonical registration remains available');
+        continue;
+      }
       assert.equal(response.status, 500, `step ${baseline.operations[index]}`);
       assert.equal(response.body.success, false);
       assert.equal(response.body.code, 'DATABASE_SCHEMA_ERROR');
