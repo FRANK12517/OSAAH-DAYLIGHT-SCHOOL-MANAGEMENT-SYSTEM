@@ -38,14 +38,18 @@ test('Class Database academic-year filtering uses the academic_year_id join on l
         return [{ columnName: 'previous_school' }, { columnName: 'previous_class' }];
       }
       if (sql.includes('INFORMATION_SCHEMA.COLUMNS') && sql.includes("TABLE_NAME='student_enrollments'")) return [];
+      if (sql.includes('INFORMATION_SCHEMA.COLUMNS') && sql.includes("TABLE_NAME='students'")) return [];
+      if (sql.includes('INFORMATION_SCHEMA.COLUMNS') && sql.includes("TABLE_NAME='student_family_contacts'")) return ['student_id','contact_type','full_name','telephone','created_at','id'].map((columnName) => ({ columnName }));
       if (sql.includes('FROM student_enrollments e JOIN students s')) {
         assert.doesNotMatch(sql, /e\.academic_year\b/);
         assert.doesNotMatch(sql, /sp\.updated_at\b/);
+        assert.doesNotMatch(sql, /s\.parent_guardian_name|s\.parent_phone/);
+        assert.match(sql, /FROM student_family_contacts fc JOIN student_profiles spg/);
         assert.match(sql, /ORDER BY sp\.id DESC LIMIT 1/);
         assert.match(sql, /y\.id=e\.academic_year_id/);
         assert.match(sql, /AND \(\?='' OR y\.id=\? OR y\.name=\?\)/);
         assert.deepEqual(params.slice(1, 4), ['2026/2027 Academic Year', '2026/2027 Academic Year', '2026/2027 Academic Year']);
-        return [{ permanentStudentId: 'OSAAH-2026-0001', studentId: 'student-1', studentName: 'Ama Mensah', gender: 'Female', parentGuardianName: 'Parent Mensah', registeredParentPhone: '0240000000', previousSchool: null, previousClass: null, classId: 'class-kg1', academicYear: '2026/2027 Academic Year' }];
+        return [{ permanentStudentId: 'OSAAH-2026-0001', studentId: 'student-1', studentName: 'Ama Mensah', gender: 'Female', parentGuardianName: 'Efua Mensah', registeredParentPhone: '0240000000', previousSchool: null, previousClass: null, classId: 'class-kg1', academicYear: '2026/2027 Academic Year' }];
       }
       return [];
     }
@@ -61,6 +65,8 @@ test('Class Database academic-year filtering uses the academic_year_id join on l
   const body = JSON.parse(response.body);
   assert.equal(body.rows.length, 1);
   assert.equal(body.rows[0].studentName, 'Ama Mensah');
+  assert.equal(body.rows[0].parentGuardianName, 'Efua Mensah');
+  assert.equal(body.rows[0].registeredParentPhone, '0240000000');
   assert.equal(body.rows[0].classId, 'class-kg1');
   assert.ok(queries.some(({ sql }) => sql.includes('academic_years y')));
 });
