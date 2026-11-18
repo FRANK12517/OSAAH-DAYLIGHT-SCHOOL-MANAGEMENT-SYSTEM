@@ -275,14 +275,20 @@ export function createApp({ auth = null, students = null, attendance = null, att
   async function durableClassDatabaseList(filters, actor) {
     classDatabase.options(actor);
     if (!database?.query) return classDatabase.list(filters, actor);
-    const [profileColumnRows, enrollmentColumnRows] = await Promise.all([
+    const [profileColumnRows, enrollmentColumnRows, studentColumnRows, familyContactColumnRows] = await Promise.all([
       database.query(`SELECT COLUMN_NAME AS columnName FROM INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='student_profiles' AND COLUMN_NAME IN ('previous_school','previous_class')`),
       database.query(`SELECT COLUMN_NAME AS columnName FROM INFORMATION_SCHEMA.COLUMNS
-        WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='student_enrollments' AND COLUMN_NAME IN ('is_current','enrollment_status')`)
+        WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='student_enrollments' AND COLUMN_NAME IN ('is_current','enrollment_status')`),
+      database.query(`SELECT COLUMN_NAME AS columnName FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='students' AND COLUMN_NAME IN ('parent_guardian_name','guardian_name','parent_name','parent_phone','guardian_phone','registered_parent_phone')`),
+      database.query(`SELECT COLUMN_NAME AS columnName FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='student_family_contacts' AND COLUMN_NAME IN ('student_id','contact_type','full_name','telephone','created_at','id')`)
     ]);
     const profileColumns = new Set(profileColumnRows.map((row) => String(row.columnName ?? row.COLUMN_NAME ?? '').toLowerCase()));
     const enrollmentColumns = new Set(enrollmentColumnRows.map((row) => String(row.columnName ?? row.COLUMN_NAME ?? '').toLowerCase()));
+    const studentColumns = new Set(studentColumnRows.map((row) => String(row.columnName ?? row.COLUMN_NAME ?? '').toLowerCase()));
+    const familyContactColumns = new Set(familyContactColumnRows.map((row) => String(row.columnName ?? row.COLUMN_NAME ?? '').toLowerCase()));
     // Legacy production student_profiles tables may not have updated_at.
     // The profile id is present across supported schema versions.
     const profileOrder = 'sp.id DESC';
@@ -292,6 +298,24 @@ export function createApp({ auth = null, students = null, attendance = null, att
     const previousClassSelect = profileColumns.has('previous_class')
       ? `(SELECT sp.previous_class FROM student_profiles sp WHERE sp.school_id=s.school_id AND (sp.student_master_id=s.id OR (sp.student_master_id IS NULL AND sp.student_id=s.permanent_student_id)) ORDER BY ${profileOrder} LIMIT 1) AS previousClass`
       : 'NULL AS previousClass';
+    const profileStudentMatch = '(spg.student_master_id=s.id OR (spg.student_master_id IS NULL AND spg.student_id=s.permanent_student_id))';
+    const familyContactSort = `${familyContactColumns.has('contact_type') ? "CASE WHEN UPPER(COALESCE(fc.contact_type,''))='PRIMARY_GUARDIAN' THEN 0 WHEN UPPER(COALESCE(fc.contact_type,'')) IN ('GUARDIAN','PARENT') THEN 1 ELSE 2 END," : ''}${familyContactColumns.has('created_at') ? 'fc.created_at DESC,' : ''}${familyContactColumns.has('id') ? 'fc.id DESC' : 'fc.student_id'}`;
+    const familyContactTypeFilter = familyContactColumns.has('contact_type') ? " AND UPPER(COALESCE(fc.contact_type,'')) IN ('PRIMARY_GUARDIAN','GUARDIAN','PARENT')" : '';
+    const familyContactName = familyContactColumns.has('student_id') && familyContactColumns.has('full_name')
+      ? `(SELECT NULLIF(TRIM(fc.full_name),'') FROM student_family_contacts fc JOIN student_profiles spg ON spg.id=fc.student_id AND spg.school_id=s.school_id WHERE ${profileStudentMatch}${familyContactTypeFilter} AND NULLIF(TRIM(fc.full_name),'') IS NOT NULL ORDER BY ${familyContactSort} LIMIT 1)`
+      : null;
+    const familyContactPhone = familyContactColumns.has('student_id') && familyContactColumns.has('telephone')
+      ? `(SELECT NULLIF(TRIM(fc.telephone),'') FROM student_family_contacts fc JOIN student_profiles spg ON spg.id=fc.student_id AND spg.school_id=s.school_id WHERE ${profileStudentMatch}${familyContactTypeFilter} AND NULLIF(TRIM(fc.telephone),'') IS NOT NULL ORDER BY ${familyContactSort} LIMIT 1)`
+      : null;
+    const fallbackColumn = (candidates) => candidates.find((column) => studentColumns.has(column));
+    const guardianNameFallback = fallbackColumn(['parent_guardian_name','guardian_name','parent_name']);
+    const guardianPhoneFallback = fallbackColumn(['parent_phone','guardian_phone','registered_parent_phone']);
+    const parentGuardianSelect = familyContactName
+      ? `COALESCE(${familyContactName}${guardianNameFallback ? `,s.${guardianNameFallback}` : ''}) AS parentGuardianName`
+      : guardianNameFallback ? `s.${guardianNameFallback} AS parentGuardianName` : 'NULL AS parentGuardianName';
+    const parentPhoneSelect = familyContactPhone
+      ? `COALESCE(${familyContactPhone}${guardianPhoneFallback ? `,s.${guardianPhoneFallback}` : ''}) AS registeredParentPhone`
+      : guardianPhoneFallback ? `s.${guardianPhoneFallback} AS registeredParentPhone` : 'NULL AS registeredParentPhone';
     const enrollmentFilters = [];
     if (enrollmentColumns.has('is_current')) enrollmentFilters.push('e.is_current=1');
     if (enrollmentColumns.has('enrollment_status')) enrollmentFilters.push("UPPER(COALESCE(e.enrollment_status,'ACTIVE')) NOT IN ('WITHDRAWN','TRANSFERRED','COMPLETED','GRADUATED')");
@@ -301,7 +325,7 @@ export function createApp({ auth = null, students = null, attendance = null, att
     const search = `%${String(filters.search ?? '').trim().toLowerCase()}%`;
     const results = await database.query(`SELECT s.permanent_student_id AS permanentStudentId,s.id AS studentId,
       TRIM(CONCAT_WS(' ',s.first_name,s.middle_name,s.last_name)) AS studentName,s.gender AS gender,
-      s.parent_guardian_name AS parentGuardianName,s.parent_phone AS registeredParentPhone,
+      ${parentGuardianSelect},${parentPhoneSelect},
       ${previousSchoolSelect},${previousClassSelect},
       e.class_id AS classId,y.name AS academicYear
       FROM student_enrollments e JOIN students s ON s.id=e.student_id AND s.school_id=e.school_id
