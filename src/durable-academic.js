@@ -677,8 +677,15 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
       // issue through its existing validation path.
       if (required.every((column) => columns.has(column))) {
         const placeholders = profileIds.map(() => '?').join(',');
-        savedScores = rows(await database.query(`SELECT student_id AS profileId,ca_score AS caScore,examination_score AS examScore,total_score AS totalScore,${columns.has('grade') ? 'grade' : 'NULL AS grade'},id AS scoreId
-          FROM academic_score_records WHERE school_id=? AND record_type='TERMINAL' AND mock_label IS NULL AND academic_year_id=? AND term_id=? AND class_id=? AND subject_id=? AND student_id IN (${placeholders})`, [schoolId, period.yearId, period.termId, classId, subjectId, ...profileIds]));
+        try {
+          savedScores = rows(await database.query(`SELECT student_id AS profileId,ca_score AS caScore,examination_score AS examScore,total_score AS totalScore,${columns.has('grade') ? 'grade' : 'NULL AS grade'},id AS scoreId
+            FROM academic_score_records WHERE school_id=? AND record_type='TERMINAL' AND mock_label IS NULL AND academic_year_id=? AND term_id=? AND class_id=? AND subject_id=? AND student_id IN (${placeholders})`, [schoolId, period.yearId, period.termId, classId, subjectId, ...profileIds]));
+        } catch (error) {
+          // Score reads are optional for a new subject with no saved rows. A
+          // deployed legacy score schema must not hide the authoritative roster.
+          if (!schemaCompatibilityError(error)) throw error;
+          savedScores = [];
+        }
       }
     }
     const scoresByProfile = new Map(savedScores.map((score) => [String(score.profileId), score]));
