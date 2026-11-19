@@ -113,6 +113,7 @@ test('Parent child list selects only linked active students from the authenticat
   assert.match(sql, /pu\.school_id=\?/);
   assert.match(sql, /s\.last_name AS lastName/);
   assert.doesNotMatch(sql, /s\.surname/);
+  assert.doesNotMatch(sql, /student_enrollments|sp\.enrollment_status/);
   const denied = adapter({ authorized: false });
   assert.deepEqual(await createAdmissionEnrollmentService({ database: denied.api }).listParentStudents({ parentUserId: 'other-parent', schoolId: 'school-1' }), []);
 });

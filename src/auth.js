@@ -496,8 +496,8 @@ export function createAuthService({ users = DEMO_USERS, database = null, schoolI
           WHERE REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(psl.telephone,''),' ',''),'-',''),'(',''),')',''),'+','') IN (?,?,?)
             AND u.school_id=? AND r.school_id=u.school_id AND r.role_key='PARENT'
             AND UPPER(COALESCE(u.status,'ACTIVE'))='ACTIVE'
-            AND UPPER(COALESCE(sp.enrollment_status,'ACTIVE'))='ACTIVE'
-            AND UPPER(COALESCE(s.student_status,'ACTIVE'))='ACTIVE'
+            AND UPPER(COALESCE(sp.enrollment_status,'ACTIVE')) NOT IN ('WITHDRAWN','TRANSFERRED','COMPLETED','GRADUATED')
+            AND UPPER(COALESCE(s.student_status,'ACTIVE')) NOT IN ('WITHDRAWN','TRANSFERRED','COMPLETED','GRADUATED')
           GROUP BY u.id,u.school_id,u.status`, [...phoneValues, ...phoneValues, canonicalSchoolId]);
       });
     } catch (error) {

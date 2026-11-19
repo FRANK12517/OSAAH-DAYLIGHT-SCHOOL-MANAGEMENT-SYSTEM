@@ -281,10 +281,10 @@ export async function mountParentDashboard({ dashboard, user, sidebar } = {}) {
   const childList = Array.isArray(childResponse.children) ? childResponse.children : [];
   const childLoadError = String(childResponse.error ?? '');
   overview.innerHTML = `<section class="hero parent-dashboard-hero"><p class="eyebrow">AUTHORIZED PARENT ACCESS</p><h3>My Children</h3><p class="muted">Choose an authorized child. Every record request is checked against your signed-in Parent account.</p>
-    <div class="parent-child-context"><label for="parent-child-select">Selected child<select id="parent-child-select" aria-label="Select an authorized child"><option value="">Select a child</option>${childList.map((child) => `<option value="${esc(child.permanentStudentId)}">${esc(child.name)} · ${esc(child.permanentStudentId)}${child.className ? ` · ${esc(child.className)}` : ''}</option>`).join('')}</select></label><div id="parent-child-summary" class="parent-child-summary" aria-live="polite">${childLoadError ? esc(childLoadError) : childList.length ? 'Select a child to begin.' : 'No children are currently linked to this Parent account.'}</div></div>
+    <div class="parent-child-context"><label for="parent-child-select">Selected child<select id="parent-child-select" aria-label="Select an authorized child"><option value="">Select a child</option>${childList.map((child) => `<option value="${esc(child.permanentStudentId)}">${esc(child.name)} (${esc(child.permanentStudentId)})</option>`).join('')}</select></label><div id="parent-child-summary" class="parent-child-summary" aria-live="polite">${childLoadError ? esc(childLoadError) : childList.length ? 'Select a child to begin.' : 'No children are currently linked to this Parent account.'}</div></div>
     <section class="parent-lookup card"><p class="eyebrow">STUDENT RECORD LOOKUP</p><h3>Load your child’s records</h3><p class="muted">Choose one record type and the academic context to load. The Permanent Student ID is selected from your authorized children.</p>
       <form id="parent-record-form" class="form-grid parent-record-form">
-        <label>Permanent Student ID<input id="parent-permanent-id" name="permanentStudentId" required placeholder="Select or enter an authorized Permanent Student ID" autocomplete="off"></label>
+        <label>Permanent Student ID<input id="parent-permanent-id" name="permanentStudentId" required placeholder="Select an authorized child" autocomplete="off" readonly></label>
         ${field('Academic Year', 'parent-academic-year', [], { required: false })}
         ${field('Class', 'parent-class', [], { required: false })}
         ${field('Term', 'parent-term', [], { required: false })}
@@ -421,6 +421,10 @@ export async function mountParentDashboard({ dashboard, user, sidebar } = {}) {
         card?.classList.toggle('parent-card-unavailable', !component.available);
       }
       optionsStatus.textContent = '';
+      if (!body.academicOptionsAvailable) {
+        optionsStatus.textContent = 'Academic years or terms are not configured. Child details remain available; configure the academic calendar to load year-specific records.';
+        optionsStatus.classList.add('error');
+      } else optionsStatus.classList.remove('error');
       if (selectedStudent) {
         applyChildContext(selectedStudent);
         applySampleContextOptions(selectedStudent);
@@ -428,6 +432,7 @@ export async function mountParentDashboard({ dashboard, user, sidebar } = {}) {
     } catch (error) {
       optionsStatus.textContent = error.message;
       optionsStatus.classList.add('error');
+      optionsStatus.textContent = 'Academic options are temporarily unavailable. You can still view your linked child details.';
       for (const control of [yearSelect, classSelect, termSelect]) control.disabled = true;
     }
   }
@@ -453,7 +458,7 @@ export async function mountParentDashboard({ dashboard, user, sidebar } = {}) {
       childList.push(displayedChild);
       const option = document.createElement('option');
       option.value = displayedChild.permanentStudentId;
-      option.textContent = `${displayedChild.name} — ${displayedChild.permanentStudentId}`;
+      option.textContent = `${displayedChild.name} (${displayedChild.permanentStudentId})`;
       childSelect.append(option);
     } else {
       displayedChild = { ...displayedChild, ...body.child };

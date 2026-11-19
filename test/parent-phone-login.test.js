@@ -33,6 +33,9 @@ test('registered Parent phone creates a durable session scoped to the canonical 
   assert.equal(result.ok, true);
   assert.equal(result.redirectTo, '/parent-dashboard');
   assert.equal(result.user.schoolId, 'sch_default_01');
+  const identityLookup = database.calls.find(({ sql }) => /FROM users u JOIN schools school/i.test(sql))?.sql;
+  assert.ok(identityLookup.includes("UPPER(COALESCE(sp.enrollment_status,'ACTIVE')) NOT IN ('WITHDRAWN','TRANSFERRED','COMPLETED','GRADUATED')"));
+  assert.ok(identityLookup.includes("UPPER(COALESCE(s.student_status,'ACTIVE')) NOT IN ('WITHDRAWN','TRANSFERRED','COMPLETED','GRADUATED')"));
   assert.ok(persisted.session);
   assert.match(result.token, /^[A-Za-z0-9_.-]+$/);
   assert.ok(await auth.authenticateAsync(result.token));

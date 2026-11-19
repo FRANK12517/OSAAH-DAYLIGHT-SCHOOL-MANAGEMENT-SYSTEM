@@ -140,6 +140,27 @@ test('Parent child list is resolved from the authenticated school-scoped relatio
   assert.ok(children.every((item) => !('id' in item) && !('studentId' in item)));
 });
 
+test('Parent child list and lookup accept the generated three-digit OSAAH ID format', async () => {
+  const generatedIdChild = { ...child, permanentStudentId: 'OSAAH/2026/001' };
+  const base = dependencies({
+    admissionEnrollment: {
+      listParentStudents: async () => [generatedIdChild],
+      authorizeParentStudent: async ({ permanentStudentId }) => permanentStudentId === generatedIdChild.permanentStudentId ? generatedIdChild : null
+    }
+  });
+  const service = createParentDashboardService(base);
+  assert.equal((await service.listChildren(actor()))[0].permanentStudentId, generatedIdChild.permanentStudentId);
+  assert.equal((await service.resolveChild(actor(), generatedIdChild.permanentStudentId)).permanentStudentId, generatedIdChild.permanentStudentId);
+});
+
+test('Parent child dropdown locks the ID to children and formats every option consistently', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(new URL('../public/parent-dashboard.js', import.meta.url), 'utf8');
+  assert.match(source, /<option value="\$\{esc\(child\.permanentStudentId\)\}">\$\{esc\(child\.name\)\} \(\$\{esc\(child\.permanentStudentId\)\}\)<\/option>/);
+  assert.match(source, /name="permanentStudentId" required placeholder="Select an authorized child" autocomplete="off" readonly/);
+  assert.match(source, /childSelect\.value = childList\[0\]\.permanentStudentId/);
+});
+
 test('Student Summary returns canonical gender and status fields for only the authorized child', async () => {
   const service = createParentDashboardService(dependencies());
   const result = await service.loadRecord(actor(), { permanentStudentId: child.permanentStudentId, recordType: 'student-summary' });
@@ -548,7 +569,11 @@ test('academic terms cannot be mixed across years and unsupported record types d
   await assert.rejects(() => service.component(actor(), 'parent-documents', { permanentStudentId: child.permanentStudentId }), (error) => error.status === 501 && error.code === 'PARENT_COMPONENT_NOT_AVAILABLE');
 });
 
-test('an empty canonical academic-year catalog is reported instead of being hard-coded', async () => {
+test('Parent child details remain available when academic years and terms are not configured', async () => {
   const service = createParentDashboardService(dependencies({ durableAcademic: { options: async () => ({ academicYears: [], terms: [], classes: [] }) } }));
-  await assert.rejects(() => service.options(actor()), (error) => error.status === 503 && error.code === 'PARENT_ACADEMIC_YEARS_NOT_CONFIGURED');
+  const options = await service.options(actor());
+  assert.equal(options.academicOptionsAvailable, false);
+  assert.ok(options.recordTypes.some((item) => item.id === 'student-summary'));
+  assert.ok(!options.recordTypes.some((item) => item.requiresAcademicContext));
+  assert.equal((await service.listChildren(actor())).length, 2);
 });

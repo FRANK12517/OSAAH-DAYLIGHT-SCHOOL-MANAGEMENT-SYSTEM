@@ -229,14 +229,16 @@ export function createParentDashboardService({
 
   async function options(actor) {
     parentActor(actor);
-    let source;
+    let source = { academicYears: [], terms: [], classes: [], mockTypes: [] };
+    let academicOptionsAvailable = true;
     try {
-      source = durableAcademic ? await durableAcademic.options(actor) : academicResults?.options?.(actor);
+      source = durableAcademic ? await durableAcademic.options(actor) : (await academicResults?.options?.(actor)) ?? source;
     } catch (cause) {
-      const error = Object.assign(new Error('Unable to load configured academic options.'), { status: 503, code: 'PARENT_ACADEMIC_OPTIONS_UNAVAILABLE', cause });
-      throw error;
+      // Child identity and non-academic Parent services do not depend on the
+      // academic setup tables being present or linked.
+      academicOptionsAvailable = false;
     }
-    if (!source) fail('Academic options are not configured for this school.', 503, 'PARENT_ACADEMIC_OPTIONS_UNAVAILABLE');
+    source ??= { academicYears: [], terms: [], classes: [], mockTypes: [] };
     const academicYears = rows(source.academicYears).map(academicYearOption).filter(Boolean);
     const terms = rows(source.terms).map(termOption).filter(Boolean);
     const classes = canonicalClassOptions(source.classes);
@@ -245,9 +247,7 @@ export function createParentDashboardService({
       const name = text(typeof item === 'string' ? item : item.name ?? item.label ?? item.id ?? item.value);
       return id && name ? { id, name } : null;
     }).filter(Boolean);
-    if (!academicYears.length) fail('No academic years are configured for this school. Configure an academic year in School Settings before loading student records.', 503, 'PARENT_ACADEMIC_YEARS_NOT_CONFIGURED');
-    if (!terms.length) fail('No academic terms are configured for this school. Configure terms for an academic year before loading student records.', 503, 'PARENT_TERMS_NOT_CONFIGURED');
-    if (!classes.length) fail('No classes are configured for this school. Configure classes before loading student records.', 503, 'PARENT_CLASSES_NOT_CONFIGURED');
+    academicOptionsAvailable = academicOptionsAvailable && academicYears.length > 0 && terms.length > 0;
     if (!classes.some((item) => item.id === 'COMPLETED')) classes.push({ id: 'COMPLETED', name: 'Completed / Graduated', contextOnly: true });
     const available = new Map(componentCatalog(actor).map((item) => [item.moduleKey, item.available]));
     const recordTypes = [
@@ -264,11 +264,11 @@ export function createParentDashboardService({
         { id: 'promotion-history', name: 'Promotion History', available: Boolean(historicalRecords?.listPromotionHistory), requiresAcademicContext: false },
         { id: 'completed-records', name: 'Completed / Graduated Records', available: Boolean(historicalRecords?.listCompletedRecords), requiresAcademicContext: false }
       ].filter((item) => item.available)
-    ].filter((item) => item.available);
+    ].filter((item) => item.available && (academicOptionsAvailable || !item.requiresAcademicContext));
     const sampleContexts = isConfiguredTestParentActor(actor, testParentSchoolId)
       ? Object.fromEntries((await listChildren(actor)).map((child) => [child.permanentStudentId, listConfiguredSampleAcademicContexts({ actor, permanentStudentId: child.permanentStudentId, academicYears, terms, classes, schoolId: testParentSchoolId })]))
       : {};
-    return { academicYears, terms, classes, mockTypes, recordTypes, components: componentCatalog(actor), sampleContexts };
+    return { academicYears, terms, classes, mockTypes, recordTypes, components: componentCatalog(actor), sampleContexts, academicOptionsAvailable };
   }
 
   async function listChildren(actor) {
@@ -286,7 +286,7 @@ export function createParentDashboardService({
     const unique = new Map();
     for (const child of children) {
       const permanentStudentId = text(child.permanentStudentId ?? child.permanent_student_id);
-      if (!permanentStudentId || (!/^OSAAH\/\d{4}\/\d{4,}$/.test(permanentStudentId) && !isConfiguredTestStudentId(permanentStudentId))) continue;
+      if (!permanentStudentId || (!/^OSAAH\/\d{4}\/\d{3,}$/.test(permanentStudentId) && !isConfiguredTestStudentId(permanentStudentId))) continue;
       unique.set(permanentStudentId, childSummary(child));
     }
     return [...unique.values()];
@@ -295,7 +295,7 @@ export function createParentDashboardService({
   async function resolveChild(actor, permanentStudentId) {
     parentActor(actor);
     const id = text(permanentStudentId);
-    if (!/^OSAAH\/\d{4}\/\d{4,}$/.test(id) && !isConfiguredTestStudentId(id)) fail('Enter a valid Permanent Student ID.', 400, 'INVALID_PERMANENT_STUDENT_ID');
+    if (!/^OSAAH\/\d{4}\/\d{3,}$/.test(id) && !isConfiguredTestStudentId(id)) fail('Enter a valid Permanent Student ID.', 400, 'INVALID_PERMANENT_STUDENT_ID');
     const student = await authorizeParentStudent({ actor, permanentStudentId: id, students, admissionEnrollment, testParentSchoolId });
     if (!student) fail('This student is not linked to your registered parent account.', 403, 'PARENT_STUDENT_FORBIDDEN');
     return student;
