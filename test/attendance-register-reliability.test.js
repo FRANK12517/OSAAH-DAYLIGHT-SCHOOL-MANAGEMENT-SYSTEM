@@ -120,9 +120,11 @@ async function startApp(t, app) {
 function databaseStub({ periodFailure = false, emptyRoster = false, fixtureStore = new Map() } = {}) {
   const executed = [];
   const rosterQueryParams = [];
+  const rosterQueries = [];
   return {
     executed,
     rosterQueryParams,
+    rosterQueries,
     async query(sql, params = []) {
       if (sql.includes('information_schema.COLUMNS') && sql.includes("TABLE_NAME IN ('students','student_profiles','student_enrollments')")) return [
         ...['id','school_id','permanent_student_id','first_name','middle_name','last_name','gender','student_status','is_test_record','current_class_id','admission_date','created_at'].map((columnName) => ({ tableName: 'students', columnName })),
@@ -136,6 +138,7 @@ function databaseStub({ periodFailure = false, emptyRoster = false, fixtureStore
       if (sql.includes('FROM classes')) return [{ id: 'class-1', name: 'Basic 1', displayOrder: 1 }];
       if (sql.includes('FROM student_enrollments e')) {
         rosterQueryParams.push(params);
+        rosterQueries.push(sql);
         return emptyRoster ? [] : [{ studentId: 'profile-1', permanentStudentId: 'OSAAH-100', firstName: 'Ama', middleName: null, surname: 'Mensah', gender: 'FEMALE' }];
       }
       if (sql.includes('FROM sample_data_fixtures')) {
@@ -176,7 +179,8 @@ test('HTTP register uses the durable active enrollment roster and returns a cons
   assert.equal(body.data.date, DATE);
   assert.equal(body.register.length, 1);
   assert.equal(body.register[0].studentId, 'profile-1');
-  assert.deepEqual(database.rosterQueryParams[0], [reporter.schoolId, 'class-1', 'Basic 1', 'Primary 1', 'ay-2026', '2026/2027', 'term-1']);
+  assert.deepEqual(database.rosterQueryParams[0], [reporter.schoolId, 'class-1', 'Basic 1', 'Primary 1', 'ay-2026', 'term-1']);
+  assert.ok(database.rosterQueries[0].includes('e.academic_year_id=? AND e.term_id=?'), 'durable enrollment reads must bind the selected year and term together');
 });
 test('HTTP register reports a genuine empty enrollment set as a successful empty register', async (t) => {
   const reporter = makeUser('register-reader-empty', ['attendance.read']);

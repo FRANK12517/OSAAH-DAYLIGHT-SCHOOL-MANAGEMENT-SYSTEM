@@ -194,8 +194,14 @@ export function createAttendanceRegisterService({ database = null, students, att
       if (enrollmentColumns.has('class_id')) { classPredicates.push('e.class_id=?'); params.push(classId); }
       if (enrollmentColumns.has('class_name')) for (const name of classNames) { classPredicates.push('e.class_name=?'); params.push(name); }
       conditions.push(`(${classPredicates.join(' OR ')})`);
-      conditions.push(`(${yearPredicates.join(' OR ')})`); params.push(...yearParams);
-      if (termPredicates.length) { conditions.push(`(${termPredicates.join(' OR ')})`); params.push(...termParams); }
+      if (enrollmentColumns.has('academic_year_id') && enrollmentColumns.has('term_id')) {
+        // Canonical enrollment records must match the exact selected academic session.
+        conditions.push('e.academic_year_id=? AND e.term_id=?');
+        params.push(period.yearId, period.termId);
+      } else {
+        conditions.push(`(${yearPredicates.join(' OR ')})`); params.push(...yearParams);
+        if (termPredicates.length) { conditions.push(`(${termPredicates.join(' OR ')})`); params.push(...termParams); }
+      }
       if (enrollmentColumns.has('enrollment_status')) conditions.push("UPPER(COALESCE(e.enrollment_status,'ACTIVE'))='ACTIVE'");
       if (enrollmentColumns.has('is_current')) conditions.push('COALESCE(e.is_current,1)=1');
       if (hasColumn(schema, 'students', 'permanent_student_id')) conditions.push("UPPER(COALESCE(s.permanent_student_id,'')) <> 'DEFAULT_STUDENT'");
