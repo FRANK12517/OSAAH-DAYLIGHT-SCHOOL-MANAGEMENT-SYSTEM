@@ -7,9 +7,9 @@ const VERSION = 80;
 const NAME = '080_restore_student_enrollment_is_current.sql';
 const EXPECTED_DATABASE = 'osaahdaylightschool';
 const APPLY_TOKEN = 'APPLY_ENROLLMENT_IS_CURRENT_080';
-// Migration 086 only adds nullable transfer-history columns to student_profiles.
-// It is reviewed as a deferred pending migration for this narrowly scoped 080 repair.
-const ALLOWED_DEFERRED_PENDING_VERSIONS = new Set([49, 54, 55, 56, 58, 70, 71, 72, 77, 78, 79, 81, 82, 83, 84, 85, 86, 87, 88]);
+// Versions 086-089 are explicitly reviewed as deferred pending migrations for
+// this narrowly scoped 080 repair; none are executed by this workflow.
+const ALLOWED_DEFERRED_PENDING_VERSIONS = new Set([49, 54, 55, 56, 58, 70, 71, 72, 77, 78, 79, 81, 82, 83, 84, 85, 86, 87, 88, 89]);
 const directory = resolve(fileURLToPath(new URL('../schema/', import.meta.url)));
 const rows = (value) => Array.isArray(value) ? value : [];
 

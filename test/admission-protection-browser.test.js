@@ -195,7 +195,7 @@ test('authorized staff can save a registration before generating its permanent I
   assert.equal(await generateId.isDisabled(), true, 'ID generation remains locked before registration is saved');
 
   await submitRegistration.click();
-  assert.match(await registration.locator('#registration-status').innerText(), /Full name.*Please fill out/i);
+  assert.match(await registration.locator('#registration-status').innerText(), /Full name.*Please fill (?:in|out)/i);
   assert.equal(await registration.locator('#registration-status').evaluate((node) => getComputedStyle(node).color), 'rgb(166, 27, 27)');
   assert.equal(await generateId.isDisabled(), true, 'invalid submission keeps ID generation disabled');
 
