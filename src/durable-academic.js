@@ -575,6 +575,8 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
       const conditions = ['s.school_id=?','e.student_id=s.id',`(${classPredicates.join(' OR ')})`,`(${yearPredicates.join(' OR ')})`];
       if (has('student_enrollments','school_id')) conditions.push('e.school_id=s.school_id');
       params.push(...yearParams);
+      const baseConditions = [...conditions];
+      const baseParams = [...params];
       if (termPredicates.length) { conditions.push(`(${termPredicates.join(' OR ')})`); params.push(...termParams); }
       // Match the Class Database roster contract: enrollment statuses can vary
       // across legacy data, so only terminal states should remove a placement.
@@ -585,10 +587,28 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
       if (has('students','is_test_record')) studentConditions.push('s.is_test_record IS NOT TRUE');
       if (has('students','permanent_student_id')) studentConditions.push("UPPER(COALESCE(s.permanent_student_id,'')) <> 'DEFAULT_STUDENT'");
       studentConditions.push("UPPER(COALESCE(s.id,'')) <> 'DEFAULT_STUDENT'");
-      const query = `SELECT DISTINCT s.id AS masterStudentId,${profileId} AS profileId,COALESCE(${profileId},s.id) AS studentId,${has('students','permanent_student_id') ? 's.permanent_student_id' : 's.id'} AS permanentStudentId,
+      const rosterQuery = (scopedConditions) => `SELECT DISTINCT s.id AS masterStudentId,${profileId} AS profileId,COALESCE(${profileId},s.id) AS studentId,${has('students','permanent_student_id') ? 's.permanent_student_id' : 's.id'} AS permanentStudentId,
         ${projection(['first_name'],'firstName')},${projection(['middle_name'],'middleName')},${projection(['last_name','surname'],'surname')}
-        FROM student_enrollments e JOIN students s ON s.id=e.student_id${profileJoin} WHERE ${[...conditions,...studentConditions].join(' AND ')} ORDER BY surname,firstName,studentId`;
-      output.push(...rows(await database.query(query, params)));
+        FROM student_enrollments e JOIN students s ON s.id=e.student_id${profileJoin} WHERE ${[...scopedConditions,...studentConditions].join(' AND ')} ORDER BY surname,firstName,studentId`;
+      let enrolled;
+      try {
+        enrolled = rows(await database.query(rosterQuery(conditions), params));
+      } catch (error) {
+        const missingTermColumn = schemaCompatibilityError(error) && /\b(?:e\.)?term_id\b/i.test(String(error?.message ?? error));
+        if (!missingTermColumn || !termPredicates.length) throw error;
+        // The metadata view may lag a legacy deployment. Retry only the
+        // selected school/year/class scope when the optional term column is
+        // actually missing; unrelated SQL errors still fail visibly.
+        enrolled = rows(await database.query(rosterQuery(baseConditions), baseParams));
+      }
+      if (!enrolled.length && termPredicates.length) {
+        // Some legacy placements store only a year/class membership or use a
+        // non-canonical term label. Keep year, class, school and active/current
+        // placement filters strict while allowing that yearly membership to
+        // populate every selected term's editable score register.
+        enrolled = rows(await database.query(rosterQuery(baseConditions), baseParams));
+      }
+      output.push(...enrolled);
     }
     const profileClass = profileLinks.length && has('student_profiles','class_id')
       ? `(SELECT spc.class_id FROM student_profiles spc WHERE spc.school_id=s.school_id AND (${profileLinks.map((link) => link.replaceAll('sp.', 'spc.')).join(' OR ')}) ORDER BY spc.id DESC LIMIT 1)` : null;
