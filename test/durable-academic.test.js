@@ -510,7 +510,7 @@ test('Score Entry roster falls back to permanent-ID sample exclusion when studen
 
 test('Score Entry roster does not retry for an unrelated missing database column', async () => {
   const calls = [];
-  const unrelatedColumnError = new Error("Unknown column 's.student_status' in 'where clause'");
+  const unrelatedColumnError = new Error("Unknown column 's.unrelated_column' in 'where clause'");
   const database = {
     async query(sql, params = []) {
       calls.push({ sql, params });
@@ -729,6 +729,8 @@ test('Score Entry retries the year/class roster when a legacy enrollment term co
   assert.doesNotMatch(enrollmentQueries[1].sql, /e\.term_id=\?/);
   assert.match(enrollmentQueries[1].sql, /e\.academic_year_id=\?/);
   assert.match(enrollmentQueries[1].sql, /e\.class_id=\?/);
+  assert.match(enrollmentQueries[1].sql, /COALESCE\(e\.is_current,1\)=1/);
+  assert.match(enrollmentQueries[1].sql, /e\.enrollment_status/);
 });
 
 test('Score Entry includes current legacy ENROLLED statuses using the Class Database lifecycle policy', async () => {
