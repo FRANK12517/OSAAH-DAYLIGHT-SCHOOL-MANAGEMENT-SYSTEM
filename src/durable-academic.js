@@ -640,7 +640,9 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     const dateColumns = ['admission_date','created_at'].filter((column) => has('students',column));
     if (classExpression && dateColumns.length && period.yearStartsOn && period.yearEndsOn) {
       const classConditions = [`${classExpression}=?`, ...classNames.map(() => `${classExpression}=?`)];
-      const params = [schoolId, period.yearStartsOn, period.yearEndsOn, classId, ...classNames];
+      // The NOT EXISTS guard repeats the academic-year predicates after the
+      // class/date placeholders, so bind those values a second time here.
+      const params = [schoolId, period.yearStartsOn, period.yearEndsOn, classId, ...classNames, ...(enrollmentReady ? yearParams : [])];
       const studentConditions = [];
       if (has('students','student_status')) studentConditions.push("UPPER(COALESCE(s.student_status,'ACTIVE')) NOT IN ('WITHDRAWN','TRANSFERRED','COMPLETED','GRADUATED')");
       if (has('students','is_test_record')) studentConditions.push('s.is_test_record IS NOT TRUE');
