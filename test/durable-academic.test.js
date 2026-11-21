@@ -781,6 +781,36 @@ test('Score Entry still returns registered students when the optional saved-scor
   assert.equal(calls.some(({ sql }) => sql.includes('FROM academic_score_records WHERE')), false);
 });
 
+test('Score Entry binds repeated academic-year placeholders in the registered-student fallback', async () => {
+  const calls = [];
+  const database = {
+    async query(sql, params = []) {
+      calls.push({ sql, params });
+      if (sql.includes('information_schema.COLUMNS')) return scoreRosterSchema();
+      if (sql.includes('FROM academic_years')) return [{ id: 'year-2026', name: '2026/2027', startsOn: '2026-09-01', endsOn: '2027-07-31' }];
+      if (sql.includes('FROM terms')) return [{ id: 'term-1', academicYearId: 'year-2026', name: 'First Term' }];
+      if (sql.includes('SELECT id,name FROM classes WHERE school_id=? AND id=?')) return [{ id: 'class_kg1_01', name: 'KG 1' }];
+      if (sql.includes('FROM subject_class_assignments a JOIN subjects s') && sql.includes('WHERE a.school_id=? AND a.class_id=?')) return [{ id: 'subject-art', name: 'Creative Arts', classId: 'class_kg1_01', className: 'KG 1', isScoring: 1, subjectActive: 1, assignmentActive: 1 }];
+      if (sql.includes('FROM student_enrollments e JOIN students s')) return [];
+      if (sql.includes('FROM students s LEFT JOIN student_profiles sp')) {
+        // mysql2 substitutes bound values before TiDB parses the SQL. An
+        // unbound placeholder is the production failure shown in Vercel logs.
+        assert.equal((sql.match(/\?/g) ?? []).length, params.length);
+        return [{ masterStudentId: 'student-kg', studentId: 'profile-kg', profileId: 'profile-kg', permanentStudentId: 'OSAAH/2026/001', firstName: 'Ama', middleName: null, surname: 'Mensah' }];
+      }
+      return [];
+    },
+    async execute() { return { affectedRows: 1 }; }
+  };
+  const service = createDurableAcademicService({ database, schoolId });
+  const roster = await service.roster({ classId: 'class_kg1_01', subjectId: 'subject-art', academicYear: '2026/2027', term: 'First Term' }, manager);
+  assert.equal(roster.length, 1);
+  assert.equal(roster[0].permanentStudentId, 'OSAAH/2026/001');
+  const fallback = calls.find(({ sql }) => sql.includes('FROM students s LEFT JOIN student_profiles sp'));
+  assert.ok(fallback);
+  assert.deepEqual(fallback.params.slice(-2), ['year-2026', '2026/2027']);
+});
+
 
 test('durable result roster accepts Mock-only access only for a JHS Mock context', async () => {
   const database = {
