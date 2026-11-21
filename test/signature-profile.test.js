@@ -52,8 +52,8 @@ test('signature uploads persist processed PNG and resolve school-wide head plus 
       if (sql.includes('INSERT INTO result_signatures')) {
         const names = sql.match(/INSERT INTO result_signatures \(([^)]+)\)/)[1].split(',');
         assert.ok(names.includes('`role`'));
-        assert.ok(names.includes('signatory_role'));
-        stored.push(Object.fromEntries(names.map((name, index) => [name, params[index]])));
+        assert.ok(names.includes('`signatory_role`'));
+        stored.push(Object.fromEntries(names.map((name, index) => [name.replaceAll('`', ''), params[index]])));
       }
       return { affectedRows: 1 };
     },
@@ -97,17 +97,51 @@ test('signature schema bootstrap tolerates denied DDL and uses verified legacy r
   const actor = { id: 'head', roleKey: 'HEADTEACHER', schoolId: 'school-osaah-daylight', permissions: new Set(['*']) };
   assert.deepEqual(await createSignatureService({ database: legacyRoleDb }).listDurable(actor), []);
 
+  let noRoleColumns = [...baseColumns];
   const noRoleDb = {
     async execute() { throw Object.assign(new Error('ALTER denied'), { code: 'ER_TABLEACCESS_DENIED_ERROR', errno: 1142 }); },
-    async query(sql) { return sql.includes('information_schema.COLUMNS') ? baseColumns.map((columnName) => ({ columnName })) : []; }
+    async query(sql) { return sql.includes('information_schema.COLUMNS') ? noRoleColumns.map((columnName) => ({ columnName })) : []; }
   };
   const noRoleService = createSignatureService({ database: noRoleDb });
   assert.deepEqual(await noRoleService.listDurable(actor), []);
   await assert.rejects(noRoleService.uploadDurable(uploadInput({ signatoryRole: 'HEADTEACHER', fullName: 'Headteacher One', phone: '0241234569' }), actor), (error) => error.status === 503 && error.code === 'RESULT_SIGNATURE_ROLE_COLUMN_UNAVAILABLE' && /Apply migration 090/.test(error.message));
+  noRoleColumns = [...baseColumns, 'role', 'signatory_role'];
+  assert.deepEqual(await noRoleService.listDurable(actor), []);
 
-  const inspectionFailureService = createSignatureService({ database: { async query() { throw Object.assign(new Error('metadata access denied'), { code: 'ER_TABLEACCESS_DENIED_ERROR' }); }, async execute() { throw new Error('DDL should not run after failed inspection'); } } });
+  let inspectionAvailable = false;
+  const inspectionFailureService = createSignatureService({ database: { async query(sql) { if (!inspectionAvailable) throw Object.assign(new Error('metadata access denied'), { code: 'ER_TABLEACCESS_DENIED_ERROR' }); return sql.includes('information_schema.COLUMNS') ? [...baseColumns, 'role', 'signatory_role'].map((columnName) => ({ columnName })) : []; }, async execute() { throw new Error('DDL should not run after failed inspection'); } } });
   assert.deepEqual(await inspectionFailureService.listDurable(actor), []);
   await assert.rejects(inspectionFailureService.uploadDurable(uploadInput({ signatoryRole: 'HEADTEACHER', fullName: 'Headteacher One', phone: '0241234569' }), actor), (error) => error.status === 503 && error.code === 'RESULT_SIGNATURE_COLUMN_INSPECTION_UNAVAILABLE');
+  inspectionAvailable = true;
+  assert.deepEqual(await inspectionFailureService.listDurable(actor), []);
+});
+
+test('signature save includes legacy signature_type and signature_url in the live 20-column schema', async () => {
+  const columns = ['id', 'school_id', 'staff_id', 'signature_type', 'class_id', 'academic_year', 'signature_url', 'role', 'signatory_role', 'storage_key', 'mime_type', 'document_size', 'active', 'uploaded_by', 'uploaded_at', 'updated_at', 'full_name', 'phone_number', 'term', 'processed_image_data'];
+  const statements = [];
+  const database = {
+    async query(sql) { if (sql.includes('information_schema.COLUMNS')) return columns.map((columnName) => ({ columnName })); return []; },
+    async execute() { return { affectedRows: 1 }; },
+    async transaction(work) { return work({ async execute(sql, params) {
+      statements.push({ sql, params });
+      if (sql.startsWith('INSERT INTO result_signatures')) {
+        const names = sql.match(/\(([^)]+)\)/)[1].split(',').map((column) => column.replaceAll('`', ''));
+        const inserted = Object.fromEntries(names.map((column, index) => [column, params[index]]));
+        if (!inserted.signature_type || !inserted.signature_url) throw new Error('NOT NULL legacy signature columns were not populated.');
+      }
+      return { affectedRows: 1 };
+    } }); }
+  };
+  const actor = { id: 'head', roleKey: 'HEADTEACHER', schoolId: 'school-osaah-daylight', permissions: new Set(['*']) };
+  const uploaded = await createSignatureService({ database }).uploadDurable(uploadInput({ signatoryRole: 'HEADTEACHER', fullName: 'Headteacher One', phone: '0241234569' }), actor);
+  const insert = statements.find(({ sql }) => sql.startsWith('INSERT INTO result_signatures'));
+  assert.ok(insert);
+  const insertedColumns = insert.sql.match(/\(([^)]+)\)/)[1].split(',').map((column) => column.replaceAll('`', ''));
+  const inserted = Object.fromEntries(insertedColumns.map((column, index) => [column, insert.params[index]]));
+  assert.equal(inserted.signature_type, 'HEADTEACHER');
+  assert.equal(inserted.signature_url, uploaded.storageKey);
+  assert.equal(inserted.storage_key, uploaded.storageKey);
+  assert.equal(inserted.processed_image_data, uploadInput({}).processedImageData);
 });
 
 test('management and result-slip contracts preserve phone, print, and PDF-safe signature output', () => {
