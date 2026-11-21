@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import { admissionYearFor } from './permanent-student-id.js';
 import { requireStudentGender } from './student-gender.js';
 import { canonicalClassId } from './student-classes.js';
+import { ghanaPhoneLookupValues, normalizeGhanaPhone } from './auth/parent-auth-service.js';
 
 import { tidbInsertIfAbsent } from './tidb-conflict.js';
 
@@ -21,15 +22,63 @@ export function createAdmissionEnrollmentService({ database, clock = () => new D
 
   async function enroll() { fail('LEGACY_ADMISSION_WORKFLOW_RETIRED', 'Use the unified student registration workflow at /admissions/register.', 410); }
 
+  async function linkPhoneMatchedStudents({ parentUserId, schoolId, permanentStudentId = null } = {}) {
+    if (!parentUserId || !schoolId) return;
+    return database.transaction(async (tx) => {
+      const account = rows(await tx.query("SELECT phone,username FROM users WHERE id=? AND school_id=? AND UPPER(COALESCE(status,'ACTIVE'))='ACTIVE' LIMIT 1", [parentUserId, schoolId]))[0];
+      const normalized = normalizeGhanaPhone(account?.phone) ?? normalizeGhanaPhone(account?.username);
+      if (!normalized) return;
+      const schemaColumns = rows(await tx.query("SELECT TABLE_NAME AS tableName,COLUMN_NAME AS columnName FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN (?,?)", ['students', 'student_family_contacts']));
+      const allowedStudentPhoneColumns = new Set(['parent_phone', 'registered_parent_phone', 'guardian_phone', 'mother_phone', 'father_phone']);
+      const studentColumns = new Set(schemaColumns.filter((column) => String(column.tableName ?? column.TABLE_NAME).toLowerCase() === 'students').map((column) => String(column.columnName ?? column.COLUMN_NAME).toLowerCase()));
+      const familyColumns = new Set(schemaColumns.filter((column) => String(column.tableName ?? column.TABLE_NAME).toLowerCase() === 'student_family_contacts').map((column) => String(column.columnName ?? column.COLUMN_NAME).toLowerCase()));
+      const familyTableExists = schemaColumns.some((column) => String(column.tableName ?? column.TABLE_NAME).toLowerCase() === 'student_family_contacts') && familyColumns.has('student_id');
+      const phoneFields = [
+        ...[...allowedStudentPhoneColumns].filter((column) => studentColumns.has(column)).map((column) => `s.${column}`),
+        ...(familyTableExists ? ['telephone', 'alternative_phone'].filter((column) => familyColumns.has(column)).map((column) => `fc.${column}`) : [])
+      ];
+      if (!phoneFields.length) return;
+      const lookupValues = [...new Set(ghanaPhoneLookupValues(normalized).map((value) => value.replace(/\D/g, '')))];
+      const phonePlaceholders = lookupValues.map(() => '?').join(',');
+      const normalizeSql = (field) => `REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(${field},''),' ',''),CHAR(9),''),CHAR(10),''),CHAR(13),''),'-',''),'(',''),')',''),'+',''),'.','')`;
+      const phoneMatches = phoneFields.map((field) => `${normalizeSql(field)} IN (${phonePlaceholders})`).join(' OR ');
+      const parameters = [schoolId, ...phoneFields.flatMap(() => lookupValues), ...(permanentStudentId ? [permanentStudentId] : []), parentUserId];
+      const studentFilter = permanentStudentId ? ' AND s.permanent_student_id=?' : '';
+      const candidates = rows(await tx.query(`SELECT DISTINCT s.id AS id,s.permanent_student_id AS permanentStudentId,sp.id AS studentProfileId
+        FROM students s JOIN student_profiles sp ON sp.student_master_id=s.id AND sp.school_id=s.school_id
+        ${familyTableExists ? 'LEFT JOIN student_family_contacts fc ON fc.student_id=sp.id' : ''}
+        WHERE s.school_id=? AND s.is_test_record IS FALSE
+          AND UPPER(COALESCE(s.student_status,'ACTIVE')) NOT IN ('INACTIVE','WITHDRAWN','TRANSFERRED','TRANSFERRED_OUT','COMPLETED','GRADUATED','DELETED','ARCHIVED')
+          AND UPPER(COALESCE(sp.enrollment_status,'ACTIVE')) NOT IN ('INACTIVE','WITHDRAWN','TRANSFERRED','TRANSFERRED_OUT','COMPLETED','GRADUATED','DELETED','ARCHIVED')
+          AND (${phoneMatches})${studentFilter}
+          AND NOT EXISTS (SELECT 1 FROM parent_student_links existing_link WHERE existing_link.parent_user_id=? AND existing_link.student_id=sp.id)`, parameters));
+      const timestamp = clock();
+      for (const student of candidates) {
+        await tidbInsertIfAbsent(tx, {
+          insertSql: 'INSERT INTO parent_student_links (parent_user_id,student_id,permanent_student_id,telephone,relationship,relationship_type,link_status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)',
+          insertParameters: [parentUserId, student.studentProfileId, student.permanentStudentId ?? null, normalized, 'Parent/Guardian', 'GUARDIAN', 'ACTIVE', timestamp, timestamp],
+          conflictSql: 'SELECT parent_user_id FROM parent_student_links WHERE parent_user_id=? AND student_id=? LIMIT 1 FOR UPDATE',
+          conflictParameters: [parentUserId, student.studentProfileId]
+        });
+      }
+    });
+  }
+
   async function authorizeParentStudent({ parentUserId, permanentStudentId, schoolId }) {
     if (!parentUserId || !permanentStudentId || !schoolId) fail('PARENT_STUDENT_SCOPE_REQUIRED', 'Parent, student, and school scope are required.', 400);
-    const result = rows(await database.query('SELECT s.id AS id,s.id AS studentId,s.id AS student_id,s.permanent_student_id AS permanentStudentId,s.permanent_student_id,s.gender,s.student_status AS studentStatus,sp.id AS studentProfileId,sp.id AS student_profile_id,sp.class_id AS classId,sp.class_id FROM students s JOIN student_profiles sp ON sp.student_master_id=s.id AND (sp.student_id=s.permanent_student_id OR sp.student_id=?) JOIN parent_student_links psl ON psl.student_id=sp.id AND psl.parent_user_id=? AND psl.link_status=? WHERE s.school_id=? AND s.permanent_student_id=? AND s.is_test_record IS FALSE LIMIT 1', [permanentStudentId, parentUserId, 'ACTIVE', schoolId, permanentStudentId]))[0];
+    const findLinkedStudent = async () => rows(await database.query('SELECT s.id AS id,s.id AS studentId,s.id AS student_id,s.permanent_student_id AS permanentStudentId,s.permanent_student_id,s.gender,s.student_status AS studentStatus,sp.id AS studentProfileId,sp.id AS student_profile_id,sp.class_id AS classId,sp.class_id FROM students s JOIN student_profiles sp ON sp.student_master_id=s.id AND (sp.student_id=s.permanent_student_id OR sp.student_id=?) JOIN parent_student_links psl ON psl.student_id=sp.id AND psl.parent_user_id=? AND psl.link_status=? WHERE s.school_id=? AND s.permanent_student_id=? AND s.is_test_record IS FALSE LIMIT 1', [permanentStudentId, parentUserId, 'ACTIVE', schoolId, permanentStudentId]))[0];
+    let result = await findLinkedStudent();
+    if (!result) {
+      await linkPhoneMatchedStudents({ parentUserId, schoolId, permanentStudentId });
+      result = await findLinkedStudent();
+    }
     if (!result) fail('PARENT_STUDENT_FORBIDDEN', 'You are not authorized to access this student.', 403);
     return result;
   }
 
-  async function listParentStudents({ parentUserId, schoolId } = {}) {
+  async function listParentStudents({ parentUserId, schoolId, parentPhone } = {}) {
     if (!parentUserId || !schoolId) fail('PARENT_STUDENT_SCOPE_REQUIRED', 'Parent and school scope are required.', 400);
+    await linkPhoneMatchedStudents({ parentUserId, schoolId });
     return rows(await database.query(`SELECT s.id AS id,s.id AS studentId,s.id AS student_id,
       s.permanent_student_id AS permanentStudentId,s.permanent_student_id,
       sp.id AS studentProfileId,sp.id AS student_profile_id,sp.class_id AS classId,sp.class_id,
