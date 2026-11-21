@@ -47,3 +47,16 @@ test('Parent obligation class filters use the stored period obligation class and
   assert.doesNotMatch(seen.sql, /sp\.class_id=\?/);
   assert.match(seen.sql, /fo\.status='PUBLISHED'/);
 });
+
+test('Whole School fees remain visible while class-targeted fees are limited to the selected child class', async () => {
+  const rowsForClass = (selectedClass) => [
+    { studentId: 'profile-1', permanentStudentId: 'OSAAH/2026/0001', firstName: 'Ama', surname: 'Mensah', classId: selectedClass, schoolId: 'school-a', obligationId: 'whole-school', feeStructureId: 'ADMISSION', feeTypeName: 'Admission Fee', academicYearId: 'year-2026', termId: 'term-1', amountMinor: 15000, targetClassId: null, status: 'PUBLISHED' },
+    ...(selectedClass === 'kg1' ? [{ studentId: 'profile-1', permanentStudentId: 'OSAAH/2026/0001', firstName: 'Ama', surname: 'Mensah', classId: selectedClass, schoolId: 'school-a', obligationId: 'kg-only', feeStructureId: 'BOOKS', feeTypeName: 'Books', academicYearId: 'year-2026', termId: 'term-1', amountMinor: 2500, targetClassId: 'kg1', status: 'PUBLISHED' }] : [])
+  ];
+  const repository = createParentFeeObligationsRepository({ query: async (_sql, params) => rowsForClass(params.at(-1)) });
+  const parent = { id: 'parent-1', schoolId: 'school-a', roleKey: 'PARENT', portal: 'parent' };
+  const kg = await repository.listForParent(parent, { academicYearId: 'year-2026', termId: 'term-1', status: 'PUBLISHED', classId: 'kg1' });
+  const nursery = await repository.listForParent(parent, { academicYearId: 'year-2026', termId: 'term-1', status: 'PUBLISHED', classId: 'nursery1' });
+  assert.deepEqual(kg.children[0].obligations.map((item) => item.id), ['whole-school', 'kg-only']);
+  assert.deepEqual(nursery.children[0].obligations.map((item) => item.id), ['whole-school']);
+});

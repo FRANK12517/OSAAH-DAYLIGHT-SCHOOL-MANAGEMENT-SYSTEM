@@ -1819,7 +1819,10 @@ function safeFeeError(error, fallbackStatus = 503, classifyFeePublicationValidat
   const code = /^[A-Z0-9_]{1,64}$/.test(rawCode) ? rawCode : null;
   const sqlState = /^[A-Z0-9]{5}$/.test(String(error?.sqlState ?? '')) ? String(error.sqlState) : null;
   const errno = Number.isInteger(error?.errno) ? error.errno : null;
-  console.error('Fee service operation failed', { status, code, errno, sqlState, validationReason: safeMessages.has(error?.message) ? error.message : null });
+  const missingColumn = code === 'ER_BAD_FIELD_ERROR' || errno === 1054
+    ? String(error?.message ?? '').match(/unknown column\s+['`"]([^'`"]+)['`"]?/i)?.[1] ?? null
+    : null;
+  console.error('Fee service operation failed', { status, code, errno, sqlState, missingColumn, validationReason: safeMessages.has(error?.message) ? error.message : null });
   return { body: { error: message, ...(code ? { code } : {}) }, status };
 }
 function parentApiError(response, error, endpoint) {

@@ -11,7 +11,7 @@ function adapter({ students = [], fees = [{ id: 'fee-1', schoolId: 'school-a' }]
     async query(sql, params = []) {
       if (sql.includes('FROM fee_structures')) return state.fees.filter((f) => f.id === params[0] && f.schoolId === params[1]);
       if (sql.includes('FROM students')) {
-        return state.students.filter((s) => s.schoolId === params[0] && (params[1] == null || s.classId === params[1]) && !['INACTIVE', 'TRANSFERRED_OUT', 'WITHDRAWN', 'DELETED', 'ARCHIVED'].includes(String(s.status ?? 'ACTIVE').toUpperCase()));
+        return state.students.filter((s) => s.schoolId === params[0] && (params[1] == null || (s.currentClassId ?? s.classId) === params[1]) && !['INACTIVE', 'TRANSFERRED_OUT', 'WITHDRAWN', 'DELETED', 'ARCHIVED'].includes(String(s.studentStatus ?? s.status ?? 'ACTIVE').toUpperCase()));
       }
       if (sql.includes('FROM fee_obligations') && sql.includes('fee_structure_id=?')) return state.obligations.filter((o) => o.schoolId === params[0] && o.feeStructureId === params[1] && o.academicYearId === params[2] && o.termId === params[3] && o.status === 'PUBLISHED');
       if (sql.includes('FROM fee_obligations') && sql.includes('idempotency_key=?')) return state.obligations.filter((o) => o.schoolId === params[0] && o.idempotencyKey === params[1]);
@@ -85,6 +85,24 @@ test('eligibility and inserts use the transaction client', async () => {
   assert.deepEqual(calls, ['tx-query', 'tx-query', 'tx-query', 'tx-execute']);
   assert.ok(transactionQueries.some((sql) => sql.includes('FROM students') && sql.endsWith('FOR UPDATE')));
   assert.ok(transactionQueries.some((sql) => sql.includes('FROM fee_obligations') && sql.endsWith('FOR UPDATE')));
+});
+
+test('publication eligibility uses the canonical current-class and student-status columns', async () => {
+  const db = adapter({ students: [
+    { id: 'current', schoolId: 'school-a', currentClassId: 'kg1', studentStatus: 'ACTIVE' },
+    { id: 'inactive', schoolId: 'school-a', currentClassId: 'kg1', studentStatus: 'INACTIVE' },
+    { id: 'other-class', schoolId: 'school-a', currentClassId: 'nursery1', studentStatus: 'ACTIVE' }
+  ] });
+  const queries = [];
+  const query = db.query.bind(db);
+  db.query = async (sql, params) => { queries.push(sql); return query(sql, params); };
+  const result = await publish(createFeeCollectionsRepository({ adapter: db }), actor(), { scope: 'SPECIFIC_CLASS', classId: 'kg1' });
+  assert.deepEqual(result, { eligible_count: 1, created_count: 1, skipped_count: 0 });
+  assert.deepEqual(db.state.obligations.map((row) => row.studentId), ['current']);
+  const rosterQuery = queries.find((sql) => sql.includes('FROM students'));
+  assert.match(rosterQuery, /current_class_id AS classId/);
+  assert.match(rosterQuery, /student_status AS studentStatus/);
+  assert.doesNotMatch(rosterQuery, /\bclass_id\b|\bstatus\b/);
 });
 
 test('unrelated database errors propagate instead of being swallowed', async () => {
