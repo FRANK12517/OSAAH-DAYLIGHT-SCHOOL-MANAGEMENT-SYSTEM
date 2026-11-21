@@ -61,9 +61,13 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     if (permission && !authorized(actor, permission)) fail('Forbidden.', 403, 'ACADEMIC_PERMISSION_REQUIRED');
   }
 
+  // Explicit school-wide academic permission broadens class access only within
+  // this tenant; it does not grant access to another school's records.
+  function hasSchoolwideAcademicAccess(actor) { return authorized(actor, 'academics.schoolwide'); }
+
   function assertClassScope(classId, actor) {
     if (!classId) fail('Class is required.');
-    if (actor?.roleKey === 'TEACHER' && !authorized(actor, 'academics.manage')) {
+    if (actor?.roleKey === 'TEACHER' && !hasSchoolwideAcademicAccess(actor) && !authorized(actor, 'academics.manage')) {
       const assigned = new Set((actor.assignedClassIds ?? []).map(String));
       if (!assigned.size || !assigned.has(String(classId))) fail('Class is outside your assignment.', 403, 'CLASS_SCOPE_DENIED');
     }
@@ -130,7 +134,7 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     // the whole school catalogue made the first (Nursery 1) option the UI
     // default even when the teacher was assigned elsewhere. Keep the same
     // scope enforced by assertClassScope; an empty assignment grants no class.
-    const teacherScoped = actor?.roleKey === 'TEACHER' && !authorized(actor, 'academics.manage');
+    const teacherScoped = actor?.roleKey === 'TEACHER' && !hasSchoolwideAcademicAccess(actor) && !authorized(actor, 'academics.manage');
     const assignedClassIds = new Set((actor?.assignedClassIds ?? []).map(String));
     const allowedClasses = rows(classes).filter((item) => !teacherScoped || assignedClassIds.has(String(item.id)));
     return { academicYears: rows(academicYears), terms: rows(terms), classes: allowedClasses, mockTypes: [...MOCK_TYPES] };
@@ -272,7 +276,7 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
       if (typeof assessmentComponents === 'string') { try { assessmentComponents = JSON.parse(assessmentComponents); } catch { assessmentComponents = []; } }
       return { id: subject.id, code: subject.code, name: subject.name, departmentId: subject.departmentId ?? null, subjectType: subject.subjectType ?? 'ELECTIVE', isScoring: Number(subject.isScoring ?? 1) !== 0, active, classIds: [...new Set(assignments.map((item) => item.classId))], classNames: [...new Set(assignments.map((item) => item.className ?? item.classId))], assessmentComponents: Array.isArray(assessmentComponents) ? assessmentComponents : [] };
     });
-    const scoped = actor?.roleKey === 'TEACHER' && !authorized(actor, 'academics.manage')
+    const scoped = actor?.roleKey === 'TEACHER' && !hasSchoolwideAcademicAccess(actor) && !authorized(actor, 'academics.manage')
       ? result.map((subject) => {
         const assignedClasses = new Set((actor.assignedClassIds ?? []).map(String));
         const assignedSubjects = new Set((actor.assignedSubjectIds ?? []).map(String));
@@ -434,7 +438,7 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
 
   async function subjectAssigned(input, actor) {
     const subjectId = text(input.subjectId);
-    if (actor?.roleKey === 'TEACHER' && !authorized(actor, 'academics.manage') && !(actor.assignedSubjectIds ?? []).map(String).includes(subjectId)) return false;
+    if (actor?.roleKey === 'TEACHER' && !hasSchoolwideAcademicAccess(actor) && !authorized(actor, 'academics.manage') && !(actor.assignedSubjectIds ?? []).map(String).includes(subjectId)) return false;
     const configured = await listSubjects({ classId: input.classId, academicYearId: input.academicYearId || input.academicYear }, actor);
     return configured.some((subject) => text(subject.id) === subjectId);
   }
@@ -462,7 +466,7 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
       FROM subject_class_assignments a JOIN subjects s ON s.id=a.subject_id AND s.school_id=a.school_id
       JOIN classes c ON c.id=a.class_id AND c.school_id=a.school_id
       WHERE a.school_id=? AND a.subject_id=? ORDER BY c.id`, [schoolId, text(subjectId)]);
-    return rows(result).filter((assignment) => !actor?.assignedClassIds?.length || actor.assignedClassIds.includes(assignment.classId));
+    return rows(result).filter((assignment) => actor?.roleKey !== 'TEACHER' || hasSchoolwideAcademicAccess(actor) || (actor.assignedClassIds ?? []).map(String).includes(String(assignment.classId)));
   }
 
   async function assignSubject(input = {}, actor) {
@@ -1111,7 +1115,7 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     if (!subjectId) fail('Subject is required.', 400, 'SUBJECT_REQUIRED');
     const catalog = await listSubjects({ classId, academicYearId: period.yearId }, actor);
     if (!catalog.some((subject) => String(subject.id) === subjectId)) fail('Subject is not configured for the selected class and academic context.', 400, 'CLASS_SUBJECT_MISMATCH');
-    if (actor?.roleKey === 'TEACHER' && !authorized(actor, 'academics.manage') && !(actor.assignedSubjectIds ?? []).map(String).includes(subjectId)) fail('Subject is outside your assignment.', 403, 'SUBJECT_SCOPE_DENIED');
+    if (actor?.roleKey === 'TEACHER' && !hasSchoolwideAcademicAccess(actor) && !authorized(actor, 'academics.manage') && !(actor.assignedSubjectIds ?? []).map(String).includes(subjectId)) fail('Subject is outside your assignment.', 403, 'SUBJECT_SCOPE_DENIED');
     let rosterSql = `SELECT DISTINCT s.id AS studentId,s.permanent_student_id AS permanentStudentId,s.first_name AS firstName,s.middle_name AS middleName,s.last_name AS surname
       FROM students s JOIN student_enrollments e ON e.student_id=s.id AND e.school_id=s.school_id
       WHERE s.school_id=? AND e.class_id=? AND e.academic_year_id=? AND e.term_id=? AND s.permanent_student_id NOT LIKE 'OSAAH-DEMO-%' AND s.permanent_student_id NOT LIKE 'OSAAH/DEMO/%' ORDER BY s.last_name,s.first_name,s.id`;
@@ -1123,8 +1127,8 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
       rosterSql = rosterSql.replace(' AND COALESCE(e.enrollment_status,\'ACTIVE\')=\'ACTIVE\' AND COALESCE(e.is_current,TRUE) IS TRUE', '');
       students = rows(await database.query(rosterSql, rosterParams));
     }
-    const assignedSubjects = actor?.roleKey === 'TEACHER' && !authorized(actor, 'academics.manage') ? new Set((actor.assignedSubjectIds ?? []).map(String)) : null;
-    if (actor?.roleKey === 'TEACHER' && !assignedSubjects.size) fail('Subject is outside your assignment.', 403, 'SUBJECT_SCOPE_DENIED');
+    const assignedSubjects = actor?.roleKey === 'TEACHER' && !hasSchoolwideAcademicAccess(actor) && !authorized(actor, 'academics.manage') ? new Set((actor.assignedSubjectIds ?? []).map(String)) : null;
+    if (assignedSubjects && actor?.roleKey === 'TEACHER' && !assignedSubjects.size) fail('Subject is outside your assignment.', 403, 'SUBJECT_SCOPE_DENIED');
     const results = await Promise.all(students.map(async (student) => {
       const result = await canonicalResult({ ...input, studentId: student.studentId, classId, academicYear: period.yearId, term: period.termId }, actor, { mock });
       const subjects = result.subjects.filter((item) => !assignedSubjects || assignedSubjects.has(String(item.subjectId)));

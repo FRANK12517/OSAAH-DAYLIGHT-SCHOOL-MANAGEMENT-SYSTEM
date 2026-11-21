@@ -33,6 +33,13 @@ test('Administrator provisioning grants Mock Score Entry read/write permissions'
   const authenticated = auth.authenticate(login.token);
   assert.equal(authenticated.permissions.has('mock.scores.read'), true);
   assert.equal(authenticated.permissions.has('mock.scores.write'), true);
+  assert.equal(authenticated.permissions.has('mock.results.read'), true);
+  assert.equal(authenticated.permissions.has('mock.results.generate'), true);
+  const modules = modulesFor(authenticated);
+  assert.ok(modules.some((module) => module.moduleKey === 'examinations'));
+  assert.ok(modules.some((module) => module.moduleKey === 'results'));
+  assert.ok(modules.some((module) => module.moduleKey === 'mock-score-entry'));
+  assert.ok(modules.some((module) => module.moduleKey === 'mock-results'));
 });
 
 test('Administrator Mock Score Entry uses the existing JHS-only total-score contract', () => {
@@ -59,4 +66,14 @@ test('Administrator Mock Score Entry permission is additive and historical RBAC 
   assert.match(forward, /mock\.scores\.read/);
   assert.match(forward, /mock\.scores\.write/);
   assert.doesNotMatch(forward, /DROP\s+(TABLE|COLUMN|DATABASE)/i);
+});
+
+test('school-wide teacher academic access is an explicit additive grant', async () => {
+  const migration = await readFile(new URL('../schema/092_schoolwide_staff_academics.sql', import.meta.url), 'utf8');
+  assert.match(migration, /academics\.schoolwide/);
+  assert.match(migration, /WHERE r\.role_key = 'TEACHER'/);
+  assert.match(migration, /mock\.results\.read/);
+  assert.match(migration, /mock\.results\.generate/);
+  assert.match(migration, /WHERE r\.role_key = 'SCHOOL_ADMIN'/);
+  assert.doesNotMatch(migration, /DROP\s+(TABLE|COLUMN|DATABASE)/i);
 });

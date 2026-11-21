@@ -307,6 +307,23 @@ test('teacher academic options include only assigned classes and fail closed whe
   assert.equal((await service.options(manager)).classes.length, 2, 'non-teacher school roles retain the school catalogue');
 });
 
+test('teachers with the explicit school-wide academic grant receive the full tenant class catalogue', async () => {
+  const database = fakeDatabase();
+  database.query = async (sql) => {
+    if (sql.includes('FROM academic_years')) return [{ id: 'year-2026', name: '2026/2027' }];
+    if (sql.includes('FROM terms')) return [{ id: 'term-1', academicYearId: 'year-2026', name: 'First Term' }];
+    if (sql.includes('FROM classes c WHERE c.school_id')) return [
+      { id: 'class-kg1_01', name: 'KG 1' }, { id: 'class-nursery1_01', name: 'Nursery 1' },
+      { id: 'class-jhs1_01', name: 'JHS 1' }, { id: 'class-jhs3_01', name: 'JHS 3' }
+    ];
+    return [];
+  };
+  const service = createDurableAcademicService({ database, schoolId });
+  const teacher = { ...manager, roleKey: 'TEACHER', permissions: new Set(['academics.schoolwide', 'marks.write', 'results.read']), assignedClassIds: [], assignedSubjectIds: [] };
+  assert.deepEqual((await service.options(teacher)).classes.map(({ name }) => name), ['KG 1', 'Nursery 1', 'JHS 1', 'JHS 3']);
+  await assert.rejects(() => service.options({ ...teacher, schoolId: 'another-school' }), (error) => error.status === 403);
+});
+
 test('Teacher academic scope requires class and subject assignments while class catalog remains browseable', async () => {
   const database = fakeDatabase();
   const service = createDurableAcademicService({ database, schoolId });

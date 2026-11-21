@@ -7,9 +7,9 @@ const VERSION = 80;
 const NAME = '080_restore_student_enrollment_is_current.sql';
 const EXPECTED_DATABASE = 'osaahdaylightschool';
 const APPLY_TOKEN = 'APPLY_ENROLLMENT_IS_CURRENT_080';
-// Versions 086-090 are explicitly reviewed as deferred pending migrations for
+// Versions 086-092 are explicitly reviewed as deferred pending migrations for
 // this narrowly scoped 080 repair; none are executed by this workflow.
-const ALLOWED_DEFERRED_PENDING_VERSIONS = new Set([49, 54, 55, 56, 58, 70, 71, 72, 77, 78, 79, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90]);
+const ALLOWED_DEFERRED_PENDING_VERSIONS = new Set([49, 54, 55, 56, 58, 70, 71, 72, 77, 78, 79, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92]);
 const directory = resolve(fileURLToPath(new URL('../schema/', import.meta.url)));
 const rows = (value) => Array.isArray(value) ? value : [];
 

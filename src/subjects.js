@@ -34,7 +34,7 @@ export function createSubjectService({ now = () => new Date().toISOString(), sch
   function assertSchool(actor) { if (!actor || actor.schoolId !== schoolId) throw new Error('Forbidden.'); }
   function list({ classId, includeInactive = false } = {}, actor = {}) {
     assertSchool(actor);
-    if (classId && actor?.assignedClassIds?.length && !actor.assignedClassIds.includes(classId)) throw new Error('Forbidden.');
+    if (classId && actor?.roleKey === 'TEACHER' && !actor?.permissions?.has?.('academics.schoolwide') && (!actor?.assignedClassIds?.length || !actor.assignedClassIds.includes(classId))) throw new Error('Forbidden.');
     const configured = [...records.values()].filter((item) => item.schoolId === schoolId && (includeInactive || item.active) && (!classId || item.classIds.includes(classId)));
     if (!classId) configured.sort((left, right) => right.classIds.length - left.classIds.length || left.name.localeCompare(right.name));
     return configured.map(clone);

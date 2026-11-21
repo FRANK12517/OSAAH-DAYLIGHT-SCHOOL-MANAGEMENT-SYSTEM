@@ -17,6 +17,30 @@ test('in-memory academic options show only assigned teacher classes and fail clo
   assert.deepEqual(service.options({ ...teacher, assignedClassIds: [] }).classes, []);
 });
 
+test('explicit school-wide academic permission exposes the full class and subject workflow to teachers', () => {
+  const { students, subjects, resultService } = scoreFixture();
+  const schoolwideTeacher = {
+    ...teacher,
+    assignedClassIds: [],
+    assignedSubjectIds: [],
+    permissions: new Set([...teacher.permissions, 'academics.schoolwide', 'mock.scores.read', 'mock.scores.write', 'mock.results.read', 'mock.results.generate'])
+  };
+  assert.deepEqual(resultService.options(schoolwideTeacher).classes, CORE_LEVELS);
+
+  const kgStudent = eligibleStudent(students, 'KG1', 'SchoolwideKG');
+  const kgSubject = subjects.list({ classId: 'KG1' }, schoolwideTeacher)[0];
+  assert.ok(kgSubject);
+  const roster = resultService.scoreEntryRoster({ academicYear: '2026/2027', term: 'First Term', classId: 'KG1', subjectId: kgSubject.id }, schoolwideTeacher);
+  assert.equal(roster[0].studentId, kgStudent.id);
+  const savedTerminal = resultService.saveScore({ studentId: kgStudent.id, classId: 'KG1', subjectId: kgSubject.id, academicYear: '2026/2027', term: 'First Term', caScore: 24, examScore: 26 }, schoolwideTeacher);
+  assert.equal(savedTerminal.totalScore, 50);
+
+  const jhsStudent = eligibleStudent(students, 'JHS 1', 'SchoolwideMock');
+  const mockSubject = subjects.list({ classId: 'JHS 1' }, schoolwideTeacher)[0];
+  const savedMock = resultService.saveMockScore({ studentId: jhsStudent.id, classId: 'JHS 1', subjectId: mockSubject.id, academicYear: '2026/2027', term: 'First Term', mockLabel: '1st Mock', totalScore: 72 }, schoolwideTeacher);
+  assert.equal(savedMock.totalScore, 72);
+});
+
 function eligibleStudent(students, classId, surname, context = {}) {
   return students.createStudent({ firstName: 'Ama', surname, classId, academicYearId: context.academicYear ?? '2026/2027', termId: context.term ?? 'First Term' });
 }

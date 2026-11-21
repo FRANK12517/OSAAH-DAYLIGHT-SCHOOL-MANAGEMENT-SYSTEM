@@ -50,14 +50,16 @@ test('Migration 080 restores the exact additive TiDB-compatible column contract 
   assert.match(sql.replace(/^\s*--.*$/gm, '').trim(), /^ALTER TABLE student_enrollments\s+ADD COLUMN IF NOT EXISTS is_current TINYINT\(1\) NOT NULL DEFAULT 1;$/i);
   assert.doesNotMatch(sql, /\b(DROP|DELETE|TRUNCATE|REPLACE|UPDATE)\b/i);
   const migrations = await discoverMigrations(directory);
-  assert.deepEqual(migrations.slice(-7).map(({ version, name }) => ({ version, name })), [
+  assert.deepEqual(migrations.slice(-9).map(({ version, name }) => ({ version, name })), [
     { version: 84, name: '084_internal_student_registration.sql' },
     { version: 85, name: '085_global_student_id_unique.sql' },
     { version: 86, name: '086_transfer_student_previous_class.sql' },
     { version: 87, name: '087_midterm_result_type_support.sql' },
     { version: 88, name: '088_backfill_unlinked_student_enrollments.sql' },
     { version: 89, name: '089_correct_legacy_student_id_prefix.sql' },
-    { version: 90, name: '090_processed_result_signature_profiles.sql' }
+    { version: 90, name: '090_processed_result_signature_profiles.sql' },
+    { version: 91, name: '091_result_publication_rbac.sql' },
+    { version: 92, name: '092_schoolwide_staff_academics.sql' }
   ]);
 });
 
@@ -67,7 +69,7 @@ test('Migration 080 dry-run uses the verified historical baseline and scopes exe
   assert.equal(result.ok, true);
   assert.equal(result.productionWrites, 'NONE');
   assert.deepEqual(result.plan.pending.map((item) => item.version), [80]);
-  assert.deepEqual(result.deferredPendingMigrations.map((item) => item.version), [49, 54, 55, 56, 58, 70, 71, 72, 77, 78, 79, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90]);
+  assert.deepEqual(result.deferredPendingMigrations.map((item) => item.version), [49, 54, 55, 56, 58, 70, 71, 72, 77, 78, 79, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92]);
   assert.equal(storage.statements.length, 0);
   assert.equal(storage.applied.some((item) => item.version === 80), false);
 });
