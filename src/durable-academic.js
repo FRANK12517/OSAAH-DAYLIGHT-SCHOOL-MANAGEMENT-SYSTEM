@@ -54,6 +54,7 @@ function authorized(actor, permission) {
 export function createDurableAcademicService({ database, schoolId, signatures = null, idFactory = randomUUID, clock = () => new Date().toISOString(), students = null } = {}) {
   if (!database?.query || !database?.execute) fail('Durable academic database is unavailable.', 503, 'DURABLE_ACADEMIC_DATABASE_REQUIRED');
   let scoreRosterSchemaCache;
+  const quoteColumn = (column) => database.dialect === 'postgres' ? `"${column}"` : `\`${column}\``;
 
   function assertActor(actor, permission = null) {
     if (!actor?.schoolId || actor.schoolId !== schoolId) fail('Forbidden.', 403, 'TENANT_SCOPE_VIOLATION');
@@ -528,7 +529,10 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
 
   async function scoreRosterSchema() {
     if (scoreRosterSchemaCache) return scoreRosterSchemaCache;
-    const rowsFound = rows(await database.query("SELECT TABLE_NAME AS tableName,COLUMN_NAME AS columnName FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ('students','student_profiles','student_enrollments','academic_score_records')"));
+    const rowsFound = rows(await database.query(database.dialect === 'postgres'
+      ? 'SELECT table_name AS "tableName",column_name AS "columnName" FROM information_schema.columns WHERE table_schema=current_schema() AND table_name IN (?,?,?,?)'
+      : "SELECT TABLE_NAME AS tableName,COLUMN_NAME AS columnName FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ('students','student_profiles','student_enrollments','academic_score_records')",
+    database.dialect === 'postgres' ? ['students','student_profiles','student_enrollments','academic_score_records'] : []));
     const schema = new Map();
     for (const row of rowsFound) {
       const table = String(row.tableName ?? row.TABLE_NAME ?? '').toLowerCase();
@@ -580,7 +584,7 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
       // Match the Class Database roster contract: enrollment statuses can vary
       // across legacy data, so only terminal states should remove a placement.
       if (has('student_enrollments','enrollment_status')) conditions.push("UPPER(COALESCE(e.enrollment_status,'ACTIVE')) NOT IN ('WITHDRAWN','TRANSFERRED','COMPLETED','GRADUATED')");
-      if (has('student_enrollments','is_current')) conditions.push('COALESCE(e.is_current,1)=1');
+      if (has('student_enrollments','is_current')) conditions.push(database.dialect === 'postgres' ? 'COALESCE(e.is_current,TRUE) IS TRUE' : 'COALESCE(e.is_current,1)=1');
       const studentConditions = [];
       if (has('students','student_status')) studentConditions.push("UPPER(COALESCE(s.student_status,'ACTIVE')) NOT IN ('WITHDRAWN','TRANSFERRED','COMPLETED','GRADUATED')");
       if (has('students','is_test_record')) studentConditions.push('s.is_test_record IS NOT TRUE');
@@ -640,7 +644,7 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     const dateColumns = ['admission_date','created_at'].filter((column) => has('students',column));
     if (classExpression && dateColumns.length && period.yearStartsOn && period.yearEndsOn) {
       const classConditions = [`${classExpression}=?`, ...classNames.map(() => `${classExpression}=?`)];
-      const params = [schoolId, period.yearStartsOn, period.yearEndsOn, classId, ...classNames];
+      const params = [schoolId, period.yearStartsOn, period.yearEndsOn, classId, ...classNames, ...(enrollmentReady ? yearParams : [])];
       const studentConditions = [];
       if (has('students','student_status')) studentConditions.push("UPPER(COALESCE(s.student_status,'ACTIVE')) NOT IN ('WITHDRAWN','TRANSFERRED','COMPLETED','GRADUATED')");
       if (has('students','is_test_record')) studentConditions.push('s.is_test_record IS NOT TRUE');
@@ -843,12 +847,12 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     if (existing) {
       const values = new Map([['ca_score',caScore],['examination_score',examScore],['total_score',totalScore],['grade',grade],['remark',remark],['entered_by',actor.id],['updated_at',clock()]]);
       const fields = [...values].filter(([column]) => scoreColumns.has(column));
-      await database.execute(`UPDATE academic_score_records SET ${fields.map(([column]) => `\`${column}\`=?`).join(',')} WHERE id=? AND school_id=?`, [...fields.map(([,value]) => value), scoreId, schoolId]);
+      await database.execute(`UPDATE academic_score_records SET ${fields.map(([column]) => `${quoteColumn(column)}=?`).join(',')} WHERE id=? AND school_id=?`, [...fields.map(([,value]) => value), scoreId, schoolId]);
     }
     else {
       const values = new Map([['id',scoreId],['school_id',schoolId],['record_type','TERMINAL'],['mock_label',null],['academic_year_id',period.yearId],['term_id',period.termId],['class_id',classId],['student_id',enrolled.profileId],['subject_id',subjectId],['ca_score',caScore],['ca_max',50],['examination_score',examScore],['examination_max',50],['total_score',totalScore],['grade',grade],['remark',remark],['entered_by',actor.id],['updated_at',clock()]]);
       const fields = [...values].filter(([column]) => scoreColumns.has(column));
-      await database.execute(`INSERT INTO academic_score_records (${fields.map(([column]) => `\`${column}\``).join(',')}) VALUES (${fields.map(() => '?').join(',')})`, fields.map(([,value]) => value));
+      await database.execute(`INSERT INTO academic_score_records (${fields.map(([column]) => quoteColumn(column)).join(',')}) VALUES (${fields.map(() => '?').join(',')})`, fields.map(([,value]) => value));
     }
     return { id: scoreId, schoolId, studentId: enrolled.masterStudentId, permanentStudentId: enrolled.permanentStudentId, classId, subjectId, academicYear: period.yearName, term: period.termName, caScore, examScore, totalScore, grade, remark, saved: true };
   }

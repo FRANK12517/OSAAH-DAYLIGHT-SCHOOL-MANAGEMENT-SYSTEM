@@ -223,6 +223,27 @@ test('Fee Setup HTTP publication reaches durable storage and the Fee Structure r
   } finally { await new Promise((resolve) => server.close(resolve)); }
 });
 
+test('Fee Setup publish API authorizes only the designated school publishing roles', async () => {
+  const db = publicationAdapter();
+  const roles = new Map(['PROPRIETOR', 'SCHOOL_ADMIN', 'ADMINISTRATOR', 'HEADTEACHER', 'ACCOUNTANT_BURSAR'].map((roleKey) => [`token-${roleKey}`, { ...reader, roleKey }]));
+  const auth = { authenticateAsync: async (token) => roles.get(token) ?? (token === 'token-assistant' ? { ...reader, roleKey: 'ASSISTANT_HEADTEACHER' } : null) };
+  const server = createServer(createApp({ auth, database: db, aiEnabled: false }));
+  await new Promise((resolve) => server.listen(0, resolve));
+  const publish = (token) => new Promise((resolve, reject) => {
+    const req = httpRequest({ port: server.address().port, path: '/api/fees/obligations/publish', method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }, (res) => {
+      let text = '';
+      res.on('data', (chunk) => { text += chunk; });
+      res.on('end', () => resolve({ status: res.statusCode, body: text ? JSON.parse(text) : null }));
+    });
+    req.on('error', reject);
+    req.end(JSON.stringify({ scope: 'WHOLE_SCHOOL', feeStructureId: 'fee-type-admission', academicYearId: 'year-2026', termId: 'term-1', amountMinor: 15000 }));
+  });
+  try {
+    for (const roleKey of roles.keys()) assert.equal((await publish(roleKey)).status, 200, `${roleKey} should publish`);
+    assert.equal((await publish('token-assistant')).status, 403, 'Assistant Headteacher remains read-only');
+  } finally { await new Promise((resolve) => server.close(resolve)); }
+});
+
 test('Specific Class HTTP publication persists the canonical class target for Fee Structure reads', async () => {
   const db = publicationAdapter();
   const auth = { authenticateAsync: async (token) => token === 'test-accountant' ? { ...writer, roleKey: 'ACCOUNTANT_BURSAR' } : null };
