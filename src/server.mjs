@@ -1778,7 +1778,28 @@ function sessionDiagnosticContext(request, requestPath, token, credentialSource)
   const cookieReceived = /(?:^|;\s*)osaah_session=/.test(String(request.headers.cookie ?? '')) || Boolean(request.cookies?.osaah_session);
   return { requestId, requestPath, cookieReceived, cookieParsed: credentialSource === 'cookie' && Boolean(token), credentialSource };
 }
-function safeFeeError(error, fallbackStatus = 503) { const status = Number.isInteger(error?.status) && error.status >= 400 && error.status < 500 ? error.status : fallbackStatus; const safeMessages = new Set(['Forbidden.', 'Parent access required.', 'Financial read permission required.', 'Financial write permission required.', 'Collection not found.', 'Fee obligation not found.', 'Invalid amount.', 'Collection correction reason required.', 'Invalid collection type.', 'Invalid Extra Classes collection period.', 'Canteen collections support only 1st Term, 2nd Term, and 3rd Term.', 'Fee publication input is invalid.', 'Invalid fee target.', 'Academic year, term, fee type, and amount are required.', 'Academic year not found.', 'Term not found.', 'Fee structure not found.', 'Class is required for a specific-class fee.', 'Class not found.', 'A published fee obligation already exists for this student, fee type, and period. Resolve the existing fee before publishing an overlapping target.']); const message = safeMessages.has(error?.message) ? error.message : 'Fee service is temporarily unavailable.'; return { body: { error: message }, status }; }
+function safeFeeError(error, fallbackStatus = 503) {
+  const safeMessages = new Set(['Forbidden.', 'Parent access required.', 'Financial read permission required.', 'Financial write permission required.', 'Collection not found.', 'Fee obligation not found.', 'Invalid amount.', 'Collection correction reason required.', 'Invalid collection type.', 'Invalid Extra Classes collection period.', 'Canteen collections support only 1st Term, 2nd Term, and 3rd Term.', 'Fee publication input is invalid.', 'Invalid fee target.', 'Academic year, term, fee type, and amount are required.', 'Academic year not found.', 'Term not found.', 'Fee structure not found.', 'Class is required for a specific-class fee.', 'Class not found.', 'A published fee obligation already exists for this student, fee type, and period. Resolve the existing fee before publishing an overlapping target.']);
+  const statusByMessage = new Map([
+    ['Forbidden.', 403], ['Parent access required.', 403], ['Financial read permission required.', 403], ['Financial write permission required.', 403],
+    ['Collection not found.', 404], ['Fee obligation not found.', 404],
+    ['Invalid amount.', 400], ['Collection correction reason required.', 400], ['Invalid collection type.', 400], ['Invalid Extra Classes collection period.', 400],
+    ['Canteen collections support only 1st Term, 2nd Term, and 3rd Term.', 400], ['Fee publication input is invalid.', 400], ['Invalid fee target.', 400],
+    ['Academic year, term, fee type, and amount are required.', 400], ['Academic year not found.', 400], ['Term not found.', 400], ['Fee structure not found.', 400],
+    ['Class is required for a specific-class fee.', 400], ['Class not found.', 400],
+    ['A published fee obligation already exists for this student, fee type, and period. Resolve the existing fee before publishing an overlapping target.', 409]
+  ]);
+  const explicitStatus = Number.isInteger(error?.status) && error.status >= 400 && error.status < 500 ? error.status : null;
+  const fallback = fallbackStatus === 400 ? 503 : fallbackStatus;
+  const status = explicitStatus ?? statusByMessage.get(error?.message) ?? fallback;
+  const message = safeMessages.has(error?.message) ? error.message : 'Fee service is temporarily unavailable.';
+  const rawCode = String(error?.code ?? '');
+  const code = /^[A-Z0-9_]{1,64}$/.test(rawCode) ? rawCode : null;
+  const sqlState = /^[A-Z0-9]{5}$/.test(String(error?.sqlState ?? '')) ? String(error.sqlState) : null;
+  const errno = Number.isInteger(error?.errno) ? error.errno : null;
+  console.error('Fee service operation failed', { status, code, errno, sqlState, validationReason: safeMessages.has(error?.message) ? error.message : null });
+  return { body: { error: message, ...(code ? { code } : {}) }, status };
+}
 function parentApiError(response, error, endpoint) {
   const status = Number.isInteger(error?.status) && error.status >= 400 && error.status <= 599 ? error.status : 503;
   const code = String(error?.code ?? '');
