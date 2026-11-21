@@ -43,4 +43,11 @@ test('final result slip keeps publication controls and all required visible sect
   assert.match(client, /permanentStudentId: x\.studentIndexNumber \|\| x\.permanentStudentId/);
   assert.match(client, /status\.className = 'result-notice success'/);
   assert.match(html, /\.result-notice\.success/);
+  assert.match(client, /console\.log\('Publish button clicked'\)/);
+  assert.match(client, /window\.alert\('Publish button clicked'\)/);
+  assert.match(client, /id="publish-result" data-action="publish-result"/);
+  assert.match(client, /querySelector\('\[data-action="publish-result"\]'\)/);
+  assert.match(client, /addEventListener\('click', \(event\) => \{ event\.preventDefault\(\); void publishResult/);
+  assert.match(client, /Publish error: \$\{error\?\.message/);
+  assert.match(html, /id="status" class="result-notice error" role="status" aria-live="polite"/);
 });
