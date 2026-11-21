@@ -56,6 +56,17 @@ test('durable class blocks do not leak across schools or students after approval
   await assert.rejects(() => service.listBlocks({}, { schoolId: 'other-school', roleKey: 'PROPRIETOR' }), /Forbidden/);
 });
 
+test('School Admin can block and directly restore result access within its school', async () => {
+  const db = database();
+  const service = createDurableResultBlockingService({ database: db, schoolId: 'school-1', idFactory: () => 'admin-block' });
+  const schoolAdmin = { id: 'admin-1', roleKey: 'SCHOOL_ADMIN', schoolId: 'school-1' };
+  const scope = { academicYear: '2026/2027', term: 'First Term', classId: 'Primary 1', reason: 'Administrative review' };
+  const blocked = await service.blockResults(scope, schoolAdmin);
+  assert.equal(blocked.status, 'BLOCKED');
+  const restored = await service.unblockResults(scope, schoolAdmin);
+  assert.equal(restored.status, 'UNBLOCKED');
+});
+
 test('class blocks remain effective after individual unblock and cannot be removed through student scope', async () => {
   const db = database();
   let nextId = 0;
