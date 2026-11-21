@@ -9,6 +9,7 @@ import { createAcademicResultsService } from '../src/academic-results.js';
 import { averageScore } from '../src/result-slip.js';
 
 const manager = { id: 'head-1', roleKey: 'HEADTEACHER', schoolId: 'school-osaah-daylight', permissions: new Set(['*']) };
+const uploadInput = (input) => ({ mimeType: 'image/png', size: 8, processedImageData: 'data:image/png;base64,iVBORw0KGgo=', ...input });
 
 test('result signatures resolve to the assigned class teacher and school headteacher only', () => {
   const students = createStudentService();
@@ -20,15 +21,15 @@ test('result signatures resolve to the assigned class teacher and school headtea
   staff.assign(teacherB.id, { classId: 'Primary 2', academicYearId: '2026/2027', termId: 'First Term' });
   const student = students.createStudent({ firstName: 'Ama', surname: 'One', classId: 'Primary 1', admissionYearId: '2026' });
   const signatures = createSignatureService({ staff });
-  signatures.upload({ signatoryRole: 'CLASS_TEACHER', classId: 'Primary 1', teacherId: teacherA.id, academicYear: '2026/2027', term: 'First Term', mimeType: 'image/png', size: 10, storageKey: 'signatures/a.png' }, manager);
-  signatures.upload({ signatoryRole: 'CLASS_TEACHER', classId: 'Primary 2', teacherId: teacherB.id, academicYear: '2026/2027', term: 'First Term', mimeType: 'image/png', size: 10, storageKey: 'signatures/b.png' }, manager);
-  signatures.upload({ signatoryRole: 'HEADTEACHER', academicYear: '2026/2027', term: 'First Term', mimeType: 'image/png', size: 10, storageKey: 'signatures/head.png' }, manager);
+  signatures.upload(uploadInput({ signatoryRole: 'CLASS_TEACHER', classId: 'Primary 1', teacherId: teacherA.id, academicYear: '2026/2027', term: 'First Term' }), manager);
+  signatures.upload(uploadInput({ signatoryRole: 'CLASS_TEACHER', classId: 'Primary 2', teacherId: teacherB.id, academicYear: '2026/2027', term: 'First Term' }), manager);
+  signatures.upload(uploadInput({ signatoryRole: 'HEADTEACHER', academicYear: '2026/2027', term: 'First Term' }), manager);
   const resolved = signatures.resolveForStudent(student, { academicYear: '2026/2027', term: 'First Term' });
   assert.equal(resolved.classTeacher.name, 'Teacher A');
-  assert.equal(resolved.classTeacher.signature.storageKey, 'signatures/a.png');
+  assert.equal(resolved.classTeacher.signature.teacherId, teacherA.id);
   assert.equal(resolved.headteacher.name, head.fullName);
-  assert.equal(resolved.headteacher.signature.storageKey, 'signatures/head.png');
-  assert.notEqual(resolved.classTeacher.signature.storageKey, 'signatures/b.png');
+  assert.equal(resolved.headteacher.signature.teacherId, head.id);
+  assert.notEqual(resolved.classTeacher.signature.teacherId, teacherB.id);
 });
 
 test('missing signatures are non-blocking and cross-school signatures do not resolve', () => {
