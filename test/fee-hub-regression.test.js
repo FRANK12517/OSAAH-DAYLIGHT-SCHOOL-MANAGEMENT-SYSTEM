@@ -212,14 +212,15 @@ test('Fee Setup HTTP publication reaches durable storage and the Fee Structure r
     assert.equal(freshRead.body.structures[0].amountMinor, 25050);
 
     const source = await import('node:fs/promises').then(({ readFile }) => readFile(new URL('../public/fee-setup.html', import.meta.url), 'utf8'));
-    assert.match(source, /form\.addEventListener\('submit'/);
+    const client = await import('node:fs/promises').then(({ readFile }) => readFile(new URL('../public/fee-setup.js', import.meta.url), 'utf8'));
+    assert.match(client, /form\.addEventListener\('submit'/);
     assert.match(source, /type="submit" disabled/);
-    assert.match(source, /parsePositiveGhsAmountToMinorUnits\(data\.get\('amount'\)\)/);
-    assert.match(source, /\/api\/fees\/obligations\/publish/);
+    assert.match(client, /parsePositiveGhsAmountToMinorUnits\(data\.get\('amount'\)\)/);
+    assert.match(client, /\/api\/fees\/obligations\/publish/);
     assert.match(source, /GH₵/);
-    assert.match(source, /published-fee list could not refresh/);
-    assert.match(source, /SPECIFIC_CLASS/);
-    assert.match(source, /WHOLE_SCHOOL/);
+    assert.match(client, /published-fee list could not refresh/);
+    assert.match(client, /SPECIFIC_CLASS/);
+    assert.match(client, /WHOLE_SCHOOL/);
   } finally { await new Promise((resolve) => server.close(resolve)); }
 });
 
