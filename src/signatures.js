@@ -23,7 +23,7 @@ export function createSignatureService({ now = () => new Date().toISOString(), s
     const mimeType = text(input?.mimeType ?? input?.documentType ?? 'image/png').toLowerCase();
     const processedImageData = text(input?.processedImageData ?? input?.data);
     const size = Number(input?.size ?? input?.documentSize ?? Math.floor(processedImageData.length * 3 / 4));
-    if (!['HEADTEACHER', 'CLASS_TEACHER'].includes(signatoryRole)) throw new Error('Unsupported signatory role.');
+    if (!['HEADTEACHER', 'CLASS_TEACHER'].includes(signatoryRole)) throw new Error('Unsupported signatory signatory_role.');
     if (!ALLOWED_TYPES.has(mimeType)) throw new Error('Only processed PNG signatures or existing secure references are supported.');
     if (!Number.isFinite(size) || size <= 0) throw new Error('Signature image is invalid.');
     let storageKey = text(input.storageKey ?? input.fileReference);
@@ -57,7 +57,7 @@ export function createSignatureService({ now = () => new Date().toISOString(), s
   async function listDurable(actor) {
     assertActor(actor);
     if (!database?.query) return list(actor);
-    return rows(await database.query(`SELECT id,school_id AS schoolId,role AS signatoryRole,storage_key AS storageKey,mime_type AS mimeType,document_size AS size,
+    return rows(await database.query(`SELECT id,school_id AS schoolId,signatory_role AS signatoryRole,storage_key AS storageKey,mime_type AS mimeType,document_size AS size,
       active AS active,uploaded_by AS uploadedBy,uploaded_at AS uploadedAt,updated_at AS updatedAt,staff_id AS teacherId,full_name AS fullName,phone_number AS phone,
       class_id AS classId,academic_year AS academicYear,term AS term,CASE WHEN active=1 THEN processed_image_data ELSE NULL END AS data
       FROM result_signatures WHERE school_id=? ORDER BY active DESC,uploaded_at DESC,id`, [schoolId])).map((item) => ({ ...item, active: Boolean(item.active), name: item.fullName }));
@@ -77,10 +77,10 @@ export function createSignatureService({ now = () => new Date().toISOString(), s
     const meta = validate(input, actor), id = randomUUID(), timestamp = now();
     if (!database?.execute) return upload(input, actor);
     const params = [schoolId, meta.signatoryRole, meta.classId, meta.academicYear, meta.term, meta.teacherId];
-    const deactivate = `UPDATE result_signatures SET active=0,updated_at=? WHERE school_id=? AND role=? AND ((class_id IS NULL AND ? IS NULL) OR class_id=?) AND ((academic_year IS NULL AND ? IS NULL) OR academic_year=?) AND ((term IS NULL AND ? IS NULL) OR term=?) AND ((staff_id IS NULL AND ? IS NULL) OR staff_id=?) AND active=1`;
+    const deactivate = `UPDATE result_signatures SET active=0,updated_at=? WHERE school_id=? AND signatory_role=? AND ((class_id IS NULL AND ? IS NULL) OR class_id=?) AND ((academic_year IS NULL AND ? IS NULL) OR academic_year=?) AND ((term IS NULL AND ? IS NULL) OR term=?) AND ((staff_id IS NULL AND ? IS NULL) OR staff_id=?) AND active=1`;
     await database.transaction(async (tx) => {
       await tx.execute(deactivate, [timestamp, schoolId, meta.signatoryRole, meta.classId, meta.classId, meta.academicYear, meta.academicYear, meta.term, meta.term, meta.teacherId, meta.teacherId]);
-      await tx.execute(`INSERT INTO result_signatures (id,school_id,role,storage_key,mime_type,document_size,active,uploaded_by,uploaded_at,updated_at,staff_id,full_name,phone_number,class_id,academic_year,term,processed_image_data)
+      await tx.execute(`INSERT INTO result_signatures (id,school_id,signatory_role,storage_key,mime_type,document_size,active,uploaded_by,uploaded_at,updated_at,staff_id,full_name,phone_number,class_id,academic_year,term,processed_image_data)
         VALUES (?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?)`, [id, schoolId, meta.signatoryRole, meta.storageKey, 'image/png', meta.size, actorId(actor), timestamp, timestamp, meta.teacherId, meta.fullName, meta.phone, meta.classId, meta.academicYear, meta.term, meta.processedImageData]);
     });
     const { processedImageData, ...safeMeta } = meta;
@@ -101,11 +101,11 @@ export function createSignatureService({ now = () => new Date().toISOString(), s
     const classId = text(student?.classId ?? student?.class_id);
     const assignment = (staff?.assignments?.() ?? []).find((item) => item.schoolId === schoolId && (String(item.classId) === classId || canonicalClass(item.classId) === canonicalClass(classId)) && (!context.academicYear || !item.academicYearId || String(item.academicYearId) === String(context.academicYear)) && (!context.term || !item.termId || String(item.termId) === String(context.term)) && teacherFor(item.staffId));
     const teacher = assignment ? teacherFor(assignment.staffId) : null;
-    const find = async (role, scopedClass, staffId) => rows(await database.query(`SELECT id,school_id AS schoolId,role AS signatoryRole,storage_key AS storageKey,mime_type AS mimeType,document_size AS size,
+    const find = async (signatory_role, scopedClass, staffId) => rows(await database.query(`SELECT id,school_id AS schoolId,signatory_role AS signatoryRole,storage_key AS storageKey,mime_type AS mimeType,document_size AS size,
       staff_id AS teacherId,full_name AS fullName,phone_number AS phone,class_id AS classId,academic_year AS academicYear,term,processed_image_data AS data,active,uploaded_at AS uploadedAt,updated_at AS updatedAt
-      FROM result_signatures WHERE school_id=? AND role=? AND active=1 AND (class_id IS NULL OR class_id=?)
+      FROM result_signatures WHERE school_id=? AND signatory_role=? AND active=1 AND (class_id IS NULL OR class_id=?)
         AND (staff_id IS NULL OR staff_id=?) AND (academic_year IS NULL OR academic_year=?) AND (term IS NULL OR term=?)
-      ORDER BY CASE WHEN class_id IS NULL THEN 1 ELSE 0 END,CASE WHEN academic_year IS NULL THEN 1 ELSE 0 END,uploaded_at DESC LIMIT 1`, [schoolId, role, scopedClass, staffId, context.academicYear ?? null, context.term ?? null]))[0] ?? null;
+      ORDER BY CASE WHEN class_id IS NULL THEN 1 ELSE 0 END,CASE WHEN academic_year IS NULL THEN 1 ELSE 0 END,uploaded_at DESC LIMIT 1`, [schoolId, signatory_role, scopedClass, staffId, context.academicYear ?? null, context.term ?? null]))[0] ?? null;
     const [classSignature, headSignature] = await Promise.all([find('CLASS_TEACHER', classId, teacher?.id ?? null), find('HEADTEACHER', null, headteacherFor()?.id ?? null)]);
     return {
       classTeacher: { name: classSignature?.fullName ?? teacher?.fullName ?? null, phone: classSignature?.phone ?? teacher?.phone ?? null, signature: classSignature },
@@ -113,8 +113,8 @@ export function createSignatureService({ now = () => new Date().toISOString(), s
     };
   }
   function remove(id, actor) { assertActor(actor); const record = signatures.get(id); if (!record || record.schoolId !== schoolId) throw new Error('Signature not found.'); record.active = false; record.updatedAt = now(); return clone(record); }
-  function activeFor(role, context = {}) {
-    const signatoryRole = text(role).toUpperCase();
+  function activeFor(signatory_role, context = {}) {
+    const signatoryRole = text(signatory_role).toUpperCase();
     const academicYear = text(context.academicYear) || null;
     const term = text(context.term) || null;
     const classId = text(context.classId) || null;
