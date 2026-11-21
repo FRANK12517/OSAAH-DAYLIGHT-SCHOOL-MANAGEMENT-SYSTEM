@@ -972,10 +972,11 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     if (mockContext) await assertMockClass(classId);
     const period = await resolvePeriod(input);
     const classRow = await classFor(classId);
+    const expectedPermanentStudentId = text(input.permanentStudentId);
     const studentQuery = `SELECT s.id,s.permanent_student_id AS permanentStudentId,s.first_name AS firstName,s.middle_name AS middleName,s.last_name AS surname,s.gender,e.class_id AS classId
       FROM students s JOIN student_enrollments e ON e.student_id=s.id AND e.school_id=s.school_id
-      WHERE s.school_id=? AND s.id=? AND e.class_id=? AND e.academic_year_id=? AND e.term_id=?`;
-    const studentParams = [schoolId, studentId, classId, period.yearId, period.termId];
+      WHERE s.school_id=? AND s.id=? AND e.class_id=? AND e.academic_year_id=? AND e.term_id=?${expectedPermanentStudentId ? ' AND s.permanent_student_id=?' : ''}`;
+    const studentParams = [schoolId, studentId, classId, period.yearId, period.termId, ...(expectedPermanentStudentId ? [expectedPermanentStudentId] : [])];
     let studentRows;
     try {
       studentRows = await database.query(`${studentQuery} AND COALESCE(e.enrollment_status,'ACTIVE')='ACTIVE' AND COALESCE(e.is_current,TRUE) IS TRUE LIMIT 1`, studentParams);

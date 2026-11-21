@@ -40,6 +40,7 @@ test('final result slip keeps publication controls and all required visible sect
   for (const text of ['Examination Results', 'Class Score', 'Exam Score', 'Total Score', 'Subject Position', 'Grade', 'Remark', 'Conduct', 'Attitude', 'Interest', 'Class Teacher Remarks', 'Headteacher Remarks', 'Times Present', 'Times Absent', 'Total School Days', 'CLASS_TEACHER', 'HEADTEACHER']) assert.match(client, new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   assert.match(client, /Publish Result/); assert.match(client, /expectedVersion/); assert.match(html, /result-slip/); assert.match(html, /border:2px solid #102a43/); assert.match(html, /border:2px solid #d4a72c/);
   assert.match(client, /Result published successfully and made accessible on the Parent Portal/);
+  assert.match(client, /permanentStudentId: x\.studentIndexNumber \|\| x\.permanentStudentId/);
   assert.match(client, /status\.className = 'result-notice success'/);
   assert.match(html, /\.result-notice\.success/);
 });
