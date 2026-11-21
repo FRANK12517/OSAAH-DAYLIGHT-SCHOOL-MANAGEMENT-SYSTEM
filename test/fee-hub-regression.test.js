@@ -253,6 +253,17 @@ test('the displayed Admission Fee setup values publish, refresh, and appear in t
     req.on('error', reject); req.end(body ? JSON.stringify(body) : undefined);
   });
   try {
+    const options = await request('/api/fee-setup/options');
+    assert.equal(options.status, 200);
+    assert.ok(Array.isArray(options.body.academicYears));
+    assert.ok(Array.isArray(options.body.terms));
+    assert.ok(Array.isArray(options.body.feeTypes));
+    assert.ok(Array.isArray(options.body.classes));
+    assert.equal(options.body.canPublish, true);
+    const beforePublish = await request('/api/fees/obligations');
+    assert.equal(beforePublish.status, 200);
+    assert.deepEqual(beforePublish.body, []);
+
     // These are the IDs behind the displayed labels: 2026/2027 Academic Year, 1st Term, Admission Fee, Whole School.
     const payload = { academicYearId: 'year-2026', termId: 'term-1', feeStructureId: 'ADMISSION', amountMinor: parsePositiveGhsAmountToMinorUnits('150'), scope: 'WHOLE_SCHOOL' };
     const published = await request('/api/fees/obligations/publish', { method: 'POST', body: payload });

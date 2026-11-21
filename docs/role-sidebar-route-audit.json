@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-11T13:16:13.691Z",
+  "generatedAt": "2026-11-21T02:28:38.331Z",
   "part": 29,
   "baseline": {
     "source": "Part 28 release-gate report supplied with the implementation specification",
@@ -15,8 +15,8 @@
       "ASSISTANT_HEADTEACHER",
       "TEACHER"
     ],
-    "roleDestinationRecords": 247,
-    "componentTargetPasses": 247,
+    "roleDestinationRecords": 246,
+    "componentTargetPasses": 246,
     "missingComponentTargetBlockers": 0,
     "sharedRouteContracts": 0,
     "duplicateRouteBlockers": 0,
@@ -773,24 +773,11 @@
       "navigationKey": "admissions",
       "role": "HEADTEACHER",
       "parent": null,
-      "child": "Admission / Admissions Workflow",
-      "oldRoute": "/admissions",
-      "existingImplementationFound": true,
-      "newRoute": "/admissions",
-      "exactView": "admissions",
-      "component": "/operations-canonical.html",
-      "apiDependencies": [],
-      "result": "PASS"
-    },
-    {
-      "navigationKey": "internal-student-registration",
-      "role": "HEADTEACHER",
-      "parent": null,
-      "child": "Internal Student Registration",
+      "child": "Student Registration",
       "oldRoute": "/admissions/register",
       "existingImplementationFound": true,
       "newRoute": "/admissions/register",
-      "exactView": "internal-student-registration",
+      "exactView": "admissions",
       "component": "/operations-canonical.html",
       "apiDependencies": [],
       "result": "PASS"
@@ -1277,6 +1264,22 @@
       "exactView": "promotion-results",
       "component": "/operations-canonical.html",
       "apiDependencies": [],
+      "result": "PASS"
+    },
+    {
+      "navigationKey": "fees",
+      "role": "HEADTEACHER",
+      "parent": null,
+      "child": "Fees",
+      "oldRoute": "/fees",
+      "existingImplementationFound": true,
+      "newRoute": "/fees",
+      "exactView": "fees-overview",
+      "component": "/operations-canonical.html",
+      "apiDependencies": [
+        "/api/fees/obligations",
+        "/api/reports/financial"
+      ],
       "result": "PASS"
     },
     {
@@ -2254,24 +2257,11 @@
       "navigationKey": "admissions",
       "role": "ASSISTANT_HEADTEACHER",
       "parent": null,
-      "child": "Admission / Admissions Workflow",
-      "oldRoute": "/admissions",
-      "existingImplementationFound": true,
-      "newRoute": "/admissions",
-      "exactView": "admissions",
-      "component": "/operations-canonical.html",
-      "apiDependencies": [],
-      "result": "PASS"
-    },
-    {
-      "navigationKey": "internal-student-registration",
-      "role": "ASSISTANT_HEADTEACHER",
-      "parent": null,
-      "child": "Internal Student Registration",
+      "child": "Student Registration",
       "oldRoute": "/admissions/register",
       "existingImplementationFound": true,
       "newRoute": "/admissions/register",
-      "exactView": "internal-student-registration",
+      "exactView": "admissions",
       "component": "/operations-canonical.html",
       "apiDependencies": [],
       "result": "PASS"
