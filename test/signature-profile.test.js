@@ -100,6 +100,7 @@ test('durable slip binding uses global headteacher metadata and exact class-year
   const records = [
     { id: 'head-global', school_id: 'school-osaah-daylight', role: 'PROPRIETOR_SIGNATURE', signatory_role: 'PROPRIETOR_SIGNATURE', staff_id: 'former-head-id', class_id: null, academic_year: '2024/2025', term: 'Old Term', full_name: 'School Head', phone_number: '0241234569', processed_image_data: uploadInput({}).processedImageData, active: 1 },
     { id: 'teacher-kg', school_id: 'school-osaah-daylight', role: 'CLASS_TEACHER_SIGNATURE', signatory_role: 'CLASS_TEACHER_SIGNATURE', staff_id: teacher.id, class_id: 'KG 1', academic_year: '2026/2027', term: '1st Term', full_name: 'KG Class Teacher', phone_number: '0241234568', processed_image_data: uploadInput({}).processedImageData, active: 1 },
+    { id: 'teacher-kg-mock', school_id: 'school-osaah-daylight', role: 'CLASS_TEACHER', signatory_role: 'CLASS_TEACHER', staff_id: teacher.id, class_id: 'KG 1', academic_year: '2026/2027', term: '1st Mock', full_name: 'KG Mock Class Teacher', phone_number: '0241234566', processed_image_data: uploadInput({}).processedImageData, active: 1 },
     { id: 'teacher-nursery', school_id: 'school-osaah-daylight', role: 'CLASS_TEACHER', signatory_role: 'CLASS_TEACHER', staff_id: teacher.id, class_id: 'Nursery 1', academic_year: '2026/2027', term: '1st Term', full_name: 'Wrong Class Teacher', phone_number: '0241234567', active: 1 }
   ];
   const database = {
@@ -109,14 +110,16 @@ test('durable slip binding uses global headteacher metadata and exact class-year
       const quote = String.fromCharCode(96);
       const isTeacher = params.includes('CLASSTEACHER');
       if (!isTeacher) assert.doesNotMatch(where, /\b(?:class_id|staff_id|academic_year|term)\b/);
-      return records.filter((record) => {
+      const matchingRecords = records.filter((record) => {
         if (record.school_id !== params[0] || !record.active) return false;
         const normalizedRole = String(record.signatory_role || record.role).toUpperCase().replace(/[ _-]/g, '');
         if (isTeacher) {
           return normalizedRole.startsWith('CLASSTEACHER') && where.includes(quote+'class_id'+quote+' IN') && where.includes(quote+'academic_year'+quote+' IN') && where.includes(quote+'term'+quote+' IN') && params.includes(record.class_id) && params.includes(record.academic_year) && params.includes(record.term) && params.includes(record.staff_id);
         }
         return ['HEADTEACHER','HEADTEACHERSIGNATURE','PROPRIETOR','PROPRIETORSIGNATURE','PRINCIPAL','SCHOOLHEAD','HEAD'].includes(normalizedRole);
-      }).map((record) => ({ id: record.id, signatoryRole: record.signatory_role || record.role, storageKey: record.storage_key || '', fullName: record.full_name, phone: record.phone_number, classId: record.class_id, academicYear: record.academic_year, term: record.term, data: record.processed_image_data || null, active: record.active, uploadedAt: record.uploaded_at }));
+      });
+      if (isTeacher) matchingRecords.sort((left, right) => Number(right.term === params.at(-1)) - Number(left.term === params.at(-1)));
+      return matchingRecords.slice(0, 1).map((record) => ({ id: record.id, signatoryRole: record.signatory_role || record.role, storageKey: record.storage_key || '', fullName: record.full_name, phone: record.phone_number, classId: record.class_id, academicYear: record.academic_year, term: record.term, data: record.processed_image_data || null, active: record.active, uploadedAt: record.uploaded_at }));
     }
   };
   const signatures = createSignatureService({ staff, database });
@@ -129,6 +132,10 @@ test('durable slip binding uses global headteacher metadata and exact class-year
   assert.equal(resolved.classTeacher.signature.name, 'KG Class Teacher');
   assert.equal(resolved.classTeacher.signature.phone, '0241234568');
   assert.equal(resolved.classTeacher.signature.data, uploadInput({}).processedImageData);
+  const mockResolved = await signatures.resolveForStudentDurable({ schoolId: 'school-osaah-daylight', classId: 'class_kg1_01' }, { ...context, mockLabel: '1st Mock', termValues: ['1st Mock','1st Term','term-1'] });
+  assert.equal(mockResolved.classTeacher.name, 'KG Mock Class Teacher');
+  assert.equal(mockResolved.classTeacher.signature.phone, '0241234566');
+  assert.equal(mockResolved.headteacher.name, 'School Head');
   const otherClass = await signatures.resolveForStudentDurable({ schoolId: 'school-osaah-daylight', classId: 'class_nursery1_01' }, { ...context, className: 'Nursery 1' });
   assert.equal(otherClass.classTeacher.signature, null);
   const otherTerm = await signatures.resolveForStudentDurable({ schoolId: 'school-osaah-daylight', classId: 'class_kg1_01' }, { ...context, term: '2nd Term', termValues: ['term-2','2nd Term'] });

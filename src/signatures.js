@@ -234,10 +234,14 @@ export function createSignatureService({ now = () => new Date().toISOString(), s
         params.push(...terms);
         if (schemaHas(schema, 'staff_id') && scope.staffId) { predicates.push('`staff_id`=?'); params.push(scope.staffId); }
       }
-      const orderBy = [
-        signatoryRole === 'CLASS_TEACHER' && schemaHas(schema, 'academic_year') ? 'CASE WHEN `academic_year` IS NULL THEN 1 ELSE 0 END' : null,
-        schemaHas(schema, 'uploaded_at') ? '`uploaded_at` DESC' : null
-      ].filter(Boolean);
+      const orderBy = [];
+      const orderParams = [];
+      const preferredTerm = context.termValues?.[0] ?? context.term;
+      if (signatoryRole === 'CLASS_TEACHER' && schemaHas(schema, 'term') && preferredTerm) {
+        orderBy.push('CASE WHEN `term`=? THEN 0 ELSE 1 END');
+        orderParams.push(preferredTerm);
+      }
+      if (schemaHas(schema, 'uploaded_at')) orderBy.push('`uploaded_at` DESC');
       const storageKey = schemaHas(schema, 'storage_key') && schemaHas(schema, 'signature_url')
         ? "COALESCE(NULLIF(`storage_key`,''),`signature_url`) AS storageKey"
         : schemaSelect(schema, schemaHas(schema, 'storage_key') ? 'storage_key' : 'signature_url', 'storageKey', "''");
@@ -250,7 +254,7 @@ export function createSignatureService({ now = () => new Date().toISOString(), s
         schemaSelect(schema, 'processed_image_data', 'data'), schemaSelect(schema, 'active', 'active', '1'),
         schemaSelect(schema, 'uploaded_at', 'uploadedAt'), schemaSelect(schema, 'updated_at', 'updatedAt')
       ];
-      const record = rows(await database.query(`SELECT ${selected.join(',')} FROM result_signatures WHERE ${predicates.join(' AND ')}${orderBy.length ? ` ORDER BY ${orderBy.join(',')}` : ''} LIMIT 1`, params))[0] ?? null;
+      const record = rows(await database.query(`SELECT ${selected.join(',')} FROM result_signatures WHERE ${predicates.join(' AND ')}${orderBy.length ? ` ORDER BY ${orderBy.join(',')}` : ''} LIMIT 1`, [...params, ...orderParams]))[0] ?? null;
       if (!record) return null;
       const fullName = record.fullName ?? record.full_name ?? record.name ?? null;
       const phone = record.phone ?? record.phoneNumber ?? record.phone_number ?? null;
