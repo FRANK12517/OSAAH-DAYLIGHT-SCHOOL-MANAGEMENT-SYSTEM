@@ -414,6 +414,46 @@ test('attendance record reads are scoped to one authorized child and the selecte
   assert.equal(result.context.yearName, '2026/2027');
 });
 
+test('phone-reconciled Parent children can open Attendance, Results, Fees, and Payments with child-scoped data', async () => {
+  const resolved = [];
+  const feeObligation = { id: 'obligation-150', feeTypeName: 'Admission Fee', amountMinor: 15000, status: 'PUBLISHED' };
+  const service = createParentDashboardService(dependencies({
+    cards: [
+      { moduleKey: 'parent-attendance', moduleName: 'Attendance', route: '#attendance' },
+      { moduleKey: 'parent-results', moduleName: 'Results', route: '#results' },
+      { moduleKey: 'parent-fees', moduleName: 'Fees', route: '#fees' },
+      { moduleKey: 'parent-payments', moduleName: 'Payments', route: '#payments' }
+    ],
+    admissionEnrollment: {
+      authorizeParentStudent: async ({ parentUserId, schoolId, permanentStudentId }) => {
+        resolved.push({ parentUserId, schoolId, permanentStudentId });
+        return parentUserId === 'parent-1' && schoolId === 'school-1' && permanentStudentId === child.permanentStudentId ? child : null;
+      },
+      parentEnrolledInClass: async () => true
+    },
+    attendanceRepository: { listStudentRecords: async () => [{ studentId: child.studentProfileId, date: '2026-09-01', status: 'PRESENT' }] },
+    durableAcademic: {
+      options: async () => ({ academicYears: [{ id: 'year-2026', name: '2026/2027' }], terms: [{ id: 'term-1', name: '1st Term', academicYearId: 'year-2026' }], classes: [{ id: 'class-primary-1', name: 'Primary 1' }] }),
+      publicationFor: async () => ({ status: 'PUBLISHED' }),
+      result: async () => ({ studentId: child.id, result: 'published' })
+    },
+    academicResults: { publicationFor: async () => ({ status: 'PUBLISHED' }), result: async () => ({ result: 'published' }) },
+    parentFeeObligations: { listForParent: async () => ({ children: [{ student: { permanentStudentId: child.permanentStudentId }, obligations: [feeObligation] }] }) },
+    durableFeeReader: { listReceipts: async () => [] }
+  }));
+  const context = { permanentStudentId: child.permanentStudentId, academicYear: 'year-2026', classId: child.classId, term: 'term-1' };
+  const attendance = await service.loadRecord(actor(), { ...context, recordType: 'attendance' });
+  assert.equal(attendance.records.length, 1);
+  const result = await service.loadRecord(actor(), { ...context, recordType: 'published-results' });
+  assert.equal(result.result.result, 'published');
+  const fees = await service.loadRecord(actor(), { ...context, recordType: 'fees' });
+  assert.equal(fees.obligations[0].amountMinor, 15000);
+  const payments = await service.loadRecord(actor(), { ...context, recordType: 'payments' });
+  assert.equal(payments.summary.feesPayable, 150);
+  assert.equal(resolved.length, 4);
+  assert.ok(resolved.every((item) => item.parentUserId === 'parent-1' && item.schoolId === 'school-1'));
+});
+
 function parentAttendanceRow({ date, status, subjectId = 'daily', studentId = 'profile-1', schoolId = 'school-1', academicYear = '2026/2027', term = '1st Term', classId = 'class-primary-1' }) {
   return { date, status, subjectId, studentId, schoolId, academicYear, term, classId };
 }
