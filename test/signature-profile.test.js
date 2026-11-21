@@ -63,7 +63,15 @@ test('signature uploads persist processed PNG and resolve school-wide head plus 
       if (sql.includes('information_schema.COLUMNS')) return [...columns].map((columnName) => ({ columnName }));
       const map = (row) => ({ id: row.id, schoolId: row.school_id, signatoryRole: row.signatory_role ?? row.role, storageKey: row.storage_key, mimeType: row.mime_type, size: row.document_size, teacherId: row.staff_id, fullName: row.full_name, phone: row.phone_number, classId: row.class_id, academicYear: row.academic_year, term: row.term, data: row.processed_image_data, active: row.active, uploadedAt: row.uploaded_at, updatedAt: row.updated_at });
       if (sql.includes('FROM result_signatures WHERE school_id=? ORDER BY')) return stored.map(map);
-      return stored.filter((row) => row.school_id === params[0] && (row.signatory_role ?? row.role) === params[1] && row.active && (!row.class_id || row.class_id === params[2]) && (!row.staff_id || row.staff_id === params[3]) && (!row.academic_year || row.academic_year === params[4]) && (!row.term || row.term === params[5])).map(map);
+      const where = sql.slice(sql.indexOf(' WHERE '));
+      const isClassTeacher = params.includes('CLASSTEACHER');
+      const expectedRole = isClassTeacher ? 'CLASS_TEACHER' : 'HEADTEACHER';
+      return stored.filter((row) => {
+        if (row.school_id !== params[0] || row.active !== 1 || (row.signatory_role ?? row.role) !== expectedRole) return false;
+        if (!isClassTeacher) return true; // Headteacher signatures are school-wide.
+        if (!where.includes('`class_id` IN') || !where.includes('`academic_year` IN') || !where.includes('`term` IN')) return false;
+        return params.includes(row.class_id) && params.includes(row.academic_year) && params.includes(row.term) && params.includes(row.staff_id);
+      }).map(map);
     },
     async transaction(work) { return work(this); }
   };
@@ -82,6 +90,49 @@ test('signature uploads persist processed PNG and resolve school-wide head plus 
   assert.ok(addedColumns.includes('role'));
   assert.ok(addedColumns.includes('signatory_role'));
   assert.ok(addedColumns.includes('processed_image_data'));
+});
+
+test('durable slip binding uses global headteacher metadata and exact class-year-term teacher scope', async () => {
+  const staff = createStaffService();
+  const teacher = staff.createProfile({ fullName: 'KG Class Teacher', phone: '0241234568', roleKey: 'TEACHER' });
+  staff.assign(teacher.id, { classId: 'KG 1', academicYearId: 'year-2026', termId: 'term-1' });
+  const columns = ['id','school_id','role','signatory_role','staff_id','full_name','phone_number','class_id','academic_year','term','processed_image_data','storage_key','mime_type','document_size','active','uploaded_at'];
+  const records = [
+    { id: 'head-global', school_id: 'school-osaah-daylight', role: 'PROPRIETOR_SIGNATURE', signatory_role: 'PROPRIETOR_SIGNATURE', staff_id: 'former-head-id', class_id: null, academic_year: '2024/2025', term: 'Old Term', full_name: 'School Head', phone_number: '0241234569', processed_image_data: uploadInput({}).processedImageData, active: 1 },
+    { id: 'teacher-kg', school_id: 'school-osaah-daylight', role: 'CLASS_TEACHER_SIGNATURE', signatory_role: 'CLASS_TEACHER_SIGNATURE', staff_id: teacher.id, class_id: 'KG 1', academic_year: '2026/2027', term: '1st Term', full_name: 'KG Class Teacher', phone_number: '0241234568', processed_image_data: uploadInput({}).processedImageData, active: 1 },
+    { id: 'teacher-nursery', school_id: 'school-osaah-daylight', role: 'CLASS_TEACHER', signatory_role: 'CLASS_TEACHER', staff_id: teacher.id, class_id: 'Nursery 1', academic_year: '2026/2027', term: '1st Term', full_name: 'Wrong Class Teacher', phone_number: '0241234567', active: 1 }
+  ];
+  const database = {
+    async query(sql, params = []) {
+      if (sql.includes('information_schema.COLUMNS')) return columns.map((columnName) => ({ columnName }));
+      const where = sql.slice(sql.indexOf(' WHERE '));
+      const quote = String.fromCharCode(96);
+      const isTeacher = params.includes('CLASSTEACHER');
+      if (!isTeacher) assert.doesNotMatch(where, /\b(?:class_id|staff_id|academic_year|term)\b/);
+      return records.filter((record) => {
+        if (record.school_id !== params[0] || !record.active) return false;
+        const normalizedRole = String(record.signatory_role || record.role).toUpperCase().replace(/[ _-]/g, '');
+        if (isTeacher) {
+          return normalizedRole.startsWith('CLASSTEACHER') && where.includes(quote+'class_id'+quote+' IN') && where.includes(quote+'academic_year'+quote+' IN') && where.includes(quote+'term'+quote+' IN') && params.includes(record.class_id) && params.includes(record.academic_year) && params.includes(record.term) && params.includes(record.staff_id);
+        }
+        return ['HEADTEACHER','HEADTEACHERSIGNATURE','PROPRIETOR','PROPRIETORSIGNATURE','PRINCIPAL','SCHOOLHEAD','HEAD'].includes(normalizedRole);
+      }).map((record) => ({ id: record.id, signatoryRole: record.signatory_role || record.role, storageKey: record.storage_key || '', fullName: record.full_name, phone: record.phone_number, classId: record.class_id, academicYear: record.academic_year, term: record.term, data: record.processed_image_data || null, active: record.active, uploadedAt: record.uploaded_at }));
+    }
+  };
+  const signatures = createSignatureService({ staff, database });
+  const context = { academicYear: '2026/2027', academicYearValues: ['year-2026','2026/2027'], term: '1st Term', termValues: ['term-1','1st Term'], className: 'KG 1' };
+  const resolved = await signatures.resolveForStudentDurable({ schoolId: 'school-osaah-daylight', classId: 'class_kg1_01' }, context);
+  assert.equal(resolved.headteacher.name, 'School Head');
+  assert.equal(resolved.headteacher.signature.phone, '0241234569');
+  assert.equal(resolved.headteacher.signature.processedImageData, uploadInput({}).processedImageData);
+  assert.equal(resolved.classTeacher.name, 'KG Class Teacher');
+  assert.equal(resolved.classTeacher.signature.name, 'KG Class Teacher');
+  assert.equal(resolved.classTeacher.signature.phone, '0241234568');
+  assert.equal(resolved.classTeacher.signature.data, uploadInput({}).processedImageData);
+  const otherClass = await signatures.resolveForStudentDurable({ schoolId: 'school-osaah-daylight', classId: 'class_nursery1_01' }, { ...context, className: 'Nursery 1' });
+  assert.equal(otherClass.classTeacher.signature, null);
+  const otherTerm = await signatures.resolveForStudentDurable({ schoolId: 'school-osaah-daylight', classId: 'class_kg1_01' }, { ...context, term: '2nd Term', termValues: ['term-2','2nd Term'] });
+  assert.equal(otherTerm.classTeacher.signature, null);
 });
 
 test('signature schema bootstrap tolerates denied DDL and uses verified legacy role columns', async () => {

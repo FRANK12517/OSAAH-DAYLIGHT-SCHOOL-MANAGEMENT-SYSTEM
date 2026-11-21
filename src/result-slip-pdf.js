@@ -130,10 +130,10 @@ function drawResultTable(document, result, y) {
 }
 
 function sampleSignatureBytes(signature) {
-  const data = String(signature?.data ?? '').trim();
+  const data = String(signature?.data ?? signature?.processedImageData ?? signature?.processed_image_data ?? '').trim();
   const dataMatch = data.match(/^data:image\/(png|jpeg);base64,([A-Za-z0-9+/=\s]+)$/i);
   if (dataMatch) return Buffer.from(dataMatch[2], 'base64');
-  const key = String(signature?.storageKey ?? '').trim();
+  const key = String(signature?.storageKey ?? signature?.signatureUrl ?? signature?.signature_url ?? '').trim();
   if (!key || isAbsolute(key) || !/^signatures\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_-]+\.(?:png|jpe?g)$/i.test(key)) return null;
   const path = resolve(publicRoot, key);
   const relativePath = relative(publicRoot, path);
@@ -162,14 +162,14 @@ function drawSignatures(document, signatures, images, y) {
     const x = CONTENT.x + index * (width + gap);
     document.save().lineWidth(0.55).strokeColor(COLORS.rule).rect(x, y, width, height).stroke().restore();
     drawWrapped(document, `${label} Signature`, x + 5, y + 4, width - 10, { font: 'Helvetica-Bold', size: 7.1, lineHeight: 8, color: COLORS.navy, align: 'center' });
-    drawWrapped(document, `Name: ${signature?.name ?? signature?.fullName ?? 'Name not configured'}`, x + 6, y + 15, width - 12, { font: 'Helvetica', size: 6.5, lineHeight: 7.5, color: COLORS.ink, align: 'center' });
-    drawWrapped(document, `Phone: ${signature?.phone ?? 'Phone not configured'}`, x + 6, y + 24, width - 12, { font: 'Helvetica', size: 6.5, lineHeight: 7.5, color: COLORS.ink, align: 'center' });
+    drawWrapped(document, `Name: ${signature?.name ?? signature?.fullName ?? signature?.full_name ?? 'Name not configured'}`, x + 6, y + 15, width - 12, { font: 'Helvetica', size: 6.5, lineHeight: 7.5, color: COLORS.ink, align: 'center' });
+    drawWrapped(document, `Phone: ${signature?.phone ?? signature?.phoneNumber ?? signature?.phone_number ?? 'Phone not configured'}`, x + 6, y + 24, width - 12, { font: 'Helvetica', size: 6.5, lineHeight: 7.5, color: COLORS.ink, align: 'center' });
     const image = images[index];
     if (image) {
       try { document.image(image, x + 10, y + 33, { fit: [width - 20, 22], align: 'center', valign: 'center' }); }
       catch { drawLines(document, ['Signature on file'], x + 6, y + 40, width - 12, { font: 'Helvetica-Oblique', size: 6.2, lineHeight: 7, color: COLORS.muted, align: 'center' }); }
     } else {
-      const hasSignature = Boolean(signature?.data || signature?.storageKey);
+      const hasSignature = Boolean(signature?.data || signature?.processedImageData || signature?.processed_image_data || signature?.storageKey || signature?.signature_url);
       drawLines(document, [hasSignature ? 'Signature on file' : 'Signature not uploaded'], x + 6, y + 40, width - 12, { font: 'Helvetica-Oblique', size: 6.2, lineHeight: 7, color: COLORS.muted, align: 'center' });
     }
   }

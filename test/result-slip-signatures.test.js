@@ -50,11 +50,17 @@ test('missing signatures are non-blocking and cross-school signatures do not res
 test('signature renderer keeps both roles below attendance inside the single bordered slip and protects image sources', () => {
   const html = fs.readFileSync(new URL('../public/results.html', import.meta.url), 'utf8');
   const renderer = fs.readFileSync(new URL('../public/result-view.js', import.meta.url), 'utf8');
+  const mockRenderer = fs.readFileSync(new URL('../public/mock-result-view.js', import.meta.url), 'utf8');
   assert.ok(renderer.indexOf('Attendance') < renderer.indexOf('signature-grid'));
   assert.match(renderer, /signatureBlock\('CLASS_TEACHER'/);
   assert.match(renderer, /signatureBlock\('HEADTEACHER'/);
   assert.match(renderer, /Signature not uploaded/);
   assert.match(renderer, /function signatureSrc/);
+  assert.match(renderer, /processedImageData/);
+  assert.match(mockRenderer, /function signature\(x,role,label\)/);
+  assert.match(mockRenderer, /s\.full_name/);
+  assert.match(mockRenderer, /s\.phone_number/);
+  assert.match(mockRenderer, /<img src=/);
   assert.match(html, /\.signature-grid\{[^}]*grid-template-columns:1fr 1fr[^}]*break-inside:avoid/);
   assert.match(html, /\.result-slip::after\{[^}]*border:2px solid #d4a72c/);
 });

@@ -196,23 +196,46 @@ export function createSignatureService({ now = () => new Date().toISOString(), s
     if (!database?.query) return resolveForStudent(student, context);
     if (student?.schoolId && student.schoolId !== schoolId) throw new Error('Forbidden.');
     const classId = text(student?.classId ?? student?.class_id);
-    const assignment = (staff?.assignments?.() ?? []).find((item) => item.schoolId === schoolId && (String(item.classId) === classId || canonicalClass(item.classId) === canonicalClass(classId)) && (!context.academicYear || !item.academicYearId || String(item.academicYearId) === String(context.academicYear)) && (!context.term || !item.termId || String(item.termId) === String(context.term)) && teacherFor(item.staffId));
+    const yearValues = new Set([...(context.academicYearValues ?? []), context.academicYear].map(text).filter(Boolean));
+    const termValues = new Set([...(context.termValues ?? []), context.term].map(text).filter(Boolean));
+    const assignment = (staff?.assignments?.() ?? []).find((item) => item.schoolId === schoolId && [classId, context.className].filter(Boolean).some((value) => String(item.classId) === String(value) || canonicalClass(item.classId) === canonicalClass(value)) && (!yearValues.size || !item.academicYearId || yearValues.has(String(item.academicYearId))) && (!termValues.size || !item.termId || termValues.has(String(item.termId))) && teacherFor(item.staffId));
     const teacher = assignment ? teacherFor(assignment.staffId) : null;
     const schema = await resultSignatureRoleSchema();
     const emptyResolution = () => ({ classTeacher: { name: teacher?.fullName ?? null, phone: teacher?.phone ?? null, signature: null }, headteacher: { name: headteacherFor()?.fullName ?? null, phone: headteacherFor()?.phone ?? null, signature: null } });
     if (!schema.ready || !schemaHas(schema, 'school_id')) return emptyResolution();
-    const find = async (signatoryRole, scopedClass, staffId) => {
-      const predicates = ['`school_id`=?', `${schema.roleExpression}=?`];
+    const find = async (signatoryRole, scope = {}) => {
+      const normalizedRole = `UPPER(REPLACE(REPLACE(REPLACE(${schema.roleExpression},' ',''),'-',''),'_',''))`;
+      const roleAliases = signatoryRole === 'HEADTEACHER'
+        ? ['HEADTEACHER', 'HEADTEACHERSIGNATURE', 'HEADTEACHERSIGNATURE%', 'PROPRIETOR', 'PROPRIETORSIGNATURE%', 'PRINCIPAL', 'SCHOOLHEAD', 'HEAD']
+        : ['CLASSTEACHER', 'CLASSTEACHERSIGNATURE', 'CLASSTEACHERSIGNATURE%', 'CLASSROOMTEACHER', 'CLASSROOMTEACHERSIGNATURE%', 'TEACHERSIGNATURE%'];
+      const predicates = ['`school_id`=?', `${roleAliases.map((alias) => `${normalizedRole} ${alias.includes('%') ? 'LIKE' : '='} ?`).join(' OR ')}`];
+      predicates[1] = `(${predicates[1]})`;
       if (schemaHas(schema, 'active')) predicates.push('`active`=1');
-      const params = [schoolId, signatoryRole];
-      for (const [column, value] of [['class_id', scopedClass], ['staff_id', staffId], ['academic_year', context.academicYear ?? null], ['term', context.term ?? null]]) {
-        if (!schemaHas(schema, column)) continue;
-        predicates.push(`(\`${column}\` IS NULL OR \`${column}\`=?)`);
-        params.push(value);
+      const params = [schoolId, ...roleAliases];
+      if (signatoryRole === 'CLASS_TEACHER') {
+        // A class-teacher profile is valid only for its exact teaching context.
+        // Legacy class labels and canonical class IDs are both accepted, but an
+        // unscoped/global profile is never allowed to bleed into another class.
+        if (!schemaHas(schema, 'class_id') || !schemaHas(schema, 'academic_year') || !schemaHas(schema, 'term')) return null;
+        const classValues = [...new Set([classId, context.className, canonicalClass(classId), canonicalClass(context.className)].map(text).filter(Boolean))];
+        if (!classValues.length) return null;
+        const normalizedClass = (column) => `LOWER(REPLACE(REPLACE(REPLACE(REPLACE(\`${column}\`,' ',''),'_',''),'-',''),'/',''))`;
+        const classComparisons = [`\`class_id\` IN (${classValues.map(() => '?').join(',')})`];
+        const normalizedValues = [...new Set([classId, context.className].map((value) => canonicalClass(value)).filter(Boolean))];
+        if (normalizedValues.length) classComparisons.push(`${normalizedClass('class_id')} IN (${normalizedValues.map(() => '?').join(',')})`);
+        predicates.push(`(${classComparisons.join(' OR ')})`);
+        params.push(...classValues, ...normalizedValues);
+        const years = [...new Set([...(context.academicYearValues ?? []), context.academicYear].map(text).filter(Boolean))];
+        const terms = [...new Set([...(context.termValues ?? []), context.term].map(text).filter(Boolean))];
+        if (!years.length || !terms.length) return null;
+        predicates.push(`\`academic_year\` IN (${years.map(() => '?').join(',')})`);
+        params.push(...years);
+        predicates.push(`\`term\` IN (${terms.map(() => '?').join(',')})`);
+        params.push(...terms);
+        if (schemaHas(schema, 'staff_id') && scope.staffId) { predicates.push('`staff_id`=?'); params.push(scope.staffId); }
       }
       const orderBy = [
-        schemaHas(schema, 'class_id') ? 'CASE WHEN `class_id` IS NULL THEN 1 ELSE 0 END' : null,
-        schemaHas(schema, 'academic_year') ? 'CASE WHEN `academic_year` IS NULL THEN 1 ELSE 0 END' : null,
+        signatoryRole === 'CLASS_TEACHER' && schemaHas(schema, 'academic_year') ? 'CASE WHEN `academic_year` IS NULL THEN 1 ELSE 0 END' : null,
         schemaHas(schema, 'uploaded_at') ? '`uploaded_at` DESC' : null
       ].filter(Boolean);
       const storageKey = schemaHas(schema, 'storage_key') && schemaHas(schema, 'signature_url')
@@ -227,9 +250,17 @@ export function createSignatureService({ now = () => new Date().toISOString(), s
         schemaSelect(schema, 'processed_image_data', 'data'), schemaSelect(schema, 'active', 'active', '1'),
         schemaSelect(schema, 'uploaded_at', 'uploadedAt'), schemaSelect(schema, 'updated_at', 'updatedAt')
       ];
-      return rows(await database.query(`SELECT ${selected.join(',')} FROM result_signatures WHERE ${predicates.join(' AND ')}${orderBy.length ? ` ORDER BY ${orderBy.join(',')}` : ''} LIMIT 1`, params))[0] ?? null;
+      const record = rows(await database.query(`SELECT ${selected.join(',')} FROM result_signatures WHERE ${predicates.join(' AND ')}${orderBy.length ? ` ORDER BY ${orderBy.join(',')}` : ''} LIMIT 1`, params))[0] ?? null;
+      if (!record) return null;
+      const fullName = record.fullName ?? record.full_name ?? record.name ?? null;
+      const phone = record.phone ?? record.phoneNumber ?? record.phone_number ?? null;
+      const data = record.data ?? record.processedImageData ?? record.processed_image_data ?? null;
+      return { ...record, name: fullName, fullName, phone, phoneNumber: phone, data, processedImageData: data };
     };
-    const [classSignature, headSignature] = await Promise.all([find('CLASS_TEACHER', classId, teacher?.id ?? null), find('HEADTEACHER', null, headteacherFor()?.id ?? null)]);
+    const [classSignature, headSignature] = await Promise.all([
+      find('CLASS_TEACHER', { staffId: teacher?.id ?? null }),
+      find('HEADTEACHER')
+    ]);
     return {
       classTeacher: { name: classSignature?.fullName ?? teacher?.fullName ?? null, phone: classSignature?.phone ?? teacher?.phone ?? null, signature: classSignature },
       headteacher: { name: headSignature?.fullName ?? headteacherFor()?.fullName ?? null, phone: headSignature?.phone ?? headteacherFor()?.phone ?? null, signature: headSignature }
@@ -249,10 +280,17 @@ export function createSignatureService({ now = () => new Date().toISOString(), s
   }
   function resolveForStudent(student, context = {}) {
     if (student?.schoolId && student.schoolId !== schoolId) throw new Error('Forbidden.');
-    const classTeacher = (staff?.assignments?.() ?? []).find((item) => item.schoolId === schoolId && item.classId === student?.classId && (!context.academicYear || !item.academicYearId || String(item.academicYearId) === String(context.academicYear)) && (!context.term || !item.termId || String(item.termId) === String(context.term)) && teacherFor(item.staffId));
+    const studentClass = text(student?.classId ?? student?.class_id);
+    const classNames = [...new Set([studentClass, context.className, canonicalClass(studentClass), canonicalClass(context.className)].map(text).filter(Boolean))];
+    const classMatches = (value) => classNames.some((candidate) => String(value ?? '') === candidate || canonicalClass(value) === canonicalClass(candidate));
+    const yearValues = new Set([...(context.academicYearValues ?? []), context.academicYear].map(text).filter(Boolean));
+    const termValues = new Set([...(context.termValues ?? []), context.term].map(text).filter(Boolean));
+    const classTeacher = (staff?.assignments?.() ?? []).find((item) => item.schoolId === schoolId && classMatches(item.classId) && (!yearValues.size || !item.academicYearId || yearValues.has(String(item.academicYearId))) && (!termValues.size || !item.termId || termValues.has(String(item.termId))) && teacherFor(item.staffId));
     const teacher = classTeacher ? teacherFor(classTeacher.staffId) : null;
-    const classSignature = activeFor('CLASS_TEACHER', { ...context, classId: student?.classId, teacherId: teacher?.id });
-    const headSignature = activeFor('HEADTEACHER', context);
+    const classYear = yearValues;
+    const classTerm = termValues;
+    const classSignature = [...signatures.values()].find((item) => item.schoolId === schoolId && item.active && item.signatoryRole === 'CLASS_TEACHER' && classMatches(item.classId) && item.teacherId === teacher?.id && (!classYear.size || classYear.has(String(item.academicYear ?? ''))) && (!classTerm.size || classTerm.has(String(item.term ?? '')))) ?? null;
+    const headSignature = [...signatures.values()].filter((item) => item.schoolId === schoolId && item.active && item.signatoryRole === 'HEADTEACHER' && !item.classId).at(-1) ?? null;
     return { classTeacher: { name: classSignature?.fullName ?? teacher?.fullName ?? null, phone: classSignature?.phone ?? teacher?.phone ?? null, signature: classSignature }, headteacher: { name: headSignature?.fullName ?? headteacherFor()?.fullName ?? null, phone: headSignature?.phone ?? headteacherFor()?.phone ?? null, signature: headSignature } };
   }
   function options(actor) { assertActor(actor); const head = headteacherFor(actor); const assignments = staff?.assignments?.() ?? []; return { classes: classOptions(), teachers: activeStaff().filter((item) => item.roleKey === 'TEACHER').map((item) => ({ id: item.id, name: item.fullName, phone: item.phone ?? null, classIds: [...new Set(assignments.filter((assignment) => assignment.schoolId === schoolId && assignment.staffId === item.id).map((assignment) => assignment.classId))] })), headteacher: head ? { id: head.id, name: head.fullName, phone: head.phone ?? null } : null }; }
