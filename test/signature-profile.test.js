@@ -40,20 +40,27 @@ test('signature uploads persist processed PNG and resolve school-wide head plus 
   const head = staff.createProfile({ fullName: 'Headteacher One', phone: '0241234569', roleKey: 'HEADTEACHER' });
   staff.assign(teacher.id, { classId: 'Primary 1', academicYearId: '2026/2027', termId: 'First Term' });
   const stored = [];
+  const columns = new Set(['id', 'school_id', 'storage_key', 'mime_type', 'document_size', 'active', 'uploaded_by', 'uploaded_at', 'updated_at']);
+  const addedColumns = [];
   const database = {
     async execute(sql, params) {
+      if (sql.startsWith('ALTER TABLE result_signatures')) {
+        const column = sql.match(/ADD COLUMN IF NOT EXISTS `?([a-z_]+)`?/i)?.[1];
+        if (column) { columns.add(column); addedColumns.push(column); }
+      }
       if (sql.startsWith('UPDATE result_signatures')) for (const row of stored) if (row.school_id === params[1] && (row.signatory_role ?? row.role) === params[2]) row.active = 0;
       if (sql.includes('INSERT INTO result_signatures')) {
         const names = sql.match(/INSERT INTO result_signatures \(([^)]+)\)/)[1].split(',');
+        assert.ok(names.includes('`role`'));
+        assert.ok(names.includes('signatory_role'));
         stored.push(Object.fromEntries(names.map((name, index) => [name, params[index]])));
       }
       return { affectedRows: 1 };
     },
     async query(sql, params) {
-      // Match production's legacy TiDB schema, which has `role` but not
-      // `signatory_role`; reject accidental use of the absent column.
-      if (sql.includes('information_schema.COLUMNS')) return [{ columnName: 'role' }];
-      assert.doesNotMatch(sql, /\bsignatory_role\b/i);
+      // Match the reported production schema: neither role field nor migration
+      // 090's profile columns have been applied yet.
+      if (sql.includes('information_schema.COLUMNS')) return [...columns].map((columnName) => ({ columnName }));
       const map = (row) => ({ id: row.id, schoolId: row.school_id, signatoryRole: row.signatory_role ?? row.role, storageKey: row.storage_key, mimeType: row.mime_type, size: row.document_size, teacherId: row.staff_id, fullName: row.full_name, phone: row.phone_number, classId: row.class_id, academicYear: row.academic_year, term: row.term, data: row.processed_image_data, active: row.active, uploadedAt: row.uploaded_at, updatedAt: row.updated_at });
       if (sql.includes('FROM result_signatures WHERE school_id=? ORDER BY')) return stored.map(map);
       return stored.filter((row) => row.school_id === params[0] && (row.signatory_role ?? row.role) === params[1] && row.active && (!row.class_id || row.class_id === params[2]) && (!row.staff_id || row.staff_id === params[3]) && (!row.academic_year || row.academic_year === params[4]) && (!row.term || row.term === params[5])).map(map);
@@ -72,6 +79,9 @@ test('signature uploads persist processed PNG and resolve school-wide head plus 
   assert.equal(resolved.headteacher.name, 'Headteacher One');
   assert.equal(resolved.headteacher.signature.data, uploadInput({}).processedImageData);
   assert.equal((await restarted.listDurable(actor)).length, 2);
+  assert.ok(addedColumns.includes('role'));
+  assert.ok(addedColumns.includes('signatory_role'));
+  assert.ok(addedColumns.includes('processed_image_data'));
 });
 
 test('management and result-slip contracts preserve phone, print, and PDF-safe signature output', () => {

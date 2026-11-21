@@ -57,11 +57,30 @@ export function createSignatureService({ now = () => new Date().toISOString(), s
   async function resultSignatureRoleSchema() {
     if (!database?.query) return { roleColumns: ['signatory_role'], roleExpression: 'signatory_role' };
     if (!roleSchemaCache) roleSchemaCache = (async () => {
-      const columns = rows(await database.query("SELECT COLUMN_NAME AS columnName FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='result_signatures'"));
-      const available = new Set(columns.map((item) => String(item.columnName ?? item.COLUMN_NAME ?? '').toLowerCase()));
+      const inspect = async () => rows(await database.query("SELECT COLUMN_NAME AS columnName FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='result_signatures'"));
+      let available = new Set((await inspect()).map((item) => String(item.columnName ?? item.COLUMN_NAME ?? '').toLowerCase()));
+      if (!available.size) throw new Error('The result_signatures table is missing. Apply its foundational schema before retrying.');
+      // Migration 090 is additive. Apply its idempotent column definitions on
+      // first use so a deployment with an older signature table can recover.
+      const profileColumns = [
+        ['signatory_role', 'VARCHAR(64) NULL'], ['staff_id', 'VARCHAR(191) NULL'],
+        ['full_name', 'VARCHAR(255) NULL'], ['phone_number', 'VARCHAR(64) NULL'],
+        ['class_id', 'VARCHAR(191) NULL'], ['academic_year', 'VARCHAR(64) NULL'],
+        ['term', 'VARCHAR(64) NULL'], ['processed_image_data', 'LONGTEXT NULL']
+      ];
+      if (!available.has('role') && !available.has('signatory_role')) {
+        await database.execute('ALTER TABLE result_signatures ADD COLUMN IF NOT EXISTS `role` VARCHAR(64) NULL');
+        available.add('role');
+      }
+      for (const [column, definition] of profileColumns) {
+        if (available.has(column)) continue;
+        await database.execute(`ALTER TABLE result_signatures ADD COLUMN IF NOT EXISTS ${column} ${definition}`);
+        available.add(column);
+      }
+      available = new Set((await inspect()).map((item) => String(item.columnName ?? item.COLUMN_NAME ?? '').toLowerCase()));
       const roleColumns = ['signatory_role', 'role'].filter((column) => available.has(column));
       if (!roleColumns.length) throw new Error('The result_signatures table has neither role nor signatory_role. Apply migration 090.');
-      const roleExpression = roleColumns.length === 2 ? "COALESCE(NULLIF(signatory_role,''),role)" : roleColumns[0];
+      const roleExpression = roleColumns.length === 2 ? "COALESCE(NULLIF(signatory_role,''),`role`)" : roleColumns[0] === 'role' ? '`role`' : 'signatory_role';
       return { roleColumns, roleExpression };
     })();
     return roleSchemaCache;
@@ -94,7 +113,7 @@ export function createSignatureService({ now = () => new Date().toISOString(), s
     const deactivate = `UPDATE result_signatures SET active=0,updated_at=? WHERE school_id=? AND ${schema.roleExpression}=? AND ((class_id IS NULL AND ? IS NULL) OR class_id=?) AND ((academic_year IS NULL AND ? IS NULL) OR academic_year=?) AND ((term IS NULL AND ? IS NULL) OR term=?) AND ((staff_id IS NULL AND ? IS NULL) OR staff_id=?) AND active=1`;
     await database.transaction(async (tx) => {
       await tx.execute(deactivate, [timestamp, schoolId, meta.signatoryRole, meta.classId, meta.classId, meta.academicYear, meta.academicYear, meta.term, meta.term, meta.teacherId, meta.teacherId]);
-      const insertColumns = ['id', 'school_id', ...schema.roleColumns, 'storage_key', 'mime_type', 'document_size', 'active', 'uploaded_by', 'uploaded_at', 'updated_at', 'staff_id', 'full_name', 'phone_number', 'class_id', 'academic_year', 'term', 'processed_image_data'];
+      const insertColumns = ['id', 'school_id', ...schema.roleColumns, 'storage_key', 'mime_type', 'document_size', 'active', 'uploaded_by', 'uploaded_at', 'updated_at', 'staff_id', 'full_name', 'phone_number', 'class_id', 'academic_year', 'term', 'processed_image_data'].map((column) => column === 'role' ? '`role`' : column);
       const insertValues = [id, schoolId, ...schema.roleColumns.map(() => meta.signatoryRole), meta.storageKey, 'image/png', meta.size, 1, actorId(actor), timestamp, timestamp, meta.teacherId, meta.fullName, meta.phone, meta.classId, meta.academicYear, meta.term, meta.processedImageData];
       await tx.execute(`INSERT INTO result_signatures (${insertColumns.join(',')}) VALUES (${insertValues.map(() => '?').join(',')})`, insertValues);
     });
