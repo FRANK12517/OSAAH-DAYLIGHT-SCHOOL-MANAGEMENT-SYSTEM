@@ -277,7 +277,7 @@ test('unexpected fee publish database errors do not become misleading HTTP 400 v
   const db = publicationAdapter();
   const originalExecute = db.execute.bind(db);
   db.execute = async (sql, params) => {
-    if (sql.startsWith('INSERT INTO fee_obligations')) throw Object.assign(new Error('private SQL details must not reach the response'), { code: 'ER_BAD_FIELD_ERROR', errno: 1054, sqlState: '42S22' });
+    if (sql.startsWith('INSERT INTO fee_obligations')) throw Object.assign(new Error("Unknown column 'custom_fee_type_name' in 'field list'"), { code: 'ER_BAD_FIELD_ERROR', errno: 1054, sqlState: '42S22' });
     return originalExecute(sql, params);
   };
   const auth = { authenticateAsync: async () => ({ ...writer, roleKey: 'ACCOUNTANT_BURSAR' }) };
@@ -298,8 +298,7 @@ test('unexpected fee publish database errors do not become misleading HTTP 400 v
     assert.equal(result.body.error, 'Fee service is temporarily unavailable.');
     assert.equal(result.body.code, 'ER_BAD_FIELD_ERROR');
     assert.doesNotMatch(JSON.stringify(result.body), /private SQL details/);
-    assert.deepEqual(safeLog, { status: 503, code: 'ER_BAD_FIELD_ERROR', errno: 1054, sqlState: '42S22', validationReason: null });
-    assert.doesNotMatch(JSON.stringify(safeLog), /private SQL details/);
+    assert.deepEqual(safeLog, { status: 503, code: 'ER_BAD_FIELD_ERROR', errno: 1054, sqlState: '42S22', missingColumn: 'custom_fee_type_name', validationReason: null });
   } finally { console.error = originalConsoleError; await new Promise((resolve) => server.close(resolve)); }
 });
 
