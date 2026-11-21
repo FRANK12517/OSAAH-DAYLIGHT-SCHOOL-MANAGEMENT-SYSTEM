@@ -310,7 +310,7 @@
           ]
         },
         {
-          "path": "public/fee-setup.html",
+          "path": "public/fee-setup.js",
           "requiredMarkers": [
             "parsePositiveGhsAmountToMinorUnits",
             "/api/fees/obligations/publish",
