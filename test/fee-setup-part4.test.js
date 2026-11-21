@@ -38,11 +38,18 @@ function http(server, path, { method = 'GET', token, body } = {}) {
 
 test('Fee Setup uses backend canonical options and represents Nursery 1 through JHS 3 once', async () => {
   const source = await readFile(new URL('../public/fee-setup.html', import.meta.url), 'utf8');
-  assert.match(source, /api\/fee-setup\/options/);
+  const client = await readFile(new URL('../public/fee-setup.js', import.meta.url), 'utf8');
+  assert.match(source, /fee-setup\.js\?v=\d+/);
+  assert.doesNotMatch(source, /<script type="module">/);
+  assert.match(client, /api\/fee-setup\/options/);
+  assert.match(client, /api\/fees\/obligations\/publish/);
+  assert.match(client, /credentials: 'same-origin'/);
+  assert.match(client, /Fee Setup request failed/);
+  assert.match(client, /HTTP \$\{error\.status\}/);
   assert.match(source, /classId/);
-  assert.match(source, /Published successfully!/);
-  assert.match(source, /loadOptions\(\)\.then\(/);
-  assert.match(source, /loadPublishedFees\(\)\.catch\(/);
+  assert.match(client, /Published successfully!/);
+  assert.match(client, /loadOptions\(\)\.then\(/);
+  assert.match(client, /loadPublishedFees\(\)\.catch\(/);
   assert.doesNotMatch(source, /<option[^>]+value=["']Nursery 1/);
   assert.deepEqual(new Set(classes.map((item) => item.name)).size, 13);
   assert.deepEqual(CORE_LEVELS.length, 13);
@@ -93,5 +100,6 @@ test('Fee Setup and parent Fee Hub routes expose safe errors and retain parent v
   const setup = await readFile(new URL('../public/fee-setup.html', import.meta.url), 'utf8');
   const serverSource = await readFile(new URL('../src/server.mjs', import.meta.url), 'utf8');
   const parentSource = await readFile(new URL('../src/parent-fee-obligations-repository.js', import.meta.url), 'utf8');
-  assert.match(setup, /Unable to load Fee Setup data/); assert.match(setup, /Unable to publish this fee/); assert.match(serverSource, /Unable to load Fee Setup data/); assert.doesNotMatch(serverSource, /DATABASE_URL.*error\.message/); assert.match(parentSource, /parent_student_links/); assert.match(parentSource, /permanent_student_id/);
+  const setupClient = await readFile(new URL('../public/fee-setup.js', import.meta.url), 'utf8');
+  assert.match(setupClient, /Unable to load Fee Setup data/); assert.match(setupClient, /Unable to publish this fee/); assert.match(serverSource, /Unable to load Fee Setup data/); assert.match(serverSource, /Fee Hub API request/); assert.match(serverSource, /Fee Hub API response/); assert.doesNotMatch(serverSource, /DATABASE_URL.*error\.message/); assert.match(parentSource, /parent_student_links/); assert.match(parentSource, /permanent_student_id/);
 });
