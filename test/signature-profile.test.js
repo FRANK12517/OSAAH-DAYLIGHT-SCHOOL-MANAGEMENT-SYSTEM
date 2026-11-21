@@ -84,6 +84,32 @@ test('signature uploads persist processed PNG and resolve school-wide head plus 
   assert.ok(addedColumns.includes('processed_image_data'));
 });
 
+test('signature schema bootstrap tolerates denied DDL and uses verified legacy role columns', async () => {
+  const baseColumns = ['id', 'school_id', 'storage_key', 'mime_type', 'document_size', 'active', 'uploaded_by', 'uploaded_at', 'updated_at', 'staff_id', 'full_name', 'phone_number', 'class_id', 'academic_year', 'term', 'processed_image_data'];
+  const legacyRoleDb = {
+    async execute() { throw Object.assign(new Error('ALTER denied'), { code: 'ER_TABLEACCESS_DENIED_ERROR', errno: 1142 }); },
+    async query(sql) {
+      if (sql.includes('information_schema.COLUMNS')) return [...baseColumns, 'signature_role'].map((columnName) => ({ columnName }));
+      assert.match(sql, /`signature_role`/);
+      return [];
+    }
+  };
+  const actor = { id: 'head', roleKey: 'HEADTEACHER', schoolId: 'school-osaah-daylight', permissions: new Set(['*']) };
+  assert.deepEqual(await createSignatureService({ database: legacyRoleDb }).listDurable(actor), []);
+
+  const noRoleDb = {
+    async execute() { throw Object.assign(new Error('ALTER denied'), { code: 'ER_TABLEACCESS_DENIED_ERROR', errno: 1142 }); },
+    async query(sql) { return sql.includes('information_schema.COLUMNS') ? baseColumns.map((columnName) => ({ columnName })) : []; }
+  };
+  const noRoleService = createSignatureService({ database: noRoleDb });
+  assert.deepEqual(await noRoleService.listDurable(actor), []);
+  await assert.rejects(noRoleService.uploadDurable(uploadInput({ signatoryRole: 'HEADTEACHER', fullName: 'Headteacher One', phone: '0241234569' }), actor), (error) => error.status === 503 && error.code === 'RESULT_SIGNATURE_ROLE_COLUMN_UNAVAILABLE' && /Apply migration 090/.test(error.message));
+
+  const inspectionFailureService = createSignatureService({ database: { async query() { throw Object.assign(new Error('metadata access denied'), { code: 'ER_TABLEACCESS_DENIED_ERROR' }); }, async execute() { throw new Error('DDL should not run after failed inspection'); } } });
+  assert.deepEqual(await inspectionFailureService.listDurable(actor), []);
+  await assert.rejects(inspectionFailureService.uploadDurable(uploadInput({ signatoryRole: 'HEADTEACHER', fullName: 'Headteacher One', phone: '0241234569' }), actor), (error) => error.status === 503 && error.code === 'RESULT_SIGNATURE_COLUMN_INSPECTION_UNAVAILABLE');
+});
+
 test('management and result-slip contracts preserve phone, print, and PDF-safe signature output', () => {
   const page = fs.readFileSync(new URL('../public/result-signatures.html', import.meta.url), 'utf8');
   const renderer = fs.readFileSync(new URL('../public/result-view.js', import.meta.url), 'utf8');

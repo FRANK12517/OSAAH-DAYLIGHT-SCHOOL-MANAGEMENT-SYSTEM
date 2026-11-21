@@ -55,41 +55,54 @@ export function createSignatureService({ now = () => new Date().toISOString(), s
     return { signatoryRole, mimeType, size, storageKey, processedImageData, fullName, phone, academicYear: academicYear || null, term: term || null, classId: signatoryRole === 'CLASS_TEACHER' ? classId : null, teacherId: signatoryRole === 'CLASS_TEACHER' ? teacherId : identity?.id ?? null };
   }
   async function resultSignatureRoleSchema() {
-    if (!database?.query) return { roleColumns: ['signatory_role'], roleExpression: 'signatory_role' };
+    if (!database?.query) return { roleColumns: ['signatory_role'], roleExpression: 'signatory_role', available: null, ready: true };
     if (!roleSchemaCache) roleSchemaCache = (async () => {
       const inspect = async () => rows(await database.query("SELECT COLUMN_NAME AS columnName FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='result_signatures'"));
-      let available = new Set((await inspect()).map((item) => String(item.columnName ?? item.COLUMN_NAME ?? '').toLowerCase()));
-      if (!available.size) throw new Error('The result_signatures table is missing. Apply its foundational schema before retrying.');
-      // Migration 090 is additive. Apply its idempotent column definitions on
-      // first use so a deployment with an older signature table can recover.
       const profileColumns = [
         ['signatory_role', 'VARCHAR(64) NULL'], ['staff_id', 'VARCHAR(191) NULL'],
         ['full_name', 'VARCHAR(255) NULL'], ['phone_number', 'VARCHAR(64) NULL'],
         ['class_id', 'VARCHAR(191) NULL'], ['academic_year', 'VARCHAR(64) NULL'],
         ['term', 'VARCHAR(64) NULL'], ['processed_image_data', 'LONGTEXT NULL']
       ];
-      if (!available.has('role') && !available.has('signatory_role')) {
-        await database.execute('ALTER TABLE result_signatures ADD COLUMN IF NOT EXISTS `role` VARCHAR(64) NULL');
-        available.add('role');
-      }
-      for (const [column, definition] of profileColumns) {
-        if (available.has(column)) continue;
-        await database.execute(`ALTER TABLE result_signatures ADD COLUMN IF NOT EXISTS ${column} ${definition}`);
-        available.add(column);
-      }
-      available = new Set((await inspect()).map((item) => String(item.columnName ?? item.COLUMN_NAME ?? '').toLowerCase()));
-      const roleColumns = ['signatory_role', 'role'].filter((column) => available.has(column));
-      if (!roleColumns.length) throw new Error('The result_signatures table has neither role nor signatory_role. Apply migration 090.');
-      const roleExpression = roleColumns.length === 2 ? "COALESCE(NULLIF(signatory_role,''),`role`)" : roleColumns[0] === 'role' ? '`role`' : 'signatory_role';
-      return { roleColumns, roleExpression };
+      const columnsFrom = (items) => new Set(items.map((item) => String(item.columnName ?? item.COLUMN_NAME ?? '').toLowerCase()));
+      let available;
+      try { available = columnsFrom(await inspect()); }
+      catch (error) { return { roleColumns: [], roleExpression: null, available: new Set(), ready: false, reason: 'COLUMN_INSPECTION_UNAVAILABLE', cause: error }; }
+      if (!available.size) return { roleColumns: [], roleExpression: null, available, ready: false, reason: 'RESULT_SIGNATURES_TABLE_MISSING' };
+
+      // Migration 090 is additive. Try its idempotent columns, but runtime
+      // credentials may be read-only; always re-read information_schema after
+      // DDL attempts and build SQL only from columns confirmed to exist.
+      const addColumn = async (column, definition) => {
+        try { await database.execute(`ALTER TABLE result_signatures ADD COLUMN IF NOT EXISTS ${column === 'role' ? '`role`' : column} ${definition}`); }
+        catch (error) { return error; }
+        return null;
+      };
+      if (!available.has('role') && !available.has('signatory_role')) await addColumn('role', 'VARCHAR(64) NULL');
+      for (const [column, definition] of profileColumns) if (!available.has(column)) await addColumn(column, definition);
+      try { available = columnsFrom(await inspect()); }
+      catch (error) { return { roleColumns: [], roleExpression: null, available: new Set(), ready: false, reason: 'COLUMN_INSPECTION_UNAVAILABLE', cause: error }; }
+
+      const roleCandidates = ['signatory_role', 'role', 'signature_role', 'signatory_type'];
+      const roleColumns = roleCandidates.filter((column) => available.has(column));
+      const quotedRoleColumns = roleColumns.map((column) => `\`${column}\``);
+      const roleExpression = quotedRoleColumns.length > 1
+        ? `COALESCE(${quotedRoleColumns.map((column) => `NULLIF(${column},'')`).join(',')})`
+        : quotedRoleColumns[0] ?? null;
+      const required = ['id', 'school_id', 'storage_key', 'mime_type', 'document_size', 'active', 'uploaded_by', 'uploaded_at', 'updated_at', 'staff_id', 'full_name', 'phone_number', 'class_id', 'academic_year', 'term', 'processed_image_data'];
+      const ready = Boolean(roleExpression) && required.every((column) => available.has(column));
+      return { roleColumns, roleExpression, available, ready, reason: !roleExpression ? 'ROLE_COLUMN_UNAVAILABLE' : !ready ? 'PROFILE_COLUMNS_UNAVAILABLE' : null };
     })();
-    return roleSchemaCache;
+    const schema = await roleSchemaCache;
+    if (!schema.ready) roleSchemaCache = null;
+    return schema;
   }
   function list(actor) { assertActor(actor); return [...signatures.values()].map(({ data, processedImageData, ...safe }) => ({ ...clone(safe), data: data ?? processedImageData })); }
   async function listDurable(actor) {
     assertActor(actor);
     if (!database?.query) return list(actor);
     const schema = await resultSignatureRoleSchema();
+    if (!schema.ready) return [];
     return rows(await database.query(`SELECT id,school_id AS schoolId,${schema.roleExpression} AS signatoryRole,storage_key AS storageKey,mime_type AS mimeType,document_size AS size,
       active AS active,uploaded_by AS uploadedBy,uploaded_at AS uploadedAt,updated_at AS updatedAt,staff_id AS teacherId,full_name AS fullName,phone_number AS phone,
       class_id AS classId,academic_year AS academicYear,term AS term,CASE WHEN active=1 THEN processed_image_data ELSE NULL END AS data
@@ -110,6 +123,7 @@ export function createSignatureService({ now = () => new Date().toISOString(), s
     const meta = validate(input, actor), id = randomUUID(), timestamp = now();
     if (!database?.execute) return upload(input, actor);
     const schema = await resultSignatureRoleSchema();
+    if (!schema.ready) throw Object.assign(new Error('Signature storage schema is incomplete. Apply migration 090 or grant the database user the required ALTER privileges, then retry.'), { status: 503, code: `RESULT_SIGNATURE_${schema.reason ?? 'SCHEMA_UNAVAILABLE'}` });
     const deactivate = `UPDATE result_signatures SET active=0,updated_at=? WHERE school_id=? AND ${schema.roleExpression}=? AND ((class_id IS NULL AND ? IS NULL) OR class_id=?) AND ((academic_year IS NULL AND ? IS NULL) OR academic_year=?) AND ((term IS NULL AND ? IS NULL) OR term=?) AND ((staff_id IS NULL AND ? IS NULL) OR staff_id=?) AND active=1`;
     await database.transaction(async (tx) => {
       await tx.execute(deactivate, [timestamp, schoolId, meta.signatoryRole, meta.classId, meta.classId, meta.academicYear, meta.academicYear, meta.term, meta.term, meta.teacherId, meta.teacherId]);
@@ -136,6 +150,7 @@ export function createSignatureService({ now = () => new Date().toISOString(), s
     const assignment = (staff?.assignments?.() ?? []).find((item) => item.schoolId === schoolId && (String(item.classId) === classId || canonicalClass(item.classId) === canonicalClass(classId)) && (!context.academicYear || !item.academicYearId || String(item.academicYearId) === String(context.academicYear)) && (!context.term || !item.termId || String(item.termId) === String(context.term)) && teacherFor(item.staffId));
     const teacher = assignment ? teacherFor(assignment.staffId) : null;
     const schema = await resultSignatureRoleSchema();
+    if (!schema.ready) return { classTeacher: { name: teacher?.fullName ?? null, phone: teacher?.phone ?? null, signature: null }, headteacher: { name: headteacherFor()?.fullName ?? null, phone: headteacherFor()?.phone ?? null, signature: null } };
     const find = async (signatoryRole, scopedClass, staffId) => rows(await database.query(`SELECT id,school_id AS schoolId,${schema.roleExpression} AS signatoryRole,storage_key AS storageKey,mime_type AS mimeType,document_size AS size,
       staff_id AS teacherId,full_name AS fullName,phone_number AS phone,class_id AS classId,academic_year AS academicYear,term,processed_image_data AS data,active,uploaded_at AS uploadedAt,updated_at AS updatedAt
       FROM result_signatures WHERE school_id=? AND ${schema.roleExpression}=? AND active=1 AND (class_id IS NULL OR class_id=?)
