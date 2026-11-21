@@ -50,7 +50,7 @@ test('Fee options preserve configured year-specific terms and reuse the canonica
     assert.deepEqual(options.body.terms.map((item) => item.name), ['1st Term']);
     assert.equal(options.body.terms[0].id, 'term-1');
     assert.equal(options.body.terms[0].academicYearId, 'ay-1');
-    assert.equal(options.body.canPublish, false);
+    assert.equal(options.body.canPublish, true);
     assert.equal(options.body.feeTypes.length, 39);
     assert.equal(canonical.body.feeTypes.length, 39);
     assert.deepEqual(new Set(options.body.feeTypes.map((item) => item.id)), new Set(canonical.body.feeTypes.map((item) => item.id)));

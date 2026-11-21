@@ -6,8 +6,8 @@ const ACTIONS = Object.freeze(['READ', 'CREATE', 'UPDATE', 'DELETE', 'PUBLISH', 
 const ROLE_ACTIONS = Object.freeze({
   PROPRIETOR: new Set(ACTIONS),
   SCHOOL_ADMIN: new Set(['READ', 'CREATE', 'UPDATE', 'DELETE', 'PUBLISH', 'PRINT_EXPORT']),
-  ACCOUNTANT_BURSAR: new Set(['READ', 'CREATE', 'UPDATE', 'PRINT_EXPORT']),
-  HEADTEACHER: new Set(['READ', 'PRINT_EXPORT']),
+  ACCOUNTANT_BURSAR: new Set(['READ', 'CREATE', 'UPDATE', 'PUBLISH', 'PRINT_EXPORT']),
+  HEADTEACHER: new Set(['READ', 'PUBLISH', 'PRINT_EXPORT']),
   ASSISTANT_HEADTEACHER: new Set(['READ', 'PRINT_EXPORT']),
   TEACHER: new Set(),
   ADMINISTRATOR: new Set(['READ', 'CREATE', 'UPDATE', 'DELETE', 'PUBLISH', 'PRINT_EXPORT'])
@@ -18,7 +18,7 @@ const LEGACY_PERMISSION_ACTIONS = Object.freeze({
   CREATE: ['fees.create', 'fees.write', 'fees.collect'],
   UPDATE: ['fees.update', 'fees.write', 'fees.configure'],
   DELETE: ['fees.delete'],
-  PUBLISH: ['fees.publish'],
+  PUBLISH: ['fees.publish', 'fees.write'],
   VOID_REVERSE: ['fees.void', 'fees.reverse'],
   PRINT_EXPORT: ['fees.print', 'fees.export', 'fees.read', 'finance.read']
 });

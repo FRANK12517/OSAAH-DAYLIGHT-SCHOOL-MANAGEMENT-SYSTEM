@@ -40,7 +40,9 @@ test('Fee Setup uses backend canonical options and represents Nursery 1 through 
   const source = await readFile(new URL('../public/fee-setup.html', import.meta.url), 'utf8');
   assert.match(source, /api\/fee-setup\/options/);
   assert.match(source, /classId/);
-  assert.match(source, /Fee published successfully\./);
+  assert.match(source, /Published successfully!/);
+  assert.match(source, /loadOptions\(\)\.then\(/);
+  assert.match(source, /loadPublishedFees\(\)\.catch\(/);
   assert.doesNotMatch(source, /<option[^>]+value=["']Nursery 1/);
   assert.deepEqual(new Set(classes.map((item) => item.name)).size, 13);
   assert.deepEqual(CORE_LEVELS.length, 13);
@@ -66,6 +68,16 @@ test('Fee publication validates specific class and whole-school targets without 
   const result = await repo.publishFeeObligations({ scope: 'SPECIFIC_CLASS', feeStructureId: 'fee-1', academicYearId: 'year-1', termId: 'term-1', classId: 'class-1', amountMinor: 12500 }, actor);
   assert.equal(result.created_count, 1); assert.equal(specific.executed.length, 1); assert.equal(specific.executed[0].params[5], 'SPECIFIC_CLASS'); assert.equal(specific.executed[0].params[6], 'class-1');
   const whole = repositoryFixture(); const wholeRepo = createFeeCollectionsRepository({ adapter: whole.adapter, strictValidation: true }); const wholeResult = await wholeRepo.publishFeeObligations({ scope: 'WHOLE_SCHOOL', feeStructureId: 'fee-1', academicYearId: 'year-1', termId: 'term-1', amountMinor: 12500 }, actor); assert.equal(wholeResult.created_count, 1); assert.equal(whole.executed[0].params[5], 'WHOLE_SCHOOL'); assert.equal(whole.executed[0].params[6], null);
+});
+
+test('Fee publication has a dedicated publish permission for authorized school roles', async () => {
+  for (const roleKey of ['PROPRIETOR', 'SCHOOL_ADMIN', 'ADMINISTRATOR', 'HEADTEACHER', 'ACCOUNTANT_BURSAR']) {
+    const repo = createFeeCollectionsRepository({ adapter: repositoryFixture().adapter, strictValidation: true });
+    const result = await repo.publishFeeObligations({ scope: 'WHOLE_SCHOOL', feeStructureId: 'fee-1', academicYearId: 'year-1', termId: 'term-1', amountMinor: 15000 }, { ...actor, roleKey, permissions: new Set(['fees.read']) });
+    assert.equal(result.created_count, 1, `${roleKey} should be able to publish fees`);
+  }
+  const readOnly = createFeeCollectionsRepository({ adapter: repositoryFixture().adapter, strictValidation: true });
+  await assert.rejects(() => readOnly.publishFeeObligations({ scope: 'WHOLE_SCHOOL', feeStructureId: 'fee-1', academicYearId: 'year-1', termId: 'term-1', amountMinor: 15000 }, { ...actor, roleKey: 'ASSISTANT_HEADTEACHER', permissions: new Set(['fees.read']) }), /Forbidden/);
 });
 
 test('Fee publication rejects malformed amount, missing class, invalid academic period, and cross-school class', async () => {

@@ -6,7 +6,7 @@ import { CANONICAL_FEE_TYPES, normalizeFeeType } from './fee-types.js';
 const WRITE=new Set(['ACCOUNTANT_BURSAR','PROPRIETOR','SCHOOL_ADMIN']);const READ=new Set([...WRITE,'HEADTEACHER','ASSISTANT_HEADTEACHER']);const ok=(a,r)=>{try{authorizeFinancial(a,r===READ?'READ':'CREATE','fees');return true}catch{return false}};const amt=v=>{if(!Number.isInteger(Number(v))||v<0)throw Error('Invalid amount.');return Number(v)};
 export function createFeeCollectionsRepository({adapter,audit=()=>{},now=()=>new Date().toISOString(),strictValidation=false}={}){if(!adapter?.query||!adapter?.execute||!adapter?.transaction)throw Error('A durable database adapter is required.');
 async function publishFeeObligations(i,a){
-  if(!ok(a,WRITE))throw Error('Financial write permission required.');
+  try{authorizeFinancial(a,'PUBLISH','fees')}catch{throw Object.assign(Error('Forbidden.'),{status:403})}
   const scope=i.scope==='SPECIFIC_CLASS'?'SPECIFIC_CLASS':i.scope==='WHOLE_SCHOOL'||i.scope==='ALL_STUDENTS'?'WHOLE_SCHOOL':null;
   if(!scope)throw Error('Invalid fee target.');
   if(!Number.isSafeInteger(i.amountMinor)||i.amountMinor<=0)throw Error('Invalid amount.');

@@ -67,7 +67,7 @@ import { renderPublishedFeeSummary } from '/fee-publication-summary.js';
       submitting = true; submitButton.disabled = true; submitButton.textContent = 'Publishing…'; setStatus('Publishing fee securely…');
       const result = await jsonRequest('/api/fees/obligations/publish', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       if (!Number.isSafeInteger(Number(result.created_count)) || Number(result.created_count) < 0 || !Number.isSafeInteger(Number(result.skipped_count)) || Number(result.skipped_count) < 0) throw new Error('The server response was incomplete; verify the published fee before retrying.');
-      const successMessage = `Fee published successfully. ${result.created_count} student obligations created${result.skipped_count ? ` · ${result.skipped_count} existing obligations safely retained` : ''}`;
+      const successMessage = `Published successfully! ${result.created_count} student obligations created${result.skipped_count ? ` · ${result.skipped_count} existing obligations safely retained` : ''}`;
       form.elements.amount.value = '';
       setStatus(successMessage);
       try { await loadPublishedFees(); }
@@ -75,7 +75,8 @@ import { renderPublishedFeeSummary } from '/fee-publication-summary.js';
     } catch (error) { setStatus(error.message || 'Unable to publish this fee. Please try again.', true); }
     finally { submitting = false; submitButton.textContent = 'Publish fee'; refreshSubmitState(); }
   });
-  Promise.all([loadOptions(), loadPublishedFees()]).then(() => { ready = true; refreshSubmitState(); if (canPublish) setStatus('Ready'); }).catch((error) => { ready = false; refreshSubmitState(); setStatus(error.message || 'Unable to load Fee Setup data. Please try again.', true); });
+  loadOptions().then(() => { ready = true; refreshSubmitState(); if (canPublish) setStatus('Ready'); }).catch((error) => { ready = false; refreshSubmitState(); setStatus(error.message || 'Unable to load Fee Setup data. Please try again.', true); });
+  loadPublishedFees().catch(() => { document.querySelector('#fees').innerHTML = '<p>Published fees could not be loaded. You can still publish a fee; reload the list after the service recovers.</p>'; });
 })();
 </script>
 </body></html>
