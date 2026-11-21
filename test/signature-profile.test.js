@@ -42,13 +42,21 @@ test('signature uploads persist processed PNG and resolve school-wide head plus 
   const stored = [];
   const database = {
     async execute(sql, params) {
-      if (sql.startsWith('UPDATE result_signatures')) for (const row of stored) if (row.id === params[1]) row.active = 0;
-      if (sql.includes('INSERT INTO result_signatures')) stored.push({ id: params[0], school_id: params[1], signatory_role: params[2], storage_key: params[3], mime_type: params[4], document_size: params[5], active: 1, uploaded_by: params[6], uploaded_at: params[7], updated_at: params[8], staff_id: params[9], full_name: params[10], phone_number: params[11], class_id: params[12], academic_year: params[13], term: params[14], processed_image_data: params[15] });
+      if (sql.startsWith('UPDATE result_signatures')) for (const row of stored) if (row.school_id === params[1] && (row.signatory_role ?? row.role) === params[2]) row.active = 0;
+      if (sql.includes('INSERT INTO result_signatures')) {
+        const names = sql.match(/INSERT INTO result_signatures \(([^)]+)\)/)[1].split(',');
+        stored.push(Object.fromEntries(names.map((name, index) => [name, params[index]])));
+      }
       return { affectedRows: 1 };
     },
     async query(sql, params) {
-      if (sql.includes('FROM result_signatures WHERE school_id=? ORDER BY')) return stored.map((row) => ({ id: row.id, schoolId: row.school_id, signatoryRole: row.signatory_role, storageKey: row.storage_key, mimeType: row.mime_type, size: row.document_size, teacherId: row.staff_id, fullName: row.full_name, phone: row.phone_number, classId: row.class_id, academicYear: row.academic_year, term: row.term, data: row.processed_image_data, active: row.active, uploadedAt: row.uploaded_at, updatedAt: row.updated_at }));
-      return stored.filter((row) => row.school_id === params[0] && row.signatory_role === params[1] && row.active && (!row.class_id || row.class_id === params[2]) && (!row.staff_id || row.staff_id === params[3]) && (!row.academic_year || row.academic_year === params[4]) && (!row.term || row.term === params[5])).map((row) => ({ id: row.id, schoolId: row.school_id, signatoryRole: row.signatory_role, storageKey: row.storage_key, mimeType: row.mime_type, size: row.document_size, teacherId: row.staff_id, fullName: row.full_name, phone: row.phone_number, classId: row.class_id, academicYear: row.academic_year, term: row.term, data: row.processed_image_data, active: row.active, uploadedAt: row.uploaded_at, updatedAt: row.updated_at }));
+      // Match production's legacy TiDB schema, which has `role` but not
+      // `signatory_role`; reject accidental use of the absent column.
+      if (sql.includes('information_schema.COLUMNS')) return [{ columnName: 'role' }];
+      assert.doesNotMatch(sql, /\bsignatory_role\b/i);
+      const map = (row) => ({ id: row.id, schoolId: row.school_id, signatoryRole: row.signatory_role ?? row.role, storageKey: row.storage_key, mimeType: row.mime_type, size: row.document_size, teacherId: row.staff_id, fullName: row.full_name, phone: row.phone_number, classId: row.class_id, academicYear: row.academic_year, term: row.term, data: row.processed_image_data, active: row.active, uploadedAt: row.uploaded_at, updatedAt: row.updated_at });
+      if (sql.includes('FROM result_signatures WHERE school_id=? ORDER BY')) return stored.map(map);
+      return stored.filter((row) => row.school_id === params[0] && (row.signatory_role ?? row.role) === params[1] && row.active && (!row.class_id || row.class_id === params[2]) && (!row.staff_id || row.staff_id === params[3]) && (!row.academic_year || row.academic_year === params[4]) && (!row.term || row.term === params[5])).map(map);
     },
     async transaction(work) { return work(this); }
   };
@@ -79,5 +87,6 @@ test('management and result-slip contracts preserve phone, print, and PDF-safe s
   assert.match(styles, /signature-grid[^}]*break-inside:avoid/); assert.match(styles, /@media print/); assert.match(styles, /\.signature-box img/);
   const migration = fs.readFileSync(new URL('../schema/090_processed_result_signature_profiles.sql', import.meta.url), 'utf8');
   assert.match(migration, /ADD COLUMN IF NOT EXISTS processed_image_data LONGTEXT/);
+  assert.match(migration, /ADD COLUMN IF NOT EXISTS signatory_role VARCHAR\(64\) NULL/i);
   for (const column of ['staff_id', 'full_name', 'phone_number', 'class_id', 'academic_year', 'term']) assert.match(migration, new RegExp(`ADD COLUMN IF NOT EXISTS ${column}`));
 });
