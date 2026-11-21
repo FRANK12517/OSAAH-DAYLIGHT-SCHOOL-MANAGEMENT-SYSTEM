@@ -1029,8 +1029,12 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     const result = await canonicalResult(input, { ...actor, permissions: new Set(['results.read', 'results.generate']) });
     const record = rows(await database.query('SELECT id,status,version FROM academic_result_records WHERE school_id=? AND student_id=? AND class_id=? AND academic_year_id=? AND term_id=? AND examination=? AND ((mock_label IS NULL AND ? IS NULL) OR mock_label=?) LIMIT 1', [schoolId, result.studentId, result.classId, period.yearId, period.termId, result.resultType, result.mockLabel, result.mockLabel]))[0];
     if (!record || record.status !== 'SAVED') fail('Save this result before publishing.');
-    await database.execute("UPDATE academic_result_records SET status='PUBLISHED',published_by=?,published_at=?,updated_at=? WHERE id=? AND school_id=?", [actor.id, clock(), clock(), record.id, schoolId]);
-    return { id: record.id, schoolId, classId: result.classId, academicYear: result.academicYear, term: result.term, examination: result.resultType, mockLabel: result.mockLabel, status: 'PUBLISHED', studentId: result.studentId, isSample: false };
+    if (input.expectedVersion !== undefined && Number(input.expectedVersion) !== Number(record.version)) fail('This result changed after it was saved. Save the latest result before publishing.', 409, 'RESULT_VERSION_CONFLICT');
+    const publishedAt = clock();
+    const update = await database.execute("UPDATE academic_result_records SET status='PUBLISHED',published_by=?,published_at=?,updated_at=? WHERE id=? AND school_id=? AND status='SAVED' AND version=?", [actor.id, publishedAt, publishedAt, record.id, schoolId, record.version]);
+    const affected = Number(update?.affectedRows ?? update?.rowCount ?? update?.changes ?? 0);
+    if (affected !== 1) fail('This result changed while it was being published. Reload it and retry.', 409, 'RESULT_PUBLICATION_CONFLICT');
+    return { id: record.id, schoolId, classId: result.classId, academicYearId: period.yearId, academicYear: result.academicYear, termId: period.termId, term: result.term, examination: result.resultType, mockLabel: result.mockLabel, status: 'PUBLISHED', publishedAt, studentId: result.studentId, permanentStudentId: result.studentIndexNumber, isSample: false };
   }
 
   async function resultAccessOverview(input = {}, actor) {

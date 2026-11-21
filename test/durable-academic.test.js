@@ -78,6 +78,36 @@ test('class result access overview scopes lifecycle status by exact result categ
   assert.ok(midtermQuery);
 });
 
+test('individual result publication checks the saved version and atomically publishes the exact scoped record', async () => {
+  const calls = [];
+  const database = {
+    async query(sql, params = []) {
+      calls.push({ kind: 'query', sql, params });
+      if (sql.includes('FROM academic_years')) return [{ id: 'year-2026', name: '2026/2027' }];
+      if (sql.includes('FROM terms t JOIN academic_years')) return [{ id: 'term-1', name: 'First Term' }];
+      if (sql.includes('FROM classes WHERE school_id=? AND id=?')) return [{ id: 'class-basic-1', name: 'Basic 1' }];
+      if (sql.includes('FROM students s JOIN student_enrollments e')) return [{ id: 'student-1', studentId: 'student-1', permanentStudentId: 'OSAAH/2026/0001', firstName: 'Ama', surname: 'Learner', classId: 'class-basic-1' }];
+      if (sql.includes('FROM academic_score_records r')) return [];
+      if (sql.includes('SELECT id,attendance_json AS attendanceJson')) return [];
+      if (sql.includes('SELECT id,status,version FROM academic_result_records')) return [{ id: 'result-1', status: 'SAVED', version: 4 }];
+      return [];
+    },
+    async execute(sql, params = []) { calls.push({ kind: 'execute', sql, params }); return { affectedRows: 1 }; }
+  };
+  const service = createDurableAcademicService({ database, schoolId, clock: () => '2026-11-21T12:00:00.000Z' });
+  const publisher = { ...manager, permissions: new Set(['results.publish', 'results.generate']) };
+  const input = { studentId: 'student-1', classId: 'class-basic-1', academicYear: '2026/2027', term: 'First Term', examination: 'TERMINAL', expectedVersion: 4 };
+  const publication = await service.publishResults(input, publisher);
+  assert.equal(publication.status, 'PUBLISHED');
+  assert.equal(publication.permanentStudentId, 'OSAAH/2026/0001');
+  assert.equal(publication.publishedAt, '2026-11-21T12:00:00.000Z');
+  const update = calls.find((call) => call.kind === 'execute');
+  assert.match(update.sql, /status='SAVED' AND version=\?/);
+  assert.deepEqual(update.params, ['manager-1', publication.publishedAt, publication.publishedAt, 'result-1', schoolId, 4]);
+  await assert.rejects(() => service.publishResults({ ...input, expectedVersion: 3 }, publisher), (error) => error.status === 409 && error.code === 'RESULT_VERSION_CONFLICT');
+  assert.equal(calls.filter((call) => call.kind === 'execute').length, 1, 'a stale version must not update publication state');
+});
+
 test('class publication publishes only saved records in the exact Mock scope inside a transaction', async () => {
   const queries = [], updates = [];
   const roster = [

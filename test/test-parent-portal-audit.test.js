@@ -39,6 +39,22 @@ test('a session child entry cannot authorize an unlinked official student when t
   assert.equal(await authorizeParentStudent({ actor, permanentStudentId: official.permanentStudentId, students }), null);
 });
 
+test('official parent result access is bound to the authenticated parent id, student index, and school', async () => {
+  const student = { id: 'internal-student-4', permanentStudentId: 'OSAAH/2026/004', schoolId, isTestRecord: false };
+  const calls = [];
+  const admissionEnrollment = { authorizeParentStudent: async (scope) => {
+    calls.push(scope);
+    return scope.parentUserId === 'linked-parent' && scope.permanentStudentId === student.permanentStudentId && scope.schoolId === schoolId ? student : null;
+  } };
+  const actor = { id: 'linked-parent', portal: 'parent', roleKey: 'PARENT', schoolId, phone: '+233241234567' };
+  assert.equal(await authorizeParentStudent({ actor, permanentStudentId: 'OSAAH/2026/004', admissionEnrollment }), student);
+  assert.equal(await authorizeParentStudent({ actor: { ...actor, id: 'different-parent' }, permanentStudentId: 'OSAAH/2026/004', admissionEnrollment }), null);
+  assert.equal(calls[0].parentUserId, 'linked-parent');
+  assert.equal(calls[0].permanentStudentId, 'OSAAH/2026/004');
+  assert.equal(calls[0].schoolId, schoolId);
+  assert.equal(Object.hasOwn(calls[0], 'phone'), false, 'authorization derives from the signed-in account and canonical link, never a submitted phone');
+});
+
 test('sample students remain excluded from official student counts and ordinary lists', () => {
   const students = createStudentService({ schoolId });
   students.seedSampleStudents();
