@@ -53,14 +53,21 @@ function fillOptions() {
 }
 
 async function load() {
-  const response = await api('/api/result-signatures');
-  options = response.options || options;
-  fillOptions();
-  host.innerHTML = (response.signatures || []).map((signature) => {
-    const scope = signature.classId ? `${signature.classId} · ${signature.academicYear || ''} · ${signature.term || ''}` : 'School-wide';
-    const image = signature.data ? `<img class="signature-thumb" src="${esc(signature.data)}" alt="Processed signature for ${esc(signature.fullName || signature.name)}">` : '—';
-    return `<tr><td>${esc(String(signature.signatoryRole || '').replaceAll('_', ' '))}</td><td>${esc(signature.fullName || signature.name || '—')}</td><td>${esc(signature.phone || '—')}</td><td>${esc(scope)}</td><td>${image}</td><td>${signature.active ? 'ACTIVE' : 'INACTIVE'}</td></tr>`;
-  }).join('') || '<tr><td colspan="6">No signatures configured.</td></tr>';
+  host.innerHTML = '<tr><td colspan="6">Loading…</td></tr>';
+  try {
+    const response = await api('/api/result-signatures');
+    options = response.options || options;
+    fillOptions();
+    host.innerHTML = (response.signatures || []).map((signature) => {
+      const scope = signature.classId ? `${signature.classId} · ${signature.academicYear || ''} · ${signature.term || ''}` : 'School-wide';
+      const image = signature.data ? `<img class="signature-thumb" src="${esc(signature.data)}" alt="Processed signature for ${esc(signature.fullName || signature.name)}">` : '—';
+      return `<tr><td>${esc(String(signature.signatoryRole || '').replaceAll('_', ' '))}</td><td>${esc(signature.fullName || signature.name || '—')}</td><td>${esc(signature.phone || '—')}</td><td>${esc(scope)}</td><td>${image}</td><td>${signature.active ? 'ACTIVE' : 'INACTIVE'}</td></tr>`;
+    }).join('') || '<tr><td colspan="6">No signatures configured.</td></tr>';
+    return true;
+  } catch (error) {
+    host.innerHTML = `<tr><td colspan="6">${esc(error.message)}</td></tr>`;
+    throw error;
+  }
 }
 
 role.addEventListener('change', syncRole);
@@ -98,8 +105,8 @@ form.addEventListener('submit', async (event) => {
     payload.size = Math.floor(processed.dataUrl.length * 3 / 4);
     payload.processedImageData = processed.dataUrl;
     await api('/api/result-signatures', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-    await load();
     status.className = 'success'; status.textContent = 'Signature profile saved.';
+    try { await load(); } catch (error) { status.textContent = `Signature profile saved; list refresh failed: ${error.message}`; }
   } catch (error) {
     status.className = 'error'; status.textContent = error.message;
   } finally { button.disabled = false; }

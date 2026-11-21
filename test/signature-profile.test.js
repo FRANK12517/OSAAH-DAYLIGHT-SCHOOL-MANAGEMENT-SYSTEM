@@ -62,7 +62,7 @@ test('signature uploads persist processed PNG and resolve school-wide head plus 
   };
   const actor = { id: head.id, roleKey: 'HEADTEACHER', schoolId: 'school-osaah-daylight', permissions: new Set(['*']) };
   const service = createSignatureService({ staff, database });
-  await service.uploadDurable(uploadInput({ signatoryRole: 'HEADTEACHER' }), actor);
+  await service.uploadDurable(uploadInput({ role: 'HEADTEACHER', full_name: 'Headteacher One', phone_number: '0241234569' }), actor);
   await service.uploadDurable(uploadInput({ signatoryRole: 'CLASS_TEACHER', classId: 'Primary 1', teacherId: teacher.id, academicYear: '2026/2027', term: 'First Term' }), actor);
 
   const restarted = createSignatureService({ staff, database });
@@ -86,7 +86,15 @@ test('management and result-slip contracts preserve phone, print, and PDF-safe s
   assert.match(renderer, /signature\?\.phone/); assert.match(renderer, /window\.print/); assert.match(renderer, /Signature not uploaded/);
   assert.match(styles, /signature-grid[^}]*break-inside:avoid/); assert.match(styles, /@media print/); assert.match(styles, /\.signature-box img/);
   const migration = fs.readFileSync(new URL('../schema/090_processed_result_signature_profiles.sql', import.meta.url), 'utf8');
+  const backend = fs.readFileSync(new URL('../src/server.mjs', import.meta.url), 'utf8');
+  const service = fs.readFileSync(new URL('../src/signatures.js', import.meta.url), 'utf8');
+  const client = fs.readFileSync(new URL('../public/result-signatures.js', import.meta.url), 'utf8');
   assert.match(migration, /ADD COLUMN IF NOT EXISTS processed_image_data LONGTEXT/);
   assert.match(migration, /ADD COLUMN IF NOT EXISTS signatory_role VARCHAR\(64\) NULL/i);
   for (const column of ['staff_id', 'full_name', 'phone_number', 'class_id', 'academic_year', 'term']) assert.match(migration, new RegExp(`ADD COLUMN IF NOT EXISTS ${column}`));
+  assert.match(backend, /\[Result signatures\] list failed/);
+  assert.match(backend, /\[Result signatures\] upload failed/);
+  assert.match(service, /input\?\.signatoryRole \?\? input\?\.signatory_role \?\? input\?\.role/);
+  assert.match(service, /input\?\.processedImageData \?\? input\?\.processed_image_data/);
+  assert.match(client, /host\.innerHTML = `<tr><td colspan="6">\$\{esc\(error\.message\)\}<\/td><\/tr>`/);
 });

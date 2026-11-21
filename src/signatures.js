@@ -20,23 +20,23 @@ export function createSignatureService({ now = () => new Date().toISOString(), s
   const assignmentMatches = (teacherId, classId, academicYear, term) => (staff?.assignments?.() ?? []).some((item) => item.schoolId === schoolId && item.staffId === teacherId && item.classId === classId && (!academicYear || !item.academicYearId || String(item.academicYearId) === academicYear) && (!term || !item.termId || String(item.termId) === term));
   function assertActor(actor) { if (!actor || actor.schoolId !== schoolId || !canManage(actor)) throw new Error('Forbidden.'); }
   function validate(input, actor) {
-    const signatoryRole = text(input?.signatoryRole).toUpperCase();
-    const mimeType = text(input?.mimeType ?? input?.documentType ?? 'image/png').toLowerCase();
-    const processedImageData = text(input?.processedImageData ?? input?.data);
-    const size = Number(input?.size ?? input?.documentSize ?? Math.floor(processedImageData.length * 3 / 4));
+    const signatoryRole = text(input?.signatoryRole ?? input?.signatory_role ?? input?.role).toUpperCase();
+    const mimeType = text(input?.mimeType ?? input?.mime_type ?? input?.documentType ?? 'image/png').toLowerCase();
+    const processedImageData = text(input?.processedImageData ?? input?.processed_image_data ?? input?.data);
+    const size = Number(input?.size ?? input?.documentSize ?? input?.document_size ?? Math.floor(processedImageData.length * 3 / 4));
     if (!['HEADTEACHER', 'CLASS_TEACHER'].includes(signatoryRole)) throw new Error('Unsupported signatory role.');
     if (!ALLOWED_TYPES.has(mimeType)) throw new Error('Only processed PNG signatures or existing secure references are supported.');
     if (!Number.isFinite(size) || size <= 0) throw new Error('Signature image is invalid.');
-    let storageKey = text(input.storageKey ?? input.fileReference);
+    let storageKey = text(input.storageKey ?? input.storage_key ?? input.fileReference);
     if (processedImageData) {
       if (mimeType !== 'image/png' || !/^data:image\/png;base64,[A-Za-z0-9+/]+=*$/.test(processedImageData)) throw new Error('Upload a valid processed PNG signature image.');
       if (!Buffer.from(processedImageData.slice(processedImageData.indexOf(',') + 1), 'base64').subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) throw new Error('Signature image is not a valid PNG.');
       storageKey = `signatures/${randomUUID()}.png`;
     } else if (!safeStorageKey(storageKey)) throw new Error('A valid secure signature reference is required.');
-    const academicYear = text(input?.academicYear);
+    const academicYear = text(input?.academicYear ?? input?.academic_year);
     const term = text(input?.term);
-    const classId = text(input?.classId);
-    const teacherId = text(input?.teacherId);
+    const classId = text(input?.classId ?? input?.class_id);
+    const teacherId = text(input?.teacherId ?? input?.teacher_id ?? input?.staff_id);
     let identity = null;
     if (signatoryRole === 'CLASS_TEACHER') {
       if (!classId || !classOptions().includes(classId)) throw new Error('A registered class is required.');
@@ -47,8 +47,8 @@ export function createSignatureService({ now = () => new Date().toISOString(), s
     } else {
       identity = headteacherFor(actor);
     }
-    const fullName = text(input?.fullName ?? identity?.fullName);
-    const phone = text(input?.phone ?? identity?.phone);
+    const fullName = text(input?.fullName ?? input?.full_name ?? identity?.fullName);
+    const phone = text(input?.phone ?? input?.phoneNumber ?? input?.phone_number ?? identity?.phone);
     if (!fullName) throw new Error('Full name is required.');
     if (!phone) throw new Error('Phone number is required.');
     if (!isValidGhanaPhone(phone)) throw new Error('Invalid Ghana phone number.');
