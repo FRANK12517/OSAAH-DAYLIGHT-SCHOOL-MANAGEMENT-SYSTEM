@@ -224,6 +224,85 @@ test('Fee Setup HTTP publication reaches durable storage and the Fee Structure r
   } finally { await new Promise((resolve) => server.close(resolve)); }
 });
 
+test('the displayed Admission Fee setup values publish, refresh, and appear in the linked Parent Portal', async () => {
+  const db = publicationAdapter();
+  const originalQuery = db.query.bind(db);
+  db.query = async (sql, params = []) => {
+    if (sql.includes('FROM parent_student_links psl')) {
+      assert.equal(params[1], 'parent-1');
+      assert.match(sql, /fo\.status='PUBLISHED'/);
+      return db.obligations.map((row) => ({
+        studentId: 'profile-1', permanentStudentId: 'OSAAH/2026/001', firstName: 'Ama', middleName: null, surname: 'Mensah',
+        classId: 'class-1', schoolId: writer.schoolId, obligationId: row.id, feeStructureId: row.feeStructureId,
+        academicYearId: row.academicYearId, academicYearName: '2026/2027 Academic Year', termId: row.termId,
+        termName: '1st Term', amountMinor: row.amountMinor, customFeeTypeName: null, publishedAt: row.publishedAt,
+        targetClassId: null, feeTypeName: 'Admission Fee', status: row.status
+      }));
+    }
+    return originalQuery(sql, params);
+  };
+  const auth = { authenticateAsync: async (token) => token === 'parent-token'
+    ? { id: 'parent-1', schoolId: writer.schoolId, roleKey: 'PARENT', portal: 'parent' }
+    : token === 'test-accountant' ? { ...writer, roleKey: 'ACCOUNTANT_BURSAR' } : null };
+  const server = createServer(createApp({ auth, database: db, aiEnabled: false }));
+  await new Promise((resolve) => server.listen(0, resolve));
+  const request = (path, { method = 'GET', token = 'test-accountant', body } = {}) => new Promise((resolve, reject) => {
+    const req = httpRequest({ port: server.address().port, path, method, headers: { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) } }, (res) => {
+      let text = ''; res.on('data', (chunk) => { text += chunk; }); res.on('end', () => resolve({ status: res.statusCode, body: text ? JSON.parse(text) : null }));
+    });
+    req.on('error', reject); req.end(body ? JSON.stringify(body) : undefined);
+  });
+  try {
+    // These are the IDs behind the displayed labels: 2026/2027 Academic Year, 1st Term, Admission Fee, Whole School.
+    const payload = { academicYearId: 'year-2026', termId: 'term-1', feeStructureId: 'ADMISSION', amountMinor: parsePositiveGhsAmountToMinorUnits('150'), scope: 'WHOLE_SCHOOL' };
+    const published = await request('/api/fees/obligations/publish', { method: 'POST', body: payload });
+    assert.equal(published.status, 200, JSON.stringify(published.body));
+    assert.deepEqual({ created: published.body.created_count, skipped: published.body.skipped_count }, { created: 1, skipped: 0 });
+
+    const refreshed = await request('/api/fees/obligations');
+    assert.equal(refreshed.status, 200);
+    assert.equal(refreshed.body.length, 1);
+    assert.equal(refreshed.body[0].amountMinor, 15000);
+    assert.equal(refreshed.body[0].scope, 'WHOLE_SCHOOL');
+
+    const parentView = await request('/api/parent/fee-obligations', { token: 'parent-token' });
+    assert.equal(parentView.status, 200);
+    assert.equal(parentView.body.children[0].student.permanentStudentId, 'OSAAH/2026/001');
+    assert.equal(parentView.body.children[0].obligations[0].feeTypeName, 'Admission Fee');
+    assert.equal(parentView.body.children[0].obligations[0].amountMinor, 15000);
+  } finally { await new Promise((resolve) => server.close(resolve)); }
+});
+
+test('unexpected fee publish database errors do not become misleading HTTP 400 validation responses', async () => {
+  const db = publicationAdapter();
+  const originalExecute = db.execute.bind(db);
+  db.execute = async (sql, params) => {
+    if (sql.startsWith('INSERT INTO fee_obligations')) throw Object.assign(new Error('private SQL details must not reach the response'), { code: 'ER_BAD_FIELD_ERROR', errno: 1054, sqlState: '42S22' });
+    return originalExecute(sql, params);
+  };
+  const auth = { authenticateAsync: async () => ({ ...writer, roleKey: 'ACCOUNTANT_BURSAR' }) };
+  const server = createServer(createApp({ auth, database: db, aiEnabled: false }));
+  await new Promise((resolve) => server.listen(0, resolve));
+  const body = { scope: 'WHOLE_SCHOOL', feeStructureId: 'ADMISSION', academicYearId: 'year-2026', termId: 'term-1', amountMinor: 15000 };
+  let safeLog;
+  const originalConsoleError = console.error;
+  try {
+    console.error = (label, metadata) => { if (label === 'Fee service operation failed') safeLog = metadata; else originalConsoleError(label, metadata); };
+    const result = await new Promise((resolve, reject) => {
+      const req = httpRequest({ port: server.address().port, path: '/api/fees/obligations/publish', method: 'POST', headers: { Authorization: 'Bearer test-accountant', 'Content-Type': 'application/json' } }, (res) => {
+        let text = ''; res.on('data', (chunk) => { text += chunk; }); res.on('end', () => resolve({ status: res.statusCode, body: text ? JSON.parse(text) : null }));
+      });
+      req.on('error', reject); req.end(JSON.stringify(body));
+    });
+    assert.equal(result.status, 503);
+    assert.equal(result.body.error, 'Fee service is temporarily unavailable.');
+    assert.equal(result.body.code, 'ER_BAD_FIELD_ERROR');
+    assert.doesNotMatch(JSON.stringify(result.body), /private SQL details/);
+    assert.deepEqual(safeLog, { status: 503, code: 'ER_BAD_FIELD_ERROR', errno: 1054, sqlState: '42S22', validationReason: null });
+    assert.doesNotMatch(JSON.stringify(safeLog), /private SQL details/);
+  } finally { console.error = originalConsoleError; await new Promise((resolve) => server.close(resolve)); }
+});
+
 test('Fee Setup publish API authorizes only the designated school publishing roles', async () => {
   const db = publicationAdapter();
   const roles = new Map(['PROPRIETOR', 'SCHOOL_ADMIN', 'ADMINISTRATOR', 'HEADTEACHER', 'ACCOUNTANT_BURSAR'].map((roleKey) => [`token-${roleKey}`, { ...reader, roleKey }]));
