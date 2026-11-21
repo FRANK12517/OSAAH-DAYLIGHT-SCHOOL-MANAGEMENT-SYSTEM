@@ -60,11 +60,11 @@ test('invalid attendance is rejected and authorized publication advances SAVED t
   assert.equal(results.savedResultFor({ studentId: student.id, classId: 'Primary 1', academicYear: '2026/2027', term: 'First Term', examination: 'TERMINAL' }, teacher).status, 'PUBLISHED');
 });
 
-test('Save Result enforces school and student identity authorization', () => {
+test('Save Result enforces school and student identity authorization while score writers retain school-wide parity', () => {
   const { student, results } = setup();
   assert.throws(() => results.saveResult(complete(student), { ...teacher, schoolId: 'school-other' }), /Forbidden/);
   assert.throws(() => results.saveResult({ ...complete(student), permanentStudentId: 'OSAAH-WRONG' }, teacher), /Permanent Student ID does not match/);
-  assert.throws(() => results.saveResult(complete(student), { ...teacher, assignedClassIds: ['Primary 2'] }), /outside your assignment/);
+  assert.equal(results.saveResult(complete(student), { ...teacher, assignedClassIds: ['Primary 2'] }).status, 'SAVED');
 });
 
 test('result page exposes functional Save Result controls and backend validation route contract', () => {

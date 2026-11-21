@@ -61,9 +61,13 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     if (permission && !authorized(actor, permission)) fail('Forbidden.', 403, 'ACADEMIC_PERMISSION_REQUIRED');
   }
 
-  // Explicit school-wide academic permission broadens class access only within
-  // this tenant; it does not grant access to another school's records.
-  function hasSchoolwideAcademicAccess(actor) { return authorized(actor, 'academics.schoolwide'); }
+  // Explicit school-wide access is the preferred grant. Existing Teacher role
+  // grants already include score-entry permissions, so honor those too while
+  // deployments apply the forward RBAC migration. Tenant checks remain in
+  // assertActor and every class/subject query stays scoped to this school.
+  function hasSchoolwideAcademicAccess(actor) {
+    return authorized(actor, 'academics.schoolwide') || (actor?.roleKey === 'TEACHER' && (authorized(actor, 'marks.write') || authorized(actor, 'mock.scores.write')));
+  }
 
   function assertClassScope(classId, actor) {
     if (!classId) fail('Class is required.');
@@ -71,6 +75,18 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
       const assigned = new Set((actor.assignedClassIds ?? []).map(String));
       if (!assigned.size || !assigned.has(String(classId))) fail('Class is outside your assignment.', 403, 'CLASS_SCOPE_DENIED');
     }
+  }
+
+  // Sample fixtures stay inside explicit teacher assignments even when the
+  // live academic workflow is school-wide. The fixture path must not become a
+  // shortcut around its older assignment checks.
+  function assertSampleClassScope(classId, actor) {
+    if (actor?.roleKey === 'TEACHER' && !authorized(actor, 'academics.schoolwide')) {
+      const assigned = new Set((actor.assignedClassIds ?? []).map(String));
+      if (!assigned.has(String(classId))) fail('Class is outside your assignment.', 403, 'CLASS_SCOPE_DENIED');
+      return;
+    }
+    assertClassScope(classId, actor);
   }
 
   async function classFor(classId) {
@@ -681,7 +697,7 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     if (!authorized(actor, 'mock.scores.read') && !authorized(actor, 'mock.scores.write')) fail('Forbidden.', 403, 'ACADEMIC_PERMISSION_REQUIRED');
     const classId = text(input.classId), subjectId = text(input.subjectId), mockLabel = text(input.mockLabel);
     if (!classId || !subjectId || !MOCK_TYPES.includes(mockLabel)) fail('Class, subject, and Mock Examination are required.');
-    assertClassScope(classId, actor);
+    assertSampleClassScope(classId, actor);
     const period = await resolvePeriod(input);
     const classRow = await classFor(classId);
     if (!JHS_CLASSES.has(text(classRow.name))) fail('Mock examinations are available for JHS 1, JHS 2, and JHS 3 only.');
@@ -755,7 +771,7 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     const classId = text(input.classId);
     const subjectId = text(input.subjectId);
     if (!classId || !subjectId) fail('Class and subject are required.');
-    assertClassScope(classId, actor);
+    assertSampleClassScope(classId, actor);
     const period = await resolvePeriod(input);
     const classRow = await classFor(classId);
     const subject = (await listSubjects({ classId, academicYearId: period.yearId }, actor)).find((item) => text(item.id) === subjectId && item.isScoring !== false && Number(item.isScoring) !== 0);

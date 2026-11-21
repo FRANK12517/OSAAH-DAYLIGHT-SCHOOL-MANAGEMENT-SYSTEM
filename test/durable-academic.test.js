@@ -307,27 +307,32 @@ test('teacher academic options include only assigned classes and fail closed whe
   assert.equal((await service.options(manager)).classes.length, 2, 'non-teacher school roles retain the school catalogue');
 });
 
-test('teachers with the explicit school-wide academic grant receive the full tenant class catalogue', async () => {
+test('standard score-entry permissions provide full tenant classes and class-filtered subjects before RBAC migration', async () => {
   const database = fakeDatabase();
-  database.query = async (sql) => {
+  database.query = async (sql, params = []) => {
     if (sql.includes('FROM academic_years')) return [{ id: 'year-2026', name: '2026/2027' }];
     if (sql.includes('FROM terms')) return [{ id: 'term-1', academicYearId: 'year-2026', name: 'First Term' }];
     if (sql.includes('FROM classes c WHERE c.school_id')) return [
       { id: 'class-kg1_01', name: 'KG 1' }, { id: 'class-nursery1_01', name: 'Nursery 1' },
       { id: 'class-jhs1_01', name: 'JHS 1' }, { id: 'class-jhs3_01', name: 'JHS 3' }
     ];
+    if (sql.includes('FROM classes WHERE school_id=? AND id=?')) return [{ id: params[1], name: params[1] === 'class-kg1_01' ? 'KG 1' : 'Nursery 1' }];
+    if (sql.includes('FROM subject_class_assignments a JOIN subjects s') && sql.includes('WHERE a.school_id=? AND a.class_id=?')) return [{ id: 'subject-' + params[1], code: 'ART', name: params[1] === 'class-kg1_01' ? 'Creative Arts' : 'Environmental Studies', subjectType: 'CORE', isScoring: 1, subjectActive: 1, classId: params[1], className: params[1] === 'class-kg1_01' ? 'KG 1' : 'Nursery 1', academicYearId: null, assignmentActive: 1 }];
+    if (sql.includes('SELECT id FROM subject_class_assignments')) return [{ id: 'mapping-' + params[1] }];
     return [];
   };
   const service = createDurableAcademicService({ database, schoolId });
-  const teacher = { ...manager, roleKey: 'TEACHER', permissions: new Set(['academics.schoolwide', 'marks.write', 'results.read']), assignedClassIds: [], assignedSubjectIds: [] };
+  const teacher = { ...manager, roleKey: 'TEACHER', permissions: new Set(['marks.write', 'results.read']), assignedClassIds: [], assignedSubjectIds: [] };
   assert.deepEqual((await service.options(teacher)).classes.map(({ name }) => name), ['KG 1', 'Nursery 1', 'JHS 1', 'JHS 3']);
+  assert.deepEqual((await service.subjectCascade({ classId: 'class-kg1_01', academicYear: '2026/2027', term: 'First Term' }, teacher)).subjects.map(({ name }) => name), ['Creative Arts']);
+  assert.deepEqual((await service.subjectCascade({ classId: 'class-nursery1_01', academicYear: '2026/2027', term: 'First Term' }, teacher)).subjects.map(({ name }) => name), ['Environmental Studies']);
   await assert.rejects(() => service.options({ ...teacher, schoolId: 'another-school' }), (error) => error.status === 403);
 });
 
 test('Teacher academic scope requires class and subject assignments while class catalog remains browseable', async () => {
   const database = fakeDatabase();
   const service = createDurableAcademicService({ database, schoolId });
-  const teacher = { ...manager, roleKey: 'TEACHER', permissions: new Set(['results.read', 'marks.write']), assignedClassIds: [], assignedSubjectIds: [] };
+  const teacher = { ...manager, roleKey: 'TEACHER', permissions: new Set(['results.read']), assignedClassIds: [], assignedSubjectIds: [] };
   assert.equal((await service.options(teacher)).classes.length, 0, 'fake database has no configured class rows');
   await assert.rejects(() => service.subjectCascade({ classId: 'class-basic-1', academicYear: '2026/2027', term: 'First Term' }, teacher), (error) => error.status === 403);
   await assert.rejects(() => service.saveScore({ classId: 'class-basic-1', subjectId: 'subject-math', studentId: 'student-1', academicYear: '2026/2027', term: 'First Term', caScore: 20, examScore: 20 }, teacher), (error) => error.status === 403);

@@ -269,14 +269,14 @@ test('Nursery default configuration repairs a missing assignment and restores an
   assert.ok(db.assignments.some((assignment) => assignment.classId === 'class-nursery-2' && assignment.subjectId === arts.id && assignment.active === 1));
 });
 
-test('server-side cascade rejects invalid years/terms and out-of-scope classes; defaults require manager permission', async () => {
+test('server-side cascade rejects invalid years/terms and restricted classes; defaults require manager permission', async () => {
   const db = fakeDatabase(); const service = createDurableAcademicService({ database: db, schoolId });
   const before = [db.subjects.length, db.assignments.length];
   await assert.rejects(() => service.configureDefaultSubjects({ ...manager, permissions: new Set(['subjects.read']) }), /Forbidden/);
   assert.deepEqual([db.subjects.length, db.assignments.length], before);
   await assert.rejects(() => service.subjectCascade({ academicYearId: 'missing', termId: 'term-1', classId: 'class-kg-1' }, manager), /Academic year not found/);
   await assert.rejects(() => service.subjectCascade({ academicYearId: 'year-2026', termId: 'year-2027-term-1', classId: 'class-kg-1' }, manager), /Term not found/);
-  await assert.rejects(() => service.subjectCascade({ academicYearId: 'year-2026', termId: 'year-2026-term-1', classId: 'class-jhs-1' }, teacher), /outside your assignment/);
+  await assert.rejects(() => service.subjectCascade({ academicYearId: 'year-2026', termId: 'year-2026-term-1', classId: 'class-jhs-1' }, { ...teacher, permissions: new Set(['subjects.read']) }), /outside your assignment/);
   assert.equal(db.calls.some(({ sql }) => /INSERT INTO subjects|INSERT INTO subject_class_assignments/.test(sql)), false);
 });
 

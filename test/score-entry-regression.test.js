@@ -11,19 +11,19 @@ import { SCHOOL_CLASS_CATALOGUE } from '../public/class-catalogue.js';
 const schoolId = 'sch_default_01';
 const teacher = { id: 'score-teacher', roleKey: 'TEACHER', portal: 'school', schoolId, assignedClassIds: [...CORE_LEVELS], permissions: new Set(['academics.read', 'subjects.read', 'marks.write', 'results.read']) };
 
-test('in-memory academic options show only assigned teacher classes and fail closed without assignments', () => {
+test('standard score-entry teachers receive the complete class catalogue', () => {
   const service = createAcademicResultsService({ schoolId });
-  assert.deepEqual(service.options({ ...teacher, assignedClassIds: ['Primary 2'] }).classes, ['Primary 2']);
-  assert.deepEqual(service.options({ ...teacher, assignedClassIds: [] }).classes, []);
+  assert.deepEqual(service.options({ ...teacher, assignedClassIds: ['Primary 2'] }).classes, CORE_LEVELS);
+  assert.deepEqual(service.options({ ...teacher, assignedClassIds: [] }).classes, CORE_LEVELS);
 });
 
-test('explicit school-wide academic permission exposes the full class and subject workflow to teachers', () => {
+test('standard score-entry permissions expose the full class and subject workflow to teachers', () => {
   const { students, subjects, resultService } = scoreFixture();
   const schoolwideTeacher = {
     ...teacher,
     assignedClassIds: [],
     assignedSubjectIds: [],
-    permissions: new Set([...teacher.permissions, 'academics.schoolwide', 'mock.scores.read', 'mock.scores.write', 'mock.results.read', 'mock.results.generate'])
+    permissions: new Set([...teacher.permissions, 'mock.scores.read', 'mock.scores.write', 'mock.results.read', 'mock.results.generate'])
   };
   assert.deepEqual(resultService.options(schoolwideTeacher).classes, CORE_LEVELS);
 
@@ -353,7 +353,7 @@ test('durable Score Entry HTTP contract keeps empty, sample, validation, authori
     },
     async execute() { return { affectedRows: 1 }; }
   };
-  const actor = { ...teacher, assignedClassIds: ['class_bs4_01'], assignedSubjectIds: ['subj_math'] };
+  const actor = { ...teacher, assignedClassIds: ['class_bs4_01'], assignedSubjectIds: ['subj_math'], permissions: new Set(['academics.read', 'subjects.read', 'results.read']) };
   const auth = { authenticateAsync: async (token) => token === 'authorized' ? actor : null };
   const server = http.createServer(createApp({ auth, database, aiEnabled: false }));
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));

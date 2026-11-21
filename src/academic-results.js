@@ -16,7 +16,7 @@ function clone(value) { return JSON.parse(JSON.stringify(value)); }
 function actorId(actor) { return actor?.id ?? actor?.userId ?? null; }
 function isManager(actor) { return ['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'ASSISTANT_HEADTEACHER', 'EXAMINATION_OFFICER'].includes(actor?.roleKey) || actor?.permissions?.has?.('*'); }
 function isTeacher(actor) { return actor?.roleKey === 'TEACHER'; }
-function hasRestrictedAcademicScope(actor) { return isTeacher(actor) && !authorized(actor, 'academics.schoolwide') && !authorized(actor, 'academics.manage'); }
+function hasRestrictedAcademicScope(actor) { const schoolwide = authorized(actor, 'academics.schoolwide') || (isTeacher(actor) && (authorized(actor, 'marks.write') || authorized(actor, 'mock.scores.write'))); return isTeacher(actor) && !schoolwide && !authorized(actor, 'academics.manage'); }
 function authorized(actor, permission) { return isManager(actor) || actor?.permissions?.has?.(permission) || actor?.permissions?.has?.('*'); }
 function validScore(value, max) { const score = Number(value ?? 0); if (!Number.isFinite(score) || score < 0 || score > max) throw new Error(`Score must be between 0 and ${max}.`); return score; }
 
