@@ -94,7 +94,7 @@ export function createSignatureService({ now = () => new Date().toISOString(), s
     // Cache only a schema with a verified role field. Empty/failed inspections
     // must be retried so a later migration or permission change takes effect.
     const schema = roleSchemaCache ? await roleSchemaCache : await inspectSchema();
-    roleSchemaCache = schema.roleColumns.length > 0 ? Promise.resolve(schema) : null;
+    roleSchemaCache = schema.roleColumns.length > 0 && schema.available?.has('active') ? Promise.resolve(schema) : null;
     return schema;
   }
   const schemaHas = (schema, column) => !schema.available || schema.available.has(column);
@@ -139,22 +139,25 @@ export function createSignatureService({ now = () => new Date().toISOString(), s
     const schema = await resultSignatureRoleSchema();
     const unavailable = (reason) => Object.assign(new Error(`Signature storage schema is incomplete (${reason}). Apply migration 090 or grant the database user the required ALTER privileges, then retry.`), { status: 503, code: `RESULT_SIGNATURE_${reason}` });
     if (!schema.ready) throw unavailable(schema.reason ?? 'SCHEMA_UNAVAILABLE');
-    for (const column of ['id', 'school_id', 'active', 'processed_image_data']) if (!schemaHas(schema, column)) throw unavailable(`MISSING_${column.toUpperCase()}`);
+    for (const column of ['id', 'school_id', 'processed_image_data']) if (!schemaHas(schema, column)) throw unavailable(`MISSING_${column.toUpperCase()}`);
     if (!schemaHas(schema, 'storage_key') && !schemaHas(schema, 'signature_url')) throw unavailable('MISSING_SIGNATURE_STORAGE_COLUMN');
     if (meta.signatoryRole === 'CLASS_TEACHER' && ['class_id', 'academic_year', 'term', 'staff_id'].some((column) => !schemaHas(schema, column))) throw unavailable('MISSING_CLASS_TEACHER_SCOPE_COLUMN');
-    const assignments = ['`active`=0'];
-    const deactivateParams = [];
-    if (schemaHas(schema, 'updated_at')) { assignments.push('`updated_at`=?'); deactivateParams.push(timestamp); }
-    const predicates = ['`school_id`=?', `${schema.roleExpression}=?`];
-    deactivateParams.push(schoolId, meta.signatoryRole);
-    for (const [column, value] of [['class_id', meta.classId], ['academic_year', meta.academicYear], ['term', meta.term], ['staff_id', meta.teacherId]]) {
-      if (!schemaHas(schema, column)) continue;
-      const identifier = `\`${column}\``;
-      predicates.push(`((${identifier} IS NULL AND ? IS NULL) OR ${identifier}=?)`);
-      deactivateParams.push(value, value);
+    let deactivate = null;
+    let deactivateParams = [];
+    if (schemaHas(schema, 'active')) {
+      const assignments = ['`active`=0'];
+      if (schemaHas(schema, 'updated_at')) { assignments.push('`updated_at`=?'); deactivateParams.push(timestamp); }
+      const predicates = ['`school_id`=?', `${schema.roleExpression}=?`];
+      deactivateParams.push(schoolId, meta.signatoryRole);
+      for (const [column, value] of [['class_id', meta.classId], ['academic_year', meta.academicYear], ['term', meta.term], ['staff_id', meta.teacherId]]) {
+        if (!schemaHas(schema, column)) continue;
+        const identifier = `\`${column}\``;
+        predicates.push(`((${identifier} IS NULL AND ? IS NULL) OR ${identifier}=?)`);
+        deactivateParams.push(value, value);
+      }
+      predicates.push('`active`=1');
+      deactivate = `UPDATE result_signatures SET ${assignments.join(',')} WHERE ${predicates.join(' AND ')}`;
     }
-    predicates.push('`active`=1');
-    const deactivate = `UPDATE result_signatures SET ${assignments.join(',')} WHERE ${predicates.join(' AND ')}`;
     const values = new Map([
       ['id', id], ['school_id', schoolId], ['storage_key', meta.storageKey], ['signature_url', meta.storageKey],
       ['mime_type', 'image/png'], ['document_size', meta.size], ['active', 1], ['uploaded_by', actorId(actor)],
@@ -168,7 +171,7 @@ export function createSignatureService({ now = () => new Date().toISOString(), s
     const quotedInsertColumns = insertColumns.map((column) => `\`${column}\``);
     const insertValues = insertColumns.map((column) => values.get(column));
     await database.transaction(async (tx) => {
-      await tx.execute(deactivate, deactivateParams);
+      if (deactivate) await tx.execute(deactivate, deactivateParams);
       await tx.execute(`INSERT INTO result_signatures (${quotedInsertColumns.join(',')}) VALUES (${insertValues.map(() => '?').join(',')})`, insertValues);
     });
     const { processedImageData, ...safeMeta } = meta;
@@ -197,9 +200,10 @@ export function createSignatureService({ now = () => new Date().toISOString(), s
     const teacher = assignment ? teacherFor(assignment.staffId) : null;
     const schema = await resultSignatureRoleSchema();
     const emptyResolution = () => ({ classTeacher: { name: teacher?.fullName ?? null, phone: teacher?.phone ?? null, signature: null }, headteacher: { name: headteacherFor()?.fullName ?? null, phone: headteacherFor()?.phone ?? null, signature: null } });
-    if (!schema.ready || !schemaHas(schema, 'school_id') || !schemaHas(schema, 'active')) return emptyResolution();
+    if (!schema.ready || !schemaHas(schema, 'school_id')) return emptyResolution();
     const find = async (signatoryRole, scopedClass, staffId) => {
-      const predicates = ['`school_id`=?', `${schema.roleExpression}=?`, '`active`=1'];
+      const predicates = ['`school_id`=?', `${schema.roleExpression}=?`];
+      if (schemaHas(schema, 'active')) predicates.push('`active`=1');
       const params = [schoolId, signatoryRole];
       for (const [column, value] of [['class_id', scopedClass], ['staff_id', staffId], ['academic_year', context.academicYear ?? null], ['term', context.term ?? null]]) {
         if (!schemaHas(schema, column)) continue;

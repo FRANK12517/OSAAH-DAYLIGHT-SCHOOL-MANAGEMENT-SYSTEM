@@ -144,6 +144,37 @@ test('signature save includes legacy signature_type and signature_url in the liv
   assert.equal(inserted.processed_image_data, uploadInput({}).processedImageData);
 });
 
+test('signature schema rechecks when active is missing and saves using legacy active defaults', async () => {
+  const columns = new Set(['id', 'school_id', 'staff_id', 'signature_type', 'class_id', 'academic_year', 'signature_url', 'role', 'signatory_role', 'storage_key', 'mime_type', 'document_size', 'uploaded_by', 'uploaded_at', 'updated_at', 'full_name', 'phone_number', 'term', 'processed_image_data']);
+  const statements = [];
+  const database = {
+    async query(sql) {
+      if (sql.includes('information_schema.COLUMNS')) return [...columns].map((columnName) => ({ columnName }));
+      statements.push({ sql, params: [] });
+      assert.match(sql, /1 AS active/);
+      return [];
+    },
+    async execute() { return { affectedRows: 1 }; },
+    async transaction(work) { return work({ async execute(sql, params) { statements.push({ sql, params }); return { affectedRows: 1 }; } }); }
+  };
+  const actor = { id: 'head', roleKey: 'HEADTEACHER', schoolId: 'school-osaah-daylight', permissions: new Set(['*']) };
+  const service = createSignatureService({ database });
+  const input = uploadInput({ signatoryRole: 'HEADTEACHER', fullName: 'Headteacher One', phone: '0241234569' });
+  await service.uploadDurable(input, actor);
+  let inserts = statements.filter(({ sql }) => sql.startsWith('INSERT INTO result_signatures'));
+  assert.equal(inserts.length, 1);
+  assert.doesNotMatch(inserts[0].sql, /`active`/);
+  assert.equal(statements.some(({ sql }) => sql.startsWith('UPDATE result_signatures')), false);
+
+  await service.listDurable(actor);
+  columns.add('active');
+  await service.uploadDurable(input, actor);
+  inserts = statements.filter(({ sql }) => sql.startsWith('INSERT INTO result_signatures'));
+  assert.equal(inserts.length, 2);
+  assert.match(inserts[1].sql, /`active`/);
+  assert.equal(statements.filter(({ sql }) => sql.startsWith('UPDATE result_signatures')).length, 1);
+});
+
 test('management and result-slip contracts preserve phone, print, and PDF-safe signature output', () => {
   const page = fs.readFileSync(new URL('../public/result-signatures.html', import.meta.url), 'utf8');
   const renderer = fs.readFileSync(new URL('../public/result-view.js', import.meta.url), 'utf8');
