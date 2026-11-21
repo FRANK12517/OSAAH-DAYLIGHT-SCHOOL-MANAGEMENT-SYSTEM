@@ -19,6 +19,7 @@ function adapter({ failOn = null, initialApplication = application(), authorized
       if (sql.includes("FROM roles WHERE school_id=? AND role_key='PARENT'")) return [{ id: 'role-parent-1' }];
       if (sql.includes('FROM users WHERE school_id=')) return [{ id: 'parent-1' }];
       if (sql.includes('SELECT s.id AS id,s.id AS studentId') && sql.includes('JOIN users pu')) return authorized ? [{ id: 'student-1', studentId: 'student-1', student_id: 'student-1', permanentStudentId: 'OSAAH/2026/0001', permanent_student_id: 'OSAAH/2026/0001', studentProfileId: 'profile-1', student_profile_id: 'profile-1', classId: 'class-1', class_id: 'class-1', firstName: 'Ama', lastName: 'Mensah', className: 'Primary 1' }] : [];
+      if (sql.includes('SELECT s.id AS id,s.id AS studentId') && sql.includes('JOIN parent_student_links psl')) return authorized ? [{ id: 'STD-000001', studentId: 'STD-000001', student_id: 'STD-000001', permanentStudentId: params[2], permanent_student_id: params[2], studentProfileId: 'profile-1', student_profile_id: 'profile-1', classId: 'class-1', class_id: 'class-1' }] : [];
       if (sql.includes('SELECT e.class_id AS classId')) return authorized ? [{ classId: params[5], termId: params[6] }] : [];
       if (sql.includes('SELECT * FROM students WHERE id=')) return state.students.filter((row) => row.id === params[0] && row.permanent_student_id === params[1]);
       if (sql.includes('JOIN student_profiles')) return authorized ? [{ student_id: 'STD-000001', permanent_student_id: params[4], student_profile_id: 'profile-1', class_id: 'class-1' }] : [];
@@ -81,8 +82,8 @@ function phoneLinkAdapter() {
         return student ? { id: student.id, studentId: student.id, student_id: student.id, permanentStudentId: student.permanent_student_id, permanent_student_id: student.permanent_student_id, studentProfileId: student.profile_id, student_profile_id: student.profile_id, classId: student.class_id, class_id: student.class_id, firstName: student.first_name, lastName: student.last_name, className: 'KG 1' } : null;
       }).filter(Boolean);
       if (sql.includes('JOIN parent_student_links psl') && sql.includes('s.permanent_student_id=?')) {
-        const student = state.students.find((item) => item.permanent_student_id === params.at(-1) && item.school_id === params[3]);
-        const linked = state.links.some((link) => link.parent_user_id === params[1] && link.student_id === student?.profile_id && link.link_status === params[2]);
+        const student = state.students.find((item) => (item.permanent_student_id === params.at(-2) || item.id === params.at(-1)) && item.school_id === params[1]);
+        const linked = state.links.some((link) => link.parent_user_id === params[0] && link.student_id === student?.profile_id && link.link_status === 'ACTIVE');
         return student && linked ? [{ id: student.id, studentId: student.id, student_id: student.id, permanentStudentId: student.permanent_student_id, permanent_student_id: student.permanent_student_id, gender: 'Female', studentStatus: student.student_status, studentProfileId: student.profile_id, student_profile_id: student.profile_id, classId: student.class_id, class_id: student.class_id }] : [];
       }
       return [];
@@ -192,6 +193,23 @@ test('Parent lookup repairs existing links from normalized guardian phones witho
   const again = await service.listParentStudents({ parentUserId: 'parent-1', schoolId: 'school-1' });
   assert.equal(again.length, 2);
   assert.equal(state.links.length, 2, 'repeated lookup is idempotent');
+});
+
+test('Parent authorization accepts the dropdown Permanent Student ID when legacy profile identity differs', async () => {
+  const { api, state } = phoneLinkAdapter();
+  const service = createAdmissionEnrollmentService({ database: api });
+  const [dropdownChild] = await service.listParentStudents({ parentUserId: 'parent-1', schoolId: 'school-1' });
+  assert.equal(dropdownChild.permanentStudentId, 'OSAAH/2026/0001');
+
+  // A legacy profile can be correctly linked by profile ID and master ID even
+  // when its compatibility student_id is not the displayed Permanent ID.
+  state.students[0].student_id = 'LEGACY-PROFILE-IDENTITY';
+  const authorized = await service.authorizeParentStudent({ parentUserId: 'parent-1', schoolId: 'school-1', permanentStudentId: dropdownChild.permanentStudentId });
+  assert.equal(authorized.permanentStudentId, dropdownChild.permanentStudentId);
+  const lookup = state.calls.find(({ sql }) => sql.includes('JOIN parent_student_links psl') && sql.includes('s.permanent_student_id=?'));
+  assert.match(lookup.sql, /sp\.student_master_id=s\.id/);
+  assert.doesNotMatch(lookup.sql, /sp\.student_id=s\.permanent_student_id OR sp\.student_id=\?/);
+  assert.match(lookup.sql, /s\.permanent_student_id=\? OR s\.id=\?/);
 });
 
 test('Parent historical class authorization binds child relationship, school, year, term, and class', async () => {

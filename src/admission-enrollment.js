@@ -45,7 +45,8 @@ export function createAdmissionEnrollmentService({ database, clock = () => new D
       const parameters = [schoolId, ...phoneFields.flatMap(() => lookupValues), ...(permanentStudentId ? [permanentStudentId] : []), parentUserId];
       const studentFilter = permanentStudentId ? ' AND s.permanent_student_id=?' : '';
       const candidates = rows(await tx.query(`SELECT DISTINCT s.id AS id,s.permanent_student_id AS permanentStudentId,sp.id AS studentProfileId
-        FROM students s JOIN student_profiles sp ON sp.student_master_id=s.id AND sp.school_id=s.school_id
+        FROM students s JOIN student_profiles sp ON sp.school_id=s.school_id
+          AND (sp.student_master_id=s.id OR (sp.student_master_id IS NULL AND sp.student_id=s.permanent_student_id))
         ${familyTableExists ? 'LEFT JOIN student_family_contacts fc ON fc.student_id=sp.id' : ''}
         WHERE s.school_id=? AND s.is_test_record IS FALSE
           AND UPPER(COALESCE(s.student_status,'ACTIVE')) NOT IN ('INACTIVE','WITHDRAWN','TRANSFERRED','TRANSFERRED_OUT','COMPLETED','GRADUATED','DELETED','ARCHIVED')
@@ -66,10 +67,20 @@ export function createAdmissionEnrollmentService({ database, clock = () => new D
 
   async function authorizeParentStudent({ parentUserId, permanentStudentId, schoolId }) {
     if (!parentUserId || !permanentStudentId || !schoolId) fail('PARENT_STUDENT_SCOPE_REQUIRED', 'Parent, student, and school scope are required.', 400);
-    const findLinkedStudent = async () => rows(await database.query('SELECT s.id AS id,s.id AS studentId,s.id AS student_id,s.permanent_student_id AS permanentStudentId,s.permanent_student_id,s.gender,s.student_status AS studentStatus,sp.id AS studentProfileId,sp.id AS student_profile_id,sp.class_id AS classId,sp.class_id FROM students s JOIN student_profiles sp ON sp.student_master_id=s.id AND (sp.student_id=s.permanent_student_id OR sp.student_id=?) JOIN parent_student_links psl ON psl.student_id=sp.id AND psl.parent_user_id=? AND psl.link_status=? WHERE s.school_id=? AND s.permanent_student_id=? AND s.is_test_record IS FALSE LIMIT 1', [permanentStudentId, parentUserId, 'ACTIVE', schoolId, permanentStudentId]))[0];
+    const requestedId = String(permanentStudentId).trim();
+    const findLinkedStudent = async () => rows(await database.query(`SELECT s.id AS id,s.id AS studentId,s.id AS student_id,
+      s.permanent_student_id AS permanentStudentId,s.permanent_student_id,s.gender,
+      s.student_status AS studentStatus,sp.id AS studentProfileId,sp.id AS student_profile_id,
+      sp.class_id AS classId,sp.class_id
+      FROM students s
+      JOIN student_profiles sp ON sp.school_id=s.school_id
+        AND (sp.student_master_id=s.id OR (sp.student_master_id IS NULL AND sp.student_id=s.permanent_student_id))
+      JOIN parent_student_links psl ON psl.student_id=sp.id AND psl.parent_user_id=? AND psl.link_status='ACTIVE'
+      WHERE s.school_id=? AND (s.permanent_student_id=? OR s.id=?) AND s.is_test_record IS FALSE
+      LIMIT 1`, [parentUserId, schoolId, requestedId, requestedId]))[0];
     let result = await findLinkedStudent();
     if (!result) {
-      await linkPhoneMatchedStudents({ parentUserId, schoolId, permanentStudentId });
+      await linkPhoneMatchedStudents({ parentUserId, schoolId, permanentStudentId: requestedId });
       result = await findLinkedStudent();
     }
     if (!result) fail('PARENT_STUDENT_FORBIDDEN', 'You are not authorized to access this student.', 403);
@@ -87,7 +98,8 @@ export function createAdmissionEnrollmentService({ database, clock = () => new D
       FROM parent_student_links psl
       JOIN users pu ON pu.id=psl.parent_user_id AND pu.school_id=?
       JOIN student_profiles sp ON sp.id=psl.student_id AND sp.school_id=pu.school_id
-      JOIN students s ON s.id=sp.student_master_id AND s.school_id=pu.school_id
+      JOIN students s ON s.school_id=sp.school_id
+        AND (s.id=sp.student_master_id OR (sp.student_master_id IS NULL AND sp.student_id=s.permanent_student_id))
       LEFT JOIN classes c ON c.id=sp.class_id AND c.school_id=pu.school_id
       WHERE psl.parent_user_id=? AND psl.link_status='ACTIVE' AND s.school_id=? AND s.is_test_record IS FALSE
       ORDER BY s.permanent_student_id,s.id`, [schoolId, parentUserId, schoolId]));
@@ -100,7 +112,8 @@ export function createAdmissionEnrollmentService({ database, clock = () => new D
       FROM parent_student_links psl
       JOIN users pu ON pu.id=psl.parent_user_id AND pu.school_id=? AND UPPER(COALESCE(pu.status,'ACTIVE'))='ACTIVE'
       JOIN student_profiles sp ON sp.id=psl.student_id AND sp.school_id=pu.school_id
-      JOIN students s ON s.id=sp.student_master_id AND s.school_id=sp.school_id
+      JOIN students s ON s.school_id=sp.school_id
+        AND (s.id=sp.student_master_id OR (sp.student_master_id IS NULL AND sp.student_id=s.permanent_student_id))
       JOIN student_enrollments e ON e.student_id=s.id AND e.school_id=s.school_id
       WHERE psl.parent_user_id=? AND psl.link_status='ACTIVE' AND s.school_id=?
         AND s.permanent_student_id=? AND e.academic_year_id=? AND e.class_id=?
