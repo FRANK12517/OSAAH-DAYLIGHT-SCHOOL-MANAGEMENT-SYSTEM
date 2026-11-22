@@ -36,7 +36,14 @@ function mockDatabase() {
       if (sql.includes('FROM student_profiles')) return [{ id: 'profile-1' }];
       return [];
     },
-    async execute(sql, params = []) { executes.push({ sql, params }); return { affectedRows: 1 }; }
+    async execute(sql, params = []) {
+      executes.push({ sql, params });
+      if (sql.includes('INSERT INTO academic_score_records')) {
+        const placeholderCount = (sql.match(/\?/g) || []).length;
+        if (placeholderCount !== params.length) throw new Error("Column count doesn't match value count at row 1");
+      }
+      return { affectedRows: 1 };
+    }
   };
   return database;
 }
@@ -70,6 +77,11 @@ test('durable Mock scores accept 0 and 100, reject invalid bounds, and never use
   assert.match(enrollmentQuery.sql, /e\.term_id=\?/);
   assert.deepEqual(enrollmentQuery.params, [schoolId, 'student-1', 'class-jhs-1', 'year-2026', 'term-1']);
   assert.equal(database.executes[0].params[5], 'term-1');
+  const insert = database.executes.find(({ sql }) => sql.includes('INSERT INTO academic_score_records'));
+  const [, columns, values] = insert.sql.match(/INSERT INTO academic_score_records \(([^)]+)\) VALUES \(([^)]+)\)/);
+  assert.equal(columns.split(',').length, 18);
+  assert.equal((values.match(/\?/g) || []).length, 18);
+  assert.equal(insert.params.length, 18);
   const hundred = await service.saveMockScore({ ...base, totalScore: 100 }, manager);
   assert.equal(hundred.totalScore, 100);
   await assert.rejects(() => service.saveMockScore({ ...base, totalScore: 101 }, manager), /between 0 and 100/);
@@ -121,7 +133,12 @@ test('Mock Score Entry uses authenticated class-scoped subject requests and expo
   assert.match(client, /JHS_CLASSES/);
   assert.match(client, /\/api\/subjects\?\$\{query\}/);
   assert.match(client, /credentials: 'same-origin'/);
-  assert.match(client, /totalScore < 0 \|\| totalScore > 100/);
+  assert.match(client, /value < 0 \|\| value > 100/);
+  assert.match(client, /setTimeout\(\(\) => \{ state\.timer = null; saveRow\(row\); \}, delay\)/);
+  assert.match(client, /scheduleSave\(row\)/);
+  assert.match(client, /Saving…/);
+  assert.match(client, /Error saving/);
+  assert.doesNotMatch(client, /<button class="text-button save"/);
   assert.doesNotMatch(client, /api\('\/api\/subjects'\)/);
   assert.match(html, /<th>GENDER<\/th>/);
   const resultPage = fs.readFileSync(new URL('../public/mock-results.html', import.meta.url), 'utf8');

@@ -953,7 +953,7 @@ export function createDurableAcademicService({ database, schoolId, signatures = 
     else {
       const profile = rows(await database.query('SELECT id FROM student_profiles WHERE school_id=? AND (student_master_id=? OR student_id=?) LIMIT 1', [schoolId, studentId, enrolled.permanent_student_id]))[0];
       if (!profile) fail('Student profile is unavailable for score persistence.', 409);
-      await database.execute('INSERT INTO academic_score_records (id,school_id,record_type,mock_label,academic_year_id,term_id,class_id,student_id,subject_id,ca_score,ca_max,examination_score,examination_max,total_score,grade,remark,entered_by,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [scoreId, schoolId, 'MOCK', mockLabel, period.yearId, period.termId, classId, profile.id, subjectId, 0, 0, totalScore, 100, totalScore, grade, remark, actor.id, clock()]);
+      await database.execute('INSERT INTO academic_score_records (id,school_id,record_type,mock_label,academic_year_id,term_id,class_id,student_id,subject_id,ca_score,ca_max,examination_score,examination_max,total_score,grade,remark,entered_by,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [scoreId, schoolId, 'MOCK', mockLabel, period.yearId, period.termId, classId, profile.id, subjectId, 0, 0, totalScore, 100, totalScore, grade, remark, actor.id, clock()]);
     }
     return { id: scoreId, schoolId, studentId, permanentStudentId: enrolled.permanent_student_id, classId, subjectId, mockLabel, academicYear: period.yearName, term: period.termName, caScore: null, examScore: null, totalScore, grade, remark, saved: true };
   }

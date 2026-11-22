@@ -65,6 +65,9 @@ test('Mock Result Slip loads linked attendance before rendering and does not exp
   assert.match(client, /permanentStudentId:String\(x\.studentIndexNumber\|\|x\.permanentStudentId\|\|''\)/);
   assert.match(client, /attendance:attendanceSummary/);
   assert.match(client, /attendanceSummaryUnavailable/);
+  assert.match(client, /attendanceSummaryUnavailable=false,attendanceError=null/);
+  assert.match(client, /catch\(error\)\{attendanceSummary=\{timesPresent:null,timesAbsent:null,totalSchoolDays:null\};attendanceSummaryUnavailable=true;attendanceError=error;\}/);
+  assert.match(client, /attendanceError\?\.code==='ATTENDANCE_RECORDS_NOT_FOUND'/);
   assert.match(client, /setInterval\(\(\)=>refreshLinkedAttendance\(context,version\),60000\)/);
   assert.match(client, /document\.addEventListener\('visibilitychange'/);
   assert.doesNotMatch(client, /data-attendance="timesPresent" type="number"/);
