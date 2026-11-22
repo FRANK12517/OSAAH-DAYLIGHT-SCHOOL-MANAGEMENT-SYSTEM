@@ -37,7 +37,7 @@ test('publication compares current assessment/version and only exposes a publish
 test('final result slip keeps publication controls and all required visible sections', () => {
   const html = fs.readFileSync(new URL('../public/results.html', import.meta.url), 'utf8');
   const client = fs.readFileSync(new URL('../public/result-view.js', import.meta.url), 'utf8');
-  for (const text of ['Examination Results', 'Class Score', 'Exam Score', 'Total Score', 'Subject Position', 'Grade', 'Remark', 'Conduct', 'Attitude', 'Interest', 'Class Teacher Remarks', 'Headteacher Remarks', 'Times Present', 'Times Absent', 'Total School Days', 'CLASS_TEACHER', 'HEADTEACHER']) assert.match(client, new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  for (const text of ['Examination Results', 'Class Score', 'Exam Score', 'Total Score', 'Subject Position', 'Grade', 'Remark', 'Conduct', 'Attitude', 'Interest', "Class Teacher's Remarks", "Headteacher's Remarks", 'Times Present', 'Times Absent', 'Total School Days', 'CLASS_TEACHER', 'HEADTEACHER']) assert.match(client, new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   assert.match(client, /Publish Result/); assert.match(client, /expectedVersion/); assert.match(html, /result-slip/); assert.match(html, /border:2px solid #102a43/); assert.match(html, /border:2px solid #d4a72c/);
   assert.match(client, /Result published successfully and made accessible on the Parent Portal/);
   assert.match(client, /permanentStudentId: x\.studentIndexNumber \|\| x\.permanentStudentId/);
