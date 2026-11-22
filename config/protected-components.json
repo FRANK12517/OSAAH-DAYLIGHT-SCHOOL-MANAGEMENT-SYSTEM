@@ -66,7 +66,9 @@
             "id=\"attendance-mobile-cards\"",
             "id=\"save-attendance\"",
             "id=\"attendance-sample-mode\"",
-            "id=\"attendance-date\""
+            "id=\"attendance-date\"",
+            "id=\"attendance-register-audit\"",
+            "id=\"edit-marked-register\""
           ]
         },
         {
@@ -79,7 +81,9 @@
             "attendanceData",
             "function isReadOnly",
             "changedEntries.push",
-            "Changing register mode will discard unsaved attendance marks"
+            "Changing register mode will discard unsaved attendance marks",
+            "verifySchoolDayForEditing",
+            "Edit Marked Register"
           ]
         },
         {
@@ -88,7 +92,9 @@
             "attendanceRegister.resolvePeriod",
             "attendanceRegister.enrolledStudents",
             "attendanceRegister.saveSampleAttendance",
-            "ATTENDANCE_CORRECTION_FORBIDDEN",
+            "canUseStudentAttendanceRegister",
+            "ATTENDANCE_DATE_CLOSED",
+            "async function attendanceMarker",
             "success: false, data: null"
           ]
         },
@@ -124,7 +130,9 @@
             "HTTP Sample / Test saves use isolated fixtures",
             "attendance endpoints preserve 401/403",
             "genuine empty enrollment set",
-            "attendance batch corrections require attendance.correct"
+            "attendance prior-day register corrections are rejected",
+            "every registered teacher, headteacher, and proprietor",
+            "same-day edits are allowed for teachers"
           ]
         },
         {

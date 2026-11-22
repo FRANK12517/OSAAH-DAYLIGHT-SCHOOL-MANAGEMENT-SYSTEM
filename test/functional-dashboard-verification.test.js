@@ -70,7 +70,7 @@ test('Class Database options do not require Fee Hub permissions for authorized t
     assert.equal(response.status, 200, response.body);
     const body = JSON.parse(response.body);
     assert.deepEqual(body.academicYears, ['2026/2027']);
-    assert.deepEqual(body.classes, ['KG1']);
+    assert.deepEqual(body.classes, ['Nursery 1', 'Nursery 2', 'KG1', 'KG2', 'Primary 1', 'Primary 2', 'Primary 3', 'Primary 4', 'Primary 5', 'Primary 6', 'JHS 1', 'JHS 2', 'JHS 3']);
   } finally { await closeHttpServer(server); }
 });
 

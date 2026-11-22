@@ -26,7 +26,7 @@ test('database login selects the requested role and scopes permissions to that r
   assert.equal(auth.authenticate(defaultLogin.token).permissions.has('marks.write'), false);
   const teacherLogin = await auth.loginFromDatabase({ username: 'multi@example.test', password, portal: 'school', role: 'TEACHER' });
   assert.equal(teacherLogin.user.roleKey, 'TEACHER');
-  assert.deepEqual([...auth.authenticate(teacherLogin.token).permissions], ['marks.write']);
+  assert.deepEqual([...auth.authenticate(teacherLogin.token).permissions], ['marks.write', 'attendance.register.read', 'attendance.register.write']);
   assert.equal(auth.authenticate(teacherLogin.token).roleKey, 'TEACHER');
   assert.equal(auth.authenticate(teacherLogin.token).permissions.has('results.publish'), false);
 });

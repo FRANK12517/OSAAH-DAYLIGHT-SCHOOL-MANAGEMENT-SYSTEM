@@ -107,9 +107,9 @@ test('sample-mode attendance writes only the dedicated sample fixture repository
   assert.equal(fixtureCalls.find((call) => call.operation === 'write').actor.permissions.has('sample.fixtures.write'), true);
 });
 
-function makeUser(id, permissions = ['attendance.read', 'attendance.write']) {
+function makeUser(id, permissions = ['attendance.read', 'attendance.write'], roleKey = 'HEADTEACHER') {
   const salt = `${id}-salt`;
-  return { id, username: `${id}@example.test`, passwordHash: `${salt}:${scryptSync(PASSWORD, salt, 32).toString('hex')}`, portal: 'school', roleKey: 'HEADTEACHER', schoolId: DEFAULT_PRODUCTION_SCHOOL_ID, permissions: new Set(permissions) };
+  return { id, username: `${id}@example.test`, fullName: `Registered ${id}`, passwordHash: `${salt}:${scryptSync(PASSWORD, salt, 32).toString('hex')}`, portal: 'school', roleKey, schoolId: DEFAULT_PRODUCTION_SCHOOL_ID, permissions: new Set(permissions) };
 }
 async function startApp(t, app) {
   const server = createServer(app);
@@ -262,7 +262,7 @@ test('HTTP register query failures are caught and always returned as safe JSON',
 });
 
 test('attendance endpoints preserve 401/403 authorization and return documented JSON error payloads', async (t) => {
-  const restricted = makeUser('register-reader-restricted', ['students.read']);
+  const restricted = makeUser('register-reader-restricted', ['students.read'], 'ACCOUNTANT_BURSAR');
   const auth = createAuthService({ users: [restricted], sessionSecret: SECRET });
   const app = createApp({ auth, database: databaseStub(), schoolSettings: { async read() { return { settings: [] }; } }, students: createStudentService({ schoolId: restricted.schoolId }), aiEnabled: false });
   const base = await startApp(t, app);
@@ -279,7 +279,7 @@ test('attendance endpoints preserve 401/403 authorization and return documented 
   assert.match(missing.headers.get('content-type'), /application\/json/);
 });
 
-test('attendance batch corrections require attendance.correct and stale rows cannot be recreated', async (t) => {
+test('attendance prior-day register corrections are rejected even when a version is supplied', async (t) => {
   const writer = makeUser('register-writer-only');
   const corrector = makeUser('register-authorized-corrector', ['attendance.read', 'attendance.write', 'attendance.correct']);
   const auth = createAuthService({ users: [writer, corrector], sessionSecret: SECRET });
@@ -289,13 +289,90 @@ test('attendance batch corrections require attendance.correct and stale rows can
   const body = { sampleMode: false, entries: [{ studentId: 'profile-1', version: 1, classId: 'class-1', academicYear: '2026/2027', term: 'First Term', date: DATE, status: 'PRESENT', method: 'MANUAL' }] };
   const writerToken = auth.login({ username: writer.username, password: PASSWORD, portal: 'school', role: writer.roleKey }).token;
   const forbidden = await fetch(`${base}/api/attendance/students/sync`, { method: 'POST', headers: { authorization: `Bearer ${writerToken}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
-  assert.equal(forbidden.status, 403);
-  assert.equal((await forbidden.json()).code, 'ATTENDANCE_CORRECTION_FORBIDDEN');
+  assert.equal(forbidden.status, 409);
+  assert.equal((await forbidden.json()).code, 'ATTENDANCE_DATE_CLOSED');
   const correctorToken = auth.login({ username: corrector.username, password: PASSWORD, portal: 'school', role: corrector.roleKey }).token;
   const stale = await fetch(`${base}/api/attendance/students/sync`, { method: 'POST', headers: { authorization: `Bearer ${correctorToken}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
   assert.equal(stale.status, 409);
-  assert.equal((await stale.json()).code, 'ATTENDANCE_VERSION_CONFLICT');
+  assert.equal((await stale.json()).code, 'ATTENDANCE_DATE_CLOSED');
   assert.equal(database.executed.some(({ sql }) => sql.includes('INSERT INTO student_attendance')), false);
+});
+
+test('every registered teacher, headteacher, and proprietor can select any class and save a school-scoped register', async (t) => {
+  const teacher = makeUser('register-any-class-teacher', undefined, 'TEACHER');
+  const headteacher = makeUser('register-any-class-headteacher', undefined, 'HEADTEACHER');
+  const proprietor = makeUser('register-any-class-proprietor', ['*'], 'PROPRIETOR');
+  const auth = createAuthService({ users: [teacher, headteacher, proprietor], sessionSecret: SECRET });
+  const students = createStudentService({ schoolId: teacher.schoolId });
+  const attendance = createAttendanceService({ schoolId: teacher.schoolId, now: () => `${DATE}T12:00:00.000Z` });
+  const entries = [
+    { user: teacher, classId: 'Nursery 1', firstName: 'Ama' },
+    { user: headteacher, classId: 'KG1', firstName: 'Kojo' },
+    { user: proprietor, classId: 'JHS 3', firstName: 'Esi' }
+  ].map((item) => ({ ...item, student: students.createStudent({ firstName: item.firstName, surname: item.classId.replaceAll(' ', ''), classId: item.classId, academicYearId: '2026/2027', termId: '1st Term', admissionDate: DATE }) }));
+  const attendanceRegisterService = createAttendanceRegisterService({ students, attendance, now: () => new Date(`${DATE}T12:00:00.000Z`) });
+  const app = createApp({ auth, students, attendance, attendanceRegisterService, aiEnabled: false });
+  const base = await startApp(t, app);
+  for (const item of entries) {
+    const token = auth.login({ username: item.user.username, password: PASSWORD, portal: 'school', role: item.user.roleKey }).token;
+    const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
+    const optionsResponse = await fetch(`${base}/api/attendance/options`, { headers });
+    assert.equal(optionsResponse.status, 200, `${item.user.roleKey} should load class options`);
+    const options = await optionsResponse.json();
+    assert.ok(options.classes.some((option) => option.id === item.classId), `${item.user.roleKey} should select ${item.classId}`);
+    const query = new URLSearchParams({ classId: item.classId, academicYear: '2026/2027', term: '1st Term', date: DATE });
+    const registerResponse = await fetch(`${base}/api/attendance/register?${query}`, { headers });
+    assert.equal(registerResponse.status, 200, `${item.user.roleKey} should load any selected class`);
+    const register = await registerResponse.json();
+    assert.equal(register.register[0].studentId, item.student.id);
+    const saveResponse = await fetch(`${base}/api/attendance/students/sync`, { method: 'POST', headers, body: JSON.stringify({ markedBy: 'Client supplied fake name', entries: [{ studentId: item.student.id, classId: item.classId, academicYear: '2026/2027', term: '1st Term', date: DATE, status: 'PRESENT', method: 'MANUAL' }] }) });
+    assert.equal(saveResponse.status, 200, `${item.user.roleKey} should save selected class attendance`);
+    const saved = await saveResponse.json();
+    assert.equal(saved.marker.markedBy, item.user.fullName);
+    assert.equal(saved.marker.markedByRole, item.user.roleKey);
+    assert.ok(saved.marker.markedAt);
+    const reload = await fetch(`${base}/api/attendance/register?${query}`, { headers });
+    const loaded = await reload.json();
+    assert.equal(loaded.marker.markedBy, item.user.fullName);
+    assert.equal(loaded.canEdit, true);
+  }
+});
+
+test('same-day edits are allowed for teachers while prior-day records are read-only and school scoped', async (t) => {
+  const teacher = makeUser('register-same-day-teacher', undefined, 'TEACHER');
+  const outsider = makeUser('register-other-role', ['attendance.read', 'attendance.write'], 'ACCOUNTANT_BURSAR');
+  const auth = createAuthService({ users: [teacher, outsider], sessionSecret: SECRET });
+  const students = createStudentService({ schoolId: teacher.schoolId });
+  const attendance = createAttendanceService({ schoolId: teacher.schoolId, now: () => `${DATE}T12:00:00.000Z` });
+  const student = students.createStudent({ firstName: 'Mabel', surname: 'Learner', classId: 'Nursery 2', academicYearId: '2026/2027', termId: '1st Term', admissionDate: DATE });
+  const attendanceRegisterService = createAttendanceRegisterService({ students, attendance, now: () => new Date(`${DATE}T12:00:00.000Z`) });
+  const app = createApp({ auth, students, attendance, attendanceRegisterService, aiEnabled: false });
+  const base = await startApp(t, app);
+  const token = auth.login({ username: teacher.username, password: PASSWORD, portal: 'school', role: 'TEACHER' }).token;
+  const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
+  const save = async (date, version, status = 'PRESENT') => fetch(`${base}/api/attendance/students/sync`, { method: 'POST', headers, body: JSON.stringify({ entries: [{ studentId: student.id, version, classId: 'Nursery 2', academicYear: '2026/2027', term: '1st Term', date, status, reason: status === 'LATE' ? 'Traffic' : null, method: 'MANUAL' }] }) });
+  const created = await save(DATE, null);
+  assert.equal(created.status, 200);
+  const edited = await save(DATE, 1, 'LATE');
+  assert.equal(edited.status, 200, 'a teacher can update an existing mark on the current school day');
+  const previousDate = '2026-10-09';
+  attendance.saveStudentAttendance({ studentId: student.id, classId: 'Nursery 2', academicYear: '2026/2027', term: '1st Term', date: previousDate, status: 'PRESENT', method: 'MANUAL' }, teacher);
+  const previousQuery = new URLSearchParams({ classId: 'Nursery 2', academicYear: '2026/2027', term: '1st Term', date: previousDate });
+  const previousRegister = await fetch(`${base}/api/attendance/register?${previousQuery}`, { headers });
+  const loaded = await previousRegister.json();
+  assert.equal(loaded.canEdit, false);
+  const closed = await save(previousDate, 1, 'LATE');
+  assert.equal(closed.status, 409);
+  assert.equal((await closed.json()).code, 'ATTENDANCE_DATE_CLOSED');
+  const outsiderToken = auth.login({ username: outsider.username, password: PASSWORD, portal: 'school', role: 'ACCOUNTANT_BURSAR' }).token;
+  const denied = await fetch(`${base}/api/attendance/options`, { headers: { authorization: `Bearer ${outsiderToken}` } });
+  assert.equal(denied.status, 403);
+  const otherSchoolStudents = createStudentService({ schoolId: 'different-school' });
+  otherSchoolStudents.createStudent({ firstName: 'Different', surname: 'Identity', classId: 'Nursery 1', academicYearId: '2026/2027', termId: '1st Term' });
+  const otherSchoolStudent = otherSchoolStudents.createStudent({ firstName: 'Outside', surname: 'School', classId: 'Nursery 2', academicYearId: '2026/2027', termId: '1st Term' });
+  const crossSchool = await fetch(`${base}/api/attendance/students/sync`, { method: 'POST', headers, body: JSON.stringify({ entries: [{ studentId: otherSchoolStudent.id, classId: 'Nursery 2', academicYear: '2026/2027', term: '1st Term', date: DATE, status: 'PRESENT', method: 'MANUAL' }] }) });
+  assert.equal(crossSchool.status, 400);
+  assert.equal((await crossSchool.json()).code, 'ATTENDANCE_ENROLLMENT_INVALID');
 });
 
 test('malformed and oversized attendance request bodies return controlled JSON errors', async (t) => {
@@ -348,10 +425,13 @@ test('attendance page keeps semantic controls and shows mobile cards through tab
     readFile(new URL('../public/styles.css', import.meta.url), 'utf8'),
     readFile(new URL('../public/attendance-register.js', import.meta.url), 'utf8')
   ]);
-  for (const id of ['attendance-class', 'attendance-academic-year', 'attendance-term', 'attendance-date', 'attendance-sample-mode', 'attendance-mobile-cards', 'attendance-status']) assert.ok(html.includes(id), `expected register element ${id}`);
+  for (const id of ['attendance-class', 'attendance-academic-year', 'attendance-term', 'attendance-date', 'attendance-sample-mode', 'attendance-mobile-cards', 'attendance-status', 'attendance-register-audit', 'edit-marked-register']) assert.ok(html.includes(id), `expected register element ${id}`);
   assert.match(css, /@media\(max-width:1023px\).*attendance-mobile-cards\{display:block\}/s);
   assert.match(css, /\.attendance-page\{box-sizing:border-box;width:calc\(100% - 32px\);max-width:1220px/);
   assert.match(script, /Changing register mode will discard unsaved attendance marks/);
+  assert.match(script, /verifySchoolDayForEditing/);
+  assert.match(script, /Selection changed\. Load the selected class register to continue/);
+  assert.match(script, /Edit Marked Register/);
   assert.match(script, /requestAttendanceJson/);
   assert.match(script, /attendance:save-confirmed/);
 });

@@ -107,7 +107,18 @@ for (const roleKey of ['HEADTEACHER', 'ASSISTANT_HEADTEACHER']) ROLE_PERMISSIONS
 ROLE_PERMISSIONS.HEADTEACHER.push('messages.sms.send');
 export function canonicalRoleKey(roleKey) { const normalized = String(roleKey ?? '').trim().toUpperCase().replace(/[\s-]+/g, '_'); return SCHOOL_PORTAL_ROLE_ALIASES[normalized] ?? normalized; }
 
-function addStaffAttendanceRoleGrants(user) { if (['HEADTEACHER', 'ASSISTANT_HEADTEACHER'].includes(canonicalRoleKey(user?.roleKey))) { user.permissions.add('staff.attendance.read'); user.permissions.add('staff.attendance.write'); } return user; }
+function addStaffAttendanceRoleGrants(user) {
+  const role = canonicalRoleKey(user?.roleKey);
+  if (['TEACHER', 'HEADTEACHER', 'PROPRIETOR'].includes(role)) {
+    user.permissions.add('attendance.register.read');
+    user.permissions.add('attendance.register.write');
+  }
+  if (['HEADTEACHER', 'ASSISTANT_HEADTEACHER'].includes(role)) {
+    user.permissions.add('staff.attendance.read');
+    user.permissions.add('staff.attendance.write');
+  }
+  return user;
+}
 
 function passwordHash(password, salt = randomBytes(16).toString('hex')) { return `${salt}:${scryptSync(password, salt, 32).toString('hex')}`; }
 function passwordMatches(password, stored) { const [salt, expected] = stored.split(':'); const actual = scryptSync(password, salt, 32); return timingSafeEqual(actual, Buffer.from(expected, 'hex')); }
@@ -374,7 +385,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, schoolI
   function revokeLocalSession(token, session = verifiedSession(token)) { if (session?.sessionId) revokedSessionIds.add(session.sessionId); if (token) sessions.delete(token); if (session?.sessionId) durableSessionIds.delete(session.sessionId); }
   function isActive(user) { return user.is_active !== false && user.isActive !== false && !['DISABLED', 'REVOKED', 'REMOVED', 'SUSPENDED', 'DEACTIVATED'].includes(String(user.accountStatus ?? '').toUpperCase()); }
   function securityEvent(action, user, sessionId = null) { audit({ action, entity: 'Authentication', entityId: user?.id ?? null, userId: user?.id ?? null, roleId: canonicalRoleKey(user?.roleKey), sessionId }); }
-  function sanitize(user, sessionId = null) { const roleKey = canonicalRoleKey(user.roleKey); const dashboard = user.portal === 'parent' ? '/parent-dashboard' : SCHOOL_PORTAL_DASHBOARDS[roleKey] ?? '/dashboard'; return { id: user.id, username: user.username, portal: user.portal, roleKey, role: roleKey, accountStatus: isActive(user) ? 'ACTIVE' : String(user.accountStatus ?? 'DISABLED').toUpperCase(), schoolId: user.schoolId, sessionId, dashboard, schoolType: user.schoolType, subscription: user.subscription, entitlements: user.entitlements ?? [], featureAvailability: user.featureAvailability ?? [], ...(roleKey === 'PARENT' ? {} : { children: user.children ?? [], authorizedStaffIds: user.authorizedStaffIds ?? [], assignedStudentIds: user.assignedStudentIds ?? [], assignedParentIds: user.assignedParentIds ?? [], assignedClassIds: user.assignedClassIds ?? [], assignedSubjectIds: user.assignedSubjectIds ?? [], assignedDepartmentIds: user.assignedDepartmentIds ?? [] }) }; }
+  function sanitize(user, sessionId = null) { const roleKey = canonicalRoleKey(user.roleKey); const dashboard = user.portal === 'parent' ? '/parent-dashboard' : SCHOOL_PORTAL_DASHBOARDS[roleKey] ?? '/dashboard'; return { id: user.id, username: user.username, ...(user.portal === 'parent' ? {} : { fullName: user.fullName ?? null }), portal: user.portal, roleKey, role: roleKey, accountStatus: isActive(user) ? 'ACTIVE' : String(user.accountStatus ?? 'DISABLED').toUpperCase(), schoolId: user.schoolId, sessionId, dashboard, schoolType: user.schoolType, subscription: user.subscription, entitlements: user.entitlements ?? [], featureAvailability: user.featureAvailability ?? [], ...(roleKey === 'PARENT' ? {} : { children: user.children ?? [], authorizedStaffIds: user.authorizedStaffIds ?? [], assignedStudentIds: user.assignedStudentIds ?? [], assignedParentIds: user.assignedParentIds ?? [], assignedClassIds: user.assignedClassIds ?? [], assignedSubjectIds: user.assignedSubjectIds ?? [], assignedDepartmentIds: user.assignedDepartmentIds ?? [] }) }; }
   function selectAuthorizedRoleRows(rows, requestedRole = null) {
     const normalizedRequested = requestedRole ? canonicalRoleKey(requestedRole) : null;
     const grouped = new Map();
@@ -543,7 +554,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, schoolI
         stage: 'user_query_before', requestId: safeRequestId(diagnosticContext?.requestId) ?? null,
         requestPath: diagnosticContext?.requestPath === '/api/auth/login' ? diagnosticContext.requestPath : null
       });
-      rows = await database.query(`SELECT u.id,u.school_id AS schoolId,COALESCE(u.username,u.email) AS username,u.email,u.password_hash AS passwordHash,u.status,r.role_key AS roleKey,r.oversight_rank AS oversightRank,p.permission_key AS permissionKey
+      rows = await database.query(`SELECT u.id,u.school_id AS schoolId,COALESCE(u.username,u.email) AS username,u.email,u.full_name AS fullName,u.password_hash AS passwordHash,u.status,r.role_key AS roleKey,r.oversight_rank AS oversightRank,p.permission_key AS permissionKey
         FROM users u
         LEFT JOIN user_roles ur ON ur.user_id=u.id
         LEFT JOIN roles r ON r.id=ur.role_id AND (r.school_id=u.school_id OR r.school_id IS NULL)
@@ -673,7 +684,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, schoolI
       });
       const next = throttle ?? { count: 0 }; next.count += 1; if (next.count >= MAX_ATTEMPTS) next.lockedUntil = now() + LOCKOUT_MS; attempts.set(key, next); securityEvent('LOGIN_FAILED', row ? { ...row, roleKey } : null); return { ok: false, status: 401, error: GENERIC_LOGIN_ERROR };
     }
-    const user = addStaffAttendanceRoleGrants({ id: row.id, username: row.username ?? row.email, email: row.email, portal: 'school', roleKey, schoolId: row.schoolId, accountStatus: 'ACTIVE', is_active: true, permissions: new Set(scopedRows.map((candidate) => candidate.permissionKey).filter(Boolean)) });
+    const user = addStaffAttendanceRoleGrants({ id: row.id, username: row.username ?? row.email, email: row.email, fullName: row.fullName ?? null, portal: 'school', roleKey, schoolId: row.schoolId, accountStatus: 'ACTIVE', is_active: true, permissions: new Set(scopedRows.map((candidate) => candidate.permissionKey).filter(Boolean)) });
     if (!user.permissions.size) for (const permission of ROLE_PERMISSIONS[roleKey] ?? []) user.permissions.add(permission);
     await hydrateStaffAssignments(user);
     attempts.delete(key);
@@ -725,7 +736,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, schoolI
     }
     let rows;
     try {
-      rows = await database.query(`SELECT s.id AS sessionId,s.user_id AS userId,s.school_id AS schoolId,s.expires_at AS expiresAt,COALESCE(u.username,u.email) AS username,u.email,u.status,r.role_key AS roleKey,r.oversight_rank AS oversightRank,p.permission_key AS permissionKey FROM auth_sessions s JOIN users u ON u.id=s.user_id LEFT JOIN user_roles ur ON ur.user_id=u.id LEFT JOIN roles r ON r.id=ur.role_id AND (r.school_id=u.school_id OR r.school_id IS NULL) LEFT JOIN role_permissions rp ON rp.role_id=r.id LEFT JOIN permissions p ON p.id=rp.permission_id WHERE s.token_hash=? AND s.school_id=u.school_id AND s.revoked_at IS NULL AND s.expires_at>? AND UPPER(COALESCE(u.status,'ACTIVE'))='ACTIVE' ORDER BY COALESCE(r.oversight_rank,0) DESC,r.role_key,p.permission_key`, [tokenHash(token), nowIso()]);
+      rows = await database.query(`SELECT s.id AS sessionId,s.user_id AS userId,s.school_id AS schoolId,s.expires_at AS expiresAt,COALESCE(u.username,u.email) AS username,u.email,u.full_name AS fullName,u.status,r.role_key AS roleKey,r.oversight_rank AS oversightRank,p.permission_key AS permissionKey FROM auth_sessions s JOIN users u ON u.id=s.user_id LEFT JOIN user_roles ur ON ur.user_id=u.id LEFT JOIN roles r ON r.id=ur.role_id AND (r.school_id=u.school_id OR r.school_id IS NULL) LEFT JOIN role_permissions rp ON rp.role_id=r.id LEFT JOIN permissions p ON p.id=rp.permission_id WHERE s.token_hash=? AND s.school_id=u.school_id AND s.revoked_at IS NULL AND s.expires_at>? AND UPPER(COALESCE(u.status,'ACTIVE'))='ACTIVE' ORDER BY COALESCE(r.oversight_rank,0) DESC,r.role_key,p.permission_key`, [tokenHash(token), nowIso()]);
     } catch (error) {
       sessionDiagnostic(context, 'session_store_lookup', { querySucceeded: false, errorType: safeDiagnosticIdentifier(error?.name) ?? 'Error', errorCode: safeDiagnosticCode(error?.code) });
       sessionRejectionDiagnostic(context, 'SESSION_STORE_QUERY_FAILED', {
@@ -794,7 +805,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, schoolI
       return null;
     }
     const scopedRows = userRows.filter((candidate) => canonicalRoleKey(candidate.roleKey) === roleKey);
-    const user = addStaffAttendanceRoleGrants({ id: row.userId, username: row.username, email: row.email, portal: roleKey === 'PARENT' ? 'parent' : 'school', roleKey, schoolId: row.schoolId, accountStatus: 'ACTIVE', is_active: true, permissions: new Set(scopedRows.map((candidate) => candidate.permissionKey).filter(Boolean)) });
+    const user = addStaffAttendanceRoleGrants({ id: row.userId, username: row.username, email: row.email, fullName: row.fullName ?? null, portal: roleKey === 'PARENT' ? 'parent' : 'school', roleKey, schoolId: row.schoolId, accountStatus: 'ACTIVE', is_active: true, permissions: new Set(scopedRows.map((candidate) => candidate.permissionKey).filter(Boolean)) });
     if (user.roleKey === 'PARENT') for (const permission of PARENT_PERMISSIONS) user.permissions.add(permission);
     if (!user.permissions.size) for (const permission of ROLE_PERMISSIONS[user.roleKey] ?? []) user.permissions.add(permission);
     await hydrateStaffAssignments(user);

@@ -11,8 +11,10 @@ const sampleIndicator = document.querySelector('#sample-mode-indicator');
 const tbody = document.querySelector('#attendance-register');
 const mobileCards = document.querySelector('#attendance-mobile-cards');
 const status = document.querySelector('#attendance-status');
+const auditStatus = document.querySelector('#attendance-register-audit');
 const loadButton = document.querySelector('#load-register');
 const saveButton = document.querySelector('#save-attendance');
+const editButton = document.querySelector('#edit-marked-register');
 const statuses = ['PRESENT', 'ABSENT', 'LATE', 'EARLY_DEPARTURE', 'EXCUSED_ABSENCE', 'UNEXCUSED_ABSENCE', 'SICK_ABSENCE'];
 const reasonStatuses = new Set(['ABSENT', 'LATE', 'EARLY_DEPARTURE', 'EXCUSED_ABSENCE', 'UNEXCUSED_ABSENCE', 'SICK_ABSENCE']);
 let register = [];
@@ -20,6 +22,9 @@ let loading = false;
 let saving = false;
 let dirty = false;
 let canCorrect = false;
+let canEditToday = false;
+let editMode = false;
+let schoolToday = null;
 let loadedContext = null;
 
 function escape(value) {
@@ -34,7 +39,16 @@ function selectedContext() {
 function sameContext(left, right) { return left && right && Object.keys(left).every((key) => String(left[key]) === String(right[key])); }
 function attendanceData(payload) { return payload?.data && typeof payload.data === 'object' ? { ...payload.data, ...payload } : payload; }
 function syncSampleIndicator() { sampleIndicator.hidden = !sampleMode(); }
-function isReadOnly(row) { return row.version !== undefined && row.version !== null && row.version !== '' && !canCorrect && !loadedContext?.sampleMode; }
+function markerLabel(marker) {
+  if (!marker?.markedBy) return '';
+  const role = String(marker.markedByRole ?? '').toLowerCase().replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+  return `Marked by: ${marker.markedBy}${role ? ` (${role})` : ''}${marker.markedAt ? ` — ${new Date(marker.markedAt).toLocaleString()}` : ''}`;
+}
+function isReadOnly(row) {
+  const saved = row.version !== undefined && row.version !== null && row.version !== '';
+  if (!loadedContext?.sampleMode && !canEditToday) return true;
+  return saved && !editMode && !loadedContext?.sampleMode;
+}
 function setError(message, error) {
   status.textContent = message;
   if (error instanceof AttendanceApiError) console.error('[Attendance register request failed]', { endpoint: error.endpoint, status: error.status, code: error.code });
@@ -80,6 +94,10 @@ function wireRows() {
   });
 }
 function renderRegister() {
+  const hasSavedMarks = register.some((row) => row.version !== undefined && row.version !== null && row.version !== '');
+  editButton.hidden = !hasSavedMarks || !canEditToday || Boolean(loadedContext?.sampleMode);
+  editButton.textContent = editMode ? 'Cancel Editing' : 'Edit Marked Register';
+  saveButton.disabled = saving || !register.length || (!loadedContext?.sampleMode && !canEditToday);
   if (!register.length) {
     tbody.innerHTML = '<tr><td colspan="8">No enrolled students in this class for the selected period.</td></tr>';
     mobileCards.innerHTML = '<p class="muted attendance-empty">No enrolled students in this class for the selected period.</p>';
@@ -96,7 +114,11 @@ function activeRows() {
 function clearRegister(message = 'Load a class register to begin.') {
   register = [];
   loadedContext = null;
+  canEditToday = false;
+  editMode = false;
   dirty = false;
+  auditStatus.textContent = '';
+  editButton.hidden = true;
   saveButton.disabled = true;
   tbody.innerHTML = `<tr><td colspan="8">${escape(message)}</td></tr>`;
   mobileCards.innerHTML = '';
@@ -104,6 +126,19 @@ function clearRegister(message = 'Load a class register to begin.') {
 function validateDate(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(`${value}T00:00:00Z`))) return false;
   return new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
+}
+async function verifySchoolDayForEditing() {
+  if (!loadedContext || loadedContext.sampleMode) return true;
+  const result = attendanceData(await requestAttendanceJson('/api/attendance/options', { credentials: 'same-origin', cache: 'no-store' }));
+  schoolToday = result.today ?? null;
+  if (schoolToday !== loadedContext.date) {
+    canEditToday = false;
+    editMode = false;
+    renderRegister();
+    status.textContent = 'This attendance register is read-only because the school day has ended.';
+    return false;
+  }
+  return true;
 }
 async function loadOptions() {
   loadButton.disabled = true;
@@ -135,6 +170,18 @@ sampleModeField.addEventListener('change', () => {
   clearRegister();
   status.textContent = 'Mode changed. Load the register again.';
 });
+for (const field of [classField, yearField, termField, dateField]) {
+  field.addEventListener('change', () => {
+    if (!loadedContext) return;
+    if (dirty && !window.confirm('Changing the register selection will discard unsaved attendance marks. Continue?')) {
+      const key = field === classField ? 'classId' : field === yearField ? 'academicYear' : field === termField ? 'term' : 'date';
+      field.value = loadedContext[key];
+      return;
+    }
+    clearRegister('Selection changed. Load the selected class register to continue.');
+    status.textContent = 'Selection changed. Load the selected class register to continue.';
+  });
+}
 loadButton.addEventListener('click', async () => {
   if (loading || saving) return;
   const context = selectedContext();
@@ -154,7 +201,12 @@ loadButton.addEventListener('click', async () => {
     if (!Array.isArray(result.register)) throw new AttendanceApiError('The attendance service returned an incomplete register. Your existing marks were preserved.', { code: 'ATTENDANCE_REGISTER_CONTRACT_INVALID', endpoint: '/api/attendance/register' });
     register = result.register;
     canCorrect = result.canCorrect === true;
+    canEditToday = result.canEdit === true;
+    editMode = false;
+    schoolToday = result.today ?? context.date;
     loadedContext = context;
+    const marker = result.marker;
+    auditStatus.textContent = markerLabel(marker);
     dirty = false;
     renderRegister();
     status.textContent = register.length
@@ -165,9 +217,23 @@ loadButton.addEventListener('click', async () => {
   } finally {
     loading = false;
     loadButton.disabled = false;
-    saveButton.disabled = saving || !register.length;
+    saveButton.disabled = saving || !register.length || (!loadedContext?.sampleMode && !canEditToday);
     loadButton.textContent = 'Load Register';
   }
+});
+
+editButton.addEventListener('click', async () => {
+  if (!loadedContext || !canEditToday || loadedContext.sampleMode || saving || loading) return;
+  try { if (!await verifySchoolDayForEditing()) return; }
+  catch (error) { setError(error.message || 'Could not verify the current school day. Retry before editing.', error); return; }
+  if (dirty && !window.confirm('Discard unsaved changes before changing register edit mode?')) return;
+  if (dirty) {
+    loadButton.click();
+    return;
+  }
+  editMode = !editMode;
+  renderRegister();
+  status.textContent = editMode ? 'Editing today’s marked register. Save your changes before leaving.' : 'Marked attendance is read-only. Choose Edit Marked Register to make same-day changes.';
 });
 
 form.addEventListener('submit', async (event) => {
@@ -177,6 +243,8 @@ form.addEventListener('submit', async (event) => {
     status.textContent = 'The selected class, period, date, or mode has changed. Load the register again before saving.';
     return;
   }
+  try { if (!await verifySchoolDayForEditing()) return; }
+  catch (error) { setError(error.message || 'Could not verify the current school day. Retry before saving.', error); return; }
   saving = true;
   saveButton.disabled = true;
   loadButton.disabled = true;
@@ -211,6 +279,9 @@ form.addEventListener('submit', async (event) => {
     }));
     if (!Array.isArray(result.synced) || result.synced.length !== changedEntries.length) throw new AttendanceApiError('The attendance service did not confirm every record. Reload before retrying.', { code: 'ATTENDANCE_SAVE_CONFIRMATION_INVALID', endpoint: '/api/attendance/students/sync' });
     register = register.map((item) => ({ ...item, ...(result.synced.find((saved) => saved.studentId === item.studentId) || {}) }));
+    canEditToday = result.marker ? true : canEditToday;
+    editMode = false;
+    auditStatus.textContent = markerLabel(result.marker) || auditStatus.textContent;
     dirty = false;
     renderRegister();
     status.textContent = `${result.synced.length} attendance change${result.synced.length === 1 ? '' : 's'} saved${loadedContext.sampleMode ? ' in isolated SAMPLE / TEST MODE' : ''} for ${loadedContext.academicYear}, ${loadedContext.term}, ${loadedContext.date}.`;
@@ -220,7 +291,7 @@ form.addEventListener('submit', async (event) => {
     setError(error.message || 'Attendance could not be saved. Your marks remain on screen; reload before retrying if another educator may have updated them.', error);
   } finally {
     saving = false;
-    saveButton.disabled = !register.length;
+    saveButton.disabled = !register.length || (!loadedContext?.sampleMode && !canEditToday);
     loadButton.disabled = false;
     saveButton.textContent = 'Save Attendance';
   }

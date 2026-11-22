@@ -72,9 +72,16 @@ import { createFeeTypeRegistry } from './fee-types.js';
 import { createInternalStudentRegistrationService, internalRegistrationErrorLogFields } from './internal-student-registration.js';
 
 const FEE_PUBLISH_ROLES = new Set(['PROPRIETOR', 'SCHOOL_ADMIN', 'HEADTEACHER', 'ACCOUNTANT_BURSAR']);
+const STUDENT_ATTENDANCE_REGISTER_ROLES = new Set(['TEACHER', 'HEADTEACHER', 'PROPRIETOR']);
 function canPublishFees(actor) {
   const role = canonicalRoleKey(actor?.roleKey);
   return Boolean(canAccess(actor, 'fees.publish') || canAccess(actor, 'fees.write') || FEE_PUBLISH_ROLES.has(role));
+}
+function canUseStudentAttendanceRegister(actor, permission) {
+  const registerPermission = permission === 'attendance.read' ? 'attendance.register.read' : 'attendance.register.write';
+  return actor?.portal === 'school' && Boolean(actor?.id && actor?.schoolId)
+    && STUDENT_ATTENDANCE_REGISTER_ROLES.has(canonicalRoleKey(actor.roleKey))
+    && (canAccess(actor, permission) || canAccess(actor, registerPermission));
 }
 
 const releaseMetadata = Object.freeze({
@@ -142,7 +149,7 @@ const root = join(fileURLToPath(new URL('.', import.meta.url)), '..', 'public');
 const mime = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.svg': 'image/svg+xml' };
 const branding = { schoolName: 'OSAAH DAYLIGHT SCH. COM.', location: 'BOGOSO', motto: 'AIM HIGH, ACADEMIC IS OUR CORE VALUE', logoPath: '/assets/osaah-daylight-logo.png', colours: { navy: '#102a43', royalBlue: '#1769aa', gold: '#d4a72c', white: '#ffffff' } };
 
-export function createApp({ auth = null, students = null, attendance = null, attendanceRepository = null, staffAttendanceOverview = null, studentAttendanceOverview = null, attendanceAnalytics = null, attendanceReports = null, examinations = null, fees = null, feeTypes = null, staff = null, communication = null, communicationEngine = null, durableAnnouncements = null, operations = null, resources = null, compliance = null, reporting = null, generalFinance = null, cashbook = null, admissionForms = null, admissionDocumentStorage = null, admissionProspectus = null, subjects = null, signatures = null, classDatabase = null, database = null, academicResults = null, transcripts = null, receiptBranding = null, prospectusPdf = createAdmissionProspectusPdfService(), resultPdf = createResultSlipPdfService(), sportingActivities = null, subjectRegister = null, shepActivities = null, assignments = null, aiGateway = null, aiConversation = null, capabilityRegistry = null, toolRegistry = null, providerRegistry = null, providerId = process.env.OSAAH_AI_PROVIDER_ID ?? 'openai', modelId = process.env.OSAAH_AI_MODEL_ID ?? 'unconfigured', financialIntelligence = null, academicAttendanceIntelligence = null, admissionsWorkforceIntelligence = null, schoolSettings = null, operationalIntelligence = null, schoolKnowledgeIntelligence = null, academicCalendar = null, executiveIntelligence = null, humanControlledActions = null, aiPersistence = null, aiEnabled = null, audit = () => {}, singleSchoolOverview = null, schoolProfile = null, sampleFixtureRepository = null, resultBlocking = null, allowSmsNonProduction = false } = {}) {
+export function createApp({ auth = null, students = null, attendance = null, attendanceRepository = null, attendanceRegisterService = null, staffAttendanceOverview = null, studentAttendanceOverview = null, attendanceAnalytics = null, attendanceReports = null, examinations = null, fees = null, feeTypes = null, staff = null, communication = null, communicationEngine = null, durableAnnouncements = null, operations = null, resources = null, compliance = null, reporting = null, generalFinance = null, cashbook = null, admissionForms = null, admissionDocumentStorage = null, admissionProspectus = null, subjects = null, signatures = null, classDatabase = null, database = null, academicResults = null, transcripts = null, receiptBranding = null, prospectusPdf = createAdmissionProspectusPdfService(), resultPdf = createResultSlipPdfService(), sportingActivities = null, subjectRegister = null, shepActivities = null, assignments = null, aiGateway = null, aiConversation = null, capabilityRegistry = null, toolRegistry = null, providerRegistry = null, providerId = process.env.OSAAH_AI_PROVIDER_ID ?? 'openai', modelId = process.env.OSAAH_AI_MODEL_ID ?? 'unconfigured', financialIntelligence = null, academicAttendanceIntelligence = null, admissionsWorkforceIntelligence = null, schoolSettings = null, operationalIntelligence = null, schoolKnowledgeIntelligence = null, academicCalendar = null, executiveIntelligence = null, humanControlledActions = null, aiPersistence = null, aiEnabled = null, audit = () => {}, singleSchoolOverview = null, schoolProfile = null, sampleFixtureRepository = null, resultBlocking = null, allowSmsNonProduction = false } = {}) {
   const serviceSchoolId = process.env.OSAAH_SCHOOL_ID ?? (database ? DEFAULT_PRODUCTION_SCHOOL_ID : DEMO_SCHOOL_ID);
   auth ??= createAuthService({ database, schoolId: serviceSchoolId, testParentSchoolId: serviceSchoolId });
   schoolSettings ??= createSchoolSettingsService({ database, schoolProfile: branding });
@@ -242,8 +249,28 @@ export function createApp({ auth = null, students = null, attendance = null, att
       if (!/unknown column|doesn\'?t exist|no such column/i.test(String(error?.message ?? error))) throw error;
       rows = await database.query('SELECT id,name FROM classes WHERE school_id=? ORDER BY id', [actor.schoolId]);
     }
-    const assigned = new Set((actor.roleKey === 'TEACHER' ? actor.assignedClassIds ?? [] : []).map((value) => String(value)));
-    return rows.filter((row) => !assigned.size || assigned.has(String(row.id)) || assigned.has(String(row.name)) || assigned.has(canonicalClassId(row.name))).map((row, index) => ({ id: row.id, name: row.name, displayOrder: row.displayOrder ?? index }));
+    return rows.map((row, index) => ({ id: row.id, name: row.name, displayOrder: row.displayOrder ?? index }));
+  }
+  async function attendanceMarker(records, actor) {
+    const marked = [...(records ?? [])].filter((record) => record.recordedBy || record.enteredBy)
+      .sort((left, right) => String(left.recordedAt ?? left.enteredAt ?? '').localeCompare(String(right.recordedAt ?? right.enteredAt ?? '')))[0];
+    if (!marked) return null;
+    const markerId = String(marked.recordedBy ?? marked.enteredBy);
+    let identity = markerId === String(actor.id) ? { fullName: actor.fullName, roleKey: actor.roleKey, username: actor.username } : null;
+    if (!identity?.fullName && database?.query) {
+      try {
+        identity = (await database.query(`SELECT u.full_name AS fullName,COALESCE(r.role_key,'') AS roleKey,u.username
+          FROM users u LEFT JOIN user_roles ur ON ur.user_id=u.id
+          LEFT JOIN roles r ON r.id=ur.role_id AND (r.school_id=u.school_id OR r.school_id IS NULL)
+          WHERE u.id=? AND u.school_id=? AND UPPER(COALESCE(u.status,'ACTIVE'))='ACTIVE'
+          ORDER BY COALESCE(r.oversight_rank,0) DESC LIMIT 1`, [markerId, actor.schoolId]))?.[0] ?? identity;
+      } catch { /* A marker lookup failure must not make the saved register unreadable. */ }
+    }
+    return {
+      markedBy: String(identity?.fullName ?? identity?.username ?? (markerId === String(actor.id) ? actor.username : 'Registered staff member')),
+      markedByRole: canonicalRoleKey(identity?.roleKey) || null,
+      markedAt: marked.recordedAt ?? marked.enteredAt ?? null
+    };
   }
   async function resolveAttendanceClass(actor, requestedClassId) {
     const options = await attendanceClassOptions({ ...actor, roleKey: null });
@@ -475,7 +502,7 @@ export function createApp({ auth = null, students = null, attendance = null, att
   shepActivities ??= createShepActivitiesService({ students, staff });
   receiptBranding ??= createReceiptBrandingService({ fees, students, schoolId: serviceSchoolId });
   const parentHistoricalRecords = database?.query ? createParentHistoricalRecordsService({ database }) : null;
-  const attendanceRegister = createAttendanceRegisterService({ database, students, attendance, attendanceRepository, sampleFixtureRepository, schoolSettings });
+  const attendanceRegister = attendanceRegisterService ?? createAttendanceRegisterService({ database, students, attendance, attendanceRepository, sampleFixtureRepository, schoolSettings });
   const parentDashboard = createParentDashboardService({ students, admissionEnrollment, attendance, attendanceRepository, sampleFixtureRepository, academicResults, resultBlocking, durableAcademic, fees, parentFeeObligations, durableFeeReader, receiptBranding, examinations, historicalRecords: parentHistoricalRecords, communication, durableAnnouncements, academicCalendar, operations, assignments, testParentSchoolId: serviceSchoolId });
   async function parentStudentsForRequest(actor) {
     const linked = await parentDashboard.listChildren(actor);
@@ -1202,7 +1229,7 @@ if (durableAcademic && isSampleModeEnabled(body)) {
       if (pathname === '/api/students/search') { if (!canAccess(user, 'students.read')) return json(response, { error: 'Forbidden.' }, 403); return json(response, { students: durableStudentProfile ? await durableStudentProfile.search(new URL(request.url, 'http://localhost').searchParams.get('q'), user) : students.search(new URL(request.url, 'http://localhost').searchParams.get('q'), { ...user, requestedSchoolId: user.schoolId }) }); }
       if (pathname === '/api/students/master-record' && request.method === 'GET') { if (!canAccess(user, 'students.read')) return json(response, { error: 'Forbidden.' }, 403); const permanentStudentId = new URL(request.url, 'http://localhost').searchParams.get('permanentStudentId'); const record = students.academicMasterRecord(permanentStudentId, { actor: user, attendance, results: academicResults, fees }); return record ? json(response, record) : json(response, { error: 'Not found.' }, 404); }
       if (pathname === '/api/attendance/options' && request.method === 'GET') {
-        if (user.portal === 'parent' || (!canAccess(user, 'attendance.read') && !canAccess(user, 'staff.attendance.read'))) return attendanceApiFailure(response, Object.assign(new Error('Forbidden.'), { status: 403, code: 'ATTENDANCE_FORBIDDEN' }), '/api/attendance/options', user);
+        if (!canUseStudentAttendanceRegister(user, 'attendance.read')) return attendanceApiFailure(response, Object.assign(new Error('Forbidden.'), { status: 403, code: 'ATTENDANCE_FORBIDDEN' }), '/api/attendance/options', user);
         try {
           let academicYears, terms, classes;
           if (!database?.query) {
@@ -1225,7 +1252,7 @@ if (durableAcademic && isSampleModeEnabled(body)) {
       if (pathname === '/api/attendance/reports/print' && request.method === 'GET') { const reportType = new URL(request.url, 'http://localhost').searchParams.get('reportType')?.toUpperCase(); if (user.portal === 'parent' || !(reportType === 'STAFF' ? canAccess(user, 'attendance.read') && canAccess(user, 'staff.attendance.read') : canAccess(user, 'attendance.read'))) return json(response, { error: 'Forbidden.' }, 403); const query = new URL(request.url, 'http://localhost').searchParams; const filters = Object.fromEntries(['reportType', 'period', 'academicYear', 'term', 'classId', 'date', 'week', 'month', 'startDate', 'endDate', 'gender', 'status', 'role'].map((key) => [key, query.get(key) ?? undefined])); try { const report = await attendanceReports.report(filters, user); const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character])); const headers = Object.keys(report.rows?.[0] ?? { message: 'No observations' }); const body = (report.rows?.length ? report.rows : [{ message: 'No authoritative observations for this scope.' }]).map((row) => `<tr>${headers.map((header) => `<td>${escapeHtml(row[header])}</td>`).join('')}</tr>`).join(''); const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(report.title)}</title><style>body{font:12px Arial;color:#111;margin:28px}h1{margin:0 0 4px}p{color:#555}.meta{border-bottom:2px solid #102a43;padding-bottom:12px;margin-bottom:16px}table{border-collapse:collapse;width:100%;font-size:10px}th,td{border:1px solid #bbb;padding:5px;text-align:left;vertical-align:top}th{background:#eef2f5}@media print{button{display:none}}</style></head><body><button onclick="window.print()">Print</button><div class="meta"><h1>${escapeHtml(report.school.name)}</h1><h2>${escapeHtml(report.title)}</h2><p>${escapeHtml(report.period.label)} · ${escapeHtml(report.filters.academicYear ?? 'All academic years')} · ${escapeHtml(report.filters.term ?? 'All terms')}</p><p>Generated ${escapeHtml(report.generatedAt)} · Source: ${escapeHtml(report.source)}</p></div><table><thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table></body></html>`; response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }); return response.end(html); } catch (error) { return json(response, { error: error.message, code: error.code ?? 'ATTENDANCE_REPORT_PRINT_ERROR' }, error.status ?? 400); } }
       if (pathname === '/api/attendance/reports' && request.method === 'GET') { if (user.portal === 'parent' || !canAccess(user, 'attendance.read')) return json(response, { error: 'Forbidden.' }, 403); const query = new URL(request.url, 'http://localhost').searchParams; const filters = Object.fromEntries(['period', 'academicYear', 'term', 'classId', 'date', 'week', 'month'].map((key) => [key, query.get(key) ?? undefined])); try { const rows = attendanceRepository ? await attendanceRepository.listStudentRecords({ schoolId: user.schoolId }) : attendance.listStudentRecords().filter((record) => record.schoolId === user.schoolId); const source = { listStudentRecords: () => rows }; const report = createAttendanceAggregationService({ attendance: source, students, schoolId: user.schoolId }).report(filters); return json(response, report); } catch (error) { return json(response, { error: error.message }, 400); } }
       if (pathname === '/api/attendance/register' && request.method === 'GET') {
-        if (user.portal === 'parent' || !canAccess(user, 'attendance.read')) return attendanceApiFailure(response, Object.assign(new Error('Forbidden.'), { status: 403, code: 'ATTENDANCE_FORBIDDEN' }), '/api/attendance/register', user);
+        if (!canUseStudentAttendanceRegister(user, 'attendance.read')) return attendanceApiFailure(response, Object.assign(new Error('Forbidden.'), { status: 403, code: 'ATTENDANCE_FORBIDDEN' }), '/api/attendance/register', user);
         try {
           const query = new URL(request.url, 'http://localhost').searchParams;
           const requestedClassId = query.get('classId');
@@ -1239,8 +1266,6 @@ if (durableAcademic && isSampleModeEnabled(body)) {
           if (!classOption) throw Object.assign(new Error('Class not found.'), { status: 404, code: 'ATTENDANCE_CLASS_NOT_FOUND' });
           const classId = String(classOption.id);
           const canonicalClass = canonicalClassId(classOption.name) ?? classOption.name;
-          const assigned = (user.assignedClassIds ?? []).map((value) => canonicalClassId(value) ?? String(value));
-          if (user.roleKey === 'TEACHER' && (!assigned.length || (!assigned.includes(classId) && !assigned.includes(String(classOption.name)) && !assigned.includes(canonicalClass)))) throw Object.assign(new Error('Forbidden.'), { status: 403, code: 'ATTENDANCE_CLASS_FORBIDDEN' });
           const rows = await attendanceRegister.enrolledStudents({ schoolId: user.schoolId, classId, className: classOption.name, canonicalClassName: canonicalClass, period, sampleMode, actor: user });
           let existingAttendance = [];
           if (sampleMode) {
@@ -1254,18 +1279,20 @@ if (durableAcademic && isSampleModeEnabled(body)) {
             const sameClass = (value) => String(value ?? '') === classId || String(value ?? '') === String(classOption.name) || canonicalClassId(value) === canonicalClass;
             existingAttendance = attendance.listStudentRecords().filter((record) => record.schoolId === user.schoolId && record.academicYear === period.yearName && record.term === period.termName && record.date === date && sameClass(record.classId));
           }
+          const marker = await attendanceMarker(existingAttendance, user);
           const existingByStudent = new Map(existingAttendance.map((record) => [record.studentId, record]));
           const register = rows.map((student, index) => {
             const saved = existingByStudent.get(student.studentId);
             return { number: index + 1, studentId: student.studentId, permanentStudentId: student.permanentStudentId, studentName: [student.firstName, student.middleName, student.surname].filter(Boolean).join(' '), gender: student.gender ?? null, attendanceDate: date, status: saved?.status ?? '', reason: saved?.reason ?? null, arrivalTime: saved?.arrivalTime ?? null, departureTime: saved?.departureTime ?? null, version: saved?.version ?? null, isTestRecord: Boolean(student.isTestRecord) };
           });
-          const data = { classId, className: classOption.name, academicYear: period.yearName, term: period.termName, date, sampleMode, canCorrect: canAccess(user, 'attendance.correct'), register };
+          const canEdit = sampleMode || date === await attendanceRegister.today(user);
+          const data = { classId, className: classOption.name, academicYear: period.yearName, term: period.termName, date, sampleMode, canCorrect: canAccess(user, 'attendance.correct'), canEdit, marker, register };
           return json(response, { success: true, data, ...data, message: 'Register loaded successfully.' });
         } catch (error) { return attendanceApiFailure(response, error, '/api/attendance/register', user); }
       }
-      if (pathname === '/api/attendance/students' && request.method === 'POST') { if (user.portal === 'parent' || !canAccess(user, 'attendance.write')) return json(response, { error: 'Forbidden.' }, 403); const body = await readJson(request); const correction = Boolean(body.correction); if (correction && !canAccess(user, 'attendance.correct')) return json(response, { error: 'Attendance corrections require authorization.' }, 403); const enrolled = students.getStudent(body.studentId, { requestedSchoolId: user.schoolId }); if (!enrolled) return json(response, { error: 'Student not found.' }, 404); if (enrolled.isTestRecord && attendanceRepository) return attendanceApiFailure(response, Object.assign(new Error('Use the isolated Sample / Test attendance register for sample students.'), { status: 400, code: 'ATTENDANCE_SAMPLE_MODE_REQUIRED' }), '/api/attendance/students', user); const historicalEnrollment = enrolled.history?.find((entry) => String(entry.academicYearId ?? '') === String(body.academicYear) && String(entry.termId ?? '') === String(body.term) && entry.classId === body.classId); if (!enrolled.isTestRecord && !historicalEnrollment && enrolled.classId !== body.classId) return json(response, { error: 'Student is not enrolled in the selected historical class.' }, 400); const input = { ...body, schoolId: user.schoolId, isTestRecord: Boolean(enrolled.isTestRecord) }; const record = attendanceRepository ? await attendanceRepository.saveStudentAttendance(input, user, { correction, expectedVersion: body.expectedVersion ?? null }) : attendance.saveStudentAttendance(input, user, { correction, expectedVersion: body.expectedVersion ?? null }); if (!record.isTestRecord && record.provenance !== 'TEST') dispatchAttendanceNotification(record, { correction }); audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, action: correction ? 'CORRECT' : 'CREATE', entity: 'StudentAttendance', entityId: record.id, newValue: record })); return json(response, record, 201); }
+      if (pathname === '/api/attendance/students' && request.method === 'POST') { if (!canUseStudentAttendanceRegister(user, 'attendance.write')) return json(response, { error: 'Forbidden.' }, 403); const body = await readJson(request); const correction = Boolean(body.correction); if (!body.isTestRecord && correction && body.date !== await attendanceRegister.today(user)) return attendanceApiFailure(response, Object.assign(new Error('Marked attendance can only be edited on the current school day.'), { status: 409, code: 'ATTENDANCE_DATE_CLOSED' }), '/api/attendance/students', user); const enrolled = students.getStudent(body.studentId, { requestedSchoolId: user.schoolId }); if (!enrolled) return json(response, { error: 'Student not found.' }, 404); if (enrolled.isTestRecord && attendanceRepository) return attendanceApiFailure(response, Object.assign(new Error('Use the isolated Sample / Test attendance register for sample students.'), { status: 400, code: 'ATTENDANCE_SAMPLE_MODE_REQUIRED' }), '/api/attendance/students', user); const historicalEnrollment = enrolled.history?.find((entry) => String(entry.academicYearId ?? '') === String(body.academicYear) && String(entry.termId ?? '') === String(body.term) && entry.classId === body.classId); if (!enrolled.isTestRecord && !historicalEnrollment && enrolled.classId !== body.classId) return json(response, { error: 'Student is not enrolled in the selected historical class.' }, 400); const input = { ...body, schoolId: user.schoolId, isTestRecord: Boolean(enrolled.isTestRecord) }; const record = attendanceRepository ? await attendanceRepository.saveStudentAttendance(input, user, { correction, expectedVersion: body.expectedVersion ?? null }) : attendance.saveStudentAttendance(input, user, { correction, expectedVersion: body.expectedVersion ?? null }); if (!record.isTestRecord && record.provenance !== 'TEST') dispatchAttendanceNotification(record, { correction }); audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, action: correction ? 'CORRECT' : 'CREATE', entity: 'StudentAttendance', entityId: record.id, newValue: record })); return json(response, record, 201); }
       if (pathname === '/api/attendance/students/sync' && request.method === 'POST') {
-        if (user.portal === 'parent' || !canAccess(user, 'attendance.write')) return attendanceApiFailure(response, Object.assign(new Error('Forbidden.'), { status: 403, code: 'ATTENDANCE_FORBIDDEN' }), '/api/attendance/students/sync', user);
+        if (!canUseStudentAttendanceRegister(user, 'attendance.write')) return attendanceApiFailure(response, Object.assign(new Error('Forbidden.'), { status: 403, code: 'ATTENDANCE_FORBIDDEN' }), '/api/attendance/students/sync', user);
         try {
           const body = await readJson(request);
           if (!Array.isArray(body.entries) || !body.entries.length || body.entries.length > 500) throw Object.assign(new Error('Provide between one and 500 attendance entries.'), { status: 400, code: 'ATTENDANCE_ENTRIES_INVALID' });
@@ -1275,13 +1302,12 @@ if (durableAcademic && isSampleModeEnabled(body)) {
           const ids = body.entries.map((entry) => String(entry.studentId));
           if (new Set(ids).size !== ids.length) throw Object.assign(new Error('The register contains a duplicate student. Reload it before saving.'), { status: 400, code: 'ATTENDANCE_DUPLICATE_STUDENT' });
           const isSample = body.sampleMode === true;
-          if (!isSample && body.entries.some((entry) => entry.version !== undefined && entry.version !== null && entry.version !== '') && !canAccess(user, 'attendance.correct')) throw Object.assign(new Error('Attendance corrections require authorization.'), { status: 403, code: 'ATTENDANCE_CORRECTION_FORBIDDEN' });
           const period = await attendanceRegister.resolvePeriod({ schoolId: user.schoolId, academicYear: first.academicYear, term: first.term, date: first.date });
+          const isCorrection = body.entries.some((entry) => entry.version !== undefined && entry.version !== null && entry.version !== '');
+          if (!isSample && isCorrection && period.date !== await attendanceRegister.today(user)) throw Object.assign(new Error('Marked attendance can only be edited on the current school day.'), { status: 409, code: 'ATTENDANCE_DATE_CLOSED' });
           const classOption = await resolveAttendanceClass(user, first.classId);
           if (!classOption) throw Object.assign(new Error('Class not found.'), { status: 404, code: 'ATTENDANCE_CLASS_NOT_FOUND' });
           const canonicalClass = canonicalClassId(classOption.name) ?? classOption.name;
-          const assigned = (user.assignedClassIds ?? []).map((value) => canonicalClassId(value) ?? String(value));
-          if (user.roleKey === 'TEACHER' && (!assigned.length || (!assigned.includes(String(classOption.id)) && !assigned.includes(String(classOption.name)) && !assigned.includes(canonicalClass)))) throw Object.assign(new Error('Forbidden.'), { status: 403, code: 'ATTENDANCE_CLASS_FORBIDDEN' });
           const entries = [];
           for (const entry of body.entries) {
             const normalizedStatus = String(entry.status ?? '').toUpperCase();
@@ -1324,7 +1350,8 @@ if (durableAcademic && isSampleModeEnabled(body)) {
           }
           records.filter((record) => !record.isTestRecord && record.provenance !== 'TEST').forEach((record) => dispatchAttendanceNotification(record, { correction: true }));
           records.forEach((record) => audit(createAuditLog({ schoolId: user.schoolId, userId: user.id, roleId: user.roleKey, action: record.isTestRecord ? 'SAMPLE_ATTENDANCE_SAVED' : 'ATTENDANCE_SAVED', entity: record.isTestRecord ? 'SampleStudentAttendance' : 'StudentAttendance', entityId: record.id, newValue: { date: record.date, classId: record.classId, version: record.version, status: record.status } })));
-          return json(response, { success: true, data: { synced: records }, synced: records, message: `${records.length} attendance record(s) saved successfully.` });
+          const marker = await attendanceMarker(records, user);
+          return json(response, { success: true, data: { synced: records, marker }, synced: records, marker, message: `${records.length} attendance record(s) saved successfully.` });
         } catch (error) { return attendanceApiFailure(response, error, '/api/attendance/students/sync', user); }
       }
       if (pathname === '/api/class-database/options' && request.method === 'GET') {

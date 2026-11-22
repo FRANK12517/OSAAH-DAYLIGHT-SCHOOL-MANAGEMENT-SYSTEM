@@ -23,7 +23,8 @@ test('mobile attendance renders cards while preserving the desktop table and exi
   assert.match(client, /changedEntries\.push/);
   assert.match(client, /max-width: 1023px/);
   assert.match(server, /attendanceRegister\.enrolledStudents/);
-  assert.match(server, /ATTENDANCE_CORRECTION_FORBIDDEN/);
+  assert.match(server, /canUseStudentAttendanceRegister/);
+  assert.match(server, /ATTENDANCE_DATE_CLOSED/);
   assert.match(registerService, /FROM student_enrollments e/);
   assert.match(attendanceRepository, /saveStudentAttendanceBatch/);
   assert.match(attendanceRepository, /adapter\.transaction/);
