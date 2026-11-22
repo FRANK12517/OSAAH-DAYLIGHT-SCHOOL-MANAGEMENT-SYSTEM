@@ -1,1 +1,35 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Communication Setup | OsaaH Daylight</title><link rel="stylesheet" href="/styles.css"></head><body><main class="form-page"><p class="eyebrow">COMMUNICATION ADMINISTRATION</p><h1>Communication Setup</h1><p class="muted">Provider credentials are controlled securely by authorized developers and are never displayed in this browser.</p><form id="provider-form" class="student-form"><label>Provider<select name="provider"><option>ARKESEL</option><option>HUBTEL</option><option>FUTURE</option></select></label><label>Endpoint<input name="endpoint" type="url" required></label><label>API credential<input name="credentials" type="password" autocomplete="new-password" required></label><label>Sender ID<input name="senderId" required></label><label>Priority<input name="priority" type="number" min="1" value="100"></label><label><input name="active" type="checkbox"> Active</label><label><input name="isDefault" type="checkbox"> Default provider</label><button class="primary-button">Save Provider</button></form><p id="setup-status" role="status" class="muted"></p><section class="card"><h2>Configured providers</h2><div id="providers">Loading…</div></section><script src="/communication-setup.js"></script></main></body></html>
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Communication Setup | OsaaH Daylight</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="form-page">
+      <p class="eyebrow">COMMUNICATION ADMINISTRATION</p>
+      <h1>Communication Setup</h1>
+      <p class="muted">Provider credentials are controlled securely by the authorized system developer and are never displayed in this browser.</p>
+      <p id="setup-access-notice" class="error" role="status" hidden>Communication Setup is restricted to the authorized system developer.</p>
+      <form id="provider-form" class="student-form">
+        <fieldset id="provider-controls" disabled>
+          <label>Provider<select name="provider"><option>ARKESEL</option><option>HUBTEL</option><option>FUTURE</option></select></label>
+          <label>Endpoint<input name="endpoint" type="url" required></label>
+          <label>API credential<input name="credentials" type="password" autocomplete="new-password" required></label>
+          <label>Sender ID<input name="senderId" required></label>
+          <label>Priority<input name="priority" type="number" min="1" value="100"></label>
+          <label><input name="active" type="checkbox"> Active</label>
+          <label><input name="isDefault" type="checkbox"> Default provider</label>
+        </fieldset>
+        <button id="save-provider" class="primary-button" type="submit" hidden>Save Provider</button>
+      </form>
+      <p id="setup-status" role="status" class="muted"></p>
+      <section class="card">
+        <h2>Configured providers</h2>
+        <div id="providers">Checking access…</div>
+      </section>
+      <script src="/communication-setup.js"></script>
+    </main>
+  </body>
+</html>

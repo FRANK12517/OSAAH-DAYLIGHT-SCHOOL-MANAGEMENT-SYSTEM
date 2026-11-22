@@ -99,6 +99,7 @@ function schoolLoginDiagnostics(error, { requestId, requestPath } = {}) {
   return diagnostic;
 }
 const PARENT_PERMISSIONS = Object.freeze(['children.read', 'communication.read', 'messages.read', 'messages.write', 'calendar.read', 'library.read', 'transport.read', 'hostel.read', 'discipline.read']);
+const COMMUNICATION_DEVELOPER_EMAIL = 'abbanfrank348@gmail.com';
 export const SCHOOL_PORTAL_ROLE_ALIASES = Object.freeze({ ADMINISTRATOR: 'SCHOOL_ADMIN', SCHOOL_ADMINISTRATOR: 'SCHOOL_ADMIN', ACCOUNTANT: 'ACCOUNTANT_BURSAR', CLASSROOM_TEACHER: 'TEACHER', PROPRIETOR: 'PROPRIETOR', PROPRIETRESS: 'PROPRIETOR', SCHOOL_PROPRIETOR: 'PROPRIETOR', SCHOOL_PROPRIETRESS: 'PROPRIETOR' });
 export const SCHOOL_PORTAL_DASHBOARDS = Object.freeze({ PROPRIETOR: '/dashboard', SCHOOL_ADMIN: '/dashboard', HEADTEACHER: '/dashboard', ASSISTANT_HEADTEACHER: '/dashboard', ACCOUNTANT_BURSAR: '/dashboard', TEACHER: '/academics', DEVELOPER: '/developer/communication-setup' });
 const STAFF_ASSIGNABLE_ROLES = Object.freeze({ SCHOOL_ADMIN: 'SCHOOL_ADMIN', ADMINISTRATOR: 'SCHOOL_ADMIN', HEADTEACHER: 'HEADTEACHER', ASSISTANT_HEADTEACHER: 'ASSISTANT_HEADTEACHER', ACCOUNTANT: 'ACCOUNTANT_BURSAR', ACCOUNTANT_BURSAR: 'ACCOUNTANT_BURSAR', CLASSROOM_TEACHER: 'TEACHER', TEACHER: 'TEACHER' });
@@ -109,6 +110,12 @@ export function canonicalRoleKey(roleKey) { const normalized = String(roleKey ??
 
 function addStaffAttendanceRoleGrants(user) {
   const role = canonicalRoleKey(user?.roleKey);
+  const developerIdentity = user?.portal === 'school'
+    && role === 'TEACHER'
+    && String(user?.email ?? '').trim().toLowerCase() === COMMUNICATION_DEVELOPER_EMAIL;
+  user.canManageCommunicationSetup = developerIdentity;
+  user.permissions.delete('developer.communication.manage');
+  if (developerIdentity) user.permissions.add('developer.communication.manage');
   if (['TEACHER', 'HEADTEACHER', 'PROPRIETOR'].includes(role)) {
     user.permissions.add('attendance.register.read');
     user.permissions.add('attendance.register.write');
@@ -385,7 +392,7 @@ export function createAuthService({ users = DEMO_USERS, database = null, schoolI
   function revokeLocalSession(token, session = verifiedSession(token)) { if (session?.sessionId) revokedSessionIds.add(session.sessionId); if (token) sessions.delete(token); if (session?.sessionId) durableSessionIds.delete(session.sessionId); }
   function isActive(user) { return user.is_active !== false && user.isActive !== false && !['DISABLED', 'REVOKED', 'REMOVED', 'SUSPENDED', 'DEACTIVATED'].includes(String(user.accountStatus ?? '').toUpperCase()); }
   function securityEvent(action, user, sessionId = null) { audit({ action, entity: 'Authentication', entityId: user?.id ?? null, userId: user?.id ?? null, roleId: canonicalRoleKey(user?.roleKey), sessionId }); }
-  function sanitize(user, sessionId = null) { const roleKey = canonicalRoleKey(user.roleKey); const dashboard = user.portal === 'parent' ? '/parent-dashboard' : SCHOOL_PORTAL_DASHBOARDS[roleKey] ?? '/dashboard'; return { id: user.id, username: user.username, ...(user.portal === 'parent' ? {} : { fullName: user.fullName ?? null }), portal: user.portal, roleKey, role: roleKey, accountStatus: isActive(user) ? 'ACTIVE' : String(user.accountStatus ?? 'DISABLED').toUpperCase(), schoolId: user.schoolId, sessionId, dashboard, schoolType: user.schoolType, subscription: user.subscription, entitlements: user.entitlements ?? [], featureAvailability: user.featureAvailability ?? [], ...(roleKey === 'PARENT' ? {} : { children: user.children ?? [], authorizedStaffIds: user.authorizedStaffIds ?? [], assignedStudentIds: user.assignedStudentIds ?? [], assignedParentIds: user.assignedParentIds ?? [], assignedClassIds: user.assignedClassIds ?? [], assignedSubjectIds: user.assignedSubjectIds ?? [], assignedDepartmentIds: user.assignedDepartmentIds ?? [] }) }; }
+  function sanitize(user, sessionId = null) { const roleKey = canonicalRoleKey(user.roleKey); const canManageCommunicationSetup = user.portal === 'school' && roleKey === 'TEACHER' && String(user.email ?? '').trim().toLowerCase() === COMMUNICATION_DEVELOPER_EMAIL; const dashboard = user.portal === 'parent' ? '/parent-dashboard' : SCHOOL_PORTAL_DASHBOARDS[roleKey] ?? '/dashboard'; return { id: user.id, username: user.username, ...(user.portal === 'parent' ? {} : { fullName: user.fullName ?? null }), portal: user.portal, roleKey, role: roleKey, canManageCommunicationSetup, accountStatus: isActive(user) ? 'ACTIVE' : String(user.accountStatus ?? 'DISABLED').toUpperCase(), schoolId: user.schoolId, sessionId, dashboard, schoolType: user.schoolType, subscription: user.subscription, entitlements: user.entitlements ?? [], featureAvailability: user.featureAvailability ?? [], ...(roleKey === 'PARENT' ? {} : { children: user.children ?? [], authorizedStaffIds: user.authorizedStaffIds ?? [], assignedStudentIds: user.assignedStudentIds ?? [], assignedParentIds: user.assignedParentIds ?? [], assignedClassIds: user.assignedClassIds ?? [], assignedSubjectIds: user.assignedSubjectIds ?? [], assignedDepartmentIds: user.assignedDepartmentIds ?? [] }) }; }
   function selectAuthorizedRoleRows(rows, requestedRole = null) {
     const normalizedRequested = requestedRole ? canonicalRoleKey(requestedRole) : null;
     const grouped = new Map();

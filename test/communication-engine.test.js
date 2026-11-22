@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createCommunicationEngine } from '../src/communication-engine.js';
-const developer = { id: 'dev', roleKey: 'DEVELOPER', schoolId: 'school-osaah-daylight' };
+const developer = { id: 'dev', roleKey: 'TEACHER', schoolId: 'school-osaah-daylight', canManageCommunicationSetup: true };
 test('communication engine protects secrets, queues idempotently, and fails over', async () => {
   const calls = []; const engine = createCommunicationEngine({ fetchImpl: async (url) => { calls.push(url); if (url.includes('primary')) return { ok: false, status: 503, json: async () => ({}) }; return { ok: true, status: 200, json: async () => ({ messageId: 'hubtel-1' }) }; } });
   const primary = engine.configure({ provider: 'ARKESEL', endpoint: 'https://primary', credentials: 'secret', active: true, isDefault: true, priority: 1 }, developer);
@@ -12,4 +12,7 @@ test('communication engine protects secrets, queues idempotently, and fails over
   const result = await engine.process(first.id, developer); assert.equal(result.status, 'RETRYING'); assert.equal(calls.length, 1);
   const retry = await engine.process(first.id, developer); assert.equal(retry.status, 'SENT'); assert.equal(calls.length, 2);
   assert.throws(() => engine.listProviders({ roleKey: 'TEACHER', schoolId: developer.schoolId }), /Developer authorization/);
+  assert.throws(() => engine.configure({ provider: 'FUTURE' }, { ...developer, canManageCommunicationSetup: false }), /Developer authorization/);
+  assert.throws(() => engine.listProviders({ ...developer, schoolId: 'another-school' }), /Developer authorization/);
+  assert.throws(() => engine.listProviders({ id: 'legacy-developer', roleKey: 'DEVELOPER', schoolId: developer.schoolId }), /Developer authorization/);
 });
