@@ -385,8 +385,8 @@ export function createApp({ auth = null, students = null, attendance = null, att
         ORDER BY s.last_name,s.first_name,s.id`, [actor.schoolId, academicYear, classId, canonicalSelectedClassId, classId, classId, search, search]);
       results.push(...fallbackRows);
     }
-    const assigned = actor.roleKey === 'TEACHER' ? new Set((actor.assignedClassIds ?? []).map(String)) : null;
-    return results.filter((row) => !assigned || assigned.has(String(row.classId))).map((row) => ({ ...row, gender: displayStudentGender(row.gender) }));
+    const assigned = actor.roleKey === 'TEACHER' && actor.assignedClassIds?.length ? new Set(actor.assignedClassIds.map((value) => String(value))) : null;
+    return results.filter((row) => !assigned || assigned.has(String(row.classId)) || assigned.has(canonicalClassId(row.classId)) || [...assigned].some((value) => canonicalClassId(value) === canonicalClassId(row.classId))).map((row) => ({ ...row, gender: displayStudentGender(row.gender) }));
   }
   sampleFixtureRepository ??= database?.query && database?.execute ? createSampleFixtureRepository({ adapter: database, schoolId: serviceSchoolId }) : null;
   const sampleResults = createSampleResultWorkflow({ students, subjects, academicResults, sampleFixtureRepository, schoolId: serviceSchoolId });

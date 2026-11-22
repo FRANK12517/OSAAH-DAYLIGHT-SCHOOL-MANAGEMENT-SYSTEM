@@ -31,6 +31,27 @@ test('database login selects the requested role and scopes permissions to that r
   assert.equal(auth.authenticate(teacherLogin.token).permissions.has('results.publish'), false);
 });
 
+test('teacher assignment hydration supports profile-linked assignment rows across canonical staff tables', async () => {
+  const queryLog = [];
+  const rows = [{ id: 'teacher-db', schoolId, username: 'teacher@example.test', email: 'teacher@example.test', passwordHash: hash('teacher-salt'), status: 'ACTIVE', roleKey: 'TEACHER', oversightRank: 40, permissionKey: 'students.read' }];
+  const database = {
+    async query(sql) {
+      queryLog.push(sql);
+      if (sql.includes('FROM users u')) return rows;
+      if (sql.includes('FROM staff_profiles sp') && sql.includes('staff_assignments')) return [{ classId: 'class_nursery1_01', subjectId: 'subject-reading' }];
+      return [];
+    },
+    async execute() {}
+  };
+  const auth = createAuthService({ database, sessionSecret: 'teacher-class-db-session-secret-123456789' });
+  const login = await auth.loginFromDatabase({ username: 'teacher@example.test', password, portal: 'school', role: 'TEACHER' });
+  assert.equal(login.ok, true);
+  assert.deepEqual(login.user.assignedClassIds, ['class_nursery1_01']);
+  assert.deepEqual(login.user.assignedSubjectIds, ['subject-reading']);
+  assert.match(queryLog.find((sql) => sql.includes('FROM staff_profiles sp') && sql.includes('staff_assignments')), /sp\.user_id=\? AND sp\.school_id=\?/);
+  assert.deepEqual((await auth.authenticateAsync(login.token)).assignedClassIds, ['class_nursery1_01']);
+});
+
 test('assignment retrieval remains school- and teacher-class-scoped', async () => {
   const service = createAssignmentService({ classes: ['Primary 1', 'Primary 2'], subjects: { list: () => [{ id: 'math', name: 'Mathematics' }] } });
   const teacher = { id: 'teacher-1', roleKey: 'TEACHER', schoolId, assignedClassIds: ['Primary 1'] };

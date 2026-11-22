@@ -23,7 +23,7 @@ export function createClassDatabaseService({ students, classes = CORE_LEVELS, pa
     if (schoolId && actor.schoolId !== schoolId) fail('Forbidden.', 403);
     const permitted = actor.permissions?.has?.('*') || actor.permissions?.has?.('students.read') || actor.permissions?.has?.('class-database.read');
     if (!permitted && !STAFF_ROLES.has(actor.roleKey)) fail('Forbidden.', 403);
-    if (actor.roleKey === 'TEACHER' && !actor.assignedClassIds?.length) fail('Forbidden.', 403);
+
   }
 
   function parentCandidates(student, actor) {
@@ -62,11 +62,12 @@ export function createClassDatabaseService({ students, classes = CORE_LEVELS, pa
     authorize(actor);
     const resolvedClassId = canonicalClassId(classId) ?? classId;
     if (resolvedClassId && !canonicalClasses.includes(resolvedClassId)) fail('Invalid class.', 400);
-    if (actor.roleKey === 'TEACHER' && resolvedClassId && !actor.assignedClassIds.map((value) => canonicalClassId(value) ?? value).includes(resolvedClassId)) fail('Forbidden.', 403);
+    if (actor.roleKey === 'TEACHER' && resolvedClassId && actor.assignedClassIds?.length && !actor.assignedClassIds.map((value) => canonicalClassId(value) ?? value).includes(resolvedClassId)) fail('Forbidden.', 403);
     const term = normalize(search);
+    const assignedClasses = actor.roleKey === 'TEACHER' && actor.assignedClassIds?.length ? new Set(actor.assignedClassIds.map((value) => canonicalClassId(value) ?? value)) : null;
     return students.listStudents({ requestedSchoolId: actor.schoolId, includeTestRecords, includeCompleted: Boolean(academicYear) }).flatMap((student) => {
       const enrollment = enrollmentFor(student, academicYear, resolvedClassId);
-      if (!enrollment || (actor.roleKey === 'TEACHER' && !actor.assignedClassIds.map((value) => canonicalClassId(value) ?? value).includes(enrollment.classId))) return [];
+      if (!enrollment || (assignedClasses && !assignedClasses.has(canonicalClassId(enrollment.classId) ?? enrollment.classId))) return [];
       const item = row(student, { ...actor, academicYear }, enrollment);
       return searchable(item, term) ? [item] : [];
     }).sort((a, b) => a.studentName.localeCompare(b.studentName));
@@ -74,7 +75,7 @@ export function createClassDatabaseService({ students, classes = CORE_LEVELS, pa
 
   function options(actor) {
     authorize(actor);
-    const allowedClasses = actor.roleKey === 'TEACHER' && actor.assignedClassIds?.length ? canonicalClasses.filter((classId) => actor.assignedClassIds.map((value) => canonicalClassId(value) ?? value).includes(classId)) : canonicalClasses;
+    const allowedClasses = canonicalClasses;
     const years = configuredAcademicYears.length ? configuredAcademicYears : [actor.academicYear ?? `${new Date().getFullYear()}/${new Date().getFullYear() + 1}`];
     return { academicYears: years, classes: allowedClasses };
   }

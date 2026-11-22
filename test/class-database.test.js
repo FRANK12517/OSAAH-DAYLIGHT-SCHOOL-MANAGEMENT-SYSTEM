@@ -45,3 +45,12 @@ test('teachers can only view assigned current classes', () => {
   const students = createStudentService(); const database = createClassDatabaseService({ students }); const student = students.createStudent({ firstName: 'Yaw', surname: 'Boateng', classId: 'Primary 4', admissionYearId: '2026' }); const teacher = { roleKey: 'TEACHER', schoolId: 'school-osaah-daylight', assignedClassIds: ['Primary 4'], permissions: new Set(['students.read']) };
   assert.equal(database.list({ classId: 'Primary 4' }, teacher)[0].studentId, student.id); assert.throws(() => database.list({ classId: 'JHS 1' }, teacher), /Forbidden/);
 });
+
+test('teachers can populate a single-select list with every class while roster rows remain scoped when assigned classes are known', () => {
+  const students = createStudentService(); const database = createClassDatabaseService({ students });
+  const teacherWithoutResolvedAssignments = { roleKey: 'TEACHER', schoolId: 'school-osaah-daylight', assignedClassIds: [], permissions: new Set(['students.read']) };
+  const teacherWithAssignments = { ...teacherWithoutResolvedAssignments, assignedClassIds: ['Nursery 1'] };
+  assert.deepEqual(database.options(teacherWithoutResolvedAssignments).classes, ['Nursery 1', 'Nursery 2', 'KG1', 'KG2', 'Primary 1', 'Primary 2', 'Primary 3', 'Primary 4', 'Primary 5', 'Primary 6', 'JHS 1', 'JHS 2', 'JHS 3']);
+  assert.equal(database.list({ classId: 'JHS 1' }, teacherWithoutResolvedAssignments).length, 0);
+  assert.throws(() => database.list({ classId: 'JHS 1' }, teacherWithAssignments), /Forbidden/);
+});
