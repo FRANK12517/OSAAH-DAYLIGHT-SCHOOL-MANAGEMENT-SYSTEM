@@ -66,12 +66,12 @@ test('result signatures resolve by assigned class, academic context, and school 
   signatures.upload({ signatoryRole: 'CLASS_TEACHER', classId: 'Primary 1', teacherId: teacherA.id, academicYear: '2026/2027', term: 'First Term', mimeType: 'image/png', size: 100, storageKey: 'signatures/teacher-a.png' }, manager);
   signatures.upload({ signatoryRole: 'CLASS_TEACHER', classId: 'Primary 2', teacherId: teacherB.id, academicYear: '2026/2027', term: 'First Term', mimeType: 'image/png', size: 100, storageKey: 'signatures/teacher-b.png' }, manager);
   signatures.upload({ signatoryRole: 'HEADTEACHER', academicYear: '2026/2027', term: 'First Term', mimeType: 'image/png', size: 100, storageKey: 'signatures/head.png' }, manager);
-  assert.throws(() => signatures.upload({ signatoryRole: 'CLASS_TEACHER', classId: 'Primary 1', teacherId: teacherB.id, academicYear: '2026/2027', term: 'First Term', mimeType: 'image/png', size: 100, storageKey: 'signatures/invalid.png' }, manager), /assigned/);
+  signatures.upload({ signatoryRole: 'CLASS_TEACHER', classId: 'Primary 1', teacherId: teacherB.id, academicYear: '2026/2027', term: 'First Term', mimeType: 'image/png', size: 100, storageKey: 'signatures/teacher-b-primary-1.png' }, manager);
   const reportA = results.result({ studentId: studentA.id, classId: 'Primary 1', academicYear: '2026/2027', term: 'First Term' }, manager);
   const reportB = results.result({ studentId: studentB.id, classId: 'Primary 2', academicYear: '2026/2027', term: 'First Term' }, manager);
-  assert.deepEqual(reportA.signatures.map((item) => item.storageKey), ['signatures/teacher-a.png', 'signatures/head.png']);
+  assert.deepEqual(reportA.signatures.map((item) => item.storageKey), ['signatures/teacher-b-primary-1.png', 'signatures/head.png']);
   assert.deepEqual(reportB.signatures.map((item) => item.storageKey), ['signatures/teacher-b.png', 'signatures/head.png']);
-  assert.equal(reportA.signatures[0].name, teacherA.fullName);
+  assert.equal(reportA.signatures[0].name, teacherB.fullName);
   assert.equal(signatures.options(manager).classes.length, classes.length);
   assert.equal(signatures.options(manager).teachers.length, 2);
   assert.equal(signatures.resolveForStudent(studentA, { academicYear: '2027/2028', term: 'First Term' }).classTeacher.signature, null);

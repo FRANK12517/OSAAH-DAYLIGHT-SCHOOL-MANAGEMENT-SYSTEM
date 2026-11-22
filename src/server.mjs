@@ -1162,7 +1162,8 @@ if (durableAcademic && isSampleModeEnabled(body)) {
         if (!canAccess(user, 'signatures.manage')) return json(response, { error: 'Forbidden.' }, 403);
         try {
           const records = signatures.listDurable ? await signatures.listDurable(user) : signatures.list(user);
-          return json(response, { signatures: records, options: signatures.options(user) });
+          const options = signatures.optionsDurable ? await signatures.optionsDurable(user) : signatures.options(user);
+          return json(response, { signatures: records, options });
         } catch (error) {
           console.error('[Result signatures] list failed', { requestId: request.headers['x-vercel-id'] ?? request.headers['x-request-id'] ?? null, schoolId: user.schoolId, userId: user.id, message: error.message, code: error.code, errno: error.errno, sqlState: error.sqlState, stack: error.stack });
           return json(response, { error: 'Unable to load configured signatures. Please retry.' }, error.message === 'Forbidden.' ? 403 : 500);

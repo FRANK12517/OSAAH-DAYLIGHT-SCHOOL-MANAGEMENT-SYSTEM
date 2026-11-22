@@ -17,9 +17,9 @@ export function createSignatureService({ now = () => new Date().toISOString(), s
   const activeStaff = () => (staff?.listProfiles?.() ?? []).filter((item) => item.schoolId === schoolId && item.employmentStatus === 'ACTIVE');
   const teacherFor = (id) => activeStaff().find((item) => item.id === id && item.roleKey === 'TEACHER');
   const headteacherFor = (actor) => activeStaff().find((item) => item.roleKey === 'HEADTEACHER') ?? activeStaff().find((item) => item.roleKey === 'PROPRIETOR') ?? activeStaff().find((item) => item.id === actorId(actor));
-  const assignmentMatches = (teacherId, classId, academicYear, term) => (staff?.assignments?.() ?? []).some((item) => item.schoolId === schoolId && item.staffId === teacherId && item.classId === classId && (!academicYear || !item.academicYearId || String(item.academicYearId) === academicYear) && (!term || !item.termId || String(item.termId) === term));
+  const canonicalTeacher = (item) => item ? { id: String(item.id), staffId: item.staffId ?? null, fullName: text(item.fullName ?? item.name), phone: item.phone ?? null, roleKey: 'TEACHER', schoolId } : null;
   function assertActor(actor) { if (!actor || actor.schoolId !== schoolId || !canManage(actor)) throw new Error('Forbidden.'); }
-  function validate(input, actor) {
+  function validate(input, actor, { teacherIdentity = null } = {}) {
     const signatoryRole = text(input?.signatoryRole ?? input?.signatory_role ?? input?.role).toUpperCase();
     const mimeType = text(input?.mimeType ?? input?.mime_type ?? input?.documentType ?? 'image/png').toLowerCase();
     const processedImageData = text(input?.processedImageData ?? input?.processed_image_data ?? input?.data);
@@ -40,15 +40,14 @@ export function createSignatureService({ now = () => new Date().toISOString(), s
     let identity = null;
     if (signatoryRole === 'CLASS_TEACHER') {
       if (!classId || !classOptions().includes(classId)) throw new Error('A registered class is required.');
-      if (!teacherId || !teacherFor(teacherId)) throw new Error('An active class teacher is required.');
+      if (!teacherId || !(teacherFor(teacherId) || String(teacherIdentity?.id ?? '') === teacherId)) throw new Error('An active registered class teacher is required.');
       if (!academicYear || !term) throw new Error('Academic year and term are required.');
-      if (staff && !assignmentMatches(teacherId, classId, academicYear, term)) throw new Error('Teacher is not assigned to this class and academic context.');
-      identity = teacherFor(teacherId);
+      identity = teacherFor(teacherId) ?? teacherIdentity;
     } else {
       identity = headteacherFor(actor);
     }
-    const fullName = text(input?.fullName ?? input?.full_name ?? identity?.fullName);
-    const phone = text(input?.phone ?? input?.phoneNumber ?? input?.phone_number ?? identity?.phone);
+    const fullName = text(signatoryRole === 'CLASS_TEACHER' ? identity?.fullName ?? input?.fullName ?? input?.full_name : input?.fullName ?? input?.full_name ?? identity?.fullName);
+    const phone = text(signatoryRole === 'CLASS_TEACHER' ? identity?.phone ?? input?.phone ?? input?.phoneNumber ?? input?.phone_number : input?.phone ?? input?.phoneNumber ?? input?.phone_number ?? identity?.phone);
     if (!fullName) throw new Error('Full name is required.');
     if (!phone) throw new Error('Phone number is required.');
     if (!isValidGhanaPhone(phone)) throw new Error('Invalid Ghana phone number.');
@@ -126,7 +125,7 @@ export function createSignatureService({ now = () => new Date().toISOString(), s
     assertActor(actor);
     const meta = validate(input, actor);
     const record = { id: randomUUID(), schoolId, ...meta, data: meta.processedImageData, name: meta.fullName, active: true, uploadedBy: actorId(actor), uploadedAt: now(), updatedAt: now() };
-    for (const item of signatures.values()) if (item.schoolId === schoolId && item.signatoryRole === meta.signatoryRole && item.active && item.academicYear === meta.academicYear && item.term === meta.term && item.classId === meta.classId && item.teacherId === meta.teacherId) item.active = false;
+    for (const item of signatures.values()) if (item.schoolId === schoolId && item.signatoryRole === meta.signatoryRole && item.active && item.academicYear === meta.academicYear && item.term === meta.term && item.classId === meta.classId) item.active = false;
     signatures.set(record.id, record);
     const { data, processedImageData, ...safeRecord } = record;
     return clone(safeRecord);
@@ -134,8 +133,24 @@ export function createSignatureService({ now = () => new Date().toISOString(), s
   async function uploadDurable(input, actor) {
     assertActor(actor);
     if (!text(input?.processedImageData ?? input?.data)) throw new Error('Upload a processed signature image.');
-    const meta = validate(input, actor), id = randomUUID(), timestamp = now();
-    if (!database?.execute) return upload(input, actor);
+    if (!database?.execute || !database?.query) return upload(input, actor);
+    const signatoryRole = text(input?.signatoryRole ?? input?.signatory_role ?? input?.role).toUpperCase();
+    let teacherIdentity = null;
+    if (signatoryRole === 'CLASS_TEACHER') {
+      const teacherId = text(input?.teacherId ?? input?.teacher_id ?? input?.staff_id);
+      teacherIdentity = (await database.query(`SELECT s.id AS id,s.staff_number AS staffId,
+          COALESCE(NULLIF(TRIM(u.full_name),''),TRIM(CONCAT_WS(' ',s.first_name,s.last_name))) AS fullName,
+          u.phone AS phone
+        FROM staff s
+        JOIN users u ON u.id=s.user_id AND u.school_id=s.school_id
+        JOIN user_roles ur ON ur.user_id=u.id
+        JOIN roles r ON r.id=ur.role_id AND (r.school_id=s.school_id OR r.school_id IS NULL)
+        WHERE s.id=? AND s.school_id=? AND r.role_key IN ('TEACHER','CLASSROOM_TEACHER','CLASS_TEACHER')
+          AND UPPER(COALESCE(u.status,'ACTIVE'))='ACTIVE'
+        LIMIT 1`, [teacherId, schoolId]))?.[0] ?? null;
+      teacherIdentity = canonicalTeacher(teacherIdentity);
+    }
+    const meta = validate(input, actor, { teacherIdentity }), id = randomUUID(), timestamp = now();
     const schema = await resultSignatureRoleSchema();
     const unavailable = (reason) => Object.assign(new Error(`Signature storage schema is incomplete (${reason}). Apply migration 090 or grant the database user the required ALTER privileges, then retry.`), { status: 503, code: `RESULT_SIGNATURE_${reason}` });
     if (!schema.ready) throw unavailable(schema.reason ?? 'SCHEMA_UNAVAILABLE');
@@ -149,7 +164,7 @@ export function createSignatureService({ now = () => new Date().toISOString(), s
       if (schemaHas(schema, 'updated_at')) { assignments.push('`updated_at`=?'); deactivateParams.push(timestamp); }
       const predicates = ['`school_id`=?', `${schema.roleExpression}=?`];
       deactivateParams.push(schoolId, meta.signatoryRole);
-      for (const [column, value] of [['class_id', meta.classId], ['academic_year', meta.academicYear], ['term', meta.term], ['staff_id', meta.teacherId]]) {
+      for (const [column, value] of [['class_id', meta.classId], ['academic_year', meta.academicYear], ['term', meta.term], ...(meta.signatoryRole === 'CLASS_TEACHER' ? [] : [['staff_id', meta.teacherId]])]) {
         if (!schemaHas(schema, column)) continue;
         const identifier = `\`${column}\``;
         predicates.push(`((${identifier} IS NULL AND ? IS NULL) OR ${identifier}=?)`);
@@ -262,7 +277,9 @@ export function createSignatureService({ now = () => new Date().toISOString(), s
       return { ...record, name: fullName, fullName, phone, phoneNumber: phone, data, processedImageData: data };
     };
     const [classSignature, headSignature] = await Promise.all([
-      find('CLASS_TEACHER', { staffId: teacher?.id ?? null }),
+      // The explicit profile assignment is authoritative for this class/year/term.
+      // Staff assignment rows may be incomplete or use legacy IDs in production.
+      find('CLASS_TEACHER'),
       find('HEADTEACHER')
     ]);
     return {
@@ -293,12 +310,31 @@ export function createSignatureService({ now = () => new Date().toISOString(), s
     const teacher = classTeacher ? teacherFor(classTeacher.staffId) : null;
     const classYear = yearValues;
     const classTerm = termValues;
-    const classSignature = [...signatures.values()].find((item) => item.schoolId === schoolId && item.active && item.signatoryRole === 'CLASS_TEACHER' && classMatches(item.classId) && item.teacherId === teacher?.id && (!classYear.size || classYear.has(String(item.academicYear ?? ''))) && (!classTerm.size || classTerm.has(String(item.term ?? '')))) ?? null;
+    const classSignature = [...signatures.values()].filter((item) => item.schoolId === schoolId && item.active && item.signatoryRole === 'CLASS_TEACHER' && classMatches(item.classId) && (!classYear.size || classYear.has(String(item.academicYear ?? ''))) && (!classTerm.size || classTerm.has(String(item.term ?? '')))).at(-1) ?? null;
     const headSignature = [...signatures.values()].filter((item) => item.schoolId === schoolId && item.active && item.signatoryRole === 'HEADTEACHER' && !item.classId).at(-1) ?? null;
     return { classTeacher: { name: classSignature?.fullName ?? teacher?.fullName ?? null, phone: classSignature?.phone ?? teacher?.phone ?? null, signature: classSignature }, headteacher: { name: headSignature?.fullName ?? headteacherFor()?.fullName ?? null, phone: headSignature?.phone ?? headteacherFor()?.phone ?? null, signature: headSignature } };
   }
-  function options(actor) { assertActor(actor); const head = headteacherFor(actor); const assignments = staff?.assignments?.() ?? []; return { classes: classOptions(), teachers: activeStaff().filter((item) => item.roleKey === 'TEACHER').map((item) => ({ id: item.id, name: item.fullName, phone: item.phone ?? null, classIds: [...new Set(assignments.filter((assignment) => assignment.schoolId === schoolId && assignment.staffId === item.id).map((assignment) => assignment.classId))] })), headteacher: head ? { id: head.id, name: head.fullName, phone: head.phone ?? null } : null }; }
-  return { list, listDurable, upload, uploadDurable, replace: upload, remove, removeDurable, activeFor, resolveForStudent, resolveForStudentDurable, options, validate };
+  function options(actor) { assertActor(actor); const head = headteacherFor(actor); return { classes: classOptions(), teachers: activeStaff().filter((item) => item.roleKey === 'TEACHER').map((item) => ({ id: item.id, staffId: item.staffId ?? item.employeeId ?? null, name: item.fullName, phone: item.phone ?? null, classIds: [] })), headteacher: head ? { id: head.id, name: head.fullName, phone: head.phone ?? null } : null }; }
+  async function optionsDurable(actor) {
+    assertActor(actor);
+    if (!database?.query) return options(actor);
+    const rowsFound = rows(await database.query(`SELECT DISTINCT s.id AS id,s.staff_number AS staffId,
+        COALESCE(NULLIF(TRIM(u.full_name),''),TRIM(CONCAT_WS(' ',s.first_name,s.last_name))) AS name,
+        u.phone AS phone
+      FROM staff s
+      JOIN users u ON u.id=s.user_id AND u.school_id=s.school_id
+      JOIN user_roles ur ON ur.user_id=u.id
+      JOIN roles r ON r.id=ur.role_id AND (r.school_id=s.school_id OR r.school_id IS NULL)
+      WHERE s.school_id=? AND r.role_key IN ('TEACHER','CLASSROOM_TEACHER','CLASS_TEACHER')
+        AND UPPER(COALESCE(u.status,'ACTIVE'))='ACTIVE'
+      ORDER BY name,s.staff_number,s.id`, [schoolId]));
+    const teachers = [...new Map(rowsFound.filter((item) => item.id && item.name).map((item) => [String(item.id), {
+      id: String(item.id), staffId: item.staffId ?? null, name: text(item.name), phone: item.phone ?? null, classIds: []
+    }])).values()];
+    const head = headteacherFor(actor);
+    return { classes: classOptions(), teachers, headteacher: head ? { id: head.id, name: head.fullName, phone: head.phone ?? null } : null };
+  }
+  return { list, listDurable, upload, uploadDurable, replace: upload, remove, removeDurable, activeFor, resolveForStudent, resolveForStudentDurable, options, optionsDurable, validate };
 }
 
 function canonicalClass(value) { return String(value ?? '').toLowerCase().replace(/[^a-z0-9]/g, '').replace(/^basic/, 'primary'); }

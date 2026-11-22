@@ -23,40 +23,69 @@ async function api(url, init) {
   return body;
 }
 
-function activeTeachers() {
-  const selectedClass = classField.value;
-  return options.teachers.filter((teacher) => !teacher.classIds?.length || teacher.classIds.some((id) => String(id) === String(selectedClass)));
+function activeTeachers() { return Array.isArray(options.teachers) ? options.teachers : []; }
+
+function normalizedClass(value) { return String(value ?? '').toLowerCase().replace(/[^a-z0-9]/g, '').replace(/^basic/, 'primary'); }
+function selectedExistingProfile() {
+  const year = String(form.elements.academicYear.value ?? '').trim();
+  const term = String(form.elements.term.value ?? '').trim();
+  const classId = String(classField.value ?? '').trim();
+  return (options.signatures ?? []).find((item) => {
+    const normalizedRole = String(item.signatoryRole ?? item.role ?? '').toUpperCase().replace(/[ _-]/g, '');
+    return normalizedRole.startsWith('CLASSTEACHER')
+      && normalizedClass(item.classId) === normalizedClass(classId)
+      && String(item.academicYear ?? '') === year
+      && String(item.term ?? '') === term
+      && item.active !== false;
+  }) ?? null;
+}
+
+function populateTeachers(preferredId = '') {
+  const teachers = activeTeachers();
+  const nameCounts = new Map();
+  for (const teacher of teachers) nameCounts.set(String(teacher.name ?? '').trim().toLowerCase(), (nameCounts.get(String(teacher.name ?? '').trim().toLowerCase()) ?? 0) + 1);
+  const currentId = preferredId || teacherField.value;
+  const existingId = selectedExistingProfile()?.teacherId ?? '';
+  teacherField.innerHTML = `<option value="">${teachers.length ? 'Select Class Teacher' : 'No registered teachers available'}</option>` + teachers.map((teacher) => {
+    const detail = nameCounts.get(String(teacher.name ?? '').trim().toLowerCase()) > 1 && teacher.staffId ? ` · ${teacher.staffId}` : '';
+    return `<option value="${esc(teacher.id)}">${esc(teacher.name)}${esc(detail)}</option>`;
+  }).join('');
+  const target = [currentId, existingId].find((id) => id && teachers.some((teacher) => String(teacher.id) === String(id)));
+  teacherField.value = target ? String(target) : '';
+  teacherField.disabled = false;
 }
 
 function syncRole() {
   const classRole = role.value === 'CLASS_TEACHER';
   mapping.hidden = !classRole;
   for (const name of ['academicYear', 'term', 'classId', 'teacherId']) form.elements[name].required = classRole;
-  const candidates = classRole ? activeTeachers() : [];
-  const selected = candidates.find((teacher) => String(teacher.id) === teacherField.value) ?? candidates[0];
-  if (classRole && teacherField.value !== String(selected?.id ?? '')) teacherField.value = String(selected?.id ?? '');
+  const selected = classRole ? activeTeachers().find((teacher) => String(teacher.id) === teacherField.value) : null;
   const identity = classRole ? selected : options.headteacher;
   form.elements.fullName.value = identity?.name || '';
   form.elements.phone.value = identity?.phone || '';
+  form.elements.fullName.readOnly = classRole;
+  form.elements.phone.readOnly = classRole;
 }
 
 function fillOptions() {
   const priorClass = classField.value;
-  classField.innerHTML = options.classes.map((item) => {
+  classField.innerHTML = '<option value="">Select Class</option>' + options.classes.map((item) => {
     const id = typeof item === 'string' ? item : item.id;
     const label = typeof item === 'string' ? item : item.name ?? item.id;
     return `<option value="${esc(id)}">${esc(label)}</option>`;
   }).join('');
   if ([...classField.options].some((item) => item.value === priorClass)) classField.value = priorClass;
-  teacherField.innerHTML = activeTeachers().map((teacher) => `<option value="${esc(teacher.id)}">${esc(teacher.name)}${teacher.phone ? ` · ${esc(teacher.phone)}` : ''}</option>`).join('');
+  populateTeachers(selectedExistingProfile()?.teacherId ?? '');
   syncRole();
 }
 
 async function load() {
   host.innerHTML = '<tr><td colspan="6">Loading…</td></tr>';
+  teacherField.disabled = true;
+  teacherField.innerHTML = '<option value="">Loading registered teachers…</option>';
   try {
     const response = await api('/api/result-signatures');
-    options = response.options || options;
+    options = { ...options, ...(response.options || {}), signatures: response.signatures || [] };
     fillOptions();
     host.innerHTML = (response.signatures || []).map((signature) => {
       const scope = signature.classId ? `${signature.classId} · ${signature.academicYear || ''} · ${signature.term || ''}` : 'School-wide';
@@ -65,13 +94,19 @@ async function load() {
     }).join('') || '<tr><td colspan="6">No signatures configured.</td></tr>';
     return true;
   } catch (error) {
+    teacherField.disabled = true;
+    teacherField.innerHTML = '<option value="">Teacher list unavailable</option>';
     host.innerHTML = `<tr><td colspan="6">${esc(error.message)}</td></tr>`;
     throw error;
   }
 }
 
-role.addEventListener('change', syncRole);
-classField.addEventListener('change', () => { teacherField.innerHTML = activeTeachers().map((teacher) => `<option value="${esc(teacher.id)}">${esc(teacher.name)}${teacher.phone ? ` · ${esc(teacher.phone)}` : ''}</option>`).join(''); syncRole(); });
+role.addEventListener('change', () => { if (role.value === 'CLASS_TEACHER') populateTeachers(selectedExistingProfile()?.teacherId ?? ''); syncRole(); });
+for (const field of [classField, form.elements.academicYear, form.elements.term]) field.addEventListener('change', () => {
+  const existing = selectedExistingProfile();
+  populateTeachers(existing?.teacherId ?? teacherField.value);
+  syncRole();
+});
 teacherField.addEventListener('change', syncRole);
 fileField.addEventListener('change', async () => {
   processed = null;

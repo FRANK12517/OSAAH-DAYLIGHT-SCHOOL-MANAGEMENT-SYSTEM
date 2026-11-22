@@ -70,7 +70,7 @@ test('signature uploads persist processed PNG and resolve school-wide head plus 
         if (row.school_id !== params[0] || row.active !== 1 || (row.signatory_role ?? row.role) !== expectedRole) return false;
         if (!isClassTeacher) return true; // Headteacher signatures are school-wide.
         if (!where.includes('`class_id` IN') || !where.includes('`academic_year` IN') || !where.includes('`term` IN')) return false;
-        return params.includes(row.class_id) && params.includes(row.academic_year) && params.includes(row.term) && params.includes(row.staff_id);
+        return params.includes(row.class_id) && params.includes(row.academic_year) && params.includes(row.term);
       }).map(map);
     },
     async transaction(work) { return work(this); }
@@ -92,9 +92,11 @@ test('signature uploads persist processed PNG and resolve school-wide head plus 
   assert.ok(addedColumns.includes('processed_image_data'));
 });
 
-test('durable slip binding uses global headteacher metadata and exact class-year-term teacher scope', async () => {
+test('durable slip binding uses global headteacher metadata and the explicitly designated class-year-term teacher', async () => {
   const staff = createStaffService();
   const teacher = staff.createProfile({ fullName: 'KG Class Teacher', phone: '0241234568', roleKey: 'TEACHER' });
+  const previousTeacher = staff.createProfile({ fullName: 'Previously Assigned Teacher', phone: '0241234567', roleKey: 'TEACHER' });
+  staff.assign(previousTeacher.id, { classId: 'KG 1', academicYearId: 'year-2026', termId: 'term-1' });
   staff.assign(teacher.id, { classId: 'KG 1', academicYearId: 'year-2026', termId: 'term-1' });
   const columns = ['id','school_id','role','signatory_role','staff_id','full_name','phone_number','class_id','academic_year','term','processed_image_data','storage_key','mime_type','document_size','active','uploaded_at'];
   const records = [
@@ -114,7 +116,7 @@ test('durable slip binding uses global headteacher metadata and exact class-year
         if (record.school_id !== params[0] || !record.active) return false;
         const normalizedRole = String(record.signatory_role || record.role).toUpperCase().replace(/[ _-]/g, '');
         if (isTeacher) {
-          return normalizedRole.startsWith('CLASSTEACHER') && where.includes(quote+'class_id'+quote+' IN') && where.includes(quote+'academic_year'+quote+' IN') && where.includes(quote+'term'+quote+' IN') && params.includes(record.class_id) && params.includes(record.academic_year) && params.includes(record.term) && params.includes(record.staff_id);
+          return normalizedRole.startsWith('CLASSTEACHER') && where.includes(quote+'class_id'+quote+' IN') && where.includes(quote+'academic_year'+quote+' IN') && where.includes(quote+'term'+quote+' IN') && params.includes(record.class_id) && params.includes(record.academic_year) && params.includes(record.term);
         }
         return ['HEADTEACHER','HEADTEACHERSIGNATURE','PROPRIETOR','PROPRIETORSIGNATURE','PRINCIPAL','SCHOOLHEAD','HEAD'].includes(normalizedRole);
       });
@@ -137,9 +139,46 @@ test('durable slip binding uses global headteacher metadata and exact class-year
   assert.equal(mockResolved.classTeacher.signature.phone, '0241234566');
   assert.equal(mockResolved.headteacher.name, 'School Head');
   const otherClass = await signatures.resolveForStudentDurable({ schoolId: 'school-osaah-daylight', classId: 'class_nursery1_01' }, { ...context, className: 'Nursery 1' });
-  assert.equal(otherClass.classTeacher.signature, null);
+  assert.equal(otherClass.classTeacher.name, 'Wrong Class Teacher');
+  assert.equal(otherClass.classTeacher.signature.classId, 'Nursery 1', 'each class resolves only its own designated profile');
   const otherTerm = await signatures.resolveForStudentDurable({ schoolId: 'school-osaah-daylight', classId: 'class_kg1_01' }, { ...context, term: '2nd Term', termValues: ['term-2','2nd Term'] });
   assert.equal(otherTerm.classTeacher.signature, null);
+});
+
+test('durable signature options list active school teachers and durable save uses the selected registered identity', async () => {
+  const columns = ['id','school_id','role','signatory_role','staff_id','full_name','phone_number','class_id','academic_year','term','processed_image_data','storage_key','mime_type','document_size','active','uploaded_by','uploaded_at','updated_at'];
+  const teachers = [
+    { id: 'staff-1', staffId: 'T-001', name: 'Ama Teacher', phone: '0241234567' },
+    { id: 'staff-1', staffId: 'T-001', name: 'Ama Teacher', phone: '0241234567' },
+    { id: 'staff-2', staffId: 'T-002', name: 'Ama Teacher', phone: '0241234568' }
+  ];
+  const executed = [];
+  const database = {
+    async query(sql, params = []) {
+      if (sql.includes('information_schema.COLUMNS')) return columns.map((columnName) => ({ columnName }));
+      if (sql.includes('FROM staff s')) {
+        if (sql.includes('WHERE s.id=?')) return teachers.filter((item) => item.id === params[0]).slice(0, 1);
+        assert.deepEqual(params, ['school-osaah-daylight']);
+        return teachers;
+      }
+      if (sql.includes('FROM result_signatures')) return [];
+      throw new Error(`Unexpected signature query: ${sql}`);
+    },
+    async execute(sql, params) { executed.push({ sql, params }); return { affectedRows: 1 }; },
+    async transaction(work) { return work(this); }
+  };
+  const signatures = createSignatureService({ database });
+  const manager = { id: 'manager', roleKey: 'HEADTEACHER', schoolId: 'school-osaah-daylight', permissions: new Set(['*']) };
+  const options = await signatures.optionsDurable(manager);
+  assert.equal(options.teachers.length, 2, 'duplicates from role joins are collapsed by staff ID');
+  assert.deepEqual(options.teachers.map((item) => item.staffId), ['T-001', 'T-002']);
+  assert.equal(options.teachers.every((item) => item.classIds.length === 0), true, 'the complete school teacher list is not hidden by class assignment filters');
+  const saved = await signatures.uploadDurable(uploadInput({ signatoryRole: 'CLASS_TEACHER', classId: 'KG1', teacherId: 'staff-2', academicYear: '2026/2027', term: 'First Term', fullName: 'Forged Client Name', phone: '0241234567' }), manager);
+  assert.equal(saved.teacherId, 'staff-2');
+  assert.equal(saved.fullName, 'Ama Teacher');
+  assert.equal(saved.phone, '0241234568');
+  assert.match(executed.at(-1).sql, /INSERT INTO result_signatures/);
+  assert.ok(executed.at(-1).params.includes('staff-2'));
 });
 
 test('signature schema bootstrap tolerates denied DDL and uses verified legacy role columns', async () => {
@@ -256,4 +295,8 @@ test('management and result-slip contracts preserve phone, print, and PDF-safe s
   assert.match(service, /input\?\.signatoryRole \?\? input\?\.signatory_role \?\? input\?\.role/);
   assert.match(service, /input\?\.processedImageData \?\? input\?\.processed_image_data/);
   assert.match(client, /host\.innerHTML = `<tr><td colspan="6">\$\{esc\(error\.message\)\}<\/td><\/tr>`/);
+  assert.match(client, /Select Class Teacher/);
+  assert.match(client, /function populateTeachers/);
+  assert.match(client, /selectedExistingProfile\(\)\?\.teacherId/);
+  assert.match(backend, /signatures\.optionsDurable \? await signatures\.optionsDurable\(user\)/);
 });
