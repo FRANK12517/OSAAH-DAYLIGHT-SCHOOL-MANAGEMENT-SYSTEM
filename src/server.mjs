@@ -414,17 +414,25 @@ export function createApp({ auth = null, students = null, attendance = null, att
     const context = durableAcademic
       ? await durableAcademic.resultContext(contextInput, actor)
       : { classId: String(input.classId ?? ''), className: String(input.classId ?? ''), academicYearId: String(input.academicYear ?? ''), academicYear: String(input.academicYear ?? ''), termId: String(input.term ?? ''), term: String(input.term ?? '') };
-    return attendanceRegister.studentAttendanceSummary({
-      schoolId: actor.schoolId,
-      classId: context.classId,
-      className: context.className,
-      canonicalClassName: canonicalClassId(context.className) ?? context.className,
-      period: { yearId: context.academicYearId, yearName: context.academicYear, termId: context.termId, termName: context.term },
-      studentId: result?.studentId ?? input.studentId,
-      permanentStudentId: result?.studentIndexNumber ?? result?.permanentStudentId ?? input.permanentStudentId ?? input.sampleStudentId,
-      sampleMode,
-      actor
-    });
+    try {
+      return await attendanceRegister.studentAttendanceSummary({
+        schoolId: actor.schoolId,
+        classId: context.classId,
+        className: context.className,
+        canonicalClassName: canonicalClassId(context.className) ?? context.className,
+        period: { yearId: context.academicYearId, yearName: context.academicYear, termId: context.termId, termName: context.term },
+        studentId: result?.studentId ?? input.studentId,
+        permanentStudentId: result?.studentIndexNumber ?? result?.permanentStudentId ?? input.permanentStudentId ?? input.sampleStudentId,
+        sampleMode,
+        actor
+      });
+    } catch (error) {
+      // PDF export can still display an honest "Not recorded" when the register
+      // has no marked school days; the interactive Mock flow separately blocks
+      // saving until real attendance is available.
+      if (error.code === 'ATTENDANCE_RECORDS_NOT_FOUND') return { timesPresent: null, timesAbsent: null, totalSchoolDays: null, availability: 'NOT_RECORDED' };
+      throw error;
+    }
   }
   async function normalizedSampleMockScoreInput(input, actor) {
     if (actor.portal !== 'school') throw Object.assign(new Error('Forbidden.'), { status: 403 });

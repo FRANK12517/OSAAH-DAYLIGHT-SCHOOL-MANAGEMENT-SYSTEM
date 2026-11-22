@@ -104,26 +104,37 @@ export function createAttendanceRegisterService({ database = null, students, att
     const requestedIds = new Set([studentId, permanentStudentId].filter(Boolean).map(String));
     const student = roster.find((row) => [row.studentId, row.masterStudentId, row.profileId, row.permanentStudentId].some((value) => requestedIds.has(String(value ?? ''))));
     if (!student || permanentStudentId && String(student.permanentStudentId) !== String(permanentStudentId)) throw Object.assign(new Error('Student is not in the selected class and academic context.'), { status: 404, code: 'ATTENDANCE_STUDENT_NOT_IN_CONTEXT' });
-    const recordIds = [...new Set([student.studentId, student.masterStudentId, student.profileId, student.permanentStudentId].filter(Boolean).map(String))];
+    // The permanent student index is the authoritative identity. Resolve it to
+    // the attendance FK through the selected, school-scoped roster row, then
+    // query only that FK. Never search records by a name or a display label.
+    const attendanceStudentId = String(student.studentId ?? '').trim();
+    if (!attendanceStudentId) throw Object.assign(new Error('The selected student has no attendance-register identity.'), { status: 404, code: 'ATTENDANCE_STUDENT_IDENTITY_UNAVAILABLE' });
     let records = [];
     if (sampleMode && sampleFixtureRepository && student.isTestRecord) {
       const fixture = await sampleFixtureRepository.getFixture({ schoolId, sampleStudentId: student.permanentStudentId, academicYearId: period.yearId, termId: period.termId, classId, fixtureType: 'attendance', fixtureVersion: 1 }, authorizedSampleActor(actor, 'read'));
       records = rows(fixture?.fixturePayload?.records).map((record) => ({ ...record, schoolId: record.schoolId ?? schoolId }));
     } else if (attendanceRepository?.listStudentRecords) {
-      for (const linkedStudentId of recordIds) records.push(...await attendanceRepository.listStudentRecords({ schoolId, studentId: linkedStudentId }));
+      records = await attendanceRepository.listStudentRecords({ schoolId, studentId: attendanceStudentId });
     } else {
-      records = rows(attendance?.listStudentRecords?.()).filter((record) => record.schoolId === schoolId);
+      records = rows(attendance?.listStudentRecords?.()).filter((record) => record.schoolId === schoolId && String(record.studentId ?? '') === attendanceStudentId);
     }
-    const summary = summarizeMockAttendance(records, {
+    const linkedRecords = rows(records).filter((record) => {
+      if (String(record.schoolId ?? '') !== String(schoolId)) return false;
+      if (student.isTestRecord && sampleMode) return String(record.permanentStudentId ?? record.studentId ?? '') === String(student.permanentStudentId);
+      if (String(record.studentId ?? '') !== attendanceStudentId) return false;
+      return !record.permanentStudentId || String(record.permanentStudentId) === String(student.permanentStudentId);
+    }).map((record) => ({ ...record, permanentStudentId: student.permanentStudentId }));
+    const summary = summarizeMockAttendance(linkedRecords, {
       schoolId,
-      studentIds: recordIds,
       classId,
       className,
       academicYearId: period.yearId,
       academicYear: period.yearName,
       termId: period.termId,
-      term: period.termName
+      term: period.termName,
+      permanentStudentId: student.permanentStudentId
     });
+    if (!summary.totalSchoolDays) throw Object.assign(new Error('No attendance records are available for this student and academic context.'), { status: 404, code: 'ATTENDANCE_RECORDS_NOT_FOUND' });
     return { ...summary, studentId: student.studentId, permanentStudentId: student.permanentStudentId, classId, academicYearId: period.yearId, academicYear: period.yearName, termId: period.termId, term: period.termName };
   }
 

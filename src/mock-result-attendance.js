@@ -10,14 +10,15 @@ function latestRecord(left, right) {
 }
 
 export function summarizeMockAttendance(records = [], identity = {}) {
-  const studentIds = new Set([...(identity.studentIds ?? []), identity.studentId, identity.permanentStudentId].filter((value) => value != null).map(String));
+  const permanentStudentId = String(identity.permanentStudentId ?? '').trim();
+  if (!permanentStudentId) throw Object.assign(new Error('The permanent student index is required to summarize attendance.'), { code: 'ATTENDANCE_PERMANENT_ID_REQUIRED' });
   const classes = new Set([identity.classId, identity.className].filter((value) => value != null).map(String));
   const years = new Set([identity.academicYearId, identity.academicYear].filter((value) => value != null).map(String));
   const terms = new Set([identity.termId, identity.term].filter((value) => value != null).map(String));
   const byDate = new Map();
   for (const record of Array.isArray(records) ? records : []) {
     if (identity.schoolId && String(record.schoolId ?? '') !== String(identity.schoolId)) continue;
-    if (studentIds.size && !studentIds.has(String(record.studentId ?? '')) && !studentIds.has(String(record.permanentStudentId ?? ''))) continue;
+    if (String(record.permanentStudentId ?? '').trim() !== permanentStudentId) continue;
     if (classes.size && !classes.has(String(record.classId ?? ''))) continue;
     if (years.size && !years.has(String(record.academicYearId ?? record.academicYear ?? ''))) continue;
     if (terms.size && !terms.has(String(record.termId ?? record.term ?? ''))) continue;

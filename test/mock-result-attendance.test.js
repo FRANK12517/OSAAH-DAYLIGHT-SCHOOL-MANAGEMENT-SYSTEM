@@ -25,12 +25,23 @@ test('Mock attendance counts one authoritative status per school day for the per
   assert.deepEqual(summarizeMockAttendance(records, { schoolId, studentId: 'profile-1', permanentStudentId: 'OSAAH/2026/004', classId: 'jhs-3', academicYearId: 'year-2026', academicYear: '2026/2027', termId: 'term-1', term: 'First Term' }), { timesPresent: 1, timesAbsent: 2, totalSchoolDays: 3 });
 });
 
+test('attendance totals require the permanent student index and exclude mismatched or unidentified records', () => {
+  const records = [
+    { schoolId, studentId: 'profile-1', permanentStudentId: 'OSAAH/2026/004', classId: 'jhs-3', academicYear: '2026/2027', term: 'First Term', date: '2026-09-01', status: 'PRESENT' },
+    { schoolId, studentId: 'profile-1', permanentStudentId: 'OSAAH/2026/005', classId: 'jhs-3', academicYear: '2026/2027', term: 'First Term', date: '2026-09-02', status: 'ABSENT' },
+    { schoolId, studentId: 'profile-1', classId: 'jhs-3', academicYear: '2026/2027', term: 'First Term', date: '2026-09-03', status: 'PRESENT' }
+  ];
+  assert.deepEqual(summarizeMockAttendance(records, { schoolId, permanentStudentId: 'OSAAH/2026/004', classId: 'jhs-3', academicYear: '2026/2027', term: 'First Term' }), { timesPresent: 1, timesAbsent: 0, totalSchoolDays: 1 });
+  assert.throws(() => summarizeMockAttendance(records, { schoolId, classId: 'jhs-3', academicYear: '2026/2027', term: 'First Term' }), (error) => error.code === 'ATTENDANCE_PERMANENT_ID_REQUIRED');
+});
+
 test('attendance-register summary resolves the enrolled student by internal ID and exact permanent ID', async () => {
   const students = createStudentService({ schoolId });
   const student = students.createStudent({ firstName: 'Ama', surname: 'Mensah', permanentStudentId: 'OSAAH/2026/004', classId: 'JHS 3', academicYearId: period.yearName, termId: period.termName });
   const rows = [
     { id: 'att-1', schoolId, studentId: student.id, classId: 'JHS 3', academicYear: period.yearName, term: period.termName, date: '2026-09-01', status: 'PRESENT', version: 1 },
-    { id: 'att-2', schoolId, studentId: student.id, classId: 'JHS 3', academicYear: period.yearName, term: period.termName, date: '2026-09-02', status: 'ABSENT', version: 1 }
+    { id: 'att-2', schoolId, studentId: student.id, classId: 'JHS 3', academicYear: period.yearName, term: period.termName, date: '2026-09-02', status: 'ABSENT', version: 1 },
+    { id: 'att-other', schoolId, studentId: student.id, permanentStudentId: 'OSAAH/2026/999', classId: 'JHS 3', academicYear: period.yearName, term: period.termName, date: '2026-09-03', status: 'PRESENT', version: 1 }
   ];
   const attendanceRepository = { async listStudentRecords(filters) { return rows.filter((row) => row.schoolId === filters.schoolId && row.studentId === filters.studentId); } };
   const service = createAttendanceRegisterService({ students, attendanceRepository });
@@ -40,6 +51,13 @@ test('attendance-register summary resolves the enrolled student by internal ID a
   await assert.rejects(service.studentAttendanceSummary({ schoolId, classId: 'JHS 3', period, studentId: student.id, permanentStudentId: 'OSAAH/2026/999', actor }), /selected class and academic context/);
 });
 
+test('attendance register reports missing attendance instead of presenting invented zero totals', async () => {
+  const students = createStudentService({ schoolId });
+  const student = students.createStudent({ firstName: 'No', surname: 'Attendance', permanentStudentId: 'OSAAH/2026/006', classId: 'JHS 3', academicYearId: period.yearName, termId: period.termName });
+  const service = createAttendanceRegisterService({ students, attendanceRepository: { async listStudentRecords() { return []; } } });
+  await assert.rejects(service.studentAttendanceSummary({ schoolId, classId: 'JHS 3', className: 'JHS 3', period, studentId: student.id, permanentStudentId: student.permanentStudentId, actor }), (error) => error.code === 'ATTENDANCE_RECORDS_NOT_FOUND' && error.status === 404);
+});
+
 test('Mock Result Slip loads linked attendance before rendering and does not expose editable attendance values', () => {
   const client = fs.readFileSync(new URL('../public/mock-result-view.js', import.meta.url), 'utf8');
   assert.match(client, /function loadLinkedAttendance\(x\)/);
@@ -47,6 +65,8 @@ test('Mock Result Slip loads linked attendance before rendering and does not exp
   assert.match(client, /permanentStudentId:String\(x\.studentIndexNumber\|\|x\.permanentStudentId\|\|''\)/);
   assert.match(client, /attendance:attendanceSummary/);
   assert.match(client, /attendanceSummaryUnavailable/);
+  assert.match(client, /setInterval\(\(\)=>refreshLinkedAttendance\(context,version\),60000\)/);
+  assert.match(client, /document\.addEventListener\('visibilitychange'/);
   assert.doesNotMatch(client, /data-attendance="timesPresent" type="number"/);
   assert.doesNotMatch(client, /data-attendance="timesAbsent" type="number"/);
 });
