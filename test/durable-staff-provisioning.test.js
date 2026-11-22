@@ -61,7 +61,7 @@ function createFakeDatabase({ failAt = null } = {}) {
       const staff = store.staff.find((item) => item.user_id === userId && item.school_id === schoolId);
       return store.assignments.filter((item) => item.staff_id === staff?.id).map((item) => ({ classId: item.class_id, subjectId: item.subject_id }));
     }
-    if (sql.includes('SELECT s.id AS id, s.staff_number AS staffId')) {
+    if (sql.includes('SELECT s.id AS id, u.id AS userId, s.staff_number AS staffId')) {
       const byUser = sql.includes('s.user_id=? AND s.school_id=?');
       const [first, second] = params;
       return store.staff.filter((staff) => byUser ? staff.user_id === first && staff.school_id === second : staff.school_id === first).flatMap((staff) => {
@@ -71,7 +71,7 @@ function createFakeDatabase({ failAt = null } = {}) {
         const assignments = store.assignments.filter((row) => row.staff_id === staff.id);
         return roleLinks.flatMap((link) => {
           const role = store.roles.find((row) => row.id === link.role_id && row.school_id === staff.school_id && ['SCHOOL_ADMIN', 'TEACHER', 'HEADTEACHER', 'ASSISTANT_HEADTEACHER', 'ACCOUNTANT_BURSAR'].includes(row.role_key));
-          return role ? (assignments.length ? assignments.map((assignment) => ({ id: staff.id, staffId: staff.staff_number, firstName: staff.first_name, lastName: staff.last_name, username: user.email, email: user.email, accountStatus: user.status, createdAt: user.created_at, fullName: profile.full_name, phone: profile.phone, roleKey: role.role_key, assignedClassId: assignment.class_id, assignedSubjectId: assignment.subject_id })) : [{ id: staff.id, staffId: staff.staff_number, firstName: staff.first_name, lastName: staff.last_name, username: user.email, email: user.email, accountStatus: user.status, createdAt: user.created_at, fullName: profile.full_name, phone: profile.phone, roleKey: role.role_key, assignedClassId: null, assignedSubjectId: null }]) : [];
+        return role ? (assignments.length ? assignments.map((assignment) => ({ id: staff.id, userId: user.id, staffId: staff.staff_number, firstName: staff.first_name, lastName: staff.last_name, username: user.email, email: user.email, accountStatus: user.status, createdAt: user.created_at, fullName: profile.full_name, phone: profile.phone, roleKey: role.role_key, assignedClassId: assignment.class_id, assignedSubjectId: assignment.subject_id })) : [{ id: staff.id, userId: user.id, staffId: staff.staff_number, firstName: staff.first_name, lastName: staff.last_name, username: user.email, email: user.email, accountStatus: user.status, createdAt: user.created_at, fullName: profile.full_name, phone: profile.phone, roleKey: role.role_key, assignedClassId: null, assignedSubjectId: null }]) : [];
         });
       });
     }
@@ -221,6 +221,7 @@ test('staff provisioning commits linked durable records and a new auth service c
   const listed = await restartedAuth.listStaff(SCHOOL_ID);
   assert.equal(listed.length, 1);
   assert.equal(listed[0].email, newTeacher.email);
+  assert.equal(listed[0].userId, created.staff.id, 'directory actions target the linked user account, not only the staff row');
   assert.deepEqual(listed[0].assignedClassIds, ['primary-4']);
 });
 

@@ -38,6 +38,7 @@ function roleFor(value) {
 function staffView(row) {
   return {
     id: String(row.id),
+    userId: String(row.userId ?? row.id),
     fullName: row.fullName ?? [row.firstName, row.lastName].filter(Boolean).join(' '),
     staffId: row.staffId,
     username: row.username,
@@ -163,7 +164,7 @@ export function createDurableStaffProvisioning({ database, passwordHash, verifyL
   async function readRows(schoolId, userId = null) {
     const conditions = userId ? 's.user_id=? AND s.school_id=?' : 's.school_id=?';
     const params = userId ? [userId, schoolId] : [schoolId];
-    return database.query(`SELECT s.id AS id, s.staff_number AS staffId, s.first_name AS firstName, s.last_name AS lastName,
+    return database.query(`SELECT s.id AS id, u.id AS userId, s.staff_number AS staffId, s.first_name AS firstName, s.last_name AS lastName,
         u.username AS username, u.email AS email, u.status AS accountStatus, u.created_at AS createdAt,
         u.full_name AS fullName, u.phone AS phone, r.role_key AS roleKey,
         sa.class_id AS assignedClassId, sa.subject_id AS assignedSubjectId
