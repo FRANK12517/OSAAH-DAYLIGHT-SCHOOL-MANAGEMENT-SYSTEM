@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { scryptSync } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { createApp } from '../src/server.mjs';
@@ -44,6 +45,32 @@ test('Class Database options use database academic years and canonical classes',
     assert.deepEqual(body.academicYears, ['2024/2025', '2026/2027']);
     assert.equal(body.classes.length, 13);
     assert.deepEqual(body.classes, ['Nursery 1', 'Nursery 2', 'KG1', 'KG2', 'Primary 1', 'Primary 2', 'Primary 3', 'Primary 4', 'Primary 5', 'Primary 6', 'JHS 1', 'JHS 2', 'JHS 3']);
+  } finally { await closeHttpServer(server); }
+});
+
+test('Class Database options do not require Fee Hub permissions for authorized teachers', async () => {
+  const schoolId = 'school-class-db-teacher';
+  const password = 'Teacher-Class-Database-123!';
+  const salt = 'class-db-teacher-salt';
+  const auth = createAuthService({
+    users: [{ id: 'class-db-teacher', username: 'teacher@class-db.test', passwordHash: `${salt}:${scryptSync(password, salt, 32).toString('hex')}`, portal: 'school', roleKey: 'TEACHER', schoolId, assignedClassIds: ['KG1'], permissions: new Set(['students.read']) }],
+    sessionSecret: 'class-database-teacher-test-session-secret'
+  });
+  const login = auth.login({ username: 'teacher@class-db.test', password, portal: 'school' });
+  assert.equal(login.ok, true);
+  const database = { query: async (sql, params) => {
+    assert.match(sql, /FROM academic_years/);
+    assert.deepEqual(params, [schoolId]);
+    return [{ id: 'year-2026', name: '2026/2027' }];
+  } };
+  const server = createServer(createApp({ auth, database, aiEnabled: false }));
+  await new Promise((resolve) => server.listen(0, resolve));
+  try {
+    const response = await http(server, '/api/class-database/options', login.token);
+    assert.equal(response.status, 200, response.body);
+    const body = JSON.parse(response.body);
+    assert.deepEqual(body.academicYears, ['2026/2027']);
+    assert.deepEqual(body.classes, ['KG1']);
   } finally { await closeHttpServer(server); }
 });
 

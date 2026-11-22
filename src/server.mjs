@@ -1319,7 +1319,21 @@ if (durableAcademic && isSampleModeEnabled(body)) {
           return json(response, { success: true, data: { synced: records }, synced: records, message: `${records.length} attendance record(s) saved successfully.` });
         } catch (error) { return attendanceApiFailure(response, error, '/api/attendance/students/sync', user); }
       }
-      if (pathname === '/api/class-database/options' && request.method === 'GET') { try { const options = classDatabase.options(user); const academicYears = database?.query ? (await feeSetupOptions(user)).academicYears.map((item) => item.name ?? item.id) : ['2024/2025', '2025/2026', '2026/2027', '2027/2028', '2028/2029']; return json(response, { ...options, academicYears: academicYears.length ? academicYears : options.academicYears }); } catch (error) { return json(response, { error: error.message }, error.status ?? 403); } }
+      if (pathname === '/api/class-database/options' && request.method === 'GET') {
+        try {
+          const options = classDatabase.options(user);
+          let academicYears = options.academicYears;
+          if (database?.query) {
+            try {
+              const rows = await database.query('SELECT id,name FROM academic_years WHERE school_id=? ORDER BY name DESC,id', [user.schoolId]);
+              academicYears = rows.map((item) => item.name ?? item.id).filter(Boolean);
+            } catch (error) {
+              console.error('[Class Database] academic year options lookup failed', { schoolId: user.schoolId, code: error.code ?? null, message: error.message });
+            }
+          }
+          return json(response, { ...options, academicYears: academicYears.length ? academicYears : options.academicYears });
+        } catch (error) { return json(response, { error: error.message }, error.status ?? 403); }
+      }
       if (pathname === '/api/class-database' && request.method === 'GET') { try { const query = new URL(request.url, 'http://localhost').searchParams; return json(response, { rows: await durableClassDatabaseList({ classId: query.get('classId') ?? '', academicYear: query.get('academicYear') ?? '', search: query.get('search') ?? '' }, user) }); } catch (error) { return json(response, { error: error.message }, error.status ?? 403); } }
       if (pathname === '/api/class-database/completed/options' && request.method === 'GET') { try { return json(response, classDatabase.completedOptions(user)); } catch (error) { return json(response, { error: error.message }, error.status ?? 403); } }
       if (pathname === '/api/class-database/completed' && request.method === 'GET') { try { const query = new URL(request.url, 'http://localhost').searchParams; return json(response, { rows: classDatabase.listCompleted({ completionYear: query.get('completionYear') ?? '', search: query.get('search') ?? '' }, user) }); } catch (error) { return json(response, { error: error.message }, error.status ?? 403); } }
