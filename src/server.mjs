@@ -403,6 +403,29 @@ export function createApp({ auth = null, students = null, attendance = null, att
     if (!classId) throw new Error('The selected class is not configured for sample results.');
     return { input: { ...input, classId, academicYear: context.academicYear, term: context.term }, className: context.className };
   }
+  async function mockAttendanceForResult(input, actor, result, sampleMode = false) {
+    let contextInput = { ...input, resultType: 'MOCK' };
+    if (durableAcademic && sampleMode) {
+      const requestedClass = canonicalClassId(input.classId);
+      const options = await durableAcademic.options(actor);
+      const classRow = options.classes?.find((item) => String(item.id) === String(input.classId) || canonicalClassId(item.name) === requestedClass || canonicalClassId(item.id) === requestedClass);
+      if (classRow) contextInput = { ...contextInput, classId: classRow.id };
+    }
+    const context = durableAcademic
+      ? await durableAcademic.resultContext(contextInput, actor)
+      : { classId: String(input.classId ?? ''), className: String(input.classId ?? ''), academicYearId: String(input.academicYear ?? ''), academicYear: String(input.academicYear ?? ''), termId: String(input.term ?? ''), term: String(input.term ?? '') };
+    return attendanceRegister.studentAttendanceSummary({
+      schoolId: actor.schoolId,
+      classId: context.classId,
+      className: context.className,
+      canonicalClassName: canonicalClassId(context.className) ?? context.className,
+      period: { yearId: context.academicYearId, yearName: context.academicYear, termId: context.termId, termName: context.term },
+      studentId: result?.studentId ?? input.studentId,
+      permanentStudentId: result?.studentIndexNumber ?? result?.permanentStudentId ?? input.permanentStudentId ?? input.sampleStudentId,
+      sampleMode,
+      actor
+    });
+  }
   async function normalizedSampleMockScoreInput(input, actor) {
     if (actor.portal !== 'school') throw Object.assign(new Error('Forbidden.'), { status: 403 });
     let classId = durableAcademic ? '' : canonicalClassId(input.classId);
@@ -721,7 +744,7 @@ export function createApp({ auth = null, students = null, attendance = null, att
       if (pathname === '/api/sms/delivery-callback' && request.method === 'GET') { if (!smsService) return json(response, { error: 'Durable SMS service unavailable.' }, 503); try { const query = new URL(request.url, 'http://localhost').searchParams; return json(response, await smsService.deliveryCallback({ token: query.get('token'), smsId: query.get('sms_id'), status: query.get('status') })); } catch (error) { return json(response, { error: error.message }, error.status ?? 400); } }
       if (!user) return json(response, { error: 'Authentication required.' }, 401);
       if (pathname.startsWith('/api/academic/sample/') && !sampleFixturesEnabled() && !PRODUCTION_SAFE_ACADEMIC_SAMPLE_ENDPOINTS.has(pathname)) return json(response, { error: 'Sample Result / Test Mode is disabled.' }, 403);
-      const durableAcademicEndpoints = new Set(['/api/academic/options', '/api/academic/result-students', '/api/academic/score-entry/roster', '/api/academic/mock-scores/roster', '/api/academic/scores', '/api/academic/results/save', '/api/academic/results/saved', '/api/academic/results/publish', '/api/academic/results/publish-class', '/api/academic/results/access-management', '/api/academic/mock-scores', '/api/academic/result/pdf', '/api/academic/mock-result/pdf', '/api/academic/sample/result/pdf', '/api/academic/result', '/api/academic/mock-result', '/api/parent/results']);
+      const durableAcademicEndpoints = new Set(['/api/academic/options', '/api/academic/result-students', '/api/academic/score-entry/roster', '/api/academic/mock-scores/roster', '/api/academic/scores', '/api/academic/results/save', '/api/academic/results/saved', '/api/academic/results/publish', '/api/academic/results/publish-class', '/api/academic/results/access-management', '/api/academic/mock-scores', '/api/academic/result/pdf', '/api/academic/mock-result/pdf', '/api/academic/sample/result/pdf', '/api/academic/result', '/api/academic/mock-result', '/api/academic/mock-attendance', '/api/parent/results']);
       if (process.env.NODE_ENV === 'production' && !durableAcademic && (durableAcademicEndpoints.has(pathname) || pathname.startsWith('/api/subjects/'))) return json(response, { error: 'Durable academic data is unavailable; apply the required migrations and restore database connectivity before retrying.' }, 503);
       if (process.env.NODE_ENV === 'production' && pathname.startsWith('/api/examinations/promotion') && !durablePromotion) return json(response, { error: 'Durable promotion data is unavailable; apply the required migration and restore database connectivity before retrying.' }, 503);
       if (pathname === '/api/sidebar') return json(response, { user: publicUser(user), portal: user.portal, categories: visibleSidebar({ permissions: user.permissions, roleKey: user.roleKey, portal: user.portal, schoolType: user.schoolType, subscription: user.subscription, entitlements: user.entitlements, featureAvailability: user.featureAvailability }), parentCards: user.portal === 'parent' ? parentDashboardModules() : [] });
@@ -1030,7 +1053,8 @@ if (durableAcademic && isSampleModeEnabled(body)) {
             : sampleResults.generate(input, user);
           await sampleResults.persistGeneratedState(generated, user);
           const result = { ...generated, isSample: true, classId: className, academicYear: input.academicYear, term: input.term, studentIndexNumber: generated.studentIndexNumber ?? generated.permanentStudentId };
-          const buffer = await resultPdf.pdf(result);
+          const attendanceSummary = isMock ? await mockAttendanceForResult({ ...body, classId: body.classId, academicYear: input.academicYear, term: input.term }, user, result, true) : null;
+          const buffer = await resultPdf.pdf(isMock ? { ...result, attendance: attendanceSummary } : result);
           response.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="${resultPdf.filename(result)}"`, 'Content-Length': buffer.length, 'Cache-Control': 'no-store' });
           return response.end(buffer);
         } catch (error) { return json(response, { error: error.message }, error.status ?? (error.message === 'Forbidden.' ? 403 : 400)); }
@@ -1045,9 +1069,48 @@ if (durableAcademic && isSampleModeEnabled(body)) {
         if (block?.status === 'BLOCKED') throw Object.assign(new Error('This result is temporarily blocked by the school. Please contact the school office.'), { status: 403, code: 'RESULT_BLOCKED' });
       }
       if (pathname === '/api/academic/result/pdf' && request.method === 'GET') { if (!canAccess(user, 'results.read') && !canAccess(user, 'results.generate')) return json(response, { error: 'Forbidden.' }, 403); try { const query = Object.fromEntries(new URL(request.url, 'http://localhost').searchParams); await assertResultReadable(query, user); const result = durableAcademic ? await durableAcademic.result(query, user) : academicResults.result(query, user); const buffer = await resultPdf.pdf(result); response.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="${resultPdf.filename(result)}"`, 'Content-Length': buffer.length, 'Cache-Control': 'no-store' }); return response.end(buffer); } catch (error) { return json(response, { error: error.message }, error.status ?? (error.message === 'Forbidden.' ? 403 : 400)); } }
-      if (pathname === '/api/academic/mock-result/pdf' && request.method === 'GET') { if (!canAccess(user, 'mock.results.read') && !canAccess(user, 'mock.results.generate')) return json(response, { error: 'Forbidden.' }, 403); try { const query = Object.fromEntries(new URL(request.url, 'http://localhost').searchParams); await assertResultReadable({ ...query, resultType: 'MOCK' }, user); const result = durableAcademic ? await durableAcademic.result(query, user, { mock: true }) : academicResults.result(query, user, { mock: true }); const buffer = await resultPdf.pdf(result); response.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="${resultPdf.filename(result)}"`, 'Content-Length': buffer.length, 'Cache-Control': 'no-store' }); return response.end(buffer); } catch (error) { return json(response, { error: error.message }, error.status ?? (error.message === 'Forbidden.' ? 403 : 400)); } }
+      if (pathname === '/api/academic/mock-result/pdf' && request.method === 'GET') {
+        if (!canAccess(user, 'mock.results.read') && !canAccess(user, 'mock.results.generate')) return json(response, { error: 'Forbidden.' }, 403);
+        try {
+          const query = Object.fromEntries(new URL(request.url, 'http://localhost').searchParams);
+          await assertResultReadable({ ...query, resultType: 'MOCK' }, user);
+          const result = durableAcademic ? await durableAcademic.result(query, user, { mock: true }) : academicResults.result(query, user, { mock: true });
+          const attendanceSummary = await mockAttendanceForResult(query, user, result);
+          const buffer = await resultPdf.pdf({ ...result, attendance: attendanceSummary });
+          response.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="${resultPdf.filename(result)}"`, 'Content-Length': buffer.length, 'Cache-Control': 'no-store' });
+          return response.end(buffer);
+        } catch (error) { return json(response, { error: error.message }, error.status ?? (error.message === 'Forbidden.' ? 403 : 400)); }
+      }
       if (pathname === '/api/academic/result' && request.method === 'GET') { if (!canAccess(user, 'results.read') && !canAccess(user, 'results.generate')) return json(response, { error: 'Forbidden.' }, 403); try { const query = Object.fromEntries(new URL(request.url, 'http://localhost').searchParams); await assertResultReadable(query, user); return json(response, { result: durableAcademic ? await durableAcademic.result(query, user) : academicResults.result(query, user) }); } catch (error) { return json(response, { error: error.message }, error.status ?? (error.message === 'Forbidden.' ? 403 : 400)); } }
       if (pathname === '/api/academic/mock-result' && request.method === 'GET') { if (!canAccess(user, 'mock.results.read') && !canAccess(user, 'mock.results.generate')) return json(response, { error: 'Forbidden.' }, 403); try { const query = Object.fromEntries(new URL(request.url, 'http://localhost').searchParams); await assertResultReadable({ ...query, resultType: 'MOCK' }, user); return json(response, { result: durableAcademic ? await durableAcademic.result(query, user, { mock: true }) : academicResults.result(query, user, { mock: true }) }); } catch (error) { return json(response, { error: error.message }, error.status ?? (error.message === 'Forbidden.' ? 403 : 400)); } }
+      if (pathname === '/api/academic/mock-attendance' && request.method === 'GET') {
+        if (!user) return json(response, { error: 'UNAUTHENTICATED' }, 401);
+        if (user.portal !== 'school' || (!canAccess(user, 'mock.results.read') && !canAccess(user, 'mock.results.generate'))) return json(response, { error: 'Forbidden.' }, 403);
+        try {
+          const query = Object.fromEntries(new URL(request.url, 'http://localhost').searchParams);
+          const sampleMode = isSampleModeEnabled(query);
+          if (sampleMode && user.portal !== 'school') return json(response, { error: 'Forbidden.' }, 403);
+          if (sampleMode) students.seedSampleStudents?.();
+          const resultContext = durableAcademic
+            ? await durableAcademic.resultContext({ ...query, resultType: 'MOCK' }, user)
+            : { classId: String(query.classId ?? ''), className: String(query.classId ?? ''), academicYearId: String(query.academicYear ?? ''), academicYear: String(query.academicYear ?? ''), termId: String(query.term ?? ''), term: String(query.term ?? '') };
+          const summary = await attendanceRegister.studentAttendanceSummary({
+            schoolId: user.schoolId,
+            classId: resultContext.classId,
+            className: resultContext.className,
+            canonicalClassName: canonicalClassId(resultContext.className) ?? resultContext.className,
+            period: { yearId: resultContext.academicYearId, yearName: resultContext.academicYear, termId: resultContext.termId, termName: resultContext.term },
+            studentId: query.studentId,
+            permanentStudentId: query.permanentStudentId,
+            sampleMode,
+            actor: user
+          });
+          return json(response, summary);
+        } catch (error) {
+          console.error('[Mock attendance summary] request failed', { schoolId: user.schoolId, userId: user.id, message: error.message, code: error.code ?? null, stack: error.stack });
+          return json(response, { error: error.message, code: error.code ?? 'MOCK_ATTENDANCE_SUMMARY_FAILED' }, error.status ?? (error.message === 'Forbidden.' ? 403 : 400));
+        }
+      }
       if (pathname === '/api/academic/broadsheet' && request.method === 'GET') { if (!canAccess(user, 'results.read')) return json(response, { error: 'Forbidden.' }, 403); if (!durableAcademic && process.env.NODE_ENV === 'production' && !isSampleModeEnabled(new URL(request.url, 'http://localhost').searchParams)) return json(response, { error: 'Durable Broadsheet data is unavailable.' }, 503); try { const query = Object.fromEntries(new URL(request.url, 'http://localhost').searchParams); const sampleMode = isSampleModeEnabled(query); if (sampleMode && user.portal !== 'school') return json(response, { error: 'Forbidden.' }, 403); const rows = sampleMode ? sampleResults.broadsheet(query, user) : durableAcademic ? await durableAcademic.broadsheet(query, user) : academicResults.broadsheet(query, user, { mock: false }); return json(response, { rows }); } catch (error) { console.error('[Broadsheet] request failed', { schoolId: user.schoolId, userId: user.id, message: error.message }); return json(response, { error: error.message }, error.status ?? (error.message === 'Forbidden.' ? 403 : 400)); } }
       if (pathname === '/api/academic/mock-broadsheet' && request.method === 'GET') { if (!canAccess(user, 'mock.results.read')) return json(response, { error: 'Forbidden.' }, 403); try { const query = Object.fromEntries(new URL(request.url, 'http://localhost').searchParams); const sampleMode = isSampleModeEnabled(query); if (sampleMode && user.portal !== 'school') return json(response, { error: 'Forbidden.' }, 403); const rows = sampleMode ? sampleResults.broadsheet(query, user, { mock: true }) : durableAcademic ? await durableAcademic.mockBroadsheet(query, user) : academicResults.broadsheet(query, user, { mock: true }); return json(response, { rows }); } catch (error) { return json(response, { error: error.message }, error.status ?? (error.message === 'Forbidden.' ? 403 : 400)); } }
       if (pathname === '/api/academic/header' && request.method === 'GET') return json(response, { asset: RESULT_HEADER_ASSET });

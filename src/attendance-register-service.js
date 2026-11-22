@@ -1,4 +1,5 @@
 import { ACADEMIC_YEAR_OPTIONS, TERM_OPTIONS } from './attendance.js';
+import { summarizeMockAttendance } from './mock-result-attendance.js';
 
 const rows = (value) => Array.isArray(value) ? value : [];
 const safeTimezone = (value) => {
@@ -94,6 +95,36 @@ export function createAttendanceRegisterService({ database = null, students, att
       return rows(fixture?.fixturePayload?.records).filter((record) => record.studentId === student.permanentStudentId && record.date === period.date && String(record.classId) === String(classId));
     }
     return (attendance?.listStudentRecords?.() ?? []).filter((record) => record.isTestRecord && record.studentId === student.id && record.date === period.date && String(record.classId) === String(classId) && record.academicYear === period.yearName && record.term === period.termName);
+  }
+
+  async function studentAttendanceSummary({ schoolId, classId, className = classId, canonicalClassName = className, period, studentId, permanentStudentId, sampleMode = false, actor }) {
+    if (!schoolId || !actor?.id || actor.schoolId !== schoolId) throw Object.assign(new Error('Attendance summary requires an authenticated school context.'), { status: 403, code: 'ATTENDANCE_SUMMARY_FORBIDDEN' });
+    if (!classId || !period?.yearId || !period?.termId || !permanentStudentId || !studentId && !permanentStudentId) throw Object.assign(new Error('Permanent student ID, class, academic year, and term are required.'), { status: 400, code: 'ATTENDANCE_SUMMARY_CONTEXT_REQUIRED' });
+    const roster = await enrolledStudents({ schoolId, classId, className, canonicalClassName, period, sampleMode, actor });
+    const requestedIds = new Set([studentId, permanentStudentId].filter(Boolean).map(String));
+    const student = roster.find((row) => [row.studentId, row.masterStudentId, row.profileId, row.permanentStudentId].some((value) => requestedIds.has(String(value ?? ''))));
+    if (!student || permanentStudentId && String(student.permanentStudentId) !== String(permanentStudentId)) throw Object.assign(new Error('Student is not in the selected class and academic context.'), { status: 404, code: 'ATTENDANCE_STUDENT_NOT_IN_CONTEXT' });
+    const recordIds = [...new Set([student.studentId, student.masterStudentId, student.profileId, student.permanentStudentId].filter(Boolean).map(String))];
+    let records = [];
+    if (sampleMode && sampleFixtureRepository && student.isTestRecord) {
+      const fixture = await sampleFixtureRepository.getFixture({ schoolId, sampleStudentId: student.permanentStudentId, academicYearId: period.yearId, termId: period.termId, classId, fixtureType: 'attendance', fixtureVersion: 1 }, authorizedSampleActor(actor, 'read'));
+      records = rows(fixture?.fixturePayload?.records).map((record) => ({ ...record, schoolId: record.schoolId ?? schoolId }));
+    } else if (attendanceRepository?.listStudentRecords) {
+      for (const linkedStudentId of recordIds) records.push(...await attendanceRepository.listStudentRecords({ schoolId, studentId: linkedStudentId }));
+    } else {
+      records = rows(attendance?.listStudentRecords?.()).filter((record) => record.schoolId === schoolId);
+    }
+    const summary = summarizeMockAttendance(records, {
+      schoolId,
+      studentIds: recordIds,
+      classId,
+      className,
+      academicYearId: period.yearId,
+      academicYear: period.yearName,
+      termId: period.termId,
+      term: period.termName
+    });
+    return { ...summary, studentId: student.studentId, permanentStudentId: student.permanentStudentId, classId, academicYearId: period.yearId, academicYear: period.yearName, termId: period.termId, term: period.termName };
   }
 
   async function saveSampleAttendance(entries, actor, period) {
@@ -239,5 +270,5 @@ export function createAttendanceRegisterService({ database = null, students, att
     return [...unique.values()].sort((a,b) => String(a.surname ?? '').localeCompare(String(b.surname ?? '')) || String(a.firstName ?? '').localeCompare(String(b.firstName ?? '')) || String(a.studentId).localeCompare(String(b.studentId)));
   }
 
-  return Object.freeze({ today, resolvePeriod, enrolledStudents, savedSampleAttendance, saveSampleAttendance, isEnrolled });
+  return Object.freeze({ today, resolvePeriod, enrolledStudents, savedSampleAttendance, saveSampleAttendance, studentAttendanceSummary, isEnrolled });
 }
