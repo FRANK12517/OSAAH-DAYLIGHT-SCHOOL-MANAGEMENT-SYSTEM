@@ -128,3 +128,14 @@ test('changing sentiment filters one category, changing comment updates its prin
   assert.equal(saved.conduct, negative);
   assert.equal(saved.interest, '');
 });
+
+test('printable assessment comments use a full-width horizontal label/comment layout', () => {
+  const page = fs.readFileSync(new URL('../public/results.html', import.meta.url), 'utf8');
+  const threeColumnAssessmentRule = page.indexOf('.slip-summary,.slip-assessment,.slip-attendance{display:grid;grid-template-columns:repeat(3,1fr)');
+  const oneColumnAssessmentOverride = page.indexOf('.result-slip .slip-assessment{grid-template-columns:minmax(0,1fr)}', threeColumnAssessmentRule);
+  assert.ok(threeColumnAssessmentRule >= 0, 'shared summary/assessment grid rule exists');
+  assert.ok(oneColumnAssessmentOverride > threeColumnAssessmentRule, 'the printable assessment section overrides the shared three-column grid');
+  assert.match(page, /\.result-slip \.slip-assessment \.assessment-card\{display:grid;grid-template-columns:minmax\(9rem,25%\) minmax\(0,1fr\)/);
+  assert.match(page, /@media\(max-width:600px\)[\s\S]*?\.result-slip \.slip-assessment \.assessment-card\{grid-template-columns:minmax\(7rem,25%\) minmax\(0,1fr\)\}/);
+  assert.match(page, /\.result-slip \.slip-assessment \.static-value\{min-width:0;overflow-wrap:break-word;word-break:normal\}/);
+});
